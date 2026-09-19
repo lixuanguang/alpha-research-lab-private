@@ -25,6 +25,7 @@ class CoinbaseBook(VisibleBook):
         self.pending: list[dict[str, object]] = []
         self.acknowledged = False
         self.source_time: str | None = None
+        self._source_clock_ns: int | None = None
         self.snapshot_loaded = False
         self.snapshot_sequence = -1
         self.duplicates = 0
@@ -57,13 +58,13 @@ class CoinbaseBook(VisibleBook):
         message = dict(zip(fields, values, strict=True))
         if message.get("product_id") != self.config.symbol:
             raise ValueError("Coinbase product mismatch")
-        self.source_time = Wire.source_time(message.get("time"))
+        source_time = Wire.source_time(message.get("time"))
         if not self.snapshot_loaded:
             if len(self.pending) >= self.config.queue_capacity:
                 raise ValueError("Coinbase snapshot bridge overflow")
             self.pending.append(message)
             return "buffered"
-        return self._update(message)
+        return self._update(message, source_time=source_time)
 
     def _control(self, message: dict[str, object]) -> str:
         """Require the selected channel and retain its actual ordered field schema."""
@@ -103,9 +104,10 @@ class CoinbaseBook(VisibleBook):
         """Install full depth, discard buffered <= snapshot, then require contiguous updates."""
         if not self.acknowledged or not self.schema or self.snapshot_loaded:
             raise ValueError("snapshot requires acknowledged schema in a fresh epoch")
+        source_time = Wire.source_time(message.get("time"))
+        self._validate_source_time(source_time)
         self.sequence = Wire.integer(message.get("sequence"))
         self.snapshot_sequence = self.sequence
-        self.source_time = Wire.source_time(message.get("time"))
         for side, field in (("buy", "bids"), ("sell", "asks")):
             for row in Wire.array(message.get(field)):
                 entry = Wire.array(row)
@@ -118,13 +120,14 @@ class CoinbaseBook(VisibleBook):
                     raise ValueError("duplicate Coinbase snapshot order")
                 self.set(order)
         self.snapshot_loaded = True
+        self._remember_source_time(source_time)
         for update in self.pending:
-            self._update(update)
+            self._update(update, source_time=Wire.source_time(update.get("time")))
         self.pending.clear()
         # A snapshot alone does not prove the WebSocket bridge.
         return "snapshot"
 
-    def _update(self, message: dict[str, object]) -> str:
+    def _update(self, message: dict[str, object], *, source_time: str | None) -> str:
         """Apply resting-order lifecycle; duplicates remain raw but never repeat mutations."""
         sequence = Wire.integer(message.get("sequence"))
         if not self.ready and sequence <= self.snapshot_sequence:
@@ -134,6 +137,7 @@ class CoinbaseBook(VisibleBook):
                 # Ambiguous repeats are not economic updates; invalidate and resnapshot.
                 self.duplicates += 1
             raise ValueError("Coinbase sequence gap or duplicate requires resnapshot")
+        self._validate_source_time(source_time)
         kind = message.get("type")
         if kind == "open":
             order_id = Wire.text(message.get("order_id"))
@@ -177,4 +181,19 @@ class CoinbaseBook(VisibleBook):
         elif kind != "noop":
             raise ValueError("unsupported Coinbase lifecycle")
         self.sequence, self.ready = sequence, True
+        self._remember_source_time(source_time)
         return "update"
+
+    def _validate_source_time(self, source_time: str | None) -> None:
+        """Reject a supplied source clock that moves behind an applied message."""
+        if source_time is not None and self._source_clock_ns is not None:
+            if Wire.source_nanoseconds(source_time) < self._source_clock_ns:
+                raise ValueError("Coinbase source time moved backwards")
+
+    def _remember_source_time(self, source_time: str | None) -> None:
+        """Retain exact supplied source text while clearing unknown current clocks."""
+        if source_time is None:
+            self.source_time = None
+            return
+        self._source_clock_ns = Wire.source_nanoseconds(source_time)
+        self.source_time = source_time

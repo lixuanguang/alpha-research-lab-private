@@ -4,7 +4,8 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
-from datetime import datetime, timedelta
+import re
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import cast
 
@@ -149,6 +150,26 @@ class Wire:
         if timestamp.utcoffset() != timedelta(0):
             raise ValueError("source timestamp must be UTC")
         return text
+
+    @staticmethod
+    def source_nanoseconds(source_time: str) -> int:
+        """Project validated UTC source text to the exact replay nanosecond clock.
+
+        Args:
+            source_time: UTC timestamp text retained at the wire boundary.
+
+        Returns:
+            Unix nanoseconds, preserving the first nine fractional digits.
+
+        Raises:
+            ValueError: The source timestamp cannot be parsed as an ISO instant.
+        """
+        instant = datetime.fromisoformat(source_time)
+        seconds = instant.replace(microsecond=0) - datetime(1970, 1, 1, tzinfo=UTC)
+        fraction: re.Match[str] | None = re.search(r"[.,](\d+)", source_time)
+        digits = "" if fraction is None else source_time[fraction.start() + 1 : fraction.end()]
+        nanos = 0 if not digits else int((digits + "000000000")[:9])
+        return (seconds.days * 86400 + seconds.seconds) * 1_000_000_000 + nanos
 
 
 class Order(msgspec.Struct, frozen=True, forbid_unknown_fields=True):

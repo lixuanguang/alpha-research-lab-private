@@ -169,6 +169,28 @@ class TestPartitionQuality:
         )
 
     @pytest.mark.parametrize(
+        "raw",
+        [
+            _RAW.replace(b"100.00", b"1e5000"),
+            _RAW.replace(b"2.0", b"1e-31"),
+            _RAW.replace(b",200,", b",0e-1000000000,"),
+        ],
+    )
+    def test_unbounded_source_decimals_are_rejected_without_canonical_bytes(
+        self, selection: SourceRequest, raw: bytes
+    ) -> None:
+        """Reject hostile rows lazily before quality can perform rational arithmetic."""
+        report = self._policy().validate(
+            selection,
+            (self._item(selection, payload) for payload in (raw,)),
+            eligibility=self._history(selection),
+        )
+        assert report.invalid_count == 1 and report.canonical is None
+        assert "supported decimal bounds" in " ".join(report.reasons)
+        with pytest.raises(ValueError, match="publication refused"):
+            report.require_canonical()
+
+    @pytest.mark.parametrize(
         "raw,reason",
         [
             (_RAW.replace(b",2.0,", b",0,"), "trade quantity must be positive"),

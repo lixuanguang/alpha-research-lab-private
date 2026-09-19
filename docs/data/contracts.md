@@ -161,6 +161,15 @@ Depth prices/quantities and trade values remain exact `Decimal` values; Python
 constructors reject floats, nonfinite values, malformed levels, and unsafe
 identifiers.
 
+Captured Binance and archive trade decimals also have representation bounds at
+the shared event validator: at most 40 coefficient digits and an adjusted
+exponent from -30 through 30, inclusive. For zero, this bounds its stored
+exponent. Values retain their original scale without rounding or normalization.
+These source-data bounds are wider than the C03 accounting grid and do not grant
+accounting eligibility. They reject oversized values before tick-grid or
+revision-identity rational arithmetic; a saved-input reader failure produces a
+rejected quality report without publishable canonical bytes.
+
 The shared serialization boundary in
 [`serialization.py`](../../src/alpha_research/serialization.py) encodes exact
 Decimal text and complete Currency values with `code` and `minor_unit`.

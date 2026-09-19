@@ -4,11 +4,10 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
-import re
-from datetime import UTC, datetime
 from pathlib import Path
 
 # project library imports
+from alpha_research.data.live.book import Wire
 from alpha_research.data.live.config import CaptureConfig, CaptureRequest
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
 from alpha_research.data.live.quality import ContinuousQuality
@@ -155,15 +154,7 @@ class CaptureReplay:
             return None
         if isinstance(self.book, OKXBook):
             return int(text) * 1_000_000
-        instant = datetime.fromisoformat(text)
-        seconds = instant.replace(microsecond=0) - datetime(1970, 1, 1, tzinfo=UTC)
-        fraction = re.search(r"[.,](\d+)", text)
-        nanos = (
-            0
-            if fraction is None
-            else int((text[fraction.start() + 1 : fraction.end()] + "000000000")[:9])
-        )
-        return (seconds.days * 86400 + seconds.seconds) * 1_000_000_000 + nanos
+        return Wire.source_nanoseconds(text)
 
     def _gap(self, record: CaptureRecord, reason: str) -> None:
         """Record scoped unknown continuity and hide partially applied invalid state."""
