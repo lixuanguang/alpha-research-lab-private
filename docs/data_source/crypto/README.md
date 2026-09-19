@@ -10,15 +10,15 @@ expanded tables include imported candidates whose claims remain unverified;
 their labels distinguish them from the checks recorded in this guide.
 
 The new native L3 workflow prioritizes **Bitfinex R0** and **Coinbase Exchange
-Level 3**. Start with the [capture notebook](../../../examples/market-data-capture.ipynb)
-and [collector guide](../../data/l3-collectors.md). Bitfinex has real bounded
+Level 3**. Start with the [collector commands](../../data/l3-collectors.md#start-here)
+and [notebook operations guide](../../../examples/notebook-operations.md#acquire-and-reopen-permitted-inputs). Bitfinex has real bounded
 capture/replay evidence; Coinbase authenticated source acceptance awaits local
 Exchange key/secret/passphrase and account eligibility. This is live recording,
 not historical backfill.
 
 The requested [OKX integration](../../data/okx-market-data.md) adds public
 BTC-USDT **L2** live books and historical order-book archives with actual bounded
-acquisition and replay evidence. Its [notebook](../../../examples/market-data-capture.ipynb)
+acquisition and replay evidence. Its [source guide](../../data/okx-market-data.md)
 keeps aggregate levels, missing historical sequence IDs and prefix coverage explicit.
 
 The installed [archive acquisition command](../../../src/market_data/README.md#binance-public-daily-archive-acquisition)

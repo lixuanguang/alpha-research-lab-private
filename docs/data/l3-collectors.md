@@ -8,17 +8,17 @@ service or an execution model.
 
 ## Start here
 
-Use the installed `alpha-collect` command or the same package APIs in
-[market-data-capture.ipynb](../../examples/market-data-capture.ipynb).
+Use the installed `alpha-collect` command below for deliberate acquisition.
+The [QR notebook](../../examples/research-foundations.ipynb) opens pinned research
+inputs; the [engineer notebook](../../examples/infrastructure-diagnostics.ipynb)
+diagnoses installed infrastructure with synthetic fixtures by default. Neither
+notebook initiates provider access. The former capture notebook's source and
+outputs remain in Git history.
 
-The same notebook now includes [OKX public L2](okx-market-data.md), explicitly
-distinguishing aggregate levels and historical source clocks from these L3
-order feeds. It uses the existing live and acquisition pipelines.
-As of the 2026-09-16 notebook migration, its default route uses public Bitfinex
-and OKX only. Coinbase remains available through the installed collector and
-tests, with the access requirements below; the notebook no longer reads its
-credentials. Inspect saved OKX/Bitfinex inputs without network access in
-[research-foundations.ipynb](../../examples/research-foundations.ipynb).
+[OKX public L2](okx-market-data.md) retains aggregate levels and historical source
+clocks separately from these L3 order feeds. Coinbase remains available through
+the installed collector and tests with the access requirements below; notebook
+diagnostics do not read its credentials.
 The first configured native spot identities are separate listings:
 
 | Venue | Native symbol | Feed | Canonical listing ID | Depth |
@@ -441,8 +441,10 @@ used to replace the recording. Preserve these files together when diagnosing fai
 The [book replay API](../../src/market_data/README.md#published-book-queries-and-shared-stepping)
 queries atomic messages, schedules only known receipts, and restores the shared
 completed cursor together with accepted snapshot and recovery epoch in consumer
-state. Section 18 of the [foundations notebook](../../examples/research-foundations.ipynb) injects disconnects and duplicate saved frames, with explicitly
-new local receipt clocks, and shows a retained first-divergence failure.
+state. The [recovery probe](../../tests/integration/consumers/capture/recovery_probe.py)
+injects disconnects and duplicate saved frames, with explicitly new local receipt
+clocks, and retains a first-divergence failure. Its focused test callers remain
+the canonical executable proof; the engineer notebook covers synthetic session recovery.
 
 The canonical proof covers the selected prefix (32 positions in acceptance), while
 native summary parity covers the finite recording. Continuous service, complete

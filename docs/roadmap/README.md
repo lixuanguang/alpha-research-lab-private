@@ -114,7 +114,11 @@ The [installed workflow](../../tests/integration/consumers/datasets/ingestion_wo
 and [access regressions](../../tests/unit/data/test_research_access.py) cover the
 acceptance boundaries; the [QR guide](../../examples/README.md#select-and-inspect-research-data)
 and [command reference](../../src/market_data/README.md#discover-and-reopen-research-selections)
-own current use. Validation commands/results and the failed development attempts
+own current use. The maintained [QR notebook](../../examples/research-foundations.ipynb)
+follows research activities; the [engineer notebook](../../examples/infrastructure-diagnostics.ipynb)
+owns infrastructure diagnostics. Future research stages are labeled planned rather
+than accumulated as infrastructure milestone sections. Validation commands/results
+and the failed development attempts
 are recorded in the implementation PR, rather than a separate MR archive.
 
 This is synthetic software evidence. Source coverage, book historical membership

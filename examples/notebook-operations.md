@@ -9,20 +9,19 @@ owns research methodology and promotion.
 
 ## Maintained source and output retention
 
-Use long-lived activity notebooks under repository-root `examples/`: fetching,
-EDA, strategy research and monitoring as working content appears. The founder's
-2026-09-13 activity organization and 2026-09-14 source-retention decision remain
-in force. Maintained `.ipynb`, `.py` and `.md` examples and the consumed, reviewed measurement
-JSON under `examples/evidence/` are versioned; generated
-run snapshots, checkpoints and temporary kernels remain ignored. Do not create
-an empty notebook per future capability or a notebook per MR.
+Maintain two reader journeys under repository-root `examples/`:
+[QR research](research-foundations.ipynb) and
+[engineering diagnostics](infrastructure-diagnostics.ipynb). The 2026-09-19 cleanup
+consolidates the old reliability/capture notebooks and removes infrastructure
+milestone sections from the QR path. The earlier activity-based and source-retention
+decisions still apply: extend working content by activity, not by MR, and create
+another notebook only when a distinct implemented reader journey warrants it.
 
-| Activity | Notebook responsibility | Maintained package boundary |
-| --- | --- | --- |
-| Data fetching | Explore permitted requests, responses, clocks and quality | Shared adapters, validation, immutable storage and acquisition |
-| EDA | Inspect coverage, missingness, alignment and candidate features | Reusable selection/quality/feature operations when consumed |
-| Strategy research | Prototype and compare features, models, rules and economic assumptions | Versioned components and shared fit/backtest/report workflows |
-| Monitoring | Inspect attributed results and runtime observations | Persistent metrics, alerts and controls when implemented |
+Maintained `.ipynb`, `.py`, `.md` and the reviewed measurement JSON under
+`examples/evidence/` remain versioned. Generated runs, checkpoints and temporary
+kernels remain ignored. Former notebook source/outputs remain retrievable from Git
+history; their removal from the current catalog does not delete saved data or runs.
+The existing runner remains the only notebook execution wrapper.
 
 1. Import the installed candidate from the pinned interpreter. Keep notebook
    tooling in an explicitly identified development environment/kernel; do not
@@ -55,69 +54,76 @@ protected research outputs. Keep retrievable permitted raw/output references.
 
 ## Before executing
 
-Use the pinned project interpreter and installed candidate. Run commands from the
-repository root. The primary notebook now reads saved OKX historical and Bitfinex
-live book inputs without network access. With no saved inputs, run the capture
-notebook first. It records Bitfinex and OKX public feeds sequentially for bounded
-20-second samples, then downloads the configured OKX historical archive. No API
-keys, exchange account or secret file is used. The offline foundations lab also
-makes no source requests; its retained Binance/Tardis fixtures are synthetic.
+Use the pinned project interpreter and installed candidate, from the repository
+root or `examples/`. Both notebooks default to synthetic local fixtures and
+installed subprocess consumers. No venue connection, archive download, account
+or credential is needed. The engineer's health exercise uses a temporary local
+syslog socket and intentionally stops its own synthetic child collectors.
 
-A changed configuration needs a matching saved request. A missing match is
-expected; acquire the intended sample or restore the compatible configuration.
-Never edit a manifest to disguise a mismatch or delete old inputs to make a check pass.
-
-Keep local raw files with their requests, settings and completion records. New
-inputs go under ignored `data/bitfinex/<recording-id>/`,
-`data/okx/live/<recording-id>/` and `data/okx/history/<archive-id>/`. Each completed
-directory retains its request, manifest and original bytes. There is no automatic
-expiry or Git backup. A failed acquisition is preserved separately; it cannot
-stand in for a completed input. See the [collector guide](../docs/data/l3-collectors.md)
-and [OKX guide](../docs/data/okx-market-data.md) for budgets and failure behavior.
-
-Without path overrides, the primary notebook selects the latest completed input
-whose request matches the maintained config, using manifest `ts_ingested` (path
-as tie-breaker). It prints the selection before verifying and replaying it. This
-exploratory default can change after acquisition; it is not a dataset version.
-Corrupt selected inputs fail, with no fallback. To pin a study, set both paths to
-the actual directories printed by a successful acquisition:
+The QR notebook optionally opens `ALPHA_RESEARCH_DATASET_DIRECTORY`, which must
+contain `raw/`, `snapshots/` and an authored `selection.json` of type
+`ResearchSelection`. The public [selection reference](../src/market_data/README.md#discover-and-reopen-research-selections)
+shows how to author the JSON after publication. Every referenced snapshot and raw
+object must be retained; identities alone cannot restore deleted files.
 
 ```sh
-export ALPHA_OKX_ARCHIVE_DIRECTORY='/absolute/path/from/archive_directory'
-export ALPHA_BITFINEX_CAPTURE_DIRECTORY='/absolute/path/from/bitfinex/capture_directory'
+export ALPHA_RESEARCH_DATASET_DIRECTORY='/absolute/path/to/retained-study'
 ```
 
-The primary notebook requires those requests to match the maintained configs.
-The capture notebook honors only the OKX override: it verifies and reuses that
-archive while still making **new live captures**. Unset the OKX override to test a
-new historical download. There is no Bitfinex historical-download adapter here.
+Unset that variable for the default synthetic lesson. A supplied missing, invalid
+or corrupt selection fails without fallback. Reports are written only to the
+notebook's separate temporary workspace; the supplied study is read. The default
+small entry/byte bounds must be reviewed for a larger intended study. Batch size
+limits delivered rows, not total memory.
 
-Old `data/binance-archives/` files and the frozen P1 specification are retained.
-`ALPHA_BINANCE_DOWNLOAD` and `ALPHA_BINANCE_DIRECTORY` no longer control the active
-notebooks; earlier run snapshots keep their original meaning.
+### Acquire and reopen permitted inputs
+
+Acquisition is a deliberate source operation outside the default notebook run.
+Use the existing [trade acquisition/publication commands](../src/market_data/README.md#installed-acquisition-command),
+[Bitfinex collector guide](../docs/data/l3-collectors.md#start-here) and
+[OKX guide](../docs/data/okx-market-data.md#installed-commands). Check the selected configuration,
+source access and retention before invoking them. For example, the maintained public
+book routes are:
+
+```sh
+uv run --frozen --no-editable alpha-collect capture --config configs/live/bitfinex-btc-usd.json --output data/bitfinex
+uv run --frozen --no-editable alpha-collect capture --config configs/live/okx-btc-usdt.json --output data/okx/live
+uv run --frozen --no-editable alpha-acquire archive fetch --config configs/history/okx-btc-usdt.json --output data/okx/history
+```
+
+These commands contact the public sources and retain new bounded live recordings
+or the selected historical archive. The configured historical archive is about
+104 MiB plus working bytes; it is not downloaded by either notebook. Command
+budgets, completion and failure semantics belong to the linked source guides.
+Do not treat a failed acquisition as a completed input or edit its manifest to
+conceal a configuration mismatch.
+
+Use `SavedCapture.read` for native saved recordings, `OKXArchiveStore.replay` for
+the archive summary, and `DatasetPublication.publish_books` to publish bounded
+native prefixes with retained raw bytes, then author a pinned book selection.
+The [book publication reference](../src/market_data/README.md) owns parameters and
+quality restrictions. A historical archive's missing receipt clock stays unknown.
+The engineer notebook optionally reads a saved Bitfinex recording selected by
+`ALPHA_BITFINEX_CAPTURE_DIRECTORY`. With no value, that section reports `SKIPPED`.
+It requires a completed manifest by default; set the cell's `completed` value to
+`False` only for a deliberate interrupted-prefix investigation. It never infers
+that mode merely because a manifest is missing. No capture is initiated.
+
+Existing `data/bitfinex/`, `data/okx/`, `data/binance-archives/` and ignored
+`examples/runs/` are retained. Old `ALPHA_OKX_ARCHIVE_DIRECTORY`,
+`ALPHA_BITFINEX_CAPTURE_DIRECTORY`, `ALPHA_BINANCE_DOWNLOAD` and
+`ALPHA_BINANCE_DIRECTORY` no longer select the QR notebook's input. Historical
+run snapshots retain their original environment-variable meaning. No latest-input
+search or automatic source switch occurs in the current QR path.
 
 ## Running a notebook
 
-From the repository root, use the pinned project interpreter and separate notebook
-tooling. The no-argument runner defaults to saved order-book inspection;
-the explicit paths make the selected route reviewable.
-
-Primary saved-input workflow (no network):
+From the repository root, use separate pinned notebook tooling. The no-argument
+runner defaults to the QR workflow. Both commands execute offline synthetic examples:
 
 ```sh
-uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' --with 'matplotlib==3.10.8' python examples/run_notebook.py examples/research-foundations.ipynb
-```
-
-Offline detailed boundary companion:
-
-```sh
-uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/foundation-contract-checks.ipynb
-```
-
-Acquire public books (network access, two new recordings, new archive unless overridden):
-
-```sh
-uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/market-data-capture.ipynb
+uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations.ipynb
+uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/infrastructure-diagnostics.ipynb
 ```
 
 The runner executes once by default. Append `--repeat 2` only when two
@@ -145,8 +151,8 @@ uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
   python examples/run_notebook.py examples/research-foundations.ipynb --kernel-python .venv/bin/python
 ```
 
-For the offline lab, replace the notebook path in that command with
-`examples/foundation-contract-checks.ipynb`. `--no-sync` preserves the editor's
+For engineering diagnostics, replace the notebook path in that command with
+`examples/infrastructure-diagnostics.ipynb`. `--no-sync` preserves the editor's
 installed kernel/tooling while the command adds the runner tools in uv's separate
 environment. The notebook checks the runtime package's installed bytes against
 the checkout before interpreting any result.
@@ -155,8 +161,8 @@ No new project runtime dependencies or `sys.path` changes are needed.
 
 ## Interactive kernel and import repair
 
-The kernel requires `ipykernel` and the installed runtime package. The primary
-notebook also requires `matplotlib==3.10.8` for its synthetic EDA plot.
+The kernel requires `ipykernel` and the installed runtime package. The notebooks
+use the already-locked pandas dependency for small tables.
 `nbclient`/`nbformat` are runner tooling, so their absence from an interactive
 kernel is permitted and recorded accurately in the notebook table.
 
@@ -167,31 +173,34 @@ install new source. The package version remains `0.1.0` across source changes, s
 installed file identity instead of treating the version string as proof that the
 current candidate is installed.
 
-The primary notebook compares the complete installed runtime inventory and bytes,
-and selects the dataset command beside the kernel interpreter rather than from
-`PATH`. If that check fails, install a clean wheel environment and restart; a
+The notebooks compare the complete installed runtime inventory and bytes.
+Their installed subprocess consumers select commands beside the kernel interpreter
+rather than trusting a different environment on `PATH`. If that check fails,
+install a clean wheel environment and restart; a
 matching package version or matching subset of files is insufficient.
 
 ## Where the detailed checks live
 
 Use the [QR walkthrough](README.md#follow-the-connected-dataset-walkthrough) for
-the primary notebook's sections and interpretation. The offline lab covers units,
-clocks, corrupted input, interrupted writes and acquisition recovery. The
-[test guide](../tests/README.md) identifies focused and isolated installed consumers.
+the research stages. The engineer notebook diagnoses installed runtime identity,
+configuration/temporal contracts, acquisition and publication interruptions, native
+session recovery and independent health supervision using the existing consumers.
+Its final interpretation maps failures to functional owners and focused commands;
+it is not a replacement for the hosted validation lane.
 
-A replay cursor binds source identity and progress. A stateful consumer must also
-retain its own state, pending schedules and applied event identities. Do not infer
-economic restart parity from the source-cursor example. Collector recovery preserves
-unknown gaps and requires fresh source synchronization; publication retains the
-source's declared quality scope.
+A replay cursor binds source identity and progress. Stateful consumers must also
+retain their own state and pending schedules. Collector recovery preserves unknown
+gaps and requires fresh source synchronization. None of those checks qualifies
+strategy accounting, external source coverage or deployed incident response.
 
 ## Query workload evidence
 
-Section 9 of `research-foundations.ipynb` recomputes the backend decision from the
-small retained measurement record. It checks installed runtime, lock and benchmark
-driver fingerprints; it does not silently rerun the expensive representative
-benchmark. Sections 7–8 still execute the synthetic correction, scoped-control,
-cancellation, invalid-clock, byte-limit and mutable-ID examples in the fresh kernel.
+The engineer notebook inspects the retained workload record, with its original
+revision and fingerprint. It does not time current code or silently rerun the
+representative benchmark. The former QR backend section has moved out of the
+research journey. The historical conclusion remains scoped to its recorded
+workload and code; a newer lock/runtime requires new measurement before claiming
+current performance.
 
 The standalone [driver](query_workload.py) requires macOS (its process high-water RSS is in bytes),
 an installed candidate, and a directory containing the retained `raw/` and

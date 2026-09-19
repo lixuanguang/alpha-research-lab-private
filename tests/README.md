@@ -78,8 +78,12 @@ to run `python -I <copied-consumer> <inputs>`; `eda_consumer.py` and
 Fixture and support paths in this table are relative to `tests/`; configuration
 paths are relative to the repository root. Capture consumers have different
 arguments for saved captures and synthetic endpoints; use their existing pytest
-callers or the maintained [capture notebook](../examples/market-data-capture.ipynb)
-and [research notebook](../examples/research-foundations.ipynb).
+callers or the maintained [engineer notebook](../examples/infrastructure-diagnostics.ipynb).
+The [QR notebook](../examples/research-foundations.ipynb) follows research activities
+and uses the existing installed handoff as its default synthetic input setup.
+Run both through the [existing notebook runner](../examples/notebook-operations.md#running-a-notebook)
+when their executable cells change; the configured source checks do not discover
+notebook cells.
 
 ## Functional layout verification
 

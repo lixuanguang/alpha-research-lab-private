@@ -76,14 +76,14 @@ Ignored notebook run snapshots alone are not a durable research journal.
 The index describes sources; it is not an executable catalog of implemented
 adapters. Use the existing acquisition/publication commands in the
 [data command reference](../src/market_data/README.md), or the current notebooks.
-Reading saved notebook outputs makes no source request; running the capture
-notebook acquires new inputs.
+Both maintained notebooks run offline by default. Acquire new permitted inputs
+through the existing commands in the [operations guide](notebook-operations.md#acquire-and-reopen-permitted-inputs).
 
 Select instruments, business interval, requested fields and the decision/knowledge
 cutoff explicitly. Inspect units, coverage, gaps, historical membership, revisions
-and source clocks before calculating a result. Pin the printed saved directories
-for notebook repeatability; formal queries use explicit snapshot identity rather
-than a mutable latest-input selection.
+and source clocks before calculating a result. Pin the saved selection JSON and
+its addressed raw/snapshot stores
+for repeatability; the QR notebook never selects a mutable latest-input alias.
 
 Use `SnapshotCatalog.discover` to inspect saved trade/book manifest identities,
 instruments, source requests and units. Discovery checks metadata only; opening
@@ -130,7 +130,9 @@ ETH through the existing acquisition command. The
 [installed handoff](../tests/integration/consumers/datasets/ingestion_workflow.py)
 acquires and publishes synthetic checksummed responses, combines the pinned trade
 selection with a saved synthetic OKX book, and reopens all three named inputs in a
-fresh process. Section 14 of the main notebook runs that same consumer. It proves
+fresh process. The QR notebook uses that consumer to prepare its default tiny
+sample; the engineer notebook diagnoses its interruption and recovery results.
+It proves
 software extension through configuration; it supplies no new empirical coverage,
 historical eligibility or revision evidence. New unsupported capabilities
 need an implementation change. Exploratory source calls may start in a notebook;
@@ -271,49 +273,52 @@ new orchestration framework or second production implementation.
 
 ## Start with your research question
 
-| What I want to understand | Open this notebook | What it gives me | What running it does |
-| --- | --- | --- | --- |
-| What did my saved inputs show, and how do I build and query a dataset? | [Saved inputs to a research dataset](research-foundations.ipynb) — start here after acquisition | Real book reconstruction, one generic publication workflow with separate synthetic inputs, and cutoff selection | Reads saved books and creates temporary synthetic datasets; no network or credentials. |
-| How could timing, units or damaged inputs change my conclusions? | [Data reliability lab](foundation-contract-checks.ipynb) — optional depth | Small synthetic examples of availability, arithmetic, wrong inputs, interruption and recovery | Offline; creates temporary test files and child processes. No provider access. |
-| How do I obtain a new sample without exchange account credentials? | [Acquire OKX and Bitfinex books](market-data-capture.ipynb) — run first if you have no saved inputs | Bounded public live observations, saved reconstruction, gap examples and an OKX historical prefix | Records two new live samples and downloads an archive; an explicit saved-archive override avoids the download. |
+Two maintained notebooks separate the research journey from infrastructure diagnostics.
+Neither needs a prior acquisition, a provider connection or credentials for its default run.
 
-Read the question and output interpretation in each section before inspecting its
-code. Setup and implementation-heavy cells are collapsed in clients supporting
-Jupyter cell visibility; expand them when needed. For execution, restart the
-kernel and **Run All in order**: later cells depend on earlier ones. Each notebook
-runs independently of the other notebooks.
+| Reader and purpose | Notebook | Observable result |
+| --- | --- | --- |
+| QR: follow a question through data selection and exploratory analysis | [Research workflow](research-foundations.ipynb) | Discover and pin named trade/book inputs, inspect missingness and cutoff behavior, compute one explicitly synthetic depth diagnostic and identify the next research handoff |
+| Engineer: diagnose the installed infrastructure | [Infrastructure diagnostics](infrastructure-diagnostics.ipynb) | Identify runtime/configuration inputs and inspect existing temporal, acquisition/publication, recovery and collector-health consumers |
 
-For interpreter setup, actual commands, cached-data controls and error recovery,
-use the [notebook operations guide](notebook-operations.md). Reading the saved
-notebook outputs does not start a download or collector.
+Restart the kernel and **Run All in order**. Each notebook runs independently;
+setup cells are collapsed where supported. Use the [operations guide](notebook-operations.md)
+for exact commands, retained saved selections and diagnostic interpretation.
+
+The former data-reliability and capture notebooks are consolidated into these two
+reader journeys and the existing acquisition command guides. Their original source
+and outputs remain in Git history; saved raw data and ignored run snapshots are
+preserved. Future feature/model, economic and monitoring work extends the QR
+journey when its implementation exists. A roadmap item does not require a new notebook.
 
 ## What data am I actually researching?
 
-The maintained research examples now use **order books**, following the available
-OKX and Bitfinex implementations. They require no Binance access. A book describes
-displayed buying and selling interest; a trade records an executed transaction.
-These are different observations and support different research questions.
+The QR notebook's default is **synthetic software evidence**: two Binance-format
+trade archives and one saved OKX L2 message sequence. The installed configured
+workflow creates and publishes them without connecting to either venue. Six
+historical trade observations yield zero decision-eligible trade rows because
+original availability is unknown. One received book state supports a tiny exact
+visible-size calculation, with degraded quality and unproven coverage/eligibility.
 
-| Sample | What I can inspect | What it does not tell me |
+An explicit `ALPHA_RESEARCH_DATASET_DIRECTORY` selects an existing study containing
+`raw/`, `snapshots/` and `selection.json`. The notebook prints the selection and
+fully verifies its required bytes. A missing or corrupt supplied study fails;
+there is no implicit fallback or latest-file search. Formula application remains
+study-specific: the teaching imbalance is not applied automatically to arbitrary inputs.
+
+Existing source adapters also support the permitted samples below. They are
+acquired deliberately through [source commands](notebook-operations.md#acquire-and-reopen-permitted-inputs),
+not as a side effect of running a tutorial.
+
+| Sample | What it exposes | Remaining boundary |
 | --- | --- | --- |
-| OKX BTC-USDT historical L2, 8 September 2026 | A verified daily archive and reconstruction summary for its first 10,000 records; reported depth is 400 price levels per side | Individual order IDs, source sequences, historical receipt times or proven continuity; this is a prefix, not the entire day. The current archive API does not return a price/feature table. |
-| Bitfinex BTC/USD recorded R0 | A bounded live sample, visible individual orders, exact prices/sizes and the spread at its final reconstructed state; configured depth is 25 | Earlier Bitfinex history, exchange timestamps in R0 messages, hidden orders, queue priority or executable fills. |
-| OKX BTC-USDT public live `books` | A bounded L2 sample with source timestamps, local receipt records and continuity checks | Individual orders or the full exchange book beyond the feed's depth. |
+| OKX historical L2 | Saved archive and bounded prefix reconstruction | No per-record historical receipt clock or source sequence; continuity and full-day coverage unproven |
+| Bitfinex recorded R0 | Individual visible orders, exact native prices/sizes and receipt order | No exchange timestamp in R0, hidden orders, queue priority or executable fills |
+| OKX public live books | Aggregate price levels, source timestamps and local receipt evidence | Bounded feed depth and capture interval, not the complete exchange book |
 
-The capture notebook uses the public [Bitfinex raw-book feed](https://docs.bitfinex.com/reference/ws-public-raw-books)
-and [OKX market-data APIs](https://www.okx.com/docs-v5/en/) without API keys
-(documentation checked 2026-09-16). Source availability can still depend on the
-endpoint and location; a denied request fails explicitly. There is no credential
-prompt or automatic switch to another venue.
-
-The samples differ in date, receipt interval, depth and quote currency: **USD is
-not USDT**, and sequential live captures are not simultaneous. Do not subtract
-their prices and label the result an arbitrage opportunity.
-
-The main notebook selects the latest completed saved input matching each maintained
-configuration, prints its identity and then verifies its bytes. For repeatability,
-pin the printed directories using the [operations guide](notebook-operations.md).
-A new capture is a new sample; it does not silently extend the previous recording.
+A book describes visible interest; a trade records a transaction. L2 levels are
+not L3 orders. **USD is not USDT** and sequential captures are not simultaneous.
+Do not join unrelated prices or infer an arbitrage result from their difference.
 
 ## What the data pipeline provides
 
@@ -335,40 +340,29 @@ resumable. Output batch sizes do not bound total process memory.
 The [frozen P1 experiment](../docs/research/p1-baseline.md) retains its Binance trade
 sample and economic assumptions. Book research does not replace that sample or
 resolve its historical eligibility, coverage and revision-availability gaps.
-Synthetic archive checks run offline in the reliability lab.
+Synthetic archive failure checks run offline in the engineer notebook.
 
 ## Follow the connected dataset walkthrough
 
-The main notebook follows one connected workflow. Detailed negative cases and
-installed consumers remain in the [test guide](../tests/README.md).
-The current notebook has eighteen sections:
+The QR notebook follows research activities, with current support explicit at each stage.
+Its seven sections replace the accumulated infrastructure milestone walkthrough.
 
-| Sections | Question and evidence |
-| --- | --- |
-| 1–2: implementation and inputs | Verify the installed runtime, record its identity and pin the saved books. |
-| 3–4: reconstruction and clocks | Inspect the OKX historical prefix and Bitfinex visible orders, repeat the state trace and observe a disconnect. |
-| 5: dataset inputs | Bind each saved acquisition to its own policy and eligibility history with `DatasetInput`. The example uses two synthetic trade inputs; assembly preserves separate partitions. |
-| 6: publication and verification | Call `publish_dataset`, reopen by explicit snapshot ID, check CLI/Python parity and compare identities after changing one input's policy. Unknown archive availability remains unavailable to cutoff selection. |
-| 7: cutoff selection | Use a captured synthetic trade to show the original price, a late correction at its availability boundary and a later membership change, while retaining earlier query results. |
-| 8: bounded query batches | Project prices with scoped controls and quality evidence, compare late corrections, retain replay chains, and exercise cancellation and required refusals. |
-| 9: measured query workload | Recompute the backend decision from retained installed measurements of 27,480 permitted trade observations; distinguish these measurements from synthetic correctness examples. |
-| 10: chronological replay | Step the retained original, gap and correction at their availability; compare batches, inspect phase order, resume a serialized cursor and reject incompatible checkpoints. |
-| 11: configured EDA | Select six synthetic revisions across two instruments, retain exact summaries and attempt observations, plot the three-second business interval and inspect standalone replay. Exercise a synthetic contract projection and unsupported capability refusals. |
-| 12: source negotiation | Inspect the saved Bitfinex version, native acknowledgement, sequence range and exact receipt clocks. Refuse incompatible subscriptions, versions and product/stream combinations without reconnecting. |
-| 13: durable capture | Inspect the committed input cursor; exclude uncommitted tails and reject damaged committed bytes, failed writers and invalid units. |
-| 14: acquisition handoff | Acquire a synthetic two-instrument universe through installed commands, interrupt/resume without repeating completed fetches, refuse the incomplete acquisition and interrupted snapshot, then publish/reopen and inspect six history rows. Discover and reopen a pinned BTC/ETH plus OKX book selection in a fresh process. HTTP and the book messages are synthetic; persistence and downstream stages are real. |
-| 15: session recovery | Inspect synthetic gaps, reconnects, committed prefixes and fresh-session synchronization without hiding missing intervals. |
-| 16: bounded book publication | Publish saved prefixes with quality/freshness scope and reject incompatible or invalid inputs. |
-| 17: collector health | Watch synthetic child collectors with independent heartbeat, ingestion, persistence, freshness and count limits. Inspect process death, journal failure, local syslog delivery and protection when alert delivery fails. |
-| 18: capture/replay parity | Compare whole-message canonical histories and visible-spread outputs, inspect snapshot/recovery state, resume a shared cursor in a separate process and retain the first divergence. |
+| Section | QR action and result | Platform status |
+| --- | --- | --- |
+| 1. Frame the research question | Declare observable, universe, horizon, comparator and stop conditions; identify the installed execution | Manual research note and installed identity available |
+| 2. Select or onboard the required data | Start with a synthetic or explicitly saved study; discover manifest metadata and pin named inputs, fields, windows and cutoff | Implemented dataset access; actual onboarding uses the existing acquisition/publication APIs |
+| 3. Inspect values, missingness and clocks | Read through `inspect_eda`, retain input evidence and move the cutoff earlier without changing saved facts | Implemented; unknown availability and coverage remain visible |
+| 4. Prototype a feature and specify its label | Calculate one exact synthetic L2 imbalance and declare why a forward label requires separate evidence | Notebook exploration available; reusable versioned feature/label workflow planned |
+| 5. Compare models or deterministic rules | Identify applicable split, fitting and selection records; skip fitting for a rule when appropriate | Shared attempt/split/model workflow planned |
+| 6. Backtest and evaluate economics | Specify target policy, limits, execution, costs and accounting required next | Economic backtest planned; replay is not a fill simulation |
+| 7. Freeze, qualify and monitor | Prepare a small current handoff and identify missing research and operating evidence | Candidate packaging and strategy operation planned |
 
-The generic composition boundary is in place. Installed saved-input publication
-supports trade archives and the explicit bounded book format. Book snapshots
-retain exploratory degraded scope; trade queries do not silently accept that format.
-Future source combinations retain distinct source/venue streams within one dataset.
-The real OKX/Bitfinex book readers still have separate capture/archive formats.
-This walkthrough supplies no empirical historical membership or revision evidence
-and leaves the frozen P1 historical-evidence gaps open.
+The [engineer notebook](infrastructure-diagnostics.ipynb) owns infrastructure
+failure interpretation and links the actual canonical consumers. Focused regression
+coverage stays in [tests](../tests/README.md), with no copied notebook test framework.
+The [historical workload record](evidence/query-workload-measurements.json) and
+[reproduction procedure](notebook-operations.md#query-workload-evidence) retain their
+original measured revision; notebook cleanup does not create new performance evidence.
 
 ## How to interpret the evidence
 
