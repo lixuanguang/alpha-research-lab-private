@@ -21,7 +21,8 @@ through [PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/
 MR 25's [continuous quality and saved book publication](mr-25-implementation.md)
 merged in [PR #52](https://github.com/lixuanguang/alpha-research-lab-private/pull/52)
 at `8b3027b`. MR 26 has [local implementation and acceptance evidence](mr-26-implementation.md)
-for separate review; it is not yet merged. MRs 27–62 and R1 remain planned except
+in [draft PR #53](https://github.com/lixuanguang/alpha-research-lab-private/pull/53);
+it is not yet merged. MRs 27–62 and R1 remain planned except
 the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
 forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
 

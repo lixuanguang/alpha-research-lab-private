@@ -2,6 +2,8 @@
 
 Owner: repository founder. Status: implemented and locally verified for separate
 review on 2026-09-19; not merged or deployed. Branch: `codex/mr-26-live-health`.
+[Draft PR #53](https://github.com/lixuanguang/alpha-research-lab-private/pull/53)
+records hosted checks and review status. Runtime review head: `bbff348`.
 Base: fetched `origin/main` at `8b3027b5848cad8534364c93e028a6768e7e6077`.
 Direct prerequisites MR 24 / PR #51 (`12be1a6`) and MR 25 / PR #52 (`8b3027b`)
 are in that main history. The [roadmap](README.md#m3-reliable-live-capture) owns
@@ -59,11 +61,15 @@ process failures, failed local alert delivery and full socket pressure.
 ```sh
 uv run --frozen --no-editable pytest -q -m 'not performance' --basetemp=/private/tmp/mr26-final-tests tests/unit/data/live tests/unit/data/venues/okx/test_okx_capture.py
 uv run --frozen --no-editable pytest -q --basetemp=/private/tmp/mr26-final-consumer tests/unit/data/live/test_health.py
+uv run --frozen --no-editable pytest -q --basetemp=/private/tmp/mr26-portable-consumer tests/unit/data/live/test_health.py
 ```
 
 The final health-only rerun passed **13 tests in 11.38 seconds**, with no skips or
 deselections, and verifies the shortened temporary socket path used by the notebook; the earlier 73-test run used the same runtime and a longer fixture
-socket location. Ruff lint/format passed for both runtime files, three Python
+socket location. The final portability follow-up changes only the fixture socket
+root to `/tmp` (the same macOS directory, also present on Linux): **13 tests passed
+in 11.67 seconds**. Runtime and notebook bytes are unchanged, so their installed
+and fresh-kernel evidence is reused. Ruff lint/format passed for both runtime files, three Python
 test/fixture files and the notebook. Strict mypy passed on the five Python files;
 engineering standards and focused Bandit passed:
 
@@ -150,7 +156,7 @@ A report-parser test initially requested unsupported `object` decoding from the
 domain codec; it now uses the existing `Wire` JSON boundary. Failed notebook attempt
 `65650700-25e6-4eb5-89ce-652ae1634e88` reached NB 26 but rejected its long temporary
 Unix socket path. The fixture now creates a short owned socket directory under
-`/private/tmp`; the runtime path validation remains intact. Sandbox-denied cache
+`/tmp` (the macOS `/private/tmp` alias); the runtime path validation remains intact. Sandbox-denied cache
 and local-socket operations were rerun with the required host permission. No
 source/quality invariant or failure expectation was weakened.
 
@@ -164,7 +170,7 @@ than continuity. A failed medium may also prevent its final summary from being
 saved, but stop and alert precede that write. There is no automatic restart,
 no new source admission, no execution enablement and no canonical parity claim.
 
-Revert both MR 26 commits to remove the optional supervised path; prior native
+Revert the MR 26 change to remove the optional supervised path; prior native
 capture configs and raw input retain their existing meaning. Preserve saved
 failure reports when investigating a stopped recording. The next roadmap package
 is **MR 27 — Prove capture/replay parity**, after MR 26 merges. It was not started.
