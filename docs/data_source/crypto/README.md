@@ -24,7 +24,7 @@ keeps aggregate levels, missing historical sequence IDs and prefix coverage expl
 The preserved historical [notebook](../../../examples/research-foundations.ipynb) acquires
 Binance **spot individual trades** through the
 [configured job](../../../configs/data-jobs/binance-archive.json).
-[MR 07 evidence](../../roadmap/mr-07-implementation.md) covers that consumer.
+[MR 07 evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-07-implementation.md) covers that consumer.
 The depth and metrics probes in this survey do not extend its supported streams.
 
 ## Verification of the proposed signal list

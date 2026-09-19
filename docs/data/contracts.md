@@ -103,7 +103,7 @@ and NB 11 prove temporal validation only; empirical P1 eligibility remains unres
 MR 12 adds the selection/correction contract below; quality acceptance and publication
 remain planned. The
 [usage example](../../src/market_data/README.md#read-historical-eligibility-assertions)
-and [acceptance record](../roadmap/mr-11-implementation.md) identify the consumer and checks.
+and [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-11-implementation.md) identify the consumer and checks.
 
 ### Decision-time selection and corrections (MR 12)
 
@@ -140,7 +140,7 @@ is omitted). Corrections require version 2, which old readers reject. Evidence
 authenticity remains external; these operations do not promote assumptions or
 synthetic fixtures into actual P1 membership proof. Validation and selection are
 bounded in-memory reference operations, with no large-history performance claim.
-See the [MR 12 record](../roadmap/mr-12-implementation.md) for installed and notebook evidence.
+See the [MR 12 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-12-implementation.md) for installed and notebook evidence.
 
 ## Provenance, events, and wire values
 
@@ -248,7 +248,7 @@ This implementation retains the complete batch in memory and admits linear histo
 with distinct payload identities. A reversion to an identical prior payload requires
 additional source revision evidence and fails under this bounded policy. A reference
 is an assertion supplied by the caller, not independently fetched/verified proof.
-The [MR 10 record](../roadmap/mr-10-implementation.md) and NB 10 label their synthetic
+The [MR 10 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-10-implementation.md) and NB 10 label their synthetic
 inputs explicitly. Shared as-of selection remains MR 17.
 
 ## Canonical partition quality (MR 13)
@@ -352,7 +352,7 @@ never upgrades unknown historical coverage/availability. The saved-input path us
 one completed raw archive per canonical partition; combining separately acquired
 revision archives remains outside this bounded consumer. Atomic visibility and
 reopening a published snapshot are supplied below by MR 15; queries and the installed dataset
-command remain later consumers. See the [MR 14 record](../roadmap/mr-14-implementation.md).
+command remain later consumers. See the [MR 14 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-14-implementation.md).
 
 ## Atomic local snapshots (MR 15)
 
@@ -388,7 +388,7 @@ Retry the same inputs/identity to verify it and synchronize the parent. Both fai
 and later successful publication leave earlier snapshots readable, provided their
 raw inputs remain available. There is no automatic orphan collection or raw-file
 deletion. Tests establish process-interruption behavior, not physical power-loss
-or distributed-filesystem guarantees. See the [MR 15 record](../roadmap/mr-15-implementation.md).
+or distributed-filesystem guarantees. See the [MR 15 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-15-implementation.md).
 
 ## Planned boundaries
 
@@ -467,7 +467,7 @@ admission. Persistence stages distinguish a candidate ID, durable acknowledgemen
 and completed verification. Failure after rename may leave a complete snapshot;
 retry verifies and synchronizes it. The [command guide](../../src/market_data/README.md#publish-and-inspect-from-the-command-line-mr-16)
 owns arguments, file preparation, exit codes and recovery. Actual commands and
-limitations are in the [MR 16 record](../roadmap/mr-16-implementation.md).
+limitations are in the [MR 16 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md).
 
 ## Point-event cutoff projection (MR 17)
 
@@ -492,4 +492,4 @@ The reference implementation and NB 17 have synthetic causality/control evidence
 and an actual installed published-archive consumer. This does not extend the
 archive-only snapshot publication boundary to captured or collector data, establish
 historical P1 availability, or implement MR 19 queries/MR 20 replay. The
-[MR 17 record](../roadmap/mr-17-implementation.md) retains actual validation.
+[MR 17 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-17-implementation.md) retains actual validation.

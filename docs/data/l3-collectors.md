@@ -2,7 +2,7 @@
 
 Owner: repository founder. Status: implemented development collector slice under
 MRs 22–27; Coinbase authenticated external acceptance remains access-blocked.
-The [implementation evidence](../roadmap/crypto-l3-collectors.md) records actual
+The [implementation evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/crypto-l3-collectors.md) records actual
 commands and retained inputs. This workflow records new observations. It is not
 historical backfill, dataset acceptance, a deployed service or an execution model.
 
@@ -161,7 +161,7 @@ inspection and the unknown-loss marker, without a cursor acknowledgement claim.
 An empty recording that died before its first session and an end record without
 verified publication both count as interrupted. Checkpoints acknowledge
 saved input, not downstream consumer state; consumer resume remains later work.
-The [MR 23 record](../roadmap/mr-23-implementation.md) retains fault and installed
+The [MR 23 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-23-implementation.md) retains fault and installed
 acceptance evidence. No exactly-once or gap-free-history
 claim follows from a completed capture. Clean duration/message limits are intended
 recording boundaries; source continuity outside those boundaries is unknown.
@@ -225,7 +225,7 @@ and MR 20 replay through the existing pipelines.
 MR 22 selects the existing **Bitfinex spot `tBTCUSD`, R0/F0, depth 25** job for
 bounded foreground verification. It reuses `CaptureConfig`, `CaptureRequest`,
 `VenueTransport`, `BitfinexBook` and `collect`; no second transport or configuration
-schema is added. The [acceptance record](../roadmap/mr-22-implementation.md) binds
+schema is added. The [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-22-implementation.md) binds
 the actual installed candidate, acknowledgements and exact saved session.
 
 | Boundary | Supported meaning |
@@ -256,8 +256,8 @@ assumed. Restart/maintenance notices invalidate the session under existing behav
 
 `SEQ_ALL` is documented as beta server-order evidence, not matching-engine
 completeness. This bounded job is not a continuous service or historical backfill.
-MR 23 retains its [durability evidence](../roadmap/mr-23-implementation.md);
-MR 24 retains its [recovery evidence](../roadmap/mr-24-implementation.md);
+MR 23 retains its [durability evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-23-implementation.md);
+MR 24 retains its [recovery evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md);
 MR 26 owns supervision acceptance, MR 25/27 own canonical book
 publication/shared replay, and R1 still precedes deployment.
 
@@ -299,7 +299,7 @@ Derived summaries add `frames`, `duplicates`, `stale_snapshots` and
 input can produce a different derived trace when a formerly invalid exact repeat
 is now explicitly classified as a duplicate.
 
-The [MR 24 record](../roadmap/mr-24-implementation.md) and section 15 of the
+The [MR 24 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md) and section 15 of the
 [foundations notebook](../../examples/research-foundations.ipynb) retain exact
 arithmetic, disconnect-during-snapshot, bridge-gap, simulated HTTP 429 and stale
 response evidence. They do not establish Coinbase external eligibility or shared
@@ -366,7 +366,7 @@ book reopening are described in the [data guide](../../src/market_data/README.md
 The native OKX decoder now commits both sides of a message together: a malformed
 second side leaves the preceding state and source cursor intact. Native sequence
 rules, visible depth and archive unknown-continuity restrictions remain unchanged.
-The [MR 25 acceptance record](../roadmap/mr-25-implementation.md) separates
+The [MR 25 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-25-implementation.md) separates
 synthetic recovery evidence, reuse of bounded saved source observations and
 remaining MR 26/27/R1 work.
 
@@ -435,7 +435,7 @@ restart by appending to it. Start a new explicitly configured recording after
 addressing the cause. A failed summary write propagates after stop/alert; failed
 storage cannot be relied on to record its own failure.
 
-The [MR 26 record](../roadmap/mr-26-implementation.md) and notebook section 17
+The [MR 26 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-26-implementation.md) and notebook section 17
 exercise synthetic feeds, actual child death, a read-only journal and a temporary
 local syslog receiver. Delivery means socket acceptance, not human acknowledgement.
 The parent watchdog itself still needs an external service manager for deployed
@@ -460,7 +460,7 @@ The [book replay API](../../src/market_data/README.md#published-book-queries-and
 queries atomic messages, schedules only known receipts, and restores the shared
 completed cursor together with accepted snapshot and recovery epoch in consumer state.
 The [capture notebook](../../examples/market-data-capture.ipynb) section 10 and
-[MR 27 record](../roadmap/mr-27-implementation.md) retain Bitfinex/OKX source,
+[MR 27 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-27-implementation.md) retain Bitfinex/OKX source,
 snapshot/query/replay identities and installed-consumer results. Section 18 of the
 foundations notebook injects disconnects and duplicate saved frames, with explicitly
 new local receipt clocks, and shows a retained first-divergence failure.

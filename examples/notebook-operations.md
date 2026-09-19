@@ -12,7 +12,8 @@ owns research methodology and promotion.
 Use long-lived activity notebooks under repository-root `examples/`: fetching,
 EDA, strategy research and monitoring as working content appears. The founder's
 2026-09-13 activity organization and 2026-09-14 source-retention decision remain
-in force. Maintained `.ipynb`, `.py` and `.md` examples are versioned; generated
+in force. Maintained `.ipynb`, `.py` and `.md` examples and the consumed, reviewed measurement
+JSON under `examples/evidence/` are versioned; generated
 run snapshots, checkpoints and temporary kernels remain ignored. Do not create
 an empty notebook per future capability or a notebook per MR.
 
@@ -167,9 +168,9 @@ installed file identity instead of treating the version string as proof that the
 current candidate is installed.
 
 Historical environment failures and repairs are retained in the
-[M0 import record](../docs/roadmap/m0-implementation.md#interactive-notebook-import-repair),
-[MR 04 record](../docs/roadmap/mr-04-implementation.md#editor-environment-repair-before-merge)
-and [MR 05 record](../docs/roadmap/mr-05-implementation.md#duplicate-file-cleanup).
+[M0 import record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/m0-implementation.md#interactive-notebook-import-repair),
+[MR 04 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-04-implementation.md#editor-environment-repair-before-merge)
+and [MR 05 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-05-implementation.md#duplicate-file-cleanup).
 MR 21 found extra duplicate runtime files in the existing development environment;
 its final acceptance uses a clean external wheel installation. The primary notebook
 now compares the complete installed runtime file set as well as file bytes, and
@@ -185,15 +186,15 @@ they do not change what a source proves about the market.
 | Research concern | Notebook location | Engineering record |
 | --- | --- | --- |
 | Time, instrument identity and exact amounts | Offline lab, sections 4–7 | [Frozen case](../docs/research/p1-baseline.md) |
-| Selecting the intended saved observations | Offline lab, section 10 | [M0](../docs/roadmap/m0-implementation.md) |
-| Changed or truncated files | Offline lab, section 11 | [MR 03](../docs/roadmap/mr-03-implementation.md) |
-| Interrupted writes | Offline lab, section 12 | [MR 04](../docs/roadmap/mr-04-implementation.md) |
-| Download failures | Offline lab, section 13 | [MR 05](../docs/roadmap/mr-05-implementation.md) |
-| Resuming collection | Offline lab, sections 14–15 | [MR 06](../docs/roadmap/mr-06-implementation.md), [MR 07](../docs/roadmap/mr-07-implementation.md) |
-| Equal-time rows, empty content and missing archives | Offline lab, section 16 | [MR 08](../docs/roadmap/mr-08-implementation.md) |
-| Separate dataset inputs, duplicates and quality scope | Primary notebook, sections 5–6; [dataset tests](../tests/unit/data/test_datasets.py) | [MR 09](../docs/roadmap/mr-09-implementation.md), [MR 13](../docs/roadmap/mr-13-implementation.md), [MR 14](../docs/roadmap/mr-14-implementation.md) |
-| Atomic publication and installed commands | Primary notebook, section 6; [snapshot tests](../tests/unit/data/test_snapshots.py) | [MR 15](../docs/roadmap/mr-15-implementation.md), [MR 16](../docs/roadmap/mr-16-implementation.md) |
-| Corrections, membership and cutoff selection | Primary notebook, section 7; [as-of tests](../tests/unit/data/test_asof.py) | [MR 10](../docs/roadmap/mr-10-implementation.md), [MR 12](../docs/roadmap/mr-12-implementation.md), [MR 17](../docs/roadmap/mr-17-implementation.md) |
+| Selecting the intended saved observations | Offline lab, section 10 | [M0](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/m0-implementation.md) |
+| Changed or truncated files | Offline lab, section 11 | [MR 03](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-03-implementation.md) |
+| Interrupted writes | Offline lab, section 12 | [MR 04](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-04-implementation.md) |
+| Download failures | Offline lab, section 13 | [MR 05](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-05-implementation.md) |
+| Resuming collection | Offline lab, sections 14–15 | [MR 06](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-06-implementation.md), [MR 07](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-07-implementation.md) |
+| Equal-time rows, empty content and missing archives | Offline lab, section 16 | [MR 08](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-08-implementation.md) |
+| Separate dataset inputs, duplicates and quality scope | Primary notebook, sections 5–6; [dataset tests](../tests/unit/data/test_datasets.py) | [MR 09](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-09-implementation.md), [MR 13](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-13-implementation.md), [MR 14](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-14-implementation.md) |
+| Atomic publication and installed commands | Primary notebook, section 6; [snapshot tests](../tests/unit/data/test_snapshots.py) | [MR 15](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-15-implementation.md), [MR 16](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md) |
+| Corrections, membership and cutoff selection | Primary notebook, section 7; [as-of tests](../tests/unit/data/test_asof.py) | [MR 10](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-10-implementation.md), [MR 12](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-12-implementation.md), [MR 17](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-17-implementation.md) |
 
 Historical checkpoint records below describe the notebook at each tested revision.
 The current primary notebook combines NB 09–17 into sections 5–7; fixed fixtures and
@@ -346,7 +347,7 @@ The later MR 09 change adds section 9 to `research-foundations.ipynb`; its synth
 Binance trade and Tardis-control examples need no provider access. The earlier
 saved OKX/Bitfinex exploration remains intact. Run the whole notebook with the
 existing runner and pinned saved directories shown in the
-[MR 09 evidence record](../docs/roadmap/mr-09-implementation.md#fresh-kernel-nb-09).
+[MR 09 evidence record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-09-implementation.md#fresh-kernel-nb-09).
 All 27 cells, including 12 code cells, passed in a fresh kernel against committed
 runtime `0969f01`. The notebook verified all 61 installed runtime files first.
 It displays distinct raw occurrences, exact source units, absent archive clocks,
@@ -358,7 +359,7 @@ no duplicate/correction or accepted-dataset workflow is implied.
 Section 10 of `research-foundations.ipynb` now exercises economic duplicate admission
 and explicitly evidenced corrections. Use the existing runner and pinned saved
 OKX/Bitfinex directories; no source access or new acquisition is required. The
-[MR 10 evidence record](../docs/roadmap/mr-10-implementation.md#fresh-kernel-nb-10)
+[MR 10 evidence record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-10-implementation.md#fresh-kernel-nb-10)
 retains the exact command and candidate identity. All **34 cells / 15 code cells**
 passed in a fresh kernel at runtime commit `27d8a2f`, after matching all **62 installed
 runtime files**. Successful attempt: `8e11de2d-a1ef-40a8-a286-3ac31b8d6e4f`.
@@ -403,7 +404,7 @@ driver fingerprints; it does not silently rerun the expensive representative
 benchmark. Sections 7–8 still execute the synthetic correction, scoped-control,
 cancellation, invalid-clock, byte-limit and mutable-ID examples in the fresh kernel.
 
-The [MR 18 record](../docs/roadmap/mr-18-implementation.md) owns the preregistered
+The [MR 18 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-18-implementation.md) owns the preregistered
 workload, accepted proposed budgets, observed results and limitations. The standalone
 [driver](query_workload.py) requires macOS (its process high-water RSS is in bytes),
 an installed candidate, and a directory containing the retained `raw/` and
@@ -434,8 +435,9 @@ zero eligible trades with degraded evidence. Neither result proves historical
 availability or membership.
 
 Local bulk inputs and generated run snapshots remain outside Git. Maintained
-Python, Markdown and notebook sources stay tracked; the small measurement summary
-under `docs/roadmap/` contains identities, counts and timings, not raw market rows.
+Python, Markdown and notebook sources stay tracked; the small
+[measurement summary](evidence/mr-18-measurements.json) contains identities, counts
+and timings, not raw market rows. It remains a historical result, not a new benchmark.
 
 The optional columnar experiment requires `duckdb==1.5.5` only in an isolated
 `uv run --with` environment; the normal notebook and installed reference reader do
@@ -456,7 +458,7 @@ Section 10 of `research-foundations.ipynb` adds shared chronological trade/contr
 stepping to the existing saved-input walkthrough. It needs the same saved OKX and
 Bitfinex directories, an installed candidate and the pinned separate notebook
 tooling. Run the complete notebook with the command in the
-[MR 20 acceptance record](../docs/roadmap/mr-20-implementation.md#fresh-kernel-nb-20).
+[MR 20 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-20-implementation.md#fresh-kernel-nb-20).
 No additional source acquisition, runtime dependency or kernel path patch is needed.
 
 The final run passed **45 cells / 23 code cells**, including installed import/byte
@@ -488,7 +490,7 @@ standalone replay/extension evidence. The normal runner uses separate pinned
 Matplotlib tooling; no runtime dependency or lockfile change is required.
 
 For an external wheel kernel, install the locked runtime wheel as described in the
-[MR 21 record](../docs/roadmap/mr-21-implementation.md), add explicitly pinned kernel
+[MR 21 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-21-implementation.md), add explicitly pinned kernel
 tooling to that temporary environment, and point the existing runner at it:
 
 ```sh
@@ -509,7 +511,7 @@ version, configuration/subscription acknowledgement, original receipt nanosecond
 and server sequences. It opens no live connection. Six synthetic examples reject
 unsupported negotiation and product/stream combinations using the installed APIs.
 
-The [MR 22 acceptance record](../docs/roadmap/mr-22-implementation.md#fresh-kernel-nb-22)
+The [MR 22 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-22-implementation.md#fresh-kernel-nb-22)
 contains the exact installed-wheel/kernel commands and the actual capture directory.
 All 55 cells / 28 code cells passed with candidate imports and bytes verified.
 Keep the saved capture or select another compatible retained recording explicitly;
@@ -534,7 +536,7 @@ publication, preserves a distinct restart and diagnoses an invalid zero-size ord
 It opens no network connection and requires the same pinned saved books as the
 preceding sections.
 
-The [MR 23 acceptance record](../docs/roadmap/mr-23-implementation.md#fresh-kernel-nb-23)
+The [MR 23 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-23-implementation.md#fresh-kernel-nb-23)
 contains the exact wheel/kernel commands and retained input locations. The final
 fresh-kernel run passed **61 cells / 31 code cells** with all 76 installed runtime
 files verified. Its attempt is `4d63af45-75da-4f85-a3f4-9b4465cdc777`; the earlier
@@ -559,9 +561,9 @@ raw clocks and required failure exits. Its temporary synthetic files are cleaned
 with the other walkthrough inputs.
 
 Use the clean wheel/kernel command in the
-[follow-up acceptance record](../docs/roadmap/mr-16-implementation.md#fresh-kernel-notebook).
+[follow-up acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md#fresh-kernel-notebook).
 The original 58-cell / 29-code-cell run passed before MR 23 integration; the
-[combined verification](../docs/roadmap/mr-16-implementation.md#integration-with-mr-23)
+[combined verification](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md#integration-with-mr-23)
 records the later run with both checkpoints. The existing
 saved OKX/Bitfinex inputs, P1, notebook runner and ignore policy are unchanged.
 MR 18 evidence remains historical: the notebook verifies every pre-existing
@@ -575,7 +577,7 @@ with `-I`. It displays exact duplicate accounting, conflicting/stale refusals,
 late snapshot receipt and bounded recovery after disconnect, bridge gaps and
 simulated HTTP 429. No network or credentials are used.
 
-The [MR 24 acceptance record](../docs/roadmap/mr-24-implementation.md#fresh-kernel-notebook)
+The [MR 24 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md#fresh-kernel-notebook)
 contains the exact wheel/kernel commands. Attempt
 `036bb3a6-bd16-40a9-bafa-a3d2c96019d2` passed all 67 cells / 33 code cells and
 verified all 76 runtime files against the installed candidate. The kernel shut
@@ -587,7 +589,7 @@ Shared reconstruction/quality/publication remains MR 25 work.
 
 Section 16 of `research-foundations.ipynb` publishes bounded saved Bitfinex and OKX
 prefixes and exercises quality/publication refusals. The
-[MR 25 record](../docs/roadmap/mr-25-implementation.md#fresh-kernel-notebook) owns the
+[MR 25 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-25-implementation.md#fresh-kernel-notebook) owns the
 exact commands, input identities, failed attempts and installed wheel evidence.
 The final fresh kernel completed all 71 cells (35 code cells) using the isolated
 candidate environment; raw input paths were pinned explicitly. It closed normally.
@@ -599,3 +601,19 @@ matches the measured candidate. It still verifies the retained measurement's sou
 hash, known changed files, driver and lock identity. Current book publication has
 no performance qualification. Maintained notebook/runner/guide sources stay tracked;
 generated successful/failed run snapshots and temporary kernel files stay ignored.
+
+
+## Roadmap evidence relocation — 2026-09-19
+
+Closed roadmap records now link to their retained Git revision. The MR 18 summary
+moved unchanged from `docs/roadmap/` to
+[evidence/mr-18-measurements.json](evidence/mr-18-measurements.json), and the
+`mr18-measured-decision` cell reads that new path. Notebook cell order, outputs,
+execution counts and metadata remain unchanged; the retained execution records
+identify their original notebook sources, not this reference edit.
+
+Validation executes the affected measurement cell against the relocated bytes,
+including its historical runtime, driver and current lock checks. It compares
+all other executable cells and saved outputs/metadata with the pre-cleanup copies
+and validates the updated Markdown links. No full notebook rerun, acquisition,
+benchmark or new empirical result is claimed.

@@ -7,26 +7,26 @@ merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
 MR 19 merged through [PR #44](https://github.com/lixuanguang/alpha-research-lab-private/pull/44);
-its [acceptance record](mr-19-implementation.md) retains verification and limitations.
-MR 18's [workload evaluation and reference reuse](mr-18-implementation.md) merged
+its [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-19-implementation.md) retains verification and limitations.
+MR 18's [workload evaluation and reference reuse](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-18-implementation.md) merged
 through PR #45; columnar backend admission is explicitly deferred for that workload.
-MR 20's [shared stepping and cursor](mr-20-implementation.md) merged through
+MR 20's [shared stepping and cursor](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-20-implementation.md) merged through
 [PR #46](https://github.com/lixuanguang/alpha-research-lab-private/pull/46).
-MR 21's [configured EDA and extension exercise](mr-21-implementation.md) merged
+MR 21's [configured EDA and extension exercise](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-21-implementation.md) merged
 through [PR #47](https://github.com/lixuanguang/alpha-research-lab-private/pull/47).
-MR 22's [bounded Bitfinex source verification](mr-22-implementation.md) merged
+MR 22's [bounded Bitfinex source verification](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-22-implementation.md) merged
 through [PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48).
-MR 23's [durable append cursor and bounded consumer](mr-23-implementation.md) merged
+MR 23's [durable append cursor and bounded consumer](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-23-implementation.md) merged
 through [PR #49](https://github.com/lixuanguang/alpha-research-lab-private/pull/49).
-MR 24's [session recovery and retained-gap evidence](mr-24-implementation.md) merged
+MR 24's [session recovery and retained-gap evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md) merged
 through [PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51) at `12be1a6`.
-MR 25's [continuous quality and saved book publication](mr-25-implementation.md)
+MR 25's [continuous quality and saved book publication](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-25-implementation.md)
 merged in [PR #52](https://github.com/lixuanguang/alpha-research-lab-private/pull/52)
 at `8b3027b`. MR 26 merged through
 [PR #53](https://github.com/lixuanguang/alpha-research-lab-private/pull/53) at `c4469fa`;
-its [acceptance record](mr-26-implementation.md) retains tested states.
+its [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-26-implementation.md) retains tested states.
 MR 27 is present in the starting main revision `a0dcc86`; its
-[acceptance record](mr-27-implementation.md) retains the source evidence.
+[acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-27-implementation.md) retains the source evidence.
 MR 28 stages 1–3 implement the [functional source-layout migration](source-layout-refactor.md),
 merged through PR #59 at `58bc99a`. Stage 4 historical features is **conditional
 and deferred until a concrete feature, signal or model research consumer needs it**.
@@ -154,7 +154,7 @@ financial values and serialization, source provenance, configured acquisition an
 verified raw storage. The dataset path adds decoded occurrences, duplicate and
 correction histories, bitemporal eligibility, quality reports and atomic snapshots
 with installed publish/inspect commands. Native book collection/replay has its
-[source-specific scope](crypto-l3-collectors.md). The
+[source-specific scope](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/crypto-l3-collectors.md). The
 [architecture overview](../architecture/README.md) and
 [data guide](../../src/market_data/README.md) describe current interfaces.
 
@@ -353,7 +353,7 @@ subsequent valid lines. This cleanup adds no acquisition or dataset functionalit
 
 ## M0: Minimal runnable foundation
 
-**Status: merged in PR #23 at `80b5bc6`.** The [M0 implementation record](m0-implementation.md)
+**Status: merged in PR #23 at `80b5bc6`.** The [M0 implementation record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/m0-implementation.md)
 contains commands, review slices, installed-consumer and notebook evidence, and
 limitations. MR 01 supplies scoped data-job parsing, capability validation and
 resolved run identity. It does not require strategy or deployment schemas before those consumers.
@@ -382,7 +382,7 @@ MRs 03–08 are merged; the [record index](#merged-implementation-records)
 links their installed-consumer and notebook evidence. The original Tardis probe
 was not performed. The founder authorized Binance public daily archives and
 ignored local storage on 2026-09-15; the
-[actual acquisition record](mr-07-implementation.md#binance-source-follow-up)
+[actual acquisition record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-07-implementation.md#binance-source-follow-up)
 retains publisher SHA-256, ZIP integrity and selected-hour evidence. This source
 amendment preserves MR dependencies and later canonical-data ownership.
 
@@ -431,7 +431,7 @@ raw identity and clocks. Its installed integration checkpoint covers acquisition
 interruption/resume through publication/reopen and consumes the result using the
 already implemented EDA interface. It adds no source, causal policy, multi-day
 scheduler or live-book integration. See the
-[follow-up record](mr-16-implementation.md#mr-16-follow-up-acquisition-handoff).
+[follow-up record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md#mr-16-follow-up-acquisition-handoff).
 
 Persisted event revisions may carry the current decoder output in an envelope
 instead of widening every public event type. The envelope owns occurrence and
@@ -520,7 +520,7 @@ storage optimization stays conditional on a measured workload.
 
 The 2026-09-15 founder-authorized narrow amendment prioritizes **Bitfinex public
 R0** and **Coinbase Exchange authenticated level3** for the new bounded L3
-workflow. The [collector implementation record](crypto-l3-collectors.md) maps
+workflow. The [collector implementation record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/crypto-l3-collectors.md) maps
 this work to the existing owners below. Capture after MRs 01/03–04 is permitted;
 use their established config/identity and durable raw-byte contracts. Preserve
 MR 20's general replay prerequisite, MRs 10–15 quality/publication, M3's broader
@@ -529,7 +529,7 @@ recording and source-order replay only; it does not close these packages or M3.
 The Binance archive workflow and `docs/research/p1-baseline.md` remain reproducible
 historical work. No live recording changes the frozen historical experiment.
 
-The 2026-09-16 requested [OKX extension](okx-market-data.md) adds public BTC-USDT
+The 2026-09-16 requested [OKX extension](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/okx-market-data.md) adds public BTC-USDT
 **L2** live books and separately identified historical L2 archives alongside this
 L3 focus. It reuses raw storage and bounded replay; archive records with no source
 sequence cannot establish continuity or automatically repair live gaps. The same
@@ -555,7 +555,7 @@ names alone are insufficient: transition/recovery behavior is tested at the cons
 ### Collector integration with shared datasets and replay
 
 **Steps 1–2 merged in MR 25; steps 3–4 implemented and locally verified in
-[MR 27](mr-27-implementation.md) for bounded exploratory review.** Bitfinex R0, Coinbase Exchange L3, OKX L2 capture and OKX L2 archives
+[MR 27](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-27-implementation.md) for bounded exploratory review.** Bitfinex R0, Coinbase Exchange L3, OKX L2 capture and OKX L2 archives
 now bind native states to raw positions and publish through the shared atomic
 snapshot store. Their explicit book schema preserves order IDs versus aggregate
 levels and unknown archive availability. MR 27 uses the same MR 20 stepping
@@ -1353,6 +1353,16 @@ rollback appear successful. No service migration or trading rollback is implied.
 
 ## Acceptance records and maintenance
 
+Keep this directory focused on three maintained files: this infrastructure
+roadmap, [research methodology](research-program.md), and the
+[source-layout plan](source-layout-refactor.md) with its remaining conditional
+feature scope. Closed MR and collector implementation records are retained in
+[Git history at `db65792`](https://github.com/lixuanguang/alpha-research-lab-private/tree/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap),
+with existing evidence links pinned to that revision. New implementation evidence
+belongs in the owning PR/run record and active plan section while work is open;
+closed standalone records should not accumulate in this directory. Retain actual
+artifact/input references and limitations when summarizing completed work.
+
 Each milestone closes with its documented installed command or notebook-plus-
 package workflow, supported config/input identities, selected failure scenarios,
 actual results and remaining operational/data limitations in the existing MR/run
@@ -1396,38 +1406,58 @@ is package metadata, so a later wheel build will have changed descriptive bytes;
 this documentation validation does not attest a new artifact. Reversal restores
 these documentation edits together without changing saved research inputs.
 
+### Active-file cleanup — 2026-09-19
+
+Removed 28 closed Markdown records from this directory after verifying each was
+byte-identical to its retained `db65792` version. Updated referring documentation
+and notebook Markdown to immutable Git links. The still-consumed MR 18 measurement
+summary moved byte-for-byte to
+[notebook evidence](../../examples/evidence/mr-18-measurements.json); its notebook
+lookup changed to that path. Historical measurement values, notebook outputs and
+execution metadata retain their original meaning. This supersedes the earlier
+refactoring's file count and no-notebook-source-change statement for this cleanup.
+
+Validation passed for 36 current Markdown documents and all three notebooks;
+122 pinned-history links resolve to 28 retained Git objects and valid heading
+fragments. The relocated measurement cell passed its runtime/driver/lock and
+budget assertions. Byte comparison preserved the JSON; notebook comparison found
+only the intended code-path change, with cell order, outputs, execution counts
+and metadata unchanged. `git diff --check` passed. No full notebook run, new market
+capture or benchmark is claimed. Historical records remain recoverable from the
+pinned commit without a duplicate archive tree.
+
 ### Merged implementation records
 
-These are historical acceptance records for the identified candidates, not current
-quickstarts or claims that those tests covered later code. Retain their source and
+The links below open historical acceptance records at a retained Git revision.
+They are not current quickstarts or claims that those tests covered later code. Retain their source and
 artifact identities, commands, failures and limitations; local `/private/tmp/` and
 ignored run paths are not durable archives. Git history retains superseded
 procedural notes. Current usage belongs in component guides and examples.
 
 | Delivery / acceptance record | Merged PR | Main merge |
 | --- | --- | --- |
-| [M0 / MRs 01–02](m0-implementation.md) | #23 | `80b5bc6` |
-| [MR 03](mr-03-implementation.md) | #24 | `bf3fb99` |
-| [MR 04](mr-04-implementation.md) | #25 | `b136b36` |
-| [MR 05](mr-05-implementation.md) | #26 | `48bf9b7` |
-| [MR 06](mr-06-implementation.md) | #27 | `0e35496` |
-| [MR 07](mr-07-implementation.md) | #28 | `ddd1bfb` |
-| [MR 08](mr-08-implementation.md) | #32 | `f05ef18` |
-| [MR 09](mr-09-implementation.md) | #33 | `a66b49a` |
-| [MR 10](mr-10-implementation.md) | #34 | `d88ba11` |
-| [MR 11](mr-11-implementation.md) | #35 | `5b10f78` |
-| [MR 12](mr-12-implementation.md) | #36 | `210db65` |
-| [MR 13](mr-13-implementation.md) | #37 | `7ef4892` |
-| [MR 14](mr-14-implementation.md) | #38 | `746e002` |
-| [MR 15](mr-15-implementation.md) | #39 | `69a45eb` |
-| [MR 16](mr-16-implementation.md) | #40 | `95e1a14` |
-| [MR 17](mr-17-implementation.md) | #42 | `3deb34b` |
-| [MR 19](mr-19-implementation.md) | #44 | `0898d0a` |
-| [MR 18](mr-18-implementation.md) | #45 | `f37c07d` |
-| [MR 20](mr-20-implementation.md) | #46 | `f8ef338` |
-| [MR 21](mr-21-implementation.md) | #47 | `d11dd2c` |
+| [M0 / MRs 01–02](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/m0-implementation.md) | #23 | `80b5bc6` |
+| [MR 03](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-03-implementation.md) | #24 | `bf3fb99` |
+| [MR 04](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-04-implementation.md) | #25 | `b136b36` |
+| [MR 05](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-05-implementation.md) | #26 | `48bf9b7` |
+| [MR 06](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-06-implementation.md) | #27 | `0e35496` |
+| [MR 07](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-07-implementation.md) | #28 | `ddd1bfb` |
+| [MR 08](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-08-implementation.md) | #32 | `f05ef18` |
+| [MR 09](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-09-implementation.md) | #33 | `a66b49a` |
+| [MR 10](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-10-implementation.md) | #34 | `d88ba11` |
+| [MR 11](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-11-implementation.md) | #35 | `5b10f78` |
+| [MR 12](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-12-implementation.md) | #36 | `210db65` |
+| [MR 13](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-13-implementation.md) | #37 | `7ef4892` |
+| [MR 14](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-14-implementation.md) | #38 | `746e002` |
+| [MR 15](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-15-implementation.md) | #39 | `69a45eb` |
+| [MR 16](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md) | #40 | `95e1a14` |
+| [MR 17](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-17-implementation.md) | #42 | `3deb34b` |
+| [MR 19](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-19-implementation.md) | #44 | `0898d0a` |
+| [MR 18](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-18-implementation.md) | #45 | `f37c07d` |
+| [MR 20](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-20-implementation.md) | #46 | `f8ef338` |
+| [MR 21](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-21-implementation.md) | #47 | `d11dd2c` |
 
-MR 24 retains [implementation and acceptance evidence](mr-24-implementation.md);
+MR 24 retains [implementation and acceptance evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md);
 [PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51) records
 its hosted checks and merge status.
 

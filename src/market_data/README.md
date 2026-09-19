@@ -96,7 +96,7 @@ partial state, so correcting the input and calling `read` again is sufficient.
 
 The [contract](../../docs/data/contracts.md#historical-eligibility-assertions-mr-11)
 defines evidence/interval rules; [NB 11](../../examples/research-foundations.ipynb)
-shows required failures. [Installed acceptance](../../docs/roadmap/mr-11-implementation.md#installed-wheel-outside-the-checkout)
+shows required failures. [Installed acceptance](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-11-implementation.md#installed-wheel-outside-the-checkout)
 copies these files outside the checkout and invokes the retained consumer there.
 
 ## Select membership at a decision
@@ -143,7 +143,7 @@ Version-1 inputs remain supported; only version 2 admits corrections.
 The [selection contract](../../docs/data/contracts.md#decision-time-selection-and-corrections-mr-12)
 defines precedence and unknown outcomes. [NB 12](../../examples/research-foundations.ipynb)
 displays both clocks' boundaries and controlled failures; the
-[installed record](../../docs/roadmap/mr-12-implementation.md) runs the same contract
+[installed record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-12-implementation.md) runs the same contract
 outside the checkout. This is synthetic membership evidence, without historical
 source authentication, quality acceptance or publication.
 
@@ -274,7 +274,7 @@ Select `eth-fixture` with `ethusdt.txt`, or `both-fixture` with either saved fra
 to exercise the same implementation. These timestamps and revision/rights
 references describe authored synthetic fixtures; provide actual retained receipt,
 ingestion and line-position metadata for any other saved input. The complete
-[outside-checkout workflow and results](../../docs/roadmap/m0-implementation.md)
+[outside-checkout workflow and results](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/m0-implementation.md)
 include controlled failures.
 
 The version-1 JSON [configuration](../../configs/data-jobs/fixture-inspection.json)
@@ -349,7 +349,7 @@ Describing already incomplete bytes cannot prove transport completeness. Empty
 files are representable without claiming a quiet interval. MR 04 supplies the
 store below; transport validation remains owned by MR 05.
 
-The [MR 03 acceptance record](../../docs/roadmap/mr-03-implementation.md) records
+The [MR 03 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-03-implementation.md) records
 focused tests, outside-checkout wheel verification and
 [companion notebook](../../examples/foundation-contract-checks.ipynb) section 11
 (NB 03), including a changed gzip header with identical decoded content.
@@ -411,7 +411,7 @@ honoring synchronization; process-interruption tests do not prove physical
 power-loss behavior or network/object-store support. This MR adds no persistent
 descriptor/manifest, garbage collector, acquisition transport or dataset validity.
 
-The [MR 04 acceptance record](../../docs/roadmap/mr-04-implementation.md),
+The [MR 04 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-04-implementation.md),
 [storage tests](../../tests/unit/data/test_raw_store.py) and companion notebook section 12
 retain the publication, reuse, conflict and interruption evidence.
 
@@ -464,7 +464,7 @@ failure; do not infer rollback or advance a checkpoint. Use the sequential
 acquisition callable below for durable manifest reconciliation, restart and retry. The caller must keep the report sink
 available; a failing sink propagates and can prevent terminal telemetry delivery.
 
-The [MR 05 record](../../docs/roadmap/mr-05-implementation.md) contains exact
+The [MR 05 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-05-implementation.md) contains exact
 verification commands, the source-documentation investigation, and the open
 rights/retention and actual-source framing/timestamp boundaries. Notebook section
 13 calls the installed implementation with synthetic HTTP responses and then
@@ -528,7 +528,7 @@ Existing partition reports are retained. Retry reports include run/request ident
 attempt and delay; `checkpointed` includes the durable completion count. Propagated
 exceptions remain the failure boundary; a failed report sink cannot guarantee its
 own telemetry. The installed command below adds whole-job reporting in MR 07.
-The [MR 06 record](../../docs/roadmap/mr-06-implementation.md) and companion notebook
+The [MR 06 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-06-implementation.md) and companion notebook
 section 14 contain actual synthetic commands/results. No source acceptance,
 canonical dataset, frame iteration or coverage claim is added.
 
@@ -596,7 +596,7 @@ repeat after correction. SIGKILL/process loss cannot emit a terminal record; use
 the process exit, last flushed report and saved checkpoint. A failed output sink
 is terminal; reporting cannot guarantee its own availability.
 
-The [MR 07 acceptance record](../../docs/roadmap/mr-07-implementation.md) and
+The [MR 07 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-07-implementation.md) and
 companion notebook section 15 exercise the installed command outside the checkout through
 synthetic HTTP, abrupt interruption, retries, repeats and damaged-byte rejection.
 The [main notebook](../../examples/research-foundations.ipynb) now connects actual
@@ -709,7 +709,7 @@ timestamp or price padding is synthesized. Invalid input remains in immutable
 storage, with no checkpoint or dataset mutation. MR 09 adds numeric/time decoding
 below; correction, eligibility, quality and publication retain their later owners.
 
-The [MR 08 acceptance record](../../docs/roadmap/mr-08-implementation.md)
+The [MR 08 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-08-implementation.md)
 identifies the tested candidate, commands, notebook outputs and limitations.
 
 ## Decoded raw occurrences (MR 09)
@@ -774,7 +774,7 @@ without mutating raw storage or the acquisition manifest. Empty archives yield n
 occurrences and prove no coverage. Rebuild after correcting/selecting explicit
 input; no mutable normalization checkpoint exists. Revisions, eligibility, quality,
 snapshot publication and the dataset command remain MRs 10–16.
-See the [MR 09 evidence](../../docs/roadmap/mr-09-implementation.md) and
+See the [MR 09 evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-09-implementation.md) and
 [NB 09](../../examples/research-foundations.ipynb), section 9.
 
 ## Validate a canonical partition (MR 13)
@@ -987,7 +987,7 @@ Abrupt process death may leave only the last progress record. A failed publicati
 can leave a complete visible snapshot after rename; repeat the same command to
 verify and synchronize it. Preserve both stores and earlier snapshots.
 
-The [MR 16 implementation record](../../docs/roadmap/mr-16-implementation.md)
+The [MR 16 implementation record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md)
 records installed synthetic/retained-source results and NB 16. The fixture inspector
 `alpha-inspect-fixture` is unchanged. MR 17 owns event selection as of a cutoff.
 
@@ -1063,7 +1063,7 @@ query identities, cancellation, event stepping or a performance claim. The MR 19
 MR 18 requires a measured workload. Snapshot publication
 currently supports archive inputs; captured trades and scoped controls are tested
 using admitted synthetic canonical bytes, without extending publication support.
-See the [acceptance record](../../docs/roadmap/mr-17-implementation.md) and
+See the [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-17-implementation.md) and
 [notebook section 7](../../examples/research-foundations.ipynb).
 
 ## Bounded reference queries (MR 19)
@@ -1145,11 +1145,11 @@ unsafe mutation of a result cannot change a later query. History copies records
 as each output batch is built. Admission still runs completely when the reader is
 constructed; caching never invents knowledge or bypasses snapshot verification.
 MR 18 measures this reference optimization and the separate pre-admission Parquet
-experiment in its [workload record](../../docs/roadmap/mr-18-implementation.md).
+experiment in its [workload record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-18-implementation.md).
 
 See [NB 19, section 8](../../examples/research-foundations.ipynb),
 [focused tests](../../tests/unit/data/test_query.py), and the
-[acceptance record](../../docs/roadmap/mr-19-implementation.md) for measured
+[acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-19-implementation.md) for measured
 memory/read counts, installed-consumer evidence and limitations. MR 19 introduces
 no columnar backend or publication adapter; EDA and replay consumers follow below.
 
@@ -1252,7 +1252,7 @@ plots the same bounded interval. The [contract fixture](../../tests/fixtures/ins
 exercises neutral identity, exact quantity/multiplier and projected-batch summaries
 only, with no spot-record coercion. It is not admitted to the spot reader/replay;
 unsupported source products, lifecycle/adapter fields and unit combinations fail.
-See the [acceptance record](../../docs/roadmap/mr-21-implementation.md) for
+See the [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-21-implementation.md) for
 commands, observations, justified review size and remaining scope.
 
 ## Bounded saved books (MR 25)
@@ -1314,7 +1314,7 @@ failure, and reopening reproduces admission from retained original bytes.
 Only `exploratory_degraded` publication is supported. Historical eligibility,
 complete coverage, full depth, causal use, trade queries, fills and execution are
 not admitted. MR 27 adds bounded chronological book stepping below. The
-[MR 25 record](../../docs/roadmap/mr-25-implementation.md) retains acceptance.
+[MR 25 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-25-implementation.md) retains acceptance.
 
 
 ## Published book queries and shared stepping (MR 27)
@@ -1358,5 +1358,5 @@ saved input available for diagnosis and never reports canonical success. Canonic
 prefix retention shares the configured byte cap and fails explicitly if exceeded.
 
 No source/format gains complete coverage, executable use or derivative mechanics.
-The [MR 27 record](../../docs/roadmap/mr-27-implementation.md) identifies the
+The [MR 27 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-27-implementation.md) identifies the
 real bounded captures, archive check, synthetic failure evidence and limitations.

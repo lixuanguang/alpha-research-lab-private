@@ -326,7 +326,7 @@ The fixed [P1 experiment specification](../docs/research/p1-baseline.md) retains
 Binance trade sample, hypothesis and economic assumptions. This notebook migration
 does not replace that sample with book data or report a strategy result. Its source
 access remains a separate unresolved research dependency for the frozen study.
-The [MR 08 record](../docs/roadmap/mr-08-implementation.md) retains the earlier
+The [MR 08 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-08-implementation.md) retains the earlier
 verified Binance run (638,484 daily rows; 27,480 selected-hour trades). Its synthetic
 row-order and missing-input checks now live in section 16 of the offline lab,
 where they run without provider access.
@@ -464,9 +464,9 @@ MR 19 adds the network-free query exercise in section 8. Start with the explicit
 published snapshot ID, then compare the captured synthetic prices before and after
 correction availability. Inspect the BTC disconnect in a price-only projection and
 the retained original/correction chain after membership withdrawal. The
-[MR 19 record](../docs/roadmap/mr-19-implementation.md) retains execution evidence,
+[MR 19 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-19-implementation.md) retains execution evidence,
 measured memory/read counts and the reference reader's aggregate-input limit.
-Section 9 adds the [MR 18 workload evaluation](../docs/roadmap/mr-18-implementation.md).
+Section 9 adds the [MR 18 workload evaluation](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-18-implementation.md).
 The original reader exceeded the accepted offline memory and latency budgets. A
 bounded Parquet experiment and reference admission-reuse candidate are measured
 separately; the record owns the final backend decision and its limits. The notebook
@@ -481,9 +481,9 @@ is not a performance qualification.
 
 The explicit synthetic future fixture uses contract units and a 50-unit multiplier
 at the neutral projection boundary. It grants no derivative snapshot, lifecycle,
-valuation or execution support. The [MR 21 record](../docs/roadmap/mr-21-implementation.md)
+valuation or execution support. The [MR 21 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-21-implementation.md)
 retains installed and notebook evidence and exact refusals. Section 12 adds MR 22 source verification using saved Bitfinex input and controlled
-refusals. The [MR 22 record](../docs/roadmap/mr-22-implementation.md) identifies the
+refusals. The [MR 22 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-22-implementation.md) identifies the
 real installed-candidate capture and fresh-kernel evidence. The later MR 23–27
 sections below describe durability, recovery, quality, supervision and replay.
 
@@ -495,7 +495,7 @@ the committed prefix fails before yielding records. A failed writer refuses reus
 or publication. A separate same-day recording preserves the first attempt, and an
 invalid zero-size order remains saved with an unusable consumer state.
 
-The [MR 23 record](../docs/roadmap/mr-23-implementation.md) identifies the candidate,
+The [MR 23 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-23-implementation.md) identifies the candidate,
 fresh-kernel run, process-death and slow-consumer tests. This is synthetic durability
 evidence, not uninterrupted venue coverage or a new source observation. The next
 research question is how reconnects and unknown gaps remain visible under MR 24.
@@ -503,7 +503,7 @@ research question is how reconnects and unknown gaps remain visible under MR 24.
 Section 14 exercises the MR 16 whole-acquisition handoff through installed commands:
 acquire BTC/ETH, interrupt and resume without refetching completed input, then
 validate, publish, reopen and inspect the saved dataset. The
-[merge verification](../docs/roadmap/mr-16-implementation.md#integration-with-mr-23)
+[merge verification](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md#integration-with-mr-23)
 records the combined candidate and fresh execution of both checkpoints.
 
 ## Can a reconnect hide what I missed?
@@ -520,7 +520,7 @@ The scenario opens no venue connection and uses no credentials. Existing saved
 Bitfinex and OKX inputs remain the earlier sections' independent observations.
 This is raw capture/replay evidence; canonical quality/publication is the next
 question in MR 25, after MR 24 merges. Use the
-[MR 24 acceptance record](../docs/roadmap/mr-24-implementation.md) for commands
+[MR 24 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md) for commands
 and limits.
 
 ## Which saved books can pass publication and freshness checks?
@@ -539,7 +539,7 @@ degraded state; explicit exploratory opt-in is required. The retained tests also
 exercise late source/receipt clocks, native gaps, exact L3 duplicate handling,
 malformed atomic messages and L2 zero-size deletion.
 
-The [MR 25 record](../docs/roadmap/mr-25-implementation.md) owns commands, installed
+The [MR 25 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-25-implementation.md) owns commands, installed
 identity and limitations. MR 26 covers supervision; MR 27 owns
 shared canonical stepping and capture/replay parity. Section 9 retains MR 18's
 historical measurements at their original source identity. MR 25 changes snapshot
@@ -568,6 +568,6 @@ the checkout. The same candidate and independent kernel run every cell.
 All results retain exploratory degraded scope, source depth and unknown coverage.
 L2 levels and L3 orders remain distinct, Coinbase live access is unverified, and no
 fills, strategies or deployment are enabled. The
-[MR 27 acceptance record](../docs/roadmap/mr-27-implementation.md) retains commands,
+[MR 27 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-27-implementation.md) retains commands,
 identities and observed limits. Next is **MR 28 — Compute versioned historical
 features**, after MR 27 merges; it is not implemented here.
