@@ -1,6 +1,6 @@
 # Platform implementation roadmap
 
-Owner: repository founder. Status checked against merged `main` at `8b3027b`
+Owner: repository founder. Status checked against merged `main` at `c4469fa`
 on 2026-09-19. MR 00, C0 and MRs 01–17 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
@@ -20,18 +20,23 @@ MR 24's [session recovery and retained-gap evidence](mr-24-implementation.md) me
 through [PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51) at `12be1a6`.
 MR 25's [continuous quality and saved book publication](mr-25-implementation.md)
 merged in [PR #52](https://github.com/lixuanguang/alpha-research-lab-private/pull/52)
-at `8b3027b`. MR 26 has [local implementation and acceptance evidence](mr-26-implementation.md)
-in [draft PR #53](https://github.com/lixuanguang/alpha-research-lab-private/pull/53);
-it is not yet merged. MRs 27–62 and R1 remain planned except
+at `8b3027b`. MR 26 merged through
+[PR #53](https://github.com/lixuanguang/alpha-research-lab-private/pull/53) at `c4469fa`;
+its [acceptance record](mr-26-implementation.md) retains tested states.
+MR 27 has [local implementation and acceptance evidence](mr-27-implementation.md);
+it is not yet merged. MRs 28–62 and R1 remain planned except
 the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
 forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Next implementation after MR 26 merges: MR 27 — Prove capture/replay parity**.
+**Next implementation after MR 27 merges: MR 28 — Compute versioned historical features**.
+MR 27 reuses the shared stepping/cursor operation for bounded published books and
+compares exact live prefixes, raw normalization and consumer outputs for Bitfinex
+and OKX. Unknown archive availability remains unscheduled; no M3 completion is claimed.
 MR 26 adds an independent bounded watchdog, local stop responses and syslog delivery evidence. MR 24 drains accepted input through session recovery, retains
 late/stale snapshot lineage, suppresses exact adjacent duplicates and exposes
 bounded retry exhaustion. MR 25 adds scoped freshness/recovery gates and bounded
 exploratory book publication. Live book-dependent decisions remain disabled;
-canonical stepping/parity remains MR 27.
+bounded canonical stepping/parity is covered by the MR 27 record.
 MR 23 verifies the committed append prefix before interrupted replay, refuses a
 failed writer, and keeps source receipt independent of bounded downstream work.
 MR 22 verifies the existing direct Bitfinex spot R0 path, bounds subscription sends
@@ -406,11 +411,12 @@ names alone are insufficient: transition/recovery behavior is tested at the cons
 
 ### Collector integration with shared datasets and replay
 
-**Steps 1–2 implemented for bounded exploratory review in MR 25; completion owner
-MR 27.** Bitfinex R0, Coinbase Exchange L3, OKX L2 capture and OKX L2 archives
+**Steps 1–2 merged in MR 25; steps 3–4 implemented and locally verified in
+[MR 27](mr-27-implementation.md) for bounded exploratory review.** Bitfinex R0, Coinbase Exchange L3, OKX L2 capture and OKX L2 archives
 now bind native states to raw positions and publish through the shared atomic
 snapshot store. Their explicit book schema preserves order IDs versus aggregate
-levels and unknown archive availability. They do not yet use MR 20 stepping.
+levels and unknown archive availability. MR 27 uses the same MR 20 stepping
+operation, retaining exact receipts within conservative microsecond clock steps.
 No source gains causal, execution or complete-coverage admission from this change.
 Complete the following ordered steps within the existing MR owners:
 
@@ -1166,7 +1172,9 @@ section 12; NB 23 durable append boundaries and failure diagnosis is section 13;
 the MR 16 follow-up's installed acquisition-to-EDA handoff is section 14;
 NB 24 session recovery, duplicate lineage and pending-snapshot failures is section 15;
 NB 25 scoped quality transitions and saved book publication is section 16;
-NB 26 independent health supervision, process loss and alert failure is section 17.
+NB 26 independent health supervision, process loss and alert failure is section 17;
+NB 27 canonical capture/replay, consumer-state recovery and first divergence is section 18.
+The capture notebook section 10 records the named Bitfinex/OKX publication/query/replay checkpoint.
 The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),

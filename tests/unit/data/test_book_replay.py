@@ -12,7 +12,7 @@ from msgspec.structs import force_setattr, replace
 from test_book_datasets import TestBookDatasets as _Inputs
 
 # project library imports
-from alpha_research.data.book_datasets import BookHistory, BookInput, BookObservation
+from alpha_research.data.book_datasets import BookCapture, BookHistory, BookInput, BookObservation
 from alpha_research.data.book_replay import BookReplay
 from alpha_research.data.live.journal import CaptureJournal
 from alpha_research.data.raw_store import RawStore
@@ -152,6 +152,24 @@ class TestBookReplay:
                 batch_size=1,
             )
 
+    def test_capture_parity_retains_first_different_message(self, tmp_path: Path) -> None:
+        """A changed intermediate state is located even when later absolute updates converge."""
+        root = _Inputs._capture(tmp_path / "capture")
+        selected = BookInput.read(root, max_records=32)
+        assert selected.capture is not None
+        captured = BookCapture(selected.capture.config, 32)
+        for index, record in enumerate(CaptureJournal(root, selected.capture).records()):
+            changed = (
+                replace(record, raw=record.raw.replace(b"0.300000000000000001", b"0.4"))
+                if index == 2
+                else record
+            )
+            captured.apply(changed)
+        with pytest.raises(ValueError, match="raw position 2"):
+            captured.verify(root)
+        assert (root / "book-prefix.json").exists()
+        assert b'"0.4"' in (root / "first-divergence.json").read_bytes()
+        assert b'"0.300000000000000001"' in (root / "first-divergence.json").read_bytes()
 
     def test_cursor_failure_and_isolation(self, tmp_path: Path) -> None:
         """Copied evidence cannot change stepping; callbacks cannot checkpoint partial work."""

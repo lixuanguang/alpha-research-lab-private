@@ -18,6 +18,7 @@ from uuid import uuid4
 from websockets.exceptions import WebSocketException
 
 # project library imports
+from alpha_research.data.book_datasets import BookCapture
 from alpha_research.data.live.config import CaptureConfig, CaptureRequest
 from alpha_research.data.live.health import HealthAlert, HealthMetric, HealthMetrics, HealthPolicy
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
@@ -175,7 +176,10 @@ async def collect(
         config=config, recording_id=str(uuid4()), implementation_identity=implementation_identity
     )
     root = output / request.recording_id
-    journal, replay, codec = CaptureJournal(root, request), CaptureReplay(config), DomainCodec()
+    journal, codec = CaptureJournal(root, request), DomainCodec()
+    replay = (
+        CaptureReplay(config) if snapshot_records is None else BookCapture(config, snapshot_records)
+    )
     journal.start()
     deadline, reason = time.monotonic() + config.duration_seconds, "not_started"
     for epoch in range(config.retries + 1):
@@ -336,6 +340,8 @@ async def collect(
     if health is not None:
         health.set(HealthMetric.FINALIZING, 1)
     offline = CaptureReplay.read(root)
+    if isinstance(replay, BookCapture):
+        replay.verify(root)
     if offline.summary() != replay.summary():
         raise ValueError("saved-input replay differs from captured message-boundary state")
     summary = {
@@ -346,6 +352,7 @@ async def collect(
         "capture_directory": str(root.absolute()),
         "stop_reason": reason,
         "replay_parity": True,
+        "canonical_parity": isinstance(replay, BookCapture),
     }
     (root / "summary.json").write_bytes(codec.encode_json(summary))
     if snapshot_directory is not None and snapshot_records is not None:

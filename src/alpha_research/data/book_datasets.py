@@ -9,6 +9,7 @@ import tarfile
 import time
 from collections.abc import Callable, Iterator
 from decimal import Decimal
+from itertools import zip_longest
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -17,7 +18,7 @@ import msgspec
 
 # project library imports
 from alpha_research.data.live.book import Order, Wire
-from alpha_research.data.live.config import CaptureRequest
+from alpha_research.data.live.config import CaptureConfig, CaptureRequest
 from alpha_research.data.live.journal import CaptureRecord
 from alpha_research.data.live.replay import CaptureReplay
 from alpha_research.data.quality import QualityReport
@@ -97,6 +98,47 @@ class BookObservation(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
             len({price for price, _ in side}) != len(side) for side in (self.bids, self.asks)
         ):
             raise ValueError("duplicate native order or aggregate price in canonical state")
+
+    @classmethod
+    def capture(
+        cls, position: int, record: CaptureRecord, outcome: str, replay: CaptureReplay
+    ) -> BookObservation:
+        """Normalize one durable live or saved message through the identical native boundary.
+
+        Args:
+            position: Zero-based original raw position.
+            record: Exact persisted frame or session transition.
+            outcome: Classification returned by this replay's apply operation.
+            replay: Reconstruction and quality immediately after that whole message.
+
+        Returns:
+            Exact visible state, quality transition and original receipt/session coordinates.
+        """
+        book = replay.book
+        keep = outcome in ("snapshot", "update") and book.ready and not replay.invalid
+        return cls(
+            position,
+            record.epoch,
+            record.received_ns,
+            book.source_time,
+            book.sequence,
+            outcome,
+            replay.quality.status,
+            replay.quality.reason,
+            book.identity,
+            orders=tuple(sorted(book.orders.values(), key=cls._order_key))
+            if keep and not isinstance(book, OKXBook)
+            else (),
+            bids=tuple(sorted(book.bids.items())) if keep and isinstance(book, OKXBook) else (),
+            asks=tuple(sorted(book.asks.items())) if keep and isinstance(book, OKXBook) else (),
+            transition_ns=replay.quality.transition_ns,
+            last_durable_ns=replay.quality.last_durable_ns,
+        )
+
+    @staticmethod
+    def _order_key(order: Order) -> str:
+        """Order a complete L3 state deterministically without inventing queue priority."""
+        return order.order_id
 
 
 class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
@@ -247,30 +289,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
                         raise ValueError("incomplete capture message")
                     record = codec.decode_json(line, CaptureRecord)
                     outcome = replay.apply(record)
-                    book = replay.book
-                    keep = outcome in ("snapshot", "update") and book.ready and not replay.invalid
-                    yield BookObservation(
-                        position,
-                        record.epoch,
-                        record.received_ns,
-                        book.source_time,
-                        book.sequence,
-                        outcome,
-                        replay.quality.status,
-                        replay.quality.reason,
-                        book.identity,
-                        orders=tuple(sorted(book.orders.values(), key=BookInput._order_key))
-                        if keep and not isinstance(book, OKXBook)
-                        else (),
-                        bids=tuple(sorted(book.bids.items()))
-                        if keep and isinstance(book, OKXBook)
-                        else (),
-                        asks=tuple(sorted(book.asks.items()))
-                        if keep and isinstance(book, OKXBook)
-                        else (),
-                        transition_ns=replay.quality.transition_ns,
-                        last_durable_ns=replay.quality.last_durable_ns,
-                    )
+                    yield BookObservation.capture(position, record, outcome, replay)
                 # Completion is structural; unselected native events remain outside admission.
                 for line in source:
                     record = codec.decode_json(line, CaptureRecord)
@@ -319,11 +338,6 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
                                 bids=tuple(sorted(book.bids.items())),
                                 asks=tuple(sorted(book.asks.items())),
                             )
-
-    @staticmethod
-    def _order_key(order: Order) -> str:
-        """Order a complete L3 state deterministically without inventing queue priority."""
-        return order.order_id
 
     @staticmethod
     def _read_bytes(path: Path, max_bytes: int) -> bytes:
@@ -375,6 +389,78 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
                 row.received_ns is None or row.received_ns <= 0 or row.epoch is None
             ):
                 raise ValueError("captured book history requires original receipt and epoch")
+
+
+class BookCapture(CaptureReplay):
+    """Retain a byte-capped live canonical prefix and diagnose its first saved-input divergence."""
+
+    def __init__(self, config: CaptureConfig, max_records: int) -> None:
+        """Bind native reconstruction and a finite publication consumer.
+
+        Args:
+            config: Validated capture settings, including the canonical byte budget.
+            max_records: Maximum original raw positions in the compared prefix.
+
+        Raises:
+            ValueError: The prefix bound is unsupported.
+        """
+        config.__post_init__()
+        if type(max_records) is not int or not 1 <= max_records <= 10_000:
+            raise ValueError("book capture requires 1..10000 raw records")
+        super().__init__(config)
+        self._limit = max_records
+        self._observations: list[BookObservation] = []
+        self._bytes = 0
+
+    def apply(self, record: CaptureRecord) -> str:
+        """Apply and normalize after durable append, retaining only the selected prefix.
+
+        Args:
+            record: Whole original frame or session transition.
+
+        Returns:
+            The unchanged native classification.
+
+        Raises:
+            ValueError: Retained canonical states exceed the configured byte budget.
+        """
+        outcome = super().apply(record)
+        if len(self._observations) < self._limit:
+            row = BookObservation.capture(len(self._observations), record, outcome, self)
+            self._bytes += len(self._codec.encode_json(row))
+            if self._bytes > self.config.max_bytes:
+                raise ValueError("captured book prefix exceeds max_bytes")
+            self._observations.append(row)
+        return outcome
+
+    def verify(self, root: Path) -> None:
+        """Retain the live prefix and compare every field with independent saved normalization.
+
+        Args:
+            root: Completed recording directory containing exact raw bytes and request.
+
+        Raises:
+            ValueError: Admission fails or a boundary differs; first-divergence.json retains
+                the original position and both observations beside the saved raw input.
+        """
+        selected = BookInput.read(root, max_records=self._limit)
+        expected = BookHistory(input=selected, observations=tuple(self._observations))
+        payload = self._codec.encode_json(expected)
+        if len(payload) > self.config.max_bytes:
+            raise ValueError("captured book envelope exceeds max_bytes")
+        with (root / "book-prefix.json").open("xb") as output:
+            output.write(payload)
+        canonical = selected.admit(
+            RawStore(root), max_bytes=self.config.max_bytes
+        ).require_canonical()
+        actual = self._codec.decode_json(canonical, BookHistory)
+        for position, (left, right) in enumerate(
+            zip_longest(expected.observations, actual.observations, fillvalue=None)
+        ):
+            if left != right:
+                with (root / "first-divergence.json").open("xb") as output:
+                    output.write(self._codec.encode_json((selected, position, left, right)))
+                raise ValueError(f"captured book differs at raw position {position}")
 
 
 class BookPartition(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
