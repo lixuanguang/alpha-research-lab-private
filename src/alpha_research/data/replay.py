@@ -60,7 +60,106 @@ class ReplayCursor(_ReferenceRecord, frozen=True, kw_only=True):
                 raise ValueError("replay cursor position must be nonnegative and already known")
 
 
-class Replay:
+class _EventSteps[Event]:
+    """Share completed-clock phases and cursor recovery across admitted event formats."""
+
+    _phases: ClassVar[tuple[ReplayPhase, ...]] = ("expiry", "fill", "decision", "mark")
+
+    def __init__(
+        self,
+        ordered: dict[EconomicOrder, Event],
+        *,
+        identity: str,
+        terminal: datetime,
+        cursor: ReplayCursor | None,
+    ) -> None:
+        """Bind an owned ordered reference and validate its completed checkpoint."""
+        ReplayCursor._require_utc(terminal, field_name="terminal")
+        self._identity = identity
+        self._keys = tuple(sorted(ordered))
+        self._events = tuple(ordered[key] for key in self._keys)
+        self._times = tuple(key[0] for key in self._keys)
+        self._terminal = terminal
+        self._index = 0
+        self._cursor = deepcopy(cursor)
+        self._is_stepping = False
+        if cursor is not None:
+            if type(cursor) is not ReplayCursor:
+                raise TypeError("replay requires a ReplayCursor")
+            cursor.__post_init__()
+            self._index = bisect_right(self._times, cursor.clock)
+            position = self._keys[self._index - 1] if self._index else None
+            if (
+                cursor.identity != self._identity
+                or cursor.clock > terminal
+                or cursor.position != position
+            ):
+                raise ValueError("incompatible or incomplete replay checkpoint")
+
+    @property
+    def cursor(self) -> ReplayCursor | None:
+        """Expose a checkpoint only outside an active or failed step.
+
+        Returns:
+            Last completed cursor, or None before the first step.
+
+        Raises:
+            RuntimeError: An incomplete callback sequence cannot be checkpointed.
+        """
+        if self._is_stepping:
+            raise RuntimeError("incomplete replay step; restore the last completed checkpoint")
+        return deepcopy(self._cursor)
+
+    def step(
+        self,
+        scheduled_at: datetime,
+        consume: Callable[[ReplayPhase, datetime, Event | None], None],
+    ) -> ReplayCursor | None:
+        """Advance to the next source, consumer wakeup or terminal, in fixed phase order.
+
+        Args:
+            scheduled_at: Earliest outstanding decision, expiry or additional fill-eligibility
+                time, in UTC. Recompute after each step; it must exceed the completed clock.
+                Use terminal when there is no earlier consumer wakeup.
+            consume: Synchronous callback for each source event, then expiry, fill, decision
+                and mark with None. Evaluate only due decisions; enforce expiry and fill
+                eligibility in their owning libraries. Exceptions propagate and poison this
+                replay instance: restore both cursor and consumer state before retrying.
+
+        Returns:
+            Completed cursor, or None if terminal was already completed. All equal-time
+            sources are admitted before other phases regardless of original query batches.
+
+        Raises:
+            ValueError: A scheduled time would repeat or reverse the completed clock.
+            TypeError: The scheduled clock is not aware UTC.
+            RuntimeError: Reentrant or previously failed stepping is refused.
+        """
+        cursor = self.cursor
+        ReplayCursor._require_utc(scheduled_at, field_name="scheduled_at")
+        if cursor is not None and cursor.clock == self._terminal:
+            return None
+        if cursor is not None and scheduled_at <= cursor.clock:
+            raise ValueError("scheduled time must follow the completed replay clock")
+        instant = min(scheduled_at, self._terminal)
+        if self._index < len(self._keys):
+            instant = min(instant, self._times[self._index])
+        self._is_stepping = True
+        while self._index < len(self._keys) and self._times[self._index] == instant:
+            consume("source", instant, deepcopy(self._events[self._index]))
+            self._index += 1
+        for phase in self._phases:
+            consume(phase, instant, None)
+        self._cursor = ReplayCursor(
+            identity=self._identity,
+            clock=instant,
+            position=self._keys[self._index - 1] if self._index else None,
+        )
+        self._is_stepping = False
+        return self.cursor
+
+
+class Replay(_EventSteps[PointEvent]):
     """Own a bounded ordered reference and per-consumer clock, with no economic state.
 
     History admission reads ahead within QueryReader's aggregate canonical-byte cap.
@@ -70,7 +169,6 @@ class Replay:
     """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    _phases: ClassVar[tuple[ReplayPhase, ...]] = ("expiry", "fill", "decision", "mark")
 
     def __init__(
         self,
@@ -138,29 +236,11 @@ class Replay:
                                 ordered, version, known_at, version.occurrences
                             )
                         version = version.previous
-        self._identity = hashlib.sha256(
+        identity = hashlib.sha256(
             self._codec.encode_json(("reference-replay-v1", batch.identity, config_identity))
         ).hexdigest()
         self._evidence = batch.evidence
-        self._keys = tuple(sorted(ordered))
-        self._events = tuple(ordered[key] for key in self._keys)
-        self._times = tuple(key[0] for key in self._keys)
-        self._terminal = terminal
-        self._index = 0
-        self._cursor = deepcopy(cursor)
-        self._is_stepping = False
-        if cursor is not None:
-            if type(cursor) is not ReplayCursor:
-                raise TypeError("replay requires a ReplayCursor")
-            cursor.__post_init__()
-            self._index = bisect_right(self._times, cursor.clock)
-            position = self._keys[self._index - 1] if self._index else None
-            if (
-                cursor.identity != self._identity
-                or cursor.clock > terminal
-                or cursor.position != position
-            ):
-                raise ValueError("incompatible or incomplete replay checkpoint")
+        super().__init__(ordered, identity=identity, terminal=terminal, cursor=cursor)
 
     @property
     def evidence(self) -> tuple[QueryEvidence, ...]:
@@ -170,65 +250,3 @@ class Replay:
             Complete selected query evidence, including unknown availability/eligibility.
         """
         return deepcopy(self._evidence)
-
-    @property
-    def cursor(self) -> ReplayCursor | None:
-        """Expose a checkpoint only outside an active or failed step.
-
-        Returns:
-            Last completed cursor, or None before the first step.
-
-        Raises:
-            RuntimeError: An incomplete callback sequence cannot be checkpointed.
-        """
-        if self._is_stepping:
-            raise RuntimeError("incomplete replay step; restore the last completed checkpoint")
-        return deepcopy(self._cursor)
-
-    def step(
-        self,
-        scheduled_at: datetime,
-        consume: Callable[[ReplayPhase, datetime, PointEvent | None], None],
-    ) -> ReplayCursor | None:
-        """Advance to the next source, consumer wakeup or terminal, in fixed phase order.
-
-        Args:
-            scheduled_at: Earliest outstanding decision, expiry or additional fill-eligibility
-                time, in UTC. Recompute after each step; it must exceed the completed clock.
-                Use terminal when there is no earlier consumer wakeup.
-            consume: Synchronous callback for each source event, then expiry, fill, decision
-                and mark with None. Evaluate only due decisions; enforce expiry and fill
-                eligibility in their owning libraries. Exceptions propagate and poison this
-                replay instance: restore both cursor and consumer state before retrying.
-
-        Returns:
-            Completed cursor, or None if terminal was already completed. All equal-time
-            sources are admitted before other phases regardless of original query batches.
-
-        Raises:
-            ValueError: A scheduled time would repeat or reverse the completed clock.
-            TypeError: The scheduled clock is not aware UTC.
-            RuntimeError: Reentrant or previously failed stepping is refused.
-        """
-        cursor = self.cursor
-        ReplayCursor._require_utc(scheduled_at, field_name="scheduled_at")
-        if cursor is not None and cursor.clock == self._terminal:
-            return None
-        if cursor is not None and scheduled_at <= cursor.clock:
-            raise ValueError("scheduled time must follow the completed replay clock")
-        instant = min(scheduled_at, self._terminal)
-        if self._index < len(self._keys):
-            instant = min(instant, self._times[self._index])
-        self._is_stepping = True
-        while self._index < len(self._keys) and self._times[self._index] == instant:
-            consume("source", instant, deepcopy(self._events[self._index]))
-            self._index += 1
-        for phase in self._phases:
-            consume(phase, instant, None)
-        self._cursor = ReplayCursor(
-            identity=self._identity,
-            clock=instant,
-            position=self._keys[self._index - 1] if self._index else None,
-        )
-        self._is_stepping = False
-        return self.cursor
