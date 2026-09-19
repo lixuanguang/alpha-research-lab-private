@@ -4,11 +4,14 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 # project library imports
 from alpha_research.data.live.config import CaptureConfig, CaptureRequest
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
+from alpha_research.data.live.quality import ContinuousQuality
 from alpha_research.data.venues.bitfinex.book import BitfinexBook
 from alpha_research.data.venues.coinbase.book import CoinbaseBook
 from alpha_research.data.venues.okx.book import OKXBook
@@ -25,6 +28,11 @@ class CaptureReplay:
             config: Validated native spot source selection and resource budgets.
         """
         self.config = config
+        self.quality = ContinuousQuality(
+            f"{config.venue}:{config.channel}:{config.instrument_id}",
+            lateness_ns=0,
+            freshness_ns=config.idle_seconds * 1_000_000_000,
+        )
         self.book: BitfinexBook | CoinbaseBook | OKXBook = self._new_book()
         self.epoch = -1
         self.messages = 0
@@ -127,10 +135,35 @@ class CaptureReplay:
             self._stop_reason = record.reason
         elif record.kind == "session_end":
             self._session_ended = True
+        if not self.quality.observe(
+            record,
+            outcome,
+            ready=self.book.ready and not self.invalid,
+            source_ns=self._source_ns() if outcome in ("snapshot", "update") else None,
+        ):
+            outcome = "invalid_frame"
+            self._gap(record, "receipt_beyond_watermark")
         self._trace.update(
             self._codec.encode_json((record, outcome, self.book.identity, self.invalid))
         )
         return outcome
+
+    def _source_ns(self) -> int | None:
+        """Project freshness in integer nanoseconds while retaining original source text."""
+        text = self.book.source_time
+        if text is None:
+            return None
+        if isinstance(self.book, OKXBook):
+            return int(text) * 1_000_000
+        instant = datetime.fromisoformat(text)
+        seconds = instant.replace(microsecond=0) - datetime(1970, 1, 1, tzinfo=UTC)
+        fraction = re.search(r"[.,](\d+)", text)
+        nanos = (
+            0
+            if fraction is None
+            else int((text[fraction.start() + 1 : fraction.end()] + "000000000")[:9])
+        )
+        return (seconds.days * 86400 + seconds.seconds) * 1_000_000_000 + nanos
 
     def _gap(self, record: CaptureRecord, reason: str) -> None:
         """Record scoped unknown continuity and hide partially applied invalid state."""
@@ -193,6 +226,7 @@ class CaptureReplay:
             "book_identity": self.book.identity,
             "trace_identity": self._trace.hexdigest(),
             "epochs": self.epoch + 1,
+            "quality": self.quality.summary(),
         }
 
     @classmethod

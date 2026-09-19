@@ -15,11 +15,14 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
+from alpha_research.data.book_datasets import BookDatasetManifest
 from alpha_research.data.live.config import CaptureConfig, CaptureRequest
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
 from alpha_research.data.live.replay import CaptureReplay
 from alpha_research.data.live.transport import FeedSocket, VenueTransport
 from alpha_research.data.raw_objects import RawObject
+from alpha_research.data.raw_store import RawStore
+from alpha_research.data.snapshots import SnapshotStore
 from alpha_research.data.venues.coinbase.auth import CoinbaseAccessError, CoinbaseCredentials
 from alpha_research.pipelines.live import collect, receive_frames, receive_snapshot
 from alpha_research.serialization import DomainCodec
@@ -600,3 +603,28 @@ class TestCoinbaseCapture:
         journal = (root / "journal.jsonl").read_bytes()
         assert b"fixture-secret" not in journal
         assert b"fixture-passphrase" not in journal
+
+    def test_capture_publishes_selected_book_prefix(self, tmp_path: Path) -> None:
+        """Publish a bounded live result through the shared atomic snapshot boundary."""
+        snapshots = tmp_path / "snapshots"
+        snapshots.mkdir()
+        config = TestCapture.config()
+        result = asyncio.run(
+            collect(
+                config,
+                tmp_path / "captures",
+                implementation_identity="a" * 64,
+                transport=ScriptedTransport(config, (_FRAMES,)),
+                snapshot_directory=snapshots,
+                snapshot_records=32,
+            )
+        )
+        identity, directory = result["snapshot_identity"], result["capture_directory"]
+        assert isinstance(identity, str) and isinstance(directory, str)
+        manifest = SnapshotStore(
+            snapshots, RawStore(Path(directory)), manifest_type=BookDatasetManifest
+        ).read(
+            identity,
+            max_bytes=config.max_bytes,
+        )
+        assert manifest.scope == "exploratory_degraded"

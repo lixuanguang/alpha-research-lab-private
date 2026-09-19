@@ -535,3 +535,20 @@ verified all 76 runtime files against the installed candidate. The kernel shut
 down; generated runs remain ignored and maintained examples remain tracked.
 A later snapshot or new connection cannot fill an earlier unknown interval.
 Shared reconstruction/quality/publication remains MR 25 work.
+
+## MR 25 publication checkpoint verification
+
+Section 16 of `research-foundations.ipynb` publishes bounded saved Bitfinex and OKX
+prefixes and exercises quality/publication refusals. The
+[MR 25 record](../docs/roadmap/mr-25-implementation.md#fresh-kernel-notebook) owns the
+exact commands, input identities, failed attempts and installed wheel evidence.
+The final fresh kernel completed all 71 cells (35 code cells) using the isolated
+candidate environment; raw input paths were pinned explicitly. It closed normally.
+The added notebook tooling is development-only and does not change `uv.lock`.
+
+MR 18's timings remain historical. MR 25 changes the snapshot reader's format
+selection and import graph, so the notebook no longer claims that its import path
+matches the measured candidate. It still verifies the retained measurement's source
+hash, known changed files, driver and lock identity. Current book publication has
+no performance qualification. Maintained notebook/runner/guide sources stay tracked;
+generated successful/failed run snapshots and temporary kernel files stay ignored.

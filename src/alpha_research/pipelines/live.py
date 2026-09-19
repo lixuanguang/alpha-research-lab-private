@@ -21,8 +21,10 @@ from alpha_research.data.live.config import CaptureConfig, CaptureRequest
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
 from alpha_research.data.live.replay import CaptureReplay
 from alpha_research.data.live.transport import FeedSocket, VenueTransport
+from alpha_research.data.raw_store import RawStore
 from alpha_research.data.venues.coinbase.auth import CoinbaseAccessError, CoinbaseCredentials
 from alpha_research.data.venues.coinbase.book import CoinbaseBook
+from alpha_research.pipelines.dataset import publish_book_dataset
 from alpha_research.serialization import DomainCodec
 
 
@@ -122,6 +124,8 @@ async def collect(
     implementation_identity: str,
     credentials: CoinbaseCredentials | None = None,
     transport: VenueTransport | None = None,
+    snapshot_directory: Path | None = None,
+    snapshot_records: int | None = None,
 ) -> dict[str, object]:
     """Collect one finite recording with bounded retry, durable-before-apply and replay parity.
 
@@ -137,6 +141,8 @@ async def collect(
         implementation_identity: SHA-256 identity of the installed runtime implementation.
         credentials: Explicit Exchange signing capability; required only for Coinbase.
         transport: Explicit transport override for deterministic integration tests.
+        snapshot_directory: Optional provisioned destination for an exploratory book snapshot.
+        snapshot_records: Explicit raw-prefix bound required with snapshot_directory.
 
     Returns:
         Saved-input identity, replay parity, bounded counts and gap summary.
@@ -146,6 +152,11 @@ async def collect(
         ValueError: The source schema, identity, continuity or resource contract is invalid.
     """
     config.__post_init__()
+    if (snapshot_directory is None) != (snapshot_records is None) or (
+        snapshot_records is not None
+        and (type(snapshot_records) is not int or not 1 <= snapshot_records <= 10_000)
+    ):
+        raise ValueError("book publication requires a destination and 1..10000 raw records")
     if config.venue == "coinbase" and credentials is None:
         raise CoinbaseAccessError("Coinbase Exchange credentials are required before connection")
     transport = transport if transport is not None else VenueTransport(config)
@@ -306,6 +317,15 @@ async def collect(
         "replay_parity": True,
     }
     (root / "summary.json").write_bytes(codec.encode_json(summary))
+    if snapshot_directory is not None and snapshot_records is not None:
+        summary["snapshot_identity"] = publish_book_dataset(
+            (root,),
+            RawStore(root),
+            snapshot_directory,
+            max_records=snapshot_records,
+            max_bytes=config.max_bytes,
+        )
+        (root / "summary.json").write_bytes(codec.encode_json(summary))
     return summary
 
 
@@ -318,6 +338,8 @@ class CaptureArguments(argparse.Namespace):
     secrets: Path | None
     capture: Path
     interrupted: bool
+    snapshot_directory: Path | None
+    snapshot_records: int | None
 
 
 class InstalledIdentity:
@@ -351,6 +373,8 @@ def main() -> None:
     capture_parser.add_argument("--config", type=Path, required=True)
     capture_parser.add_argument("--output", type=Path, required=True)
     capture_parser.add_argument("--secrets", type=Path)
+    capture_parser.add_argument("--snapshot-directory", type=Path)
+    capture_parser.add_argument("--snapshot-records", type=int)
     probe_parser = commands.add_parser("probe")
     probe_parser.add_argument("--config", type=Path, required=True)
     replay_parser = commands.add_parser("replay")
@@ -386,6 +410,8 @@ def main() -> None:
                         arguments.output,
                         credentials=credentials,
                         implementation_identity=InstalledIdentity.sha256(),
+                        snapshot_directory=arguments.snapshot_directory,
+                        snapshot_records=arguments.snapshot_records,
                     )
                 )
         print(DomainCodec().encode_json(result).decode(), flush=True)
