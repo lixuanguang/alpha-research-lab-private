@@ -9,9 +9,9 @@ identity](instrument-identity.md), [venue calendars](venue-calendar.md), and
 reference-catalog and bounded Binance event/decoder foundations. Historical
 acquisition, occurrence/revision admission, bitemporal eligibility selection,
 quality validation and atomic dataset publication/reopening are implemented.
-Native Bitfinex/OKX acquisition and book replay are also available. Dataset queries
-as of a cutoff, simulation, portfolio and risk enforcement, order execution,
-deployment and live trading monitoring remain planned. See the
+Native Bitfinex/OKX acquisition, dataset queries as of a cutoff and bounded book
+replay are also available. Simulation, portfolio and risk enforcement, order
+execution, deployment and live trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.
 
@@ -31,6 +31,16 @@ The full monorepo is one source tree with multiple deployables and release
 cadences. Shared economic semantics are canonical; strategy variants, asset
 mechanics, storage, and computation lanes remain separate until a consumer or
 measured workload justifies a shared boundary.
+
+The current runtime still ships under `src/alpha_research/`. The selected
+[functional source layout](platform-design.md#current-and-planned-repository-shape)
+replaces that umbrella with purpose-named packages directly under `src/`, plus
+`applications/` for executable workflow composition. The
+[MR 28 refactoring plan](../roadmap/source-layout-refactor.md) owns the current-file
+mapping, dependency repairs, coordinated import/packaging cutover and acceptance;
+the [roadmap](../roadmap/README.md#functional-source-ownership-from-mr-28)
+assigns owners to each MR from 28 through 62. This documentation selects the
+target; it does not change the current imports and commands described below.
 
 ## Current boundary
 
