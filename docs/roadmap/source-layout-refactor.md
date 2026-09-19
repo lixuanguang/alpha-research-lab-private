@@ -263,8 +263,9 @@ metadata were changed by authoring the plan. The implementation evidence below s
 
 ## Cutover evidence
 
-The locally tested source is the `codex/mr28-functional-source-layout` cutover;
-the implementation commit is recorded below before the final documentation commit.
+The tested implementation is commit `862fa1c` on
+`codex/mr28-functional-source-layout`. The subsequent evidence commit changes
+only this record; source, packaging and tests are identical to the passing lane.
 CPython 3.14.7, macOS arm64, frozen dependencies; no dependency or serialized-schema
 version was changed. All commands ran from the repository root unless isolated by
 the existing consumers.
@@ -275,6 +276,7 @@ the existing consumers.
 | Focused cutover correction run | 123 passed, 1 deselected, 17.68 s; command aliases, asynchronous snapshot test patching, committed journal replay, supervision, identity inventory and source-layout checks. |
 | `TMPDIR=/private/tmp make check` | Passed: formatting/lint; strict mypy over 236 sources; native stubtest over 1,548 modules; engineering, dependency and architecture checks; Bandit; dependency audit; secret scan; **1,064 correctness tests passed, 3 performance tests deselected, no skips**, 69.16 s; isolated wheel smoke passed. |
 | Isolated wheel smoke | Imports every functional public API outside the checkout, verifies all nine roots, currency JSON and typing markers, excludes governance/retired namespace, exercises all four commands and existing ingestion/recovery consumers, and reopens the pre-cutover snapshot. |
+| Final staged secret scan | Passed for all 361 governed paths, including newly added packages and fixture files. |
 | Maintained notebooks | All 70 code cells compile with notebook top-level-await support; every functional import resolves. Outputs and execution counts are byte-for-byte-equivalent JSON values to their retained revisions. No notebook/live source or historical benchmark was rerun. |
 
 The first broad unit run found stale command/resource imports and test patch targets;
