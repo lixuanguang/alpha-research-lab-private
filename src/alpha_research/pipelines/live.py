@@ -18,6 +18,7 @@ from websockets.exceptions import WebSocketException
 
 # project library imports
 from alpha_research.data.live.config import CaptureConfig, CaptureRequest
+from alpha_research.data.live.health import HealthMetric, HealthMetrics
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
 from alpha_research.data.live.replay import CaptureReplay
 from alpha_research.data.live.transport import FeedSocket, VenueTransport
@@ -35,6 +36,7 @@ async def receive_frames(
     epoch: int,
     deadline: float,
     remaining: int,
+    health: HealthMetrics | None = None,
 ) -> None:
     """Timestamp receipt independently of persistence; stop visibly on overload or disconnect.
 
@@ -45,10 +47,12 @@ async def receive_frames(
         epoch: Connection epoch within the current recording.
         deadline: Monotonic receive deadline in seconds.
         remaining: Maximum additional received WebSocket messages.
+        health: Optional shared progress observed by an independent supervisor.
     """
     reason = "message_limit"
     awaiting_pong = False
     received = 0
+    queue_peak = 0 if health is None else health.snapshot()[HealthMetric.QUEUE]
     try:
         while received < remaining:
             budget = deadline - time.monotonic()
@@ -82,6 +86,10 @@ async def receive_frames(
                 break
             try:
                 queue.put_nowait(record)
+                if health is not None:
+                    health.set(HealthMetric.INGESTION, time.monotonic_ns())
+                    queue_peak = max(queue_peak, queue.qsize())
+                    health.set(HealthMetric.QUEUE, queue_peak)
             except asyncio.QueueFull:
                 reason = "overload_unknown_loss"
                 break
@@ -126,6 +134,7 @@ async def collect(
     transport: VenueTransport | None = None,
     snapshot_directory: Path | None = None,
     snapshot_records: int | None = None,
+    health: HealthMetrics | None = None,
 ) -> dict[str, object]:
     """Collect one finite recording with bounded retry, durable-before-apply and replay parity.
 
@@ -143,6 +152,7 @@ async def collect(
         transport: Explicit transport override for deterministic integration tests.
         snapshot_directory: Optional provisioned destination for an exploratory book snapshot.
         snapshot_records: Explicit raw-prefix bound required with snapshot_directory.
+        health: Optional shared progress observed by an independent supervisor.
 
     Returns:
         Saved-input identity, replay parity, bounded counts and gap summary.
@@ -168,6 +178,8 @@ async def collect(
     journal.start()
     deadline, reason = time.monotonic() + config.duration_seconds, "not_started"
     for epoch in range(config.retries + 1):
+        if health is not None:
+            health.set(HealthMetric.RECONNECTS, epoch)
         start = CaptureRecord(kind="session", epoch=epoch, received_ns=time.time_ns())
         journal.append(start)
         replay.apply(start)
@@ -223,6 +235,7 @@ async def collect(
                         deadline,
                         # Reserve the single REST response before accepting stream input.
                         config.max_messages - replay.messages - (config.venue == "coinbase"),
+                        health,
                     )
                 )
                 reason = "message_limit"
@@ -245,10 +258,25 @@ async def collect(
                         )
                     try:
                         await asyncio.to_thread(journal.append, record)
+                    except OSError:
+                        if health is not None:
+                            health.set(HealthMetric.PERSISTENCE_FAILED, 1)
+                        raise
                     except OverflowError:
                         reason = "storage_limit_unknown_tail"
                         break
+                    if health is not None:
+                        health.set(HealthMetric.PERSISTENCE, time.monotonic_ns())
+                    previous_market_ns = replay.quality.last_market_ns
                     outcome = await asyncio.to_thread(replay.apply, record)
+                    if health is not None:
+                        health.set(HealthMetric.INVALID, len(replay.gaps))
+                        if (
+                            replay.quality.last_market_ns is not None
+                            and replay.quality.last_market_ns != previous_market_ns
+                        ):
+                            age_ns = max(0, time.time_ns() - replay.quality.last_market_ns)
+                            health.set(HealthMetric.MARKET, time.monotonic_ns() - age_ns)
                     if outcome == "invalid_frame" or record.kind == "gap":
                         if outcome == "invalid_frame":
                             reason = "invalid_stream_requires_snapshot"
@@ -304,6 +332,8 @@ async def collect(
     journal.append(end)
     replay.apply(end)
     descriptor = journal.finish(replay.started_ns or end.received_ns)
+    if health is not None:
+        health.set(HealthMetric.FINALIZING, 1)
     offline = CaptureReplay.read(root)
     if offline.summary() != replay.summary():
         raise ValueError("saved-input replay differs from captured message-boundary state")
