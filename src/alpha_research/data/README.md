@@ -1284,6 +1284,51 @@ refuse a large prefix, and no throughput claim is made. Prior snapshots survive
 failure, and reopening reproduces admission from retained original bytes.
 
 Only `exploratory_degraded` publication is supported. Historical eligibility,
-complete coverage, full depth, causal use, trade queries, shared chronological
-book stepping, fills and execution are not admitted. The
+complete coverage, full depth, causal use, trade queries, fills and execution are
+not admitted. MR 27 adds bounded chronological book stepping below. The
 [MR 25 record](../../../docs/roadmap/mr-25-implementation.md) retains acceptance.
+
+
+## Published book queries and shared stepping (MR 27)
+
+`BookReplay.read` verifies the entire `BookDatasetManifest` against retained raw
+bytes, then selects one explicit `request_identity`. Supply the snapshot identity,
+raw store, inclusive UTC terminal, resolved consumer configuration SHA-256,
+canonical byte budget and positive batch size. `batches()` yields whole original
+messages and controls, including unknown-availability archive observations;
+`evidence` retains the selected raw object, source configuration and depth limits.
+The reader keeps a byte-bounded partition and sorted reference in memory; batch
+size limits delivery, not process RSS. It opens no source connection.
+
+`step` and `ReplayCursor` reuse the same implementation as trade/control replay.
+Every equal-time source precedes expiry, fill, decision and mark callbacks; callback
+failure poisons the instance until restoration. Exact `received_ns` stays in each
+`BookObservation`. Scheduling rounds up to the shared microsecond UTC clock, so
+input is never visible early; source order breaks ties inside that microsecond.
+This is a conservative clock projection, not nanosecond scheduling. Unknown
+archive receipt/availability remains queryable but is never scheduled, and download
+time never substitutes for historical knowledge. Configuration, snapshot,
+canonical input or terminal changes invalidate the cursor; batch-size changes do not.
+
+Save the consumer's accepted snapshot, current visible state and last quality/session
+boundary alongside the completed cursor. The installed
+[consumer fixture](../../../tests/fixtures/mr27/parity_consumer.py) demonstrates the
+same exact spread/state consumer on captured and replayed observations and resumes
+in a fresh process. Cursor restoration does not reconnect or resynchronize a live
+feed. Controls contain no replacement book; interpret them through their outcome
+and quality, never as an empty valid market. Source-specific limits, explicit gaps
+and exploratory degraded scope survive every step.
+
+`collect` with the existing snapshot arguments now retains `book-prefix.json`,
+normalizes the live prefix through `BookObservation.capture`, and compares every
+field against an independent raw replay before publication. `canonical_parity`
+means that selected prefix agrees; the existing `replay_parity` remains the full
+native-summary comparison. A first difference produces `first-divergence.json`
+with input provenance, raw position and both canonical observations. Original
+frames remain in the immutable raw object. A failed comparison/publication leaves
+saved input available for diagnosis and never reports canonical success. Canonical
+prefix retention shares the configured byte cap and fails explicitly if exceeded.
+
+No source/format gains complete coverage, executable use or derivative mechanics.
+The [MR 27 record](../../../docs/roadmap/mr-27-implementation.md) identifies the
+real bounded captures, archive check, synthetic failure evidence and limitations.

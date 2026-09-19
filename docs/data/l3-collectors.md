@@ -432,3 +432,33 @@ The parent watchdog itself still needs an external service manager for deployed
 availability; host loss, remote alert routing and service activation are unproven.
 R1 remains required before deployment. This change enables no book-dependent
 execution consumer and makes no new named-source or canonical-parity claim.
+
+
+## MR 27: published capture and replay parity
+
+The foreground installed capture path accepts the existing paired
+`--snapshot-directory <provisioned-directory> --snapshot-records 32` options.
+After durable completion it compares the captured canonical prefix with exact
+saved-frame normalization and publishes the shared immutable book snapshot.
+`summary.json` reports `canonical_parity` and `snapshot_identity` on success;
+`book-prefix.json` retains the original live normalization for downstream comparison.
+A divergent message leaves `first-divergence.json` beside the original raw object,
+with the first raw position and expected/observed states. No vendor download is
+used to replace the recording. Preserve these files together when diagnosing failure.
+
+The [book replay API](../../src/alpha_research/data/README.md#published-book-queries-and-shared-stepping-mr-27)
+queries atomic messages, schedules only known receipts, and restores the shared
+completed cursor together with accepted snapshot and recovery epoch in consumer state.
+The [capture notebook](../../examples/market-data-capture.ipynb) section 10 and
+[MR 27 record](../roadmap/mr-27-implementation.md) retain Bitfinex/OKX source,
+snapshot/query/replay identities and installed-consumer results. Section 18 of the
+foundations notebook injects disconnects and duplicate saved frames, with explicitly
+new local receipt clocks, and shows a retained first-divergence failure.
+
+The canonical proof covers the selected prefix (32 positions in acceptance), while
+native summary parity covers the finite recording. Continuous service, complete
+coverage, source clock accuracy and execution remain outside this acceptance.
+Coinbase live acceptance still requires verified Exchange access. The existing
+supervised CLI path remains raw-capture-only and refuses snapshot flags; MR 26's
+independent supervision evidence is reused unchanged. R1 remains required for any
+deployment. No new venue connection is needed to replay an existing saved recording.

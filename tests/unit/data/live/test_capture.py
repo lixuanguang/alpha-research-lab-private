@@ -5,6 +5,9 @@ from __future__ import annotations
 # standard library imports
 import asyncio
 import os
+import shutil
+import subprocess
+import sys
 from http.client import IncompleteRead
 from pathlib import Path
 from threading import Event
@@ -650,3 +653,38 @@ class TestCoinbaseCapture:
             max_bytes=config.max_bytes,
         )
         assert manifest.scope == "exploratory_degraded"
+        assert result["canonical_parity"] is True
+        assert (Path(directory) / "book-prefix.json").is_file()
+
+    @pytest.mark.integration
+    def test_installed_restart_and_duplicate_consumer(self, tmp_path: Path) -> None:
+        """Recover two sessions, preserve duplicates and resume accepted state outside checkout."""
+        snapshots = tmp_path / "snapshots"
+        snapshots.mkdir()
+        config = replace(TestCapture.config(), retries=1, max_messages=12)
+        frames = (*_FRAMES, _FRAMES[-1])
+        result = asyncio.run(
+            collect(
+                config,
+                tmp_path / "captures",
+                implementation_identity="a" * 64,
+                transport=ScriptedTransport(config, (frames, frames)),
+                snapshot_directory=snapshots,
+                snapshot_records=32,
+            )
+        )
+        assert result["canonical_parity"] is True
+        assert result["epochs"] == 2 and result["duplicates"] == 2 and result["updates"] == 2
+        directory = result["capture_directory"]
+        assert isinstance(directory, str)
+        script = tmp_path / "parity_consumer.py"
+        shutil.copyfile(_ROOT / "tests/fixtures/mr27/parity_consumer.py", script)
+        process = subprocess.run(
+            [sys.executable, "-I", str(script), str(tmp_path / "consumer"), directory],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        assert process.returncode == 0, (process.stdout, process.stderr)

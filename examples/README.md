@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has seventeen sections:
+The current notebook has eighteen sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -102,6 +102,7 @@ The current notebook has seventeen sections:
 | 12: source negotiation | Inspect the saved Bitfinex version, native acknowledgement, sequence range and exact receipt clocks. Refuse incompatible subscriptions, versions and product/stream combinations without reconnecting. |
 | 13: durable capture | Inspect the committed input cursor; exclude uncommitted tails and reject damaged committed bytes, failed writers and invalid units. |
 | 14: MR 16 acquisition handoff | Acquire a synthetic two-instrument universe through installed commands, interrupt/resume without repeating completed fetches, refuse the incomplete acquisition and interrupted snapshot, then publish/reopen and inspect six history rows. HTTP is injected; persistence and all downstream stages are real. |
+| 18: capture/replay parity | Compare whole-message canonical histories and visible-spread outputs, inspect snapshot/recovery state, resume a shared cursor in a separate process and retain the first divergence. |
 | 17: collector health | Watch synthetic child collectors with independent heartbeat, ingestion, persistence, freshness and count limits. Inspect process death, journal failure, local syslog delivery and protection when alert delivery fails. |
 
 The generic composition boundary is in place. Installed saved-input publication
@@ -154,7 +155,7 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Inspect publication through an installed dataset command | MR 16 publishes saved acquisitions and reopens an explicit ID, reporting degraded quality, invalid/gap/duplicate counts and persistence status. |
 | Select the revisions knowable at a cutoff | Section 7 uses the installed as-of selector, showing late correction and eligibility boundaries; detailed ordering/control cases remain in the tests. Unknown archive knowledge remains unavailable; full quality/history stays separate from selected events. |
 | Consume bounded price batches with query identity | MR 19 supplies a reference reader with an explicit aggregate canonical-byte budget, mandatory scoped controls/quality and distinct cutoff/history modes. MR 18 reuses admitted partitions and isolates returned records/evidence. Batch size bounds output rows; it does not bound total process memory. |
-| Advance a reproducible source clock | MR 20 replays admitted trade/control history in availability/source order. Equal-time sources precede expiry, fill, decision and mark callbacks. Completed cursors bind inputs/configuration; consumer state and schedules must be saved alongside them. No economics or book replay adapter is implied. |
+| Advance a reproducible source clock | MR 20 replays admitted trade/control history in availability/source order. Equal-time sources precede expiry, fill, decision and mark callbacks. Completed cursors bind inputs/configuration; consumer state and schedules must be saved alongside them. MR 27 separately adds the book adapter with exact retained receipts and conservative microsecond scheduling. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |
 
 ## A useful way to work through a notebook
@@ -293,3 +294,30 @@ identity and limitations. The next roadmap work is MR 26 supervision; MR 27 owns
 shared canonical stepping and capture/replay parity. Section 9 retains MR 18's
 historical measurements at their original source identity. MR 25 changes snapshot
 format dispatch and imports, so those timings are not current-candidate benchmarks.
+
+
+## Does capture reproduce the same consumer state?
+
+Section 18 (NB 27) publishes and queries 32-position saved prefixes, then compares
+the same visible-spread consumer through shared chronological stepping. Tables retain
+raw, snapshot and replay identities, queried versus scheduled counts, accepted
+snapshot position, recovery epoch and fresh-process resume results. Exact receipts
+remain nanoseconds; the shared microsecond clock rounds up and cannot expose a
+message early. Archive records with unknown original availability remain queryable
+but produce no scheduled source events.
+
+A controlled probe reuses permitted Bitfinex frames with new local receipts,
+injects a disconnect and one exact duplicate per session, and preserves the gap.
+A deliberately changed first receipt is refused with retained first-divergence
+observations. This is a labelled intervention, not an assertion that the source
+itself sent duplicates. Old recordings support saved-input checks; the capture
+notebook's new section 10 compares actual live normalization for fresh Bitfinex and
+OKX recordings before publication, then repeats consumer/cursor recovery outside
+the checkout. The same candidate and independent kernel run every cell.
+
+All results retain exploratory degraded scope, source depth and unknown coverage.
+L2 levels and L3 orders remain distinct, Coinbase live access is unverified, and no
+fills, strategies or deployment are enabled. The
+[MR 27 acceptance record](../docs/roadmap/mr-27-implementation.md) retains commands,
+identities and observed limits. Next is **MR 28 — Compute versioned historical
+features**, after MR 27 merges; it is not implemented here.
