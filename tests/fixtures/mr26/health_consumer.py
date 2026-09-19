@@ -159,13 +159,17 @@ def main() -> None:
                 policy,
                 transport=HealthTransport(config, mode, destination),
             )
-            assert result["stop_reason"] == expected, (
-                f"{mode}: expected {expected}, observed {result['stop_reason']}; {result}"
+            expected_reasons = (
+                ("ingestion_stalled", "persistence_stalled") if mode == "ingestion" else (expected,)
+            )
+            actual_reason = result["stop_reason"]
+            assert isinstance(actual_reason, str) and actual_reason in expected_reasons, (
+                f"{mode}: expected {expected_reasons}, observed {actual_reason}; {result}"
             )
             assert result["collector_stopped"] is True, result
             assert result["alert_delivered"] is (mode not in ("healthy", "alert_failure")), result
             if result["alert_delivered"]:
-                assert expected.encode() in receiver.recv(1024)
+                assert actual_reason.encode() in receiver.recv(1024)
             journals = list(destination.rglob("journal.jsonl"))
             assert len(journals) == 1
             completed = (journals[0].parent / "manifest.json").exists()

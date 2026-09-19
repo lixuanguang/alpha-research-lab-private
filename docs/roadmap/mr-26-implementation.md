@@ -129,7 +129,7 @@ outcomes and distinct heartbeat/economic clocks, queue peaks and invalid counts:
 | --- | --- |
 | Healthy bounded snapshot | Completed; three committed frames; no alert |
 | Heartbeat-only market input | `market_stalled`; receipt and persistence continue |
-| Input starvation | `persistence_stalled` takes precedence over stalled ingestion |
+| Input starvation | First expired receipt/append budget stops the run; persistence takes precedence when both are expired |
 | Blocked event loop / killed child | `heartbeat_stalled` / `collector_lost` |
 | Read-only journal | `persistence_failed`; earlier committed frames remain readable |
 | Invalid price / reconnect / queue pressure | `invalid_limit` / `reconnects_limit` / `queue_limit` |
@@ -174,3 +174,42 @@ Revert the MR 26 change to remove the optional supervised path; prior native
 capture configs and raw input retain their existing meaning. Preserve saved
 failure reports when investigating a stopped recording. The next roadmap package
 is **MR 27 — Prove capture/replay parity**, after MR 26 merges. It was not started.
+
+
+## Hosted CI follow-up — 2026-09-19
+
+The initial [run at `58d0f0a`](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35426042798)
+failed two health tests (995 passed, 3 performance tests deselected). Linux accepted
+all 100 datagrams in the queue-pressure fixture: the assertion encoded a macOS
+buffer-capacity assumption. The test now verifies real local delivery, injects
+`BlockingIOError` at the actual socket send boundary, and asserts that both initial
+and reconnected sockets remain nonblocking. Missing-socket refusal is still real;
+no queue-capacity assumption, runtime change or skipped check was introduced.
+
+The old installed-consumer assertion truncated its subprocess stderr, so its
+precise failed scenario could not be recovered from that log. The failure did not
+reproduce in the [successful run at `13fa4ad`](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35426527231):
+source validation, macOS wheel smoke and the authoritative merged-result full lane
+all passed. Assertions now retain the scenario, expected/actual reason and full
+child diagnostics for any recurrence.
+
+Targeted inspection also identified a timing assumption in input-starvation
+acceptance: receipt expires before its later durable append. A new deterministic
+boundary test proves `ingestion_stalled` first and `persistence_stalled` once both
+budgets expire. The process fixture accepts either of those two progress reasons
+while still requiring child termination, the matching delivered alert and verified
+interrupted-prefix handling. It does not accept unrelated failure reasons. This
+addresses a concrete scheduling-sensitive expectation; it is not retrospective
+proof of the truncated failure's cause.
+
+Final focused command: `uv run --frozen --no-editable pytest -q
+--basetemp=/private/tmp/mr26-ci-final tests/unit/data/live/test_health.py`:
+**14 passed in 13.05 seconds**, zero skips/deselections. Ruff lint/format, strict
+mypy, engineering standards and architecture links passed for the affected state.
+Runtime bytes and the candidate wheel are unchanged; installed-wheel evidence is
+reused. NB 26's explanation now distinguishes the first expired clock from
+precedence when both have expired. A new fresh-kernel run of all **75 cells / 37
+code cells** passed using the same installed candidate and runner command above:
+attempt `676d520c-56cb-4744-b762-00f321f493ea`, finished `2026-09-19T06:34:13Z`,
+source SHA-256 `feb1e427acd891674b9738170b20ad9f7547f98ceeb84eb25e2c45f33b9eef99`.
+The PR checks retain the result for the final follow-up head separately.

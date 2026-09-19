@@ -402,7 +402,8 @@ Limits are inclusive: the first value above the configured threshold stops the r
 
 Persistence failure takes precedence, followed by startup/heartbeat, persistence,
 ingestion and market stalls, then queue/reconnect/invalid limits. If input stops,
-both receipt and persistence can stall; the report selects persistence first.
+receipt can expire before its later append; either progress reason can stop the run.
+When both budgets have expired, persistence takes precedence.
 Finalization no longer expects fresh market data, but still requires heartbeat
 and a total deadline of startup + capture duration + progress allowance. Shared
 lock acquisition is bounded to 50 ms, including after a lost writer.

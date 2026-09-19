@@ -110,6 +110,13 @@ class TestHealth:
         assert policy.reason(values, now_ns=10_000_000_001) == ""
         assert policy.reason(values, now_ns=10_000_000_002) == "startup_stalled"
 
+    def test_input_stall_can_expire_before_its_last_append(self) -> None:
+        """Observe receipt expiry before later persistence expiry, then apply precedence."""
+        policy = self.policy()
+        values = (3_000_000_000, 1_000_000_000, 1_250_000_000, 3_000_000_000, 0, 0, 0, 0, 0)
+        assert policy.reason(values, now_ns=3_000_000_001) == "ingestion_stalled"
+        assert policy.reason(values, now_ns=3_250_000_001) == "persistence_stalled"
+
     def test_shared_observation(self) -> None:
         """Keep advancing heartbeat independent of persistence and economic clocks."""
         health = HealthMetrics()
