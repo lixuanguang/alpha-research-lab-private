@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-18 for MR 24 session recovery.
+Owner: repository founder. Updated 2026-09-19 for MR 26 health supervision.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has sixteen sections:
+The current notebook has seventeen sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -102,6 +102,7 @@ The current notebook has sixteen sections:
 | 12: source negotiation | Inspect the saved Bitfinex version, native acknowledgement, sequence range and exact receipt clocks. Refuse incompatible subscriptions, versions and product/stream combinations without reconnecting. |
 | 13: durable capture | Inspect the committed input cursor; exclude uncommitted tails and reject damaged committed bytes, failed writers and invalid units. |
 | 14: MR 16 acquisition handoff | Acquire a synthetic two-instrument universe through installed commands, interrupt/resume without repeating completed fetches, refuse the incomplete acquisition and interrupted snapshot, then publish/reopen and inspect six history rows. HTTP is injected; persistence and all downstream stages are real. |
+| 17: collector health | Watch synthetic child collectors with independent heartbeat, ingestion, persistence, freshness and count limits. Inspect process death, journal failure, local syslog delivery and protection when alert delivery fails. |
 
 The generic composition boundary is in place. Installed saved-input publication
 supports trade archives and MR 25's explicit bounded book format. Book snapshots

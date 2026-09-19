@@ -363,3 +363,72 @@ rules, visible depth and archive unknown-continuity restrictions remain unchange
 The [MR 25 acceptance record](../roadmap/mr-25-implementation.md) separates
 synthetic recovery evidence, reuse of bounded saved source observations and
 remaining MR 26/27/R1 work.
+
+
+## MR 26 independent health supervision
+
+The optional `--health-config` capture flag selects a separate parent watchdog.
+The parent owns one spawned collector and observes a fixed nine-integer shared
+report; no telemetry files or unbounded message queue sit on the capture path.
+The existing capture configuration and raw serialization are unchanged. A distinct
+health policy is saved beside the capture configuration in a UUID supervision
+directory; the child recording remains in its own UUID directory beneath it.
+
+```sh
+uv run --frozen --no-editable alpha-collect capture \
+  --config configs/live/bitfinex-btc-usd.json \
+  --health-config configs/live/health.json \
+  --output data/bitfinex
+```
+
+This command starts a new bounded source capture. It is a usage example, not an
+MR 26 external-source or deployment test. The maintained health example uses
+macOS's `/var/run/syslog`; select an existing local Unix datagram syslog receiver
+on another supported POSIX host. No remote alert destination is contacted.
+`HealthPolicy` refuses unknown fields, invalid thresholds and responses other
+than `stop`. The queue threshold must be below the configured capture capacity.
+Supervised capture deliberately refuses the optional book-publication flags;
+shared capture/publication/replay workflow completion remains MR 27.
+
+The parent polls every 100 ms. Startup has its own finite allowance. The child
+updates a process heartbeat every 100 ms; accepted frame receipt, successful
+journal append and validated economic progress have separate clocks. Economic
+freshness reuses MR 25's source/receipt policy, projected to monotonic elapsed
+nanoseconds when market progress changes. Source clocks in saved raw input remain
+unchanged. Heartbeats and duplicate frames cannot refresh economic progress.
+The queue metric retains peak occupancy; reconnects count epochs after the first;
+the invalid counter counts retained gaps, including schema and continuity faults.
+Limits are inclusive: the first value above the configured threshold stops the run.
+
+Persistence failure takes precedence, followed by startup/heartbeat, persistence,
+ingestion and market stalls, then queue/reconnect/invalid limits. If input stops,
+receipt can expire before its later append; either progress reason can stop the run.
+When both budgets have expired, persistence takes precedence.
+Finalization no longer expects fresh market data, but still requires heartbeat
+and a total deadline of startup + capture duration + progress allowance. Shared
+lock acquisition is bounded to 50 ms, including after a lost writer.
+
+On a failure the parent terminates the child, waits up to one second, then kills
+and waits up to one further second if needed. It attempts the local syslog alert
+only afterwards. The stdlib `SysLogHandler` adapter uses nonblocking Unix datagrams,
+including its reconnect path. Missing/full alert sockets return failed delivery;
+they cannot delay the local stop. Alerts contain only supervision UUID, venue,
+symbol and a fixed reason. `health-summary.json` retains the policy and installed
+implementation identities, last counters, exit status, stop result and delivery
+status. The installed command exits nonzero on unhealthy completion.
+
+A protective stop may leave accepted queue entries or an in-flight disk operation
+uncommitted. Inspect the child's directory with `alpha-collect replay --capture
+<child-directory> --interrupted`; MR 23's cursor verifies the retained prefix and
+marks the unknown tail invalid. Do not treat a stopped capture as continuous or
+restart by appending to it. Start a new explicitly configured recording after
+addressing the cause. A failed summary write propagates after stop/alert; failed
+storage cannot be relied on to record its own failure.
+
+The [MR 26 record](../roadmap/mr-26-implementation.md) and notebook section 17
+exercise synthetic feeds, actual child death, a read-only journal and a temporary
+local syslog receiver. Delivery means socket acceptance, not human acknowledgement.
+The parent watchdog itself still needs an external service manager for deployed
+availability; host loss, remote alert routing and service activation are unproven.
+R1 remains required before deployment. This change enables no book-dependent
+execution consumer and makes no new named-source or canonical-parity claim.

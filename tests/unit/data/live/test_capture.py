@@ -17,6 +17,7 @@ from msgspec.structs import replace
 # project library imports
 from alpha_research.data.book_datasets import BookDatasetManifest
 from alpha_research.data.live.config import CaptureConfig, CaptureRequest
+from alpha_research.data.live.health import HealthMetric, HealthMetrics
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
 from alpha_research.data.live.replay import CaptureReplay
 from alpha_research.data.live.transport import FeedSocket, VenueTransport
@@ -184,6 +185,27 @@ class TestCapture:
         (root / digest).write_bytes(b"tampered")
         with pytest.raises(ValueError, match="size mismatch"):
             CaptureReplay.read(root)
+
+    def test_health_tracks_durable_economic_progress(self, tmp_path: Path) -> None:
+        """Expose fixed-size progress to a caller without conflating receipt and market clocks."""
+        config, health = self.config(), HealthMetrics()
+        initial = health.snapshot()
+        result = asyncio.run(
+            collect(
+                config,
+                tmp_path,
+                implementation_identity="a" * 64,
+                transport=ScriptedTransport(config, (_FRAMES,)),
+                health=health,
+            )
+        )
+        final = health.snapshot()
+        assert result["synchronized"] is True
+        assert final[HealthMetric.INGESTION] > initial[HealthMetric.INGESTION]
+        assert final[HealthMetric.PERSISTENCE] >= final[HealthMetric.INGESTION]
+        assert final[HealthMetric.MARKET] > initial[HealthMetric.MARKET]
+        assert final[HealthMetric.FINALIZING] == 1
+        assert final[HealthMetric.INVALID] == final[HealthMetric.PERSISTENCE_FAILED] == 0
 
     def test_subscription_deadline(self, tmp_path: Path) -> None:
         """Cancel blocked subscription sends and retain an unavailable closed session."""
