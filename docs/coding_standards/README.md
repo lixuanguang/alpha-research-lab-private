@@ -90,6 +90,14 @@ when practical.
 
 ## Design and interfaces
 
+For the MR 28 source migration and later implementation, follow the selected
+[functional ownership and entrypoint rules](../architecture/platform-design.md#functional-apis-and-application-entrypoints)
+and [per-MR assignments](../roadmap/README.md#functional-source-ownership-from-mr-28).
+The [migration plan](../roadmap/source-layout-refactor.md) covers the current
+namespace and its consumers. Current imports/checker configuration remain in
+force until their coordinated cutover; documentation alone does not establish
+that the target layout or its enforcement is implemented.
+
 Give each module one cohesive responsibility and each consumer the smallest
 useful interface. Names must reveal domain purpose; use one term for one
 concept, include units where the type does not carry them, and avoid filler

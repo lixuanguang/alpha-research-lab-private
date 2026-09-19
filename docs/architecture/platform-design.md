@@ -8,9 +8,10 @@ through measured delivery. The founder is the only current operator, so implemen
 report workload. Staffing, independent review, operational separation, and broader organizational controls arrive as
 contributors and operators join.
 
-This design restores the technical destination without restoring a package catalog, a source-file ownership registry, a
-mass of empty skeletons, or prematurely installed infrastructure. Every module, service, store, and native lane below is
-**PLANNED** unless marked **CURRENT**. A planned name is a boundary proposal, not evidence that the capability exists.
+This design records the technical destination and functional source owners without
+requiring empty skeletons or prematurely installed infrastructure. Every module, service, store, and native lane below is
+**PLANNED** unless marked **CURRENT**. The functional source owners below are the selected target for MR 28 onward;
+their selection is not evidence that the migration or capability is implemented.
 
 ## Architectural stance
 
@@ -37,33 +38,72 @@ Existing code migration is tracked in the [roadmap](../roadmap/README.md#oop-mig
 
 ## Current and planned repository shape
 
-The existing tree contains the domain, event/decoder and reference foundations plus development tooling. The following
-tree shows the intended layout without creating directories before their consumers exist:
+The current implementation remains under `src/alpha_research/`. Starting with
+MR 28, source ownership is selected by functionality directly under `src/`.
+The [source refactoring plan](../roadmap/source-layout-refactor.md) maps the
+inspected files, dependency repairs, package cutover and validation stages.
+The [MR ownership assignments](../roadmap/README.md#functional-source-ownership-from-mr-28)
+bind every MR from 28 through 62 to this structure.
+
+The following tree is the **target**, not the current filesystem. Unannotated
+capabilities receive existing behavior during MR 28; future capabilities are
+created with their first working consumer. The extra `market_data/books/` owner
+holds the existing shared book state/reconstruction used by capture and replay.
 
 ```text
-src/alpha_research/
-  financial_units/          CURRENT: exact values and date conventions
-  instrument_identity/      CURRENT: canonical IDs and temporal mappings
-  venue_calendar/           CURRENT: bounded venue/session state
-  core/                     CURRENT: event provenance; further shared contracts as needed
-  configuration.py          PLANNED: typed configuration reading, validation and resolution
-  data/                     CURRENT: events and decoding; PLANNED: transport, raw storage, PIT datasets
-  research/                 PLANNED: observations, features, labels, trial/report operations
-  pipelines/                PLANNED: acquisition, dataset, EDA/replay, live, research and runtime orchestration
-  strategies/               PLANNED: strategy kernels and versioned configs
-  simulation/               PLANNED: replay, fills, costs, market mechanics
-  portfolio/                PLANNED: targets, constraints, allocation, netting
-  risk/                     PLANNED: independent limits and risk decisions
-  accounting/               PLANNED: positions, cash, ledger, reconciliation
-  execution/                PLANNED: order state and OMS contracts
-  venues/                   PLANNED: broker and venue protocol adapters
-  runtime/                  PLANNED: process lifecycle and durable-state library contracts
-  telemetry/                PLANNED: bounded metrics, traces, and audit events
+src/
+  reference_data/
+    instruments/            Canonical identity and temporal symbology
+    calendars/              Sessions, calendars and market status
+    catalogs/               Authored instrument/reference snapshots
+    eligibility/            Bitemporal universe membership and evidence
+  financial_units/          Exact values, dimensions and conventions
+  market_data/
+    contracts/              Records, provenance and source/reader interfaces
+    acquisition/            Historical acquisition policy and checkpoints
+    collection/             Receipt, session recovery and canonical capture
+    adapters/
+      providers/            Binance archives, Tardis framing and transport
+      venues/               Binance, Bitfinex, Coinbase and OKX feed semantics
+    storage/                Verified raw bytes and durable capture journals
+    validation/             Quality, lineage, revisions and freshness gates
+    datasets/               Assembly, manifests, publication and reopening
+    query/                  Point-in-time selection and projections
+    replay/                 Historical stepping, cursors and saved replay
+    books/                  Shared book state and reconstruction contracts
+  research/
+    exploration/            Existing EDA selections and summaries
+    observations/           FUTURE MR 33: completed decision observations
+    features/               FUTURE MR 28–30: transforms, fit state, checkpoints
+    models/                 CONDITIONAL MR 31–32: training and evaluation
+    experiments/            FUTURE MR 31 when used, 43–47: attempts and reports
+  strategies/               FUTURE MR 35–36: contexts and decision rules
+  simulation/               FUTURE MR 37–38: fills, costs and market mechanics
+  accounting/               FUTURE MR 39–41, 55: ledger, valuation, reconciliation
+  risk/                     FUTURE MR 42, 53: independent decisions and controls
+  portfolio/                CONDITIONAL MR 54: allocation and netting
+  execution/                FUTURE MR 51–52, 58: orders, journals and adapters
+  runtime/                  Identity and supervision; future deployment/recovery
+  telemetry/                Health/alerts; future runtime and economic monitoring
+  configuration/            Typed definitions and explicit selection
+  serialization/            Exact domain codecs and strict wire records
+  applications/
+    acquire/                Existing historical/archive command and workflow
+    collect/                Existing capture/probe/replay command and workflow
+    publish_dataset/        Existing dataset publish/inspect command
+    inspect_fixture/        Existing configured fixture command
+    explore/                Existing configured callable EDA workflow
+    features/               FUTURE MR 28–30: historical/incremental feature flow
+    train_model/            CONDITIONAL MR 31: fit and retain a model attempt
+    evaluate_model/         CONDITIONAL MR 32: delayed-outcome evaluation
+    backtest/               FUTURE E1/MR 44–46: one configured economic runner
+    paper/                  FUTURE MR 50–57: paper/shadow composition
+    live/                   FUTURE MR 59–62: explicitly authorized operation
+    deploy/                 FUTURE R1: concrete artifact verification/installation
 
 configs/                    CURRENT: authored reference data; PLANNED: implementations, bindings and active instances
-apps/                       PLANNED: independently deployed pipeline entry points when needed
 deploy/                     PLANNED: environment definitions and non-secret config
-packages/                   OPTIONAL PLANNED: separately packaged shared libraries
+packages/                   OPTIONAL: separate distributions when a consumer needs them
 tools/
   governance/               CURRENT: development checks and artifact boundaries
   native/                   PLANNED: only when an admitted ABI exists
@@ -77,11 +117,58 @@ tests/
   scenarios/                PLANNED: accounting, recovery, and risk drills
 ```
 
-These names describe responsibilities rather than a required package count. A future implementation may combine small
-modules when their state and lifecycle are the same. It should split a boundary when it has different ownership, failure
-handling, release cadence, or data authority.
+Application source has one home, `src/applications/`; do not also create a root
+`apps/` tree or a `pipelines/` implementation of the same workflow. Root `deploy/`
+contains deployment definitions, while `applications/deploy/` owns executable
+installation composition. Market-data adapters and execution adapters stay with
+their respective capabilities; there is no mixed top-level `venues/` package.
+
+MR 28 retires the `alpha_research` source umbrella after migrating its consumers.
+Initially, one distribution may install these functional packages using the
+existing uv path and lock. Distribution names, deployable artifacts and Python
+package names are separate decisions. Neither preserving the old import prefix
+nor creating one distribution per folder is required. Supporting module filenames
+can evolve within the named owners; changes to an owning boundary must update
+the roadmap and its consumers together.
+
 The [tests guide](../../tests/README.md) defines the current fixture, subprocess
 and installed-consumer layout and its execution boundaries.
+
+### Functional APIs and application entrypoints
+
+These rules apply to the MR 28 migration and subsequent implementation; they
+do not claim the current layout already complies.
+
+- Each owned library package exposes one curated public API module,
+  `__init__.py`, containing actual exported types/operations and explicit
+  `__all__`. It has zero runnable command entrypoints. Cross-owner consumers use
+  that API; implementation modules within an owner may import directly.
+- Grouping parents do not eagerly re-export all child packages. Keep contracts
+  independent of implementation imports so using an instrument ID does not
+  initialize catalogs, applications or adapters. A private helper shared only
+  within one functional owner stays internal to that owner.
+- Each application directory has at most one runnable entry function, `main`,
+  exported through its public API and used by its installed command. Related
+  actions are subcommands. A callable-only consumer need not acquire a CLI.
+  Programmatic orchestrators may be exported from the same API; the rule limits
+  public entry modules and runnable entry functions, not the number of useful
+  library methods or genuine orchestration steps.
+- Applications compose libraries and explicitly selected adapters; libraries
+  never import applications, and applications never import sibling application
+  workflows. Shared behavior belongs to its functional library owner.
+- Neutral records and source/reader protocols do not import concrete adapters,
+  storage implementations or application composition. Storage, quality and
+  replay receive the capabilities needed for their contracts; moving files must
+  not remove validation or source-specific semantics to satisfy import checks.
+- Configuration resolves typed definitions without importing applications or
+  selecting factories. Runtime supervision receives a workload explicitly and
+  never imports the application it supervises. Strategy logic cannot construct
+  executable venue clients or change independent risk/activation policy.
+
+MR 28 adds narrow import/entrypoint enforcement to the existing engineering
+checks. Its [migration acceptance](../roadmap/source-layout-refactor.md#mr-28-delivery-stages)
+covers packaging, callers, private boundaries and preserved behavior. Future
+capabilities follow the same rules without an empty-folder or framework mandate.
 
 ## Dependency and interface graph
 
