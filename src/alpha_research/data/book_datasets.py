@@ -351,12 +351,30 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
             or type(self.input) is not BookInput
             or type(self.observations) is not tuple
             or not self.observations
+            or len(self.observations) > self.input.max_records
             or any(type(row) is not BookObservation for row in self.observations)
         ):
             raise ValueError("invalid canonical book history")
         self.input.__post_init__()
-        for row in self.observations:
+        for position, row in enumerate(self.observations):
             row.__post_init__()
+            if row.position != position:
+                raise ValueError("book history requires contiguous original positions")
+            if self.input.archive is not None and any(
+                value is not None
+                for value in (
+                    row.received_ns,
+                    row.epoch,
+                    row.sequence,
+                    row.transition_ns,
+                    row.last_durable_ns,
+                )
+            ):
+                raise ValueError("archive book history cannot invent receipt or sequence")
+            if self.input.capture is not None and (
+                row.received_ns is None or row.received_ns <= 0 or row.epoch is None
+            ):
+                raise ValueError("captured book history requires original receipt and epoch")
 
 
 class BookPartition(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
