@@ -159,7 +159,9 @@ def main() -> None:
                 policy,
                 transport=HealthTransport(config, mode, destination),
             )
-            assert result["stop_reason"] == expected, result
+            assert result["stop_reason"] == expected, (
+                f"{mode}: expected {expected}, observed {result['stop_reason']}; {result}"
+            )
             assert result["collector_stopped"] is True, result
             assert result["alert_delivered"] is (mode not in ("healthy", "alert_failure")), result
             if result["alert_delivered"]:

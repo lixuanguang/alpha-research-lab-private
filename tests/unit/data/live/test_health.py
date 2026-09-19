@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 # third party library imports
 import pytest
@@ -118,16 +119,25 @@ class TestHealth:
         assert health.snapshot() == (before[0] + 1, *before[1:4], 3, *before[5:])
 
     def test_full_alert_socket_never_blocks(self, tmp_path: Path) -> None:
-        """The actual stdlib syslog adapter refuses pressure and unavailable delivery."""
+        """Verify real delivery and deterministic kernel backpressure on nonblocking sockets."""
         address = str(tmp_path / "a.sock")
         with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
             receiver.bind(address)
-            receiver.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
+            receiver.settimeout(2)
+            assert HealthAlert.deliver(address, "market_stalled")
+            assert b"market_stalled" in receiver.recv(1024)
             started = time.monotonic()
-            delivered = [HealthAlert.deliver(address, "market_stalled") for _ in range(100)]
-            assert any(delivered) and not all(delivered)
+            with patch.object(socket.socket, "send", self._backpressured_send):
+                assert not HealthAlert.deliver(address, "market_stalled")
             assert time.monotonic() - started < 2
         assert not HealthAlert.deliver(address, "collector_lost")
+
+    @staticmethod
+    def _backpressured_send(connection: socket.socket, payload: bytes) -> int:
+        """Require nonblocking mode on the actual initial and reconnected sockets."""
+        assert not connection.getblocking()
+        assert b"market_stalled" in payload
+        raise BlockingIOError("synthetic full Unix datagram queue")
 
     def test_installed_health_consumer(self, tmp_path: Path) -> None:
         """Exercise real process loss and failure responses through the installed package."""
@@ -147,7 +157,8 @@ class TestHealth:
             timeout=120,
             check=False,
         )
-        assert result.returncode == 0, (result.stdout, result.stderr)
+        if result.returncode != 0:
+            pytest.fail(result.stdout + result.stderr, pytrace=False)
         report = Wire.mapping(Wire.decode(result.stdout.encode()))
         package = report["package"]
         assert isinstance(package, str) and "/site-packages/" in package
