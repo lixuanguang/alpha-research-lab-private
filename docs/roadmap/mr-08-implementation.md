@@ -38,11 +38,11 @@ Started from fetched, clean `main` at
 MR 03 `bf3fb991`, and reused MR 06 manifest validation `0e35496d`. No missing
 prerequisite or later-MR implementation was introduced.
 
-- [Reader and raw records](../../src/alpha_research/data/providers/binance/rows.py):
+- [Reader and raw records](../../src/market_data/adapters/providers/binance/rows.py):
   validated immutable declarations together with their streaming consumer.
 - [Focused regressions](../../tests/unit/data/providers/binance/test_rows.py) and
   [installed consumer fixture](../../tests/integration/consumers/datasets/read_saved.py).
-- [Component API documentation](../../src/alpha_research/data/README.md#saved-binance-archive-rows),
+- [Component API documentation](../../src/market_data/README.md#saved-binance-archive-rows),
   [maintained notebook](../../examples/research-foundations.ipynb), examples guide
   and roadmap status.
 

@@ -32,7 +32,7 @@ accepted snapshot/current state/recovery epoch with its cursor, and resumes in a
 separate process with a different batch size.
 
 The owning API and usage descriptions are the
-[data guide](../../src/alpha_research/data/README.md#published-book-queries-and-shared-stepping-mr-27)
+[data guide](../../src/market_data/README.md#published-book-queries-and-shared-stepping-mr-27)
 and [collector guide](../data/l3-collectors.md#mr-27-published-capture-and-replay-parity).
 
 ## Affected scope and review size

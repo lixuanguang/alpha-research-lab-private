@@ -18,11 +18,12 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.pipelines.acquisition import main
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from applications.acquire import main
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -51,7 +52,9 @@ class TestAcquisitionCommand:
         shutil.copyfile(_ROOT / "configs/reference/binance-spot.json", tmp_path / "catalog.json")
         shutil.copyfile(_ROOT / "tests/support/subprocesses/acquire.py", tmp_path / "acquire.py")
         catalog = _CODEC.decode_json((tmp_path / "catalog.json").read_bytes(), CatalogSnapshot)
-        run = configuration.resolve(job.name, catalog)
+        run = configuration.resolve(
+            job.name, catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         (tmp_path / "run.json").write_bytes(_CODEC.encode_json(run))
         (tmp_path / "raw").mkdir()
         return [

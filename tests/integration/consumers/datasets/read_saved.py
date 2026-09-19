@@ -10,15 +10,15 @@ from tempfile import TemporaryDirectory
 from zipfile import ZIP_DEFLATED, ZipFile
 
 # project library imports
-import alpha_research
-from alpha_research.configuration import Configuration
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.providers.binance.rows import ArchiveRow, BinanceArchiveRows
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+import market_data
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.providers.binance import ArchiveRow, BinanceArchiveRows
+from market_data.contracts import SourceRequest
+from market_data.storage import RawFiles, RawStore
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 
 def main() -> None:
@@ -36,7 +36,9 @@ def main() -> None:
     catalog = codec.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    run = configuration.resolve("btc-archive", catalog)
+    run = configuration.resolve(
+        "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+    )
     request = SourceRequest.partition(run)[0]
     payload = (
         b"12,100.00,2.0,200.000,1717200000000,true,true\r\n"
@@ -49,14 +51,14 @@ def main() -> None:
         for content in (payload, b"", b'1,"unterminated\n', b"\xff,2,3,4,5,true,true\n"):
             with ZipFile(source, "w", compression=ZIP_DEFLATED) as archive:
                 archive.writestr("BTCUSDT-trades-2024-06-01.csv", content)
-            descriptor = RawObject.from_file(
+            descriptor = RawFiles.describe(
                 source,
-                request=request,
+                request=request.binding,
                 retrieval_reference="synthetic:mr08-installed",
                 ts_received=datetime(2026, 9, 16, tzinfo=UTC),
                 ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
             )
-            store.publish(source, descriptor=descriptor, request=request)
+            store.publish(source, descriptor=descriptor, request=request.binding)
             manifest = AcquisitionManifest(run=run, completed=(descriptor,))
             checkpoint = directory / "manifest.json"
             manifest.save(checkpoint)
@@ -87,7 +89,7 @@ def main() -> None:
                 pass
             else:
                 raise AssertionError("missing source accepted")
-    print(f"Installed consumer passed: {alpha_research.__file__}")
+    print(f"Installed consumer passed: {market_data.__file__}")
     print(
         "Exact equal-time rows, origins/bounds, codec, empty CSV, "
         "invalid UTF-8/CSV and absence passed."

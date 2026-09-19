@@ -1,10 +1,11 @@
 # Functional source refactoring plan
 
-Owner: repository founder. Status: **planned; no runtime relocation implemented**.
-Inspected checkout: `5262d61`, 2026-09-19. The source inventory contains 78 Python
-files and 16,459 lines. This plan governs the source-layout stage of MR 28 and
-the functional ownership assigned to MRs 28–62 in the
-[roadmap](README.md#functional-source-ownership-from-mr-28).
+Owner: repository founder. Status: **stages 1–3 implemented and locally validated;
+stage 4 historical features remains planned for a separate task**.
+Started from refreshed main `a0dcc86` on `codex/mr28-functional-source-layout`,
+2026-09-19. The original plan inspected `5262d61` (78 Python files, 16,459 lines).
+This record governs the layout migration and functional ownership assigned to
+MRs 28–62 in the [roadmap](README.md#functional-source-ownership-from-mr-28).
 
 The [platform design](../architecture/platform-design.md#current-and-planned-repository-shape)
 owns the target tree and import/entrypoint boundaries. Package names describe
@@ -15,49 +16,49 @@ service, dependency environment or deployment is not implied by a folder.
 
 ## Findings and delivered outcome
 
-The existing code has useful identity, calendar, unit, source-decoder and storage
-contracts. Retain their behavior while changing ownership and imports. The
-refactor addresses these inspected boundaries:
+The refactor preserves identity, calendars, exact units, source decoding and
+saved data while giving shared behavior explicit library owners:
 
-- [Acquisition](../../src/alpha_research/pipelines/acquisition.py) imports
-  `InstalledIdentity` from the live pipeline; the
-  [live pipeline](../../src/alpha_research/pipelines/live.py) imports book
-  publication from the dataset pipeline. Independent applications must reuse
-  libraries instead of importing each other's orchestration.
-- [The dataset pipeline](../../src/alpha_research/pipelines/dataset.py) contains
-  both installed dataset and fixture commands, plus assembly, admission and
-  source reading. Split the commands and give reusable behavior library owners.
-- [RawStore](../../src/alpha_research/data/raw_store.py) and
-  [RawObject](../../src/alpha_research/data/raw_objects.py) enumerate historical,
-  capture and OKX requests. Storage needs validated binding and byte identity;
-  source validation must remain explicit without requiring storage to import
-  venue implementations.
-- [QualityPolicy](../../src/alpha_research/data/quality.py) and
-  [dataset verification](../../src/alpha_research/data/datasets.py) select
-  concrete source readers/verifiers. Use the existing input capabilities through
-  explicit collaborators, preserving full re-decoding and publication refusal.
-- [Book dataset code](../../src/alpha_research/data/book_datasets.py) mixes
-  observations, saved input admission, capture output and manifest definitions.
-  [Capture replay](../../src/alpha_research/data/live/replay.py) constructs venue
-  books itself. Separate record, reconstruction, saved-reader and publication
-  ownership while retaining one reconstruction implementation for live/replay.
-- Private implementation types cross ownership boundaries: `_ReferenceRecord`,
-  `_DecimalArithmetic`, `_Partition` and `_EventSteps`. Place shared contracts
-  with their real owners and keep sibling implementation details private.
+- [Acquisition](../../src/applications/acquire/workflow.py) and
+  [collection](../../src/applications/collect/workflow.py) use runtime identity
+  and dataset publication services; neither imports another application.
+  `runtime.ProcessSupervisor` receives a typed spawn-picklable workload.
+- [DatasetPublication](../../src/market_data/datasets/publication.py) owns assembly,
+  admission and publication. Dataset and fixture commands have separate
+  application APIs with one `main` each; archive/capture actions stay subcommands.
+- Neutral request bindings and immutable records live in `market_data.contracts`.
+  Source requests validate before exposing `.binding`; `RawFiles` and `RawStore`
+  validate the binding, metadata and complete original bytes.
+- `DatasetReaders` and `OccurrenceVerifier` make source selection explicit.
+  Applications provide `SourceAdapters`; quality, manifests, queries and replay
+  still reproduce native admission before exposing canonical content.
+- `NativeBook`, `CaptureReplay` and `BookProjection` provide one reconstruction
+  path for live and saved data. `SavedCapture` consumes journals. Concrete native
+  implementations are supplied by `BookAdapters.create` at composition boundaries.
+- `WireRecord` owns shared strict wire validation and `DecimalGrid` owns public
+  exact-grid operations. `_Partition` and `_EventSteps` stay private within
+  query and replay respectively. No namespace compatibility wrappers remain.
 
-Finish the migration with functional imports, one public API module per owned
-package, at most one runnable entry function per application directory, no
-library-to-application or application-to-application imports, and the current
-CLI/data contracts still usable from an installed wheel. Future capability
-folders are created with working consumers, not empty placeholders.
+Every owned package exposes its explicit `__init__.py` API. Grouping parents stay
+inert, libraries have no runnable mains, and applications have at most one command
+entry function. No future-feature folders were created.
 
 ## Current file disposition
 
-Current paths in this table are relative to `src/alpha_research/`. Target paths
-are relative to `src/` and are **planned**, not available imports. Patterns cover
-the current implementation files; split rows identify substantive extractions,
-not permission to duplicate implementations. All existing `__init__.py` files
-are handled by the public-surface row at the end.
+Former paths in this table are relative to the retired `src/alpha_research/`.
+Destination paths are relative to `src/` and now exist. The table retains the
+original disposition for review; these refinements keep dependencies below their
+consumers:
+
+- `Order` and `Level` records live in `market_data/contracts`, while shared state
+  lives in `market_data/books`; canonical observation contracts must not import
+  stateful reconstruction.
+- `BookHistory` is the serialized envelope in `market_data/datasets/books.py`;
+  its executable replay lives in `market_data/replay/books.py`. Moving the envelope
+  into replay would make dataset admission depend on its downstream consumer.
+- Shared source selection/verifiers live in `market_data/adapters/sources/`, and
+  wire and transport each have their own package API. Their grouping parent does
+  not eagerly initialize provider/venue adapters.
 
 | Current file or family | Target owner and disposition |
 | --- | --- |
@@ -136,7 +137,7 @@ Moving files alone will not establish the target boundaries. In particular:
 
 ## Application entrypoints and compatibility
 
-These are **target bindings**, not commands already migrated in
+These are the **current installed bindings** in
 [pyproject.toml](../../pyproject.toml). Each application owns one public API module
 (`__init__.py`) and at most one registered command entry function (`main`). Its
 actual programmatic workflow can also be exported from that same API module;
@@ -168,9 +169,9 @@ their tested revision and update maintained source links as appropriate.
 
 ### Installed identity and package inputs
 
-`Configuration._implementation_identity` scans its containing package, including
+Before migration, `Configuration._implementation_identity` scanned its containing package, including
 Python/JSON/typing assets and selected dependency versions. `InstalledIdentity`
-currently scans Python files from a different path-derived root. Moving either
+scanned Python files from a different path-derived root. Moving either
 unchanged would hash an incomplete subtree or the wrong parent directory.
 
 Move the responsibility to `runtime/identity.py` and discover the shipped
@@ -247,9 +248,9 @@ configuration. Do not rewrite stored manifests or identities to make rollback
 appear compatible. New records that the older artifact cannot read remain tied
 to the compatible artifact; directory rollback is not a data migration.
 
-## Planning verification
+## Original planning verification
 
-This document records source inspection and planned acceptance only. The baseline
+The original plan recorded source inspection and planned acceptance only. The baseline
 architecture-link check passed for 60 documents before these documentation edits;
 `.venv/bin/alpha-governance-architecture` passed for 61 documents with the plan.
 A read-only inventory check accounts for all 78 Python files in the disposition
@@ -258,5 +259,55 @@ rows from 28 through 62 have owner/application assignments, retains the original
 domain acceptance for MRs 29–62, and adds only the stated layout dependencies.
 `git diff --check` validates patch whitespace. No runtime tests are claimed for
 these documentation edits. No runtime files, commands, imports or package
-metadata were changed by authoring the plan. Implementation evidence will be
-recorded when MR 28 executes its stages.
+metadata were changed by authoring the plan. The implementation evidence below supersedes only that planning status.
+
+## Cutover evidence
+
+The tested implementation is commit `862fa1c` on
+`codex/mr28-functional-source-layout`. The subsequent evidence commit changes
+only this record; source, packaging and tests are identical to the passing lane.
+CPython 3.14.7, macOS arm64, frozen dependencies; no dependency or serialized-schema
+version was changed. All commands ran from the repository root unless isolated by
+the existing consumers.
+
+| Check | Actual result |
+| --- | --- |
+| Focused extraction regressions | Storage, occurrence/quality, saved datasets and book replay: 71 passed, 1 harness failure, 2 deselected; the failure reused an intentionally corrupted request and was fixed without relaxing validation. |
+| Focused cutover correction run | 123 passed, 1 deselected, 17.68 s; command aliases, asynchronous snapshot test patching, committed journal replay, supervision, identity inventory and source-layout checks. |
+| `TMPDIR=/private/tmp make check` | Passed: formatting/lint; strict mypy over 236 sources; native stubtest over 1,548 modules; engineering, dependency and architecture checks; Bandit; dependency audit; secret scan; **1,064 correctness tests passed, 3 performance tests deselected, no skips**, 69.16 s; isolated wheel smoke passed. |
+| Isolated wheel smoke | Imports every functional public API outside the checkout, verifies all nine roots, currency JSON and typing markers, excludes governance/retired namespace, exercises all four commands and existing ingestion/recovery consumers, and reopens the pre-cutover snapshot. |
+| Final staged secret scan | Passed for all 361 governed paths, including newly added packages and fixture files. |
+| Maintained notebooks | All 70 code cells compile with notebook top-level-await support; every functional import resolves. Outputs and execution counts are byte-for-byte-equivalent JSON values to their retained revisions. No notebook/live source or historical benchmark was rerun. |
+
+The first broad unit run found stale command/resource imports and test patch targets;
+these were migrated. A macOS Unix-socket path exceeded its OS limit under the long
+default temporary directory; the complete lane uses `/private/tmp`. Concurrent
+uv checks initially switched a running test's environment between editable and
+installed forms; subsequent validation ran sequentially. Identity fault injection
+found that Python 3.14 filters missing files from `Distribution.files`; `RuntimeFiles`
+now reads the wheel RECORD directly, rejects missing/duplicate owned inputs, checks
+root shadowing, and excludes unrelated installed files. These are validation and
+packaging corrections, not new source capabilities.
+
+The [historical fixture](../../tests/fixtures/datasets/historical_snapshot/provenance.json)
+was generated by the pre-cutover installation at `a0dcc86`, with retained original
+implementation identity `ba478bfc5f722da7217f94a042e1ef0117531d74730e381522d62b30645604d1`
+and snapshot identity `23378e41e37533c74a41a3ce5bfa4046aa659ae3bd4131b08321c72dc3a448b9`.
+Tests reopen it and compare exact manifest/canonical bytes; they never substitute
+current implementation identity. Its producer installation included files outside
+the clean wheel inventory, so its stored identity is deliberately distinct from
+the clean reversal wheel. The fixture proves historical reading, not identical
+run IDs between different installation inventories.
+
+A clean pre-cutover reversal wheel is retained locally at
+`/private/tmp/source-layout-reversal/alpha_research_lab-0.1.0-py3-none-any.whl`,
+SHA-256 `11676ad0a111f951750e5f6ae9ef6c182663701f1fe44514a32f1dd560b6a612`.
+Configuration/reference inputs remain unchanged in Git at `a0dcc86`, and resolved
+configuration is embedded in the retained fixture. This local artifact is not a
+published release. For an existing resumable run, use that run's exact retained
+artifact/configuration, or start a new run; do not relabel stored identities.
+Revert source, packaging, callers and docs together through ordinary review.
+
+Stage 4 remains unimplemented: no historical feature definitions, causal window
+acceptance, feature application, model work, new empirical capture or baseline
+research result is claimed. Existing exploratory/degraded source limits remain.

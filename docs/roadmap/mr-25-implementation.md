@@ -48,7 +48,7 @@ keeps trade manifest bytes/default readers compatible and refuses silent use of
 book snapshots as trade queries. Optional paired capture arguments
 `--snapshot-directory` and `--snapshot-records` call the same publication path after
 raw completion. A failed publication retains the completed raw capture/summary.
-The [data guide](../../src/alpha_research/data/README.md#bounded-saved-books-mr-25)
+The [data guide](../../src/market_data/README.md#bounded-saved-books-mr-25)
 and [collector guide](../data/l3-collectors.md#mr-25-continuous-quality-and-bounded-publication)
 own current API usage and limits.
 

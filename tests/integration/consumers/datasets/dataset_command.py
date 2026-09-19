@@ -16,16 +16,16 @@ import msgspec
 from msgspec.structs import replace
 
 # project library imports
-import alpha_research
-from alpha_research.configuration import Configuration
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.quality import QualityPolicy
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+import market_data
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.contracts import SourceRequest
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import QualityPolicy
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 
 class _Arguments(argparse.Namespace):
@@ -93,7 +93,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", type=Path)
     inputs = parser.parse_args(namespace=_Arguments()).inputs.resolve()
-    assert "site-packages" in Path(alpha_research.__file__).parts
+    assert "site-packages" in Path(market_data.__file__).parts
     codec = DomainCodec()
     config = Configuration.read(inputs / "binance-archive.json")
     catalog = codec.decode_json(
@@ -117,21 +117,23 @@ def main() -> None:
         ids: list[str] = []
         for universe in ("btc", "eth"):
             selected = replace(config, jobs=(replace(config.jobs[0], universe=universe),))
-            run = selected.resolve("btc-archive", catalog)
+            run = selected.resolve(
+                "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
             request = SourceRequest.partition(run)[0]
             source = root / "source.zip"
             member = ZipInfo(f"{request.instrument.symbol}-trades-2024-06-01.csv")
             member.compress_type = ZIP_DEFLATED
             with ZipFile(source, "w") as archive:
                 archive.writestr(member, b"12,100.00,2.0,200,1717200000000,true,true\n" * 2)
-            descriptor = RawObject.from_file(
+            descriptor = RawFiles.describe(
                 source,
-                request=request,
+                request=request.binding,
                 retrieval_reference="synthetic:mr16",
                 ts_received=datetime(2026, 9, 17, tzinfo=UTC),
                 ts_ingested=datetime(2026, 9, 17, tzinfo=UTC),
             )
-            RawStore(raw).publish(source, descriptor=descriptor, request=request)
+            RawStore(raw).publish(source, descriptor=descriptor, request=request.binding)
             manifest_path = root / f"{universe}.json"
             AcquisitionManifest(run=run, completed=(descriptor,)).save(manifest_path)
             publish = [
@@ -167,7 +169,7 @@ def main() -> None:
         for identity in ids:
             command.run(["inspect", *common, "--snapshot-id", identity])
         assert len(list(snapshots.glob(".staging-*"))) == 2
-    print("Installed dataset command consumer passed:", alpha_research.__file__)
+    print("Installed dataset command consumer passed:", market_data.__file__)
 
 
 if __name__ == "__main__":

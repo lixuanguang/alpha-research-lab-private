@@ -11,10 +11,11 @@ from pathlib import Path
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.live.config import CaptureConfig
-from alpha_research.data.live.journal import CaptureRecord
-from alpha_research.data.live.transport import FeedSocket, VenueTransport
-from alpha_research.pipelines.live import collect, receive_frames
+from applications.collect import collect
+from configuration import CaptureConfig
+from market_data.adapters.transport import VenueTransport
+from market_data.collection import ReceiptStream
+from market_data.contracts import CaptureRecord, FeedSocket
 
 _ROOT = Path(__file__).parents[5]
 _ACK = b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}'
@@ -137,7 +138,7 @@ class TestOKXCapture:
         )
         queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(4)
         socket = PingSocket()
-        asyncio.run(receive_frames(socket, queue, config, 0, time.monotonic() + 4, 1))
+        asyncio.run(ReceiptStream.frames(socket, queue, config, 0, time.monotonic() + 4, 1))
         assert socket.ping.is_set()
         assert queue.get_nowait().raw == b"pong"
         assert queue.get_nowait().reason == "message_limit"

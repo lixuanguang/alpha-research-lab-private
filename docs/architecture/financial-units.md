@@ -2,7 +2,7 @@
 
 ## Objective and boundary
 
-`alpha_research.financial_units` owns immutable in-process financial values and
+`financial_units` owns immutable in-process financial values and
 explicit convention adapters under the [current architecture decision](README.md#current-architecture-decisions).
 It supplies the repository's money, FX, price, yield, volatility, rate, duration,
 multiplier, lot, tick and quantity abstractions. It adds no wire schema, position,
@@ -20,7 +20,7 @@ for the graph while this admission remains. No production use is permitted.
 
 | Interface | Meaning and invariant |
 | --- | --- |
-| `Currency` | Frozen `(code, minor_unit)` value with a valid uppercase ASCII code and positive finite exact accounting quantum; immutable configured defaults come from the packaged [`default_currencies.json`](../../src/alpha_research/financial_units/default_currencies.json) definitions and are selected by code |
+| `Currency` | Frozen `(code, minor_unit)` value with a valid uppercase ASCII code and positive finite exact accounting quantum; immutable configured defaults come from the packaged [`default_currencies.json`](../../src/financial_units/default_currencies.json) definitions and are selected by code |
 | `Dimension` | C01 instrument identity plus share, contract, base-unit or face-amount kind; different instruments never share a dimension implicitly |
 | `Money` | Signed Decimal amount and currency; `rounded(mode=...)` explicitly rounds to its accounting minor unit |
 | `Quantity` | Signed Decimal amount and native dimension; `rounded(lot, mode=...)` requires matching dimensions |

@@ -17,7 +17,7 @@ from hypothesis.strategies import SearchStrategy
 from pydantic import TypeAdapter, ValidationError
 
 # project library imports
-from alpha_research.instrument_identity import (
+from reference_data.instruments import (
     AmbiguousIdentifierError,
     ExternalIdentifier,
     IdentifierQuery,
@@ -32,7 +32,7 @@ from alpha_research.instrument_identity import (
     UnknownIdentifierError,
     UnknownInstrumentError,
 )
-from alpha_research.instrument_identity.models import _InstrumentIdentityModel
+from reference_data.instruments.models import _InstrumentIdentityModel
 
 
 class _ExactIdentifierGiven(Protocol):

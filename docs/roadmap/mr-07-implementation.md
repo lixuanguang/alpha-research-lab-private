@@ -20,7 +20,7 @@ completions/bytes, last acknowledged ingestion and terminal status. Its startup
 record includes normalized non-secret command inputs and their SHA-256; the
 existing manifest retains resolved job/catalog/code identity.
 
-The [component guide](../../src/alpha_research/data/README.md#installed-acquisition-command)
+The [component guide](../../src/market_data/README.md#installed-acquisition-command)
 owns flags, telemetry meanings, exit codes, storage prerequisites and recovery.
 `stored` does not acknowledge a completion; totals advance after checkpoint save.
 Resume verifies the entire prefix before claiming totals or fetching. Repetition
@@ -38,7 +38,7 @@ were merged before branch creation. The roadmap's stale MR 06 review status is
 updated; its ownership, dependencies and acceptance are unchanged.
 
 The command, argument boundary and invocation-scoped output adapter live in
-[`pipelines/acquisition.py`](../../src/alpha_research/pipelines/acquisition.py).
+[`pipelines/acquisition.py`](../../src/applications/acquire/workflow.py).
 `Configuration`, `CatalogSnapshot`, `DomainCodec`, `TardisTransport`, `RawStore`
 and `AcquisitionManifest` retain their responsibilities. Existing library reports
 are extended additively with verified-resume and checkpoint totals. The output

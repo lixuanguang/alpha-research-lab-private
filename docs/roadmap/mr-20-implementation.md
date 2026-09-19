@@ -38,7 +38,7 @@ regressions, the [installed fixture](../../tests/integration/consumers/replay/re
 and [NB 20 section 10](../../examples/research-foundations.ipynb). The existing
 query, selector, configuration, canonical/revision serialization, publication and
 live/book implementations are reused unchanged. The
-[API guide](../../src/alpha_research/data/README.md#chronological-event-stepping-mr-20)
+[API guide](../../src/market_data/README.md#chronological-event-stepping-mr-20)
 documents arguments, memory, progress, failure and recovery contracts.
 
 Against `f37c07d`, production code-bearing changes are **147 additions + 0 deletions

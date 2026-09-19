@@ -26,7 +26,7 @@ Version-1 wire fields remain supported and unchanged; corrections require versio
 which older readers reject. No existing file is rewritten or migrated automatically.
 
 The [data contract](../data/contracts.md#decision-time-selection-and-corrections-mr-12)
-and [component example](../../src/alpha_research/data/README.md#select-membership-at-a-decision)
+and [component example](../../src/market_data/README.md#select-membership-at-a-decision)
 record the exact semantics. The reader's existing catalog/units, evidence-clock,
 strict-codec and immutable-record contracts remain in force.
 

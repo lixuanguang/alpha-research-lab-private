@@ -13,10 +13,11 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration, DataJob, ResolvedManifest, Universe
-from alpha_research.instrument_identity import InstrumentId
-from alpha_research.reference_data import CatalogSnapshot, SpotInstrument
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration, DataJob, ResolvedManifest, Universe
+from reference_data.catalogs import CatalogSnapshot, SpotInstrument
+from reference_data.instruments import InstrumentId
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[2]
 _CONFIG = _ROOT / "configs/data-jobs/fixture-inspection.json"
@@ -36,7 +37,9 @@ class TestConfiguration:
             ("eth-fixture", ("ETHUSDT",)),
             ("both-fixture", ("BTCUSDT", "ETHUSDT")),
         ):
-            manifest = configuration.resolve(job, catalog)
+            manifest = configuration.resolve(
+                job, catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
             assert tuple(item.symbol for item in manifest.instruments) == symbols
             assert (
                 manifest.catalog.identity
@@ -51,16 +54,27 @@ class TestConfiguration:
         """Formatting and definition order are irrelevant; changed actual inputs remain visible."""
         configuration = Configuration.read(_CONFIG)
         catalog = _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot)
-        original = configuration.resolve("both-fixture", catalog)
+        original = configuration.resolve(
+            "both-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         jobs: tuple[DataJob, ...] = tuple(reversed(configuration.jobs))
         universes: tuple[Universe, ...] = tuple(
             Universe(name=item.name, instrument_ids=tuple(reversed(item.instrument_ids)))
             for item in reversed(configuration.universes)
         )
         reordered = replace(configuration, jobs=jobs, universes=universes)
-        assert reordered.resolve("both-fixture", catalog).identity == original.identity
         assert (
-            Configuration.read(_CONFIG).resolve("both-fixture", catalog).identity
+            reordered.resolve(
+                "both-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            ).identity
+            == original.identity
+        )
+        assert (
+            Configuration.read(_CONFIG)
+            .resolve(
+                "both-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+            .identity
             == original.identity
         )
         narrowed: tuple[Universe, ...] = tuple(
@@ -68,9 +82,19 @@ class TestConfiguration:
             for item in configuration.universes
         )
         changed = replace(configuration, universes=narrowed)
-        assert changed.resolve("both-fixture", catalog).identity != original.identity
+        assert (
+            changed.resolve(
+                "both-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            ).identity
+            != original.identity
+        )
         revised = replace(catalog, evidence="Another authored assumption")
-        assert configuration.resolve("both-fixture", revised).identity != original.identity
+        assert (
+            configuration.resolve(
+                "both-fixture", revised, implementation_identity=ImplementationIdentity.sha256()
+            ).identity
+            != original.identity
+        )
         assert replace(original, implementation_identity="f" * 64).identity != original.identity
         assert (
             replace(original, job=replace(original.job, source_revision="synthetic-v2")).identity
@@ -116,14 +140,18 @@ class TestConfiguration:
         configuration = Configuration.read(_CONFIG)
         catalog = _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot)
         with pytest.raises(ValueError, match="unknown data-job binding"):
-            configuration.resolve("absent", catalog)
+            configuration.resolve(
+                "absent", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
         instruments: tuple[SpotInstrument, ...] = tuple(
             replace(item, valid_to=item.valid_from + timedelta(minutes=59))
             for item in catalog.instruments
         )
         short = replace(catalog, instruments=instruments)
         with pytest.raises(ValueError, match="complete requested interval"):
-            configuration.resolve("btc-fixture", short)
+            configuration.resolve(
+                "btc-fixture", short, implementation_identity=ImplementationIdentity.sha256()
+            )
         unknown = InstrumentId.from_canonical_text("33333333-3333-4333-8333-333333333333")
         unbound: tuple[Universe, ...] = (
             Universe(name="btc", instrument_ids=(unknown,)),
@@ -131,7 +159,9 @@ class TestConfiguration:
         )
         changed = replace(configuration, universes=unbound)
         with pytest.raises(ValueError, match="absent from the catalog"):
-            changed.resolve("btc-fixture", catalog)
+            changed.resolve(
+                "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
 
     def test_constructor_and_unsafe_mutation_validation(self) -> None:
         """Direct constructors and unsafe copies cannot bypass immutable domain invariants."""
@@ -148,7 +178,9 @@ class TestConfiguration:
             replace(configuration.jobs[0], start=datetime(2024, 6, 1))
         with pytest.raises(ValueError, match="at most one day"):
             replace(configuration.jobs[0], end=datetime(2024, 6, 3, tzinfo=UTC))
-        manifest = configuration.resolve("btc-fixture", catalog)
+        manifest = configuration.resolve(
+            "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         with pytest.raises(ValueError, match="differs from its catalog"):
             replace(
                 manifest, instruments=(replace(manifest.instruments[0], price_tick=Decimal("0.1")),)

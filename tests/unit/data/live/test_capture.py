@@ -13,6 +13,7 @@ from collections.abc import Callable
 from http.client import IncompleteRead
 from pathlib import Path
 from threading import Event
+from typing import Protocol
 from unittest.mock import patch
 
 # third party library imports
@@ -20,23 +21,19 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.book_datasets import BookDatasetManifest
-from alpha_research.data.live.config import CaptureConfig, CaptureRequest
-from alpha_research.data.live.health import HealthMetric, HealthMetrics
-from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
-from alpha_research.data.live.replay import CaptureReplay
-from alpha_research.data.live.transport import FeedSocket, VenueTransport
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.data.venues.coinbase.auth import CoinbaseAccessError, CoinbaseCredentials
-from alpha_research.pipelines.live import (
-    collect,
-    monitored_capture,
-    receive_frames,
-    receive_snapshot,
-)
-from alpha_research.serialization import DomainCodec
+from applications.collect import collect, monitored_capture
+from configuration import CaptureConfig
+from market_data.adapters.sources import BookAdapters, SourceAdapters
+from market_data.adapters.transport import VenueTransport
+from market_data.adapters.venues.coinbase import CoinbaseAccessError, CoinbaseCredentials
+from market_data.books import CaptureReplay, NativeBook
+from market_data.collection import ReceiptStream
+from market_data.contracts import CaptureRecord, CaptureRequest, FeedSocket, RawObject
+from market_data.datasets import BookDatasetManifest, SnapshotStore
+from market_data.replay import SavedCapture
+from market_data.storage import CaptureJournal, RawStore
+from serialization import DomainCodec
+from telemetry import HealthMetric, HealthMetrics
 
 _ROOT = Path(__file__).parents[4]
 _FRAMES: tuple[bytes, ...] = (
@@ -157,12 +154,26 @@ class FailingJournal(CaptureJournal):
         super().append(record)
 
 
+class _ReplayReader(Protocol):
+    """Retain the saved-reader signature at the blocked finalization boundary."""
+
+    def __call__(
+        self,
+        root: Path,
+        *,
+        book_factory: Callable[[CaptureConfig], NativeBook],
+        completed: bool = True,
+    ) -> CaptureReplay:
+        """Read with explicit reconstruction and completion requirements."""
+        ...
+
+
 class BlockingReplayReader:
     """Hold offline replay at a deterministic finalization boundary."""
 
     def __init__(
         self,
-        read: Callable[[Path], CaptureReplay],
+        read: _ReplayReader,
         started: Event,
         release: Event,
     ) -> None:
@@ -177,10 +188,18 @@ class BlockingReplayReader:
         self._started = started
         self._release = release
 
-    def __call__(self, root: Path) -> CaptureReplay:
+    def __call__(
+        self,
+        root: Path,
+        *,
+        book_factory: Callable[[CaptureConfig], NativeBook],
+        completed: bool = True,
+    ) -> CaptureReplay:
         """Wait outside the event loop, then preserve the original replay contract.
 
         Args:
+            book_factory: Explicit native state constructor.
+            completed: Whether finalization requires a closed journal.
             root: Completed capture directory to replay.
 
         Returns:
@@ -192,7 +211,7 @@ class BlockingReplayReader:
         self._started.set()
         if not self._release.wait(5):
             raise AssertionError("finalization replay boundary was not released")
-        return self._read(root)
+        return self._read(root, book_factory=book_factory, completed=completed)
 
 
 class TestCapture:
@@ -223,7 +242,7 @@ class TestCapture:
         assert result["gaps"] == []
         assert result["replay_parity"] is True
         root = next(tmp_path.iterdir())
-        replay = CaptureReplay.read(root)
+        replay = SavedCapture.read(root, book_factory=BookAdapters.create)
         assert replay.summary()["trace_identity"] == result["trace_identity"]
         assert all(socket.closed for socket in transport.sockets)
         descriptor = DomainCodec().decode_json((root / "manifest.json").read_bytes(), RawObject)
@@ -232,7 +251,7 @@ class TestCapture:
         os.chmod(root / digest, 0o600)
         (root / digest).write_bytes(b"tampered")
         with pytest.raises(ValueError, match="size mismatch"):
-            CaptureReplay.read(root)
+            SavedCapture.read(root, book_factory=BookAdapters.create)
 
     def test_health_tracks_durable_economic_progress(self, tmp_path: Path) -> None:
         """Expose fixed-size progress to a caller without conflating receipt and market clocks."""
@@ -263,7 +282,7 @@ class TestCapture:
         """Synchronize with the worker boundary before observing the heartbeat task."""
         started, release = Event(), Event()
         health = HealthMetrics()
-        reader = BlockingReplayReader(CaptureReplay.read, started, release)
+        reader = BlockingReplayReader(SavedCapture.read, started, release)
         task = asyncio.create_task(
             monitored_capture(
                 self.config(),
@@ -274,7 +293,7 @@ class TestCapture:
             )
         )
         try:
-            with patch("alpha_research.pipelines.live.CaptureReplay.read", side_effect=reader):
+            with patch("applications.collect.workflow.SavedCapture.read", side_effect=reader):
                 assert await asyncio.to_thread(started.wait, 5)
                 before = health.snapshot()
                 await asyncio.sleep(0.35)
@@ -298,7 +317,7 @@ class TestCapture:
         """Cancel after entering replay and release the worker after cancellation is pending."""
         started, release = Event(), Event()
         health = HealthMetrics()
-        reader = BlockingReplayReader(CaptureReplay.read, started, release)
+        reader = BlockingReplayReader(SavedCapture.read, started, release)
         task = asyncio.create_task(
             collect(
                 self.config(),
@@ -309,7 +328,7 @@ class TestCapture:
             )
         )
         try:
-            with patch("alpha_research.pipelines.live.CaptureReplay.read", side_effect=reader):
+            with patch("applications.collect.workflow.SavedCapture.read", side_effect=reader):
                 assert await asyncio.to_thread(started.wait, 5)
                 task.cancel()
                 await asyncio.sleep(0)
@@ -366,7 +385,7 @@ class TestCapture:
         assert result["messages"] == 0 and result["synchronized"] is False
         assert result["stop_reason"] == "connect_failed_unknown_loss"
         assert result["gaps"] and result["replay_parity"] is True
-        saved = CaptureReplay.read(next(tmp_path.iterdir()))
+        saved = SavedCapture.read(next(tmp_path.iterdir()), book_factory=BookAdapters.create)
         assert saved.gaps[0]["reason"] == "connect_failed_unknown_loss"
 
     @pytest.mark.parametrize(
@@ -459,10 +478,10 @@ class TestCapture:
         """No manifest is published after disk failure; offline inspection reports unknown loss."""
         config = self.config()
         transport = ScriptedTransport(config, (_FRAMES,))
-        consumer = CaptureReplay(config)
+        consumer = CaptureReplay(config, book_factory=BookAdapters.create)
         with (
-            patch("alpha_research.pipelines.live.CaptureJournal", FailingJournal),
-            patch("alpha_research.pipelines.live.CaptureReplay", return_value=consumer),
+            patch("applications.collect.workflow.CaptureJournal", FailingJournal),
+            patch("applications.collect.workflow.CaptureReplay", return_value=consumer),
         ):
             with pytest.raises(OSError, match="disk full"):
                 asyncio.run(
@@ -471,7 +490,7 @@ class TestCapture:
         root = next(tmp_path.iterdir())
         assert consumer.messages == 0
         assert not (root / "manifest.json").exists()
-        replay = CaptureReplay.read(root, completed=False)
+        replay = SavedCapture.read(root, book_factory=BookAdapters.create, completed=False)
         assert replay.gaps[0]["reason"] == "interrupted_persistence_unknown_tail"
         assert not replay.book.ready
         assert all(socket.closed for socket in transport.sockets)
@@ -494,7 +513,9 @@ class TestCapture:
         assert results[0]["request_identity"] != results[1]["request_identity"]
         assert len(list(tmp_path.iterdir())) == 2
         for root in tmp_path.iterdir():
-            assert CaptureReplay.read(root).messages == len(_FRAMES)
+            assert SavedCapture.read(root, book_factory=BookAdapters.create).messages == len(
+                _FRAMES
+            )
 
     @pytest.mark.parametrize("invalid", [b"[7,[[1,-100,2]],2]", b"[7,[[1,100,0]],2]", b"not JSON"])
     def test_invalid_units_and_schema_retain_raw_diagnosis(
@@ -570,7 +591,7 @@ class TestCapture:
         transport = ScriptedTransport(config, ())
         with (
             patch.object(transport, "open", return_value=socket),
-            patch("alpha_research.pipelines.live.CaptureReplay", SlowReplay),
+            patch("applications.collect.workflow.CaptureReplay", SlowReplay),
         ):
             result = asyncio.run(
                 collect(config, tmp_path, implementation_identity="a" * 64, transport=transport)
@@ -592,7 +613,7 @@ class TestCapture:
         journal.append(CaptureRecord(kind="session", epoch=0, received_ns=1))
         with (root / "journal.jsonl").open("ab") as output:
             output.write(b'{"kind":"frame"')
-        replay = CaptureReplay.read(root, completed=False)
+        replay = SavedCapture.read(root, book_factory=BookAdapters.create, completed=False)
         assert replay.messages == 0
         assert len(replay.gaps) == 1
         assert not replay.ended
@@ -632,7 +653,7 @@ class TestCapture:
         config = replace(self.config(), queue_capacity=1)
         queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(1)
         task = asyncio.create_task(
-            receive_frames(ScriptedSocket(_FRAMES), queue, config, 0, float("inf"), 5)
+            ReceiptStream.frames(ScriptedSocket(_FRAMES), queue, config, 0, float("inf"), 5)
         )
         for _ in range(5):
             await asyncio.sleep(0)
@@ -679,6 +700,7 @@ class CoinbaseScript(VenueTransport):
             config: Explicit Coinbase selection and bounded capture limits.
         """
         super().__init__(config)
+        self._receive_snapshot = ReceiptStream.snapshot
         self.snapshot_queued = asyncio.Event()
         self.socket = SnapshotSocket(
             (
@@ -700,7 +722,7 @@ class CoinbaseScript(VenueTransport):
             queue: The collector's actual bounded persistence queue.
             epoch: Current connection epoch.
         """
-        await receive_snapshot(transport, queue, epoch)
+        await self._receive_snapshot(transport, queue, epoch)
         self.snapshot_queued.set()
 
     async def open(self, timeout: float) -> FeedSocket:
@@ -732,7 +754,7 @@ class TestCoinbaseCapture:
         queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(1)
         transport = VenueTransport(config)
         with patch.object(transport, "snapshot", side_effect=IncompleteRead(b"partial")):
-            asyncio.run(receive_snapshot(transport, queue, 2))
+            asyncio.run(ReceiptStream.snapshot(transport, queue, 2))
         record = queue.get_nowait()
         assert record.kind == "gap" and record.epoch == 2
         assert record.reason == "snapshot_failed_unknown_loss" and not record.raw
@@ -742,7 +764,9 @@ class TestCoinbaseCapture:
         from_config = CaptureConfig.read(_ROOT / "configs/live/coinbase-btc-usd.json")
         config = replace(from_config, retries=0, max_messages=24)
         transport = CoinbaseScript(config)
-        with patch("alpha_research.pipelines.live.receive_snapshot", transport.enqueue_snapshot):
+        with patch(
+            "market_data.collection.receipt.ReceiptStream.snapshot", transport.enqueue_snapshot
+        ):
             result = asyncio.run(
                 collect(
                     config,
@@ -785,7 +809,10 @@ class TestCoinbaseCapture:
         identity, directory = result["snapshot_identity"], result["capture_directory"]
         assert isinstance(identity, str) and isinstance(directory, str)
         manifest = SnapshotStore(
-            snapshots, RawStore(Path(directory)), manifest_type=BookDatasetManifest
+            snapshots,
+            RawStore(Path(directory)),
+            readers=SourceAdapters(),
+            manifest_type=BookDatasetManifest,
         ).read(
             identity,
             max_bytes=config.max_bytes,

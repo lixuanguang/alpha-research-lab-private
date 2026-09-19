@@ -14,19 +14,18 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.datasets import DatasetInput
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.quality import QualityPolicy
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import Correction, TradeRevision
-from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.pipelines.dataset import dataset_main, iter_occurrences, publish_dataset
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from applications.publish_dataset import main as dataset_main
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import SourceRequest
+from market_data.datasets import DatasetInput, DatasetPublication, SnapshotStore
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import Correction, QualityPolicy, TradeRevision
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -48,21 +47,23 @@ class TestDatasetCommand:
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
         config = replace(config, jobs=(replace(config.jobs[0], universe=symbol[:3].lower()),))
-        run = config.resolve("btc-archive", catalog)
+        run = config.resolve(
+            "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         request = SourceRequest.partition(run)[0]
         path = root / "source.zip"
         member = ZipInfo(f"{symbol}-trades-2024-06-01.csv")
         member.compress_type = ZIP_DEFLATED
         with ZipFile(path, "w") as archive:
             archive.writestr(member, content)
-        descriptor = RawObject.from_file(
+        descriptor = RawFiles.describe(
             path,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:mr16",
             ts_received=datetime(2026, 9, 17, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 17, tzinfo=UTC),
         )
-        RawStore(raw).publish(path, descriptor=descriptor, request=request)
+        RawStore(raw).publish(path, descriptor=descriptor, request=request.binding)
         acquisition = AcquisitionManifest(run=run, completed=(descriptor,))
         acquisition.save(root / f"{symbol}.json")
         history = EligibilityAssertions.read(
@@ -184,7 +185,7 @@ class TestDatasetCommand:
         assert dataset_main(command) == 0
         identity = str(self._records(capsys.readouterr().out)[-1]["snapshot_id"])
         assert (
-            publish_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish(
                 (*selected, selected[0]),
                 RawStore(tmp_path / "raw"),
                 tmp_path / "snapshots",
@@ -192,16 +193,16 @@ class TestDatasetCommand:
             )
             == identity
         )
-        manifest = SnapshotStore(tmp_path / "snapshots", RawStore(tmp_path / "raw")).read(
-            identity, max_bytes=_LIMIT
-        )
+        manifest = SnapshotStore(
+            tmp_path / "snapshots", RawStore(tmp_path / "raw"), readers=SourceAdapters()
+        ).read(identity, max_bytes=_LIMIT)
         assert tuple(part.policy for part in manifest.partitions) == tuple(
             item.policy for item in selected
         )
         assert dataset_main([*command, "--policy", str(tmp_path / "policy.json")]) == 2
         assert "retains its own" in capsys.readouterr().err
         with pytest.raises(ValueError, match="overlapping acquisitions"):
-            publish_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish(
                 (selected[0], replace(selected[0], policy=selected[1].policy)),
                 RawStore(tmp_path / "raw"),
                 tmp_path / "snapshots",
@@ -249,7 +250,7 @@ class TestDatasetCommand:
         assert [row["duplicate_count"] for row in rows if row["status"] == "validated"] == [1, 1]
         assert (tmp_path / "combined.json").read_bytes() == before
         assert (
-            publish_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish(
                 acquisition.partitions(),
                 RawStore(tmp_path / "raw"),
                 tmp_path / "snapshots",
@@ -323,7 +324,9 @@ class TestDatasetCommand:
             (tmp_path / "combined.json").read_bytes(), AcquisitionManifest
         )
         occurrences = tuple(
-            iter_occurrences(original, RawStore(tmp_path / "raw"), max_bytes=_LIMIT)
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                original, RawStore(tmp_path / "raw"), max_bytes=_LIMIT
+            )
         )
         versions = tuple(TradeRevision(occurrences=(item,)).identity for item in occurrences)
         evidence = Correction(
@@ -338,9 +341,9 @@ class TestDatasetCommand:
         command = [*arguments, "--correction", original.run.identity, str(path)]
         assert dataset_main(command) == 0
         identity = str(self._records(capsys.readouterr().out)[-1]["snapshot_id"])
-        saved = SnapshotStore(tmp_path / "snapshots", RawStore(tmp_path / "raw")).read(
-            identity, max_bytes=_LIMIT
-        )
+        saved = SnapshotStore(
+            tmp_path / "snapshots", RawStore(tmp_path / "raw"), readers=SourceAdapters()
+        ).read(identity, max_bytes=_LIMIT)
         assert tuple(part.corrections for part in saved.partitions) == ((evidence,), ())
         for foreign in (
             replace(evidence, replacement=versions[2]),
@@ -463,7 +466,7 @@ class TestDatasetCommand:
     ) -> None:
         """Report no durable success before rename and preserve the candidate ID for retry."""
         arguments = self._inputs(tmp_path)
-        with patch("alpha_research.data.snapshots.os.rename", side_effect=failure):
+        with patch("market_data.datasets.snapshots.os.rename", side_effect=failure):
             assert dataset_main(arguments) == expected
         result = capsys.readouterr()
         terminal = self._records(result.err)[-1]
@@ -488,7 +491,9 @@ class TestDatasetCommand:
             (tmp_path / "BTCUSDT.json").read_bytes(), AcquisitionManifest
         )
         occurrences = tuple(
-            iter_occurrences(acquisition, RawStore(tmp_path / "raw"), max_bytes=_LIMIT)
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                acquisition, RawStore(tmp_path / "raw"), max_bytes=_LIMIT
+            )
         )
         evidence = Correction(
             supersedes=TradeRevision(occurrences=occurrences[:1]).identity,
@@ -503,9 +508,9 @@ class TestDatasetCommand:
         capsys.readouterr()
         assert dataset_main([*arguments, "--correction", acquisition.run.identity, str(path)]) == 0
         identity = str(self._records(capsys.readouterr().out)[-1]["snapshot_id"])
-        manifest = SnapshotStore(tmp_path / "snapshots", RawStore(tmp_path / "raw")).read(
-            identity, max_bytes=_LIMIT
-        )
+        manifest = SnapshotStore(
+            tmp_path / "snapshots", RawStore(tmp_path / "raw"), readers=SourceAdapters()
+        ).read(identity, max_bytes=_LIMIT)
         assert manifest.partitions[0].corrections == (evidence,)
         assert (
             b'"previous":{'

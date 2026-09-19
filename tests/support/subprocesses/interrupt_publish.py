@@ -9,10 +9,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 # project library imports
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.serialization import DomainCodec
+from market_data.contracts import RawObject, SourceRequest
+from market_data.storage import RawStore
+from serialization import DomainCodec
 
 
 class _Arguments(argparse.Namespace):
@@ -63,8 +62,10 @@ def main() -> None:
     descriptor = codec.decode_json(arguments.descriptor.read_bytes(), RawObject)
     request = codec.decode_json(arguments.request.read_bytes(), SourceRequest)
     interruption = _InterruptedPublication(arguments.point)
-    with patch("alpha_research.data.raw_store.os.link", interruption.link):
-        RawStore(arguments.root).publish(arguments.source, descriptor=descriptor, request=request)
+    with patch("market_data.storage.raw.os.link", interruption.link):
+        RawStore(arguments.root).publish(
+            arguments.source, descriptor=descriptor, request=request.binding
+        )
     raise RuntimeError("publication did not reach the requested interruption")
 
 

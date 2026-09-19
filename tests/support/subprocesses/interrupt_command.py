@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 # project library imports
-from alpha_research.pipelines.dataset import dataset_main
+from applications.publish_dataset import main as dataset_main
 
 
 class _InterruptedPublication:
@@ -25,7 +25,7 @@ def main() -> None:
     Raises:
         SystemExit: Propagate a command failure before the selected interruption.
     """
-    with patch("alpha_research.data.snapshots.os.rename", _InterruptedPublication.rename):
+    with patch("market_data.datasets.snapshots.os.rename", _InterruptedPublication.rename):
         raise SystemExit(dataset_main(sys.argv[1:]))
 
 

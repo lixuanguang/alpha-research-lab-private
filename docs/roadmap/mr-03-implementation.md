@@ -9,7 +9,7 @@ remains the sole authority for ownership, dependencies and acceptance.
 
 A saved-file digest alone did not retain request attribution or original local
 receipt/ingestion metadata, nor provide a callable integrity check. The immutable
-[`RawObject`](../../src/alpha_research/data/raw_objects.py) now describes existing
+[`RawObject`](../../src/market_data/contracts/raw.py) now describes existing
 bytes and verifies them against their descriptor and an independently supplied
 `SourceRequest`. SHA-256 and size cover the exact stored representation, including
 compression. Mutation, truncation, append and another request fail explicitly.
@@ -19,7 +19,7 @@ file without modifying bytes or metadata. Both read sequential one-MiB chunks.
 The descriptor owns its invariants and bounded file operations; no pipeline or
 forwarding wrapper is introduced. The existing request identity already binds
 instrument/partition/source/catalog/code, and the existing `DomainCodec` supplies
-strict serialization. The [component guide](../../src/alpha_research/data/README.md#saved-raw-object-verification)
+strict serialization. The [component guide](../../src/market_data/README.md#saved-raw-object-verification)
 owns the callable contract, errors and limits.
 
 ## Affected scope

@@ -19,15 +19,14 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration, DataJob
-from alpha_research.data.providers.tardis.transport import TransientFetchError
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.pipelines.acquisition import fetch_partition
-from alpha_research.pipelines.dataset import inspect_fixture
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from applications.acquire import fetch_partition
+from applications.inspect_fixture import inspect_fixture
+from configuration import Configuration, DataJob
+from market_data.contracts import RawObject, SourceRequest, TransientFetchError
+from market_data.storage import RawStore
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -85,7 +84,11 @@ class TestAcquisition:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        return SourceRequest.partition(configuration.resolve(job.name, catalog))[0]
+        return SourceRequest.partition(
+            configuration.resolve(
+                job.name, catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[0]
 
     @staticmethod
     def _run(
@@ -147,7 +150,7 @@ class TestAcquisition:
         assert descriptor.ts_ingested == _RECEIVED + timedelta(seconds=1)
         assert descriptor.request_identity == request.identity
         restored = _CODEC.decode_json(_CODEC.encode_json(descriptor), RawObject)
-        with RawStore(tmp_path).open(descriptor=restored, request=request) as saved:
+        with RawStore(tmp_path).open(descriptor=restored, request=request.binding) as saved:
             assert saved.read() == payload
         assert list(tmp_path.iterdir()) == [tmp_path / descriptor.sha256]
         records = [msgspec.json.Decoder(dict[str, str | int]).decode(row) for row in reports]

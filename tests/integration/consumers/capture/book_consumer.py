@@ -9,15 +9,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 # project library imports
-import alpha_research
-from alpha_research.data.book_datasets import BookDatasetManifest, BookHistory
-from alpha_research.data.live.journal import CaptureRecord
-from alpha_research.data.live.quality import ContinuousQuality
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.data.venues.okx.book import OKXBook
-from alpha_research.pipelines.dataset import publish_book_dataset
-from alpha_research.serialization import DomainCodec
+import market_data
+from market_data.adapters.sources import SourceAdapters
+from market_data.adapters.venues.okx import OKXBook
+from market_data.contracts import CaptureRecord
+from market_data.datasets import BookDatasetManifest, BookHistory, DatasetPublication, SnapshotStore
+from market_data.storage import RawStore
+from market_data.validation import ContinuousQuality
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 
 def main() -> None:
@@ -28,31 +28,33 @@ def main() -> None:
     raw.mkdir()
     snapshots.mkdir()
     codec = DomainCodec()
-    identity = publish_book_dataset(
+    identity = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
         (source,), RawStore(raw), snapshots, max_records=32, max_bytes=64_000_000
     )
-    store = SnapshotStore(snapshots, RawStore(raw), manifest_type=BookDatasetManifest)
+    store = SnapshotStore(
+        snapshots, RawStore(raw), readers=SourceAdapters(), manifest_type=BookDatasetManifest
+    )
     manifest = store.read(identity, max_bytes=64_000_000)
     path = snapshots / identity / manifest.partitions[0].sha256
     history = codec.decode_json(path.read_bytes(), BookHistory)
     assert (
-        publish_book_dataset(
+        DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
             (source,), RawStore(raw), snapshots, max_records=32, max_bytes=64_000_000
         )
         == identity
     )
     failures: list[str] = []
     try:
-        publish_book_dataset(
+        DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
             (source,), RawStore(raw), snapshots, max_records=1, max_bytes=64_000_000
         )
     except ValueError as error:
         failures.append(str(error))
     with patch(
-        "alpha_research.data.snapshots.os.rename", side_effect=OSError("publication interrupted")
+        "market_data.datasets.snapshots.os.rename", side_effect=OSError("publication interrupted")
     ):
         try:
-            publish_book_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
                 (source,), RawStore(raw), snapshots, max_records=31, max_bytes=64_000_000
             )
         except OSError as error:
@@ -119,7 +121,7 @@ def main() -> None:
         invalid_price = str(error)
     assert invalid_price and book.identity == before
     summary = {
-        "installed_package": str(Path(alpha_research.__file__).resolve()),
+        "installed_package": str(Path(market_data.__file__).resolve()),
         "snapshot_identity": identity,
         "raw_identity": history.input.raw.sha256,
         "scope": manifest.scope,

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 # project library imports
-from alpha_research.data.venues.coinbase.auth import CoinbaseAccessError, CoinbaseCredentials
+from market_data.adapters.venues.coinbase import CoinbaseAccessError, CoinbaseCredentials
 
 
 class TestCoinbaseCredentials:

@@ -9,10 +9,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 # project library imports
-from alpha_research.data.datasets import DatasetManifest
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.serialization import DomainCodec
+from market_data.adapters.sources import SourceAdapters
+from market_data.datasets import DatasetManifest, SnapshotStore
+from market_data.storage import RawStore
+from serialization import DomainCodec
 
 
 class _Arguments(argparse.Namespace):
@@ -67,10 +67,10 @@ def main() -> None:
     payloads = tuple((arguments.inputs / part.sha256).read_bytes() for part in manifest.partitions)
     interruption = _InterruptedPublication(arguments.point)
     with (
-        patch("alpha_research.data.snapshots.os.fsync", interruption.fsync),
-        patch("alpha_research.data.snapshots.os.rename", interruption.rename),
+        patch("market_data.datasets.snapshots.os.fsync", interruption.fsync),
+        patch("market_data.datasets.snapshots.os.rename", interruption.rename),
     ):
-        SnapshotStore(arguments.root, RawStore(arguments.raw)).publish(
+        SnapshotStore(arguments.root, RawStore(arguments.raw), readers=SourceAdapters()).publish(
             manifest, payloads, max_bytes=262_144
         )
     raise RuntimeError("snapshot publication did not reach the requested interruption")

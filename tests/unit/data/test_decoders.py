@@ -10,7 +10,7 @@ from hashlib import sha256
 import pytest
 
 # project library imports
-from alpha_research.data.decoders import DecodeContext
+from market_data.contracts import DecodeContext
 
 
 def test_decode_context_normalizes_receipt_times_and_hashes_raw_line() -> None:

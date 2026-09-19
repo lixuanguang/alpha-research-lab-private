@@ -31,6 +31,10 @@ def _fixture_root(tmp_path: Path, source: str) -> Path:
         (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
+    project = tmp_path / "pyproject.toml"
+    text = project.read_text()
+    start, end = text.index("[project.scripts]"), text.index("[dependency-groups]")
+    project.write_text(text[:start] + text[end:])
     (tmp_path / "src/fixture.py").write_text(source, encoding="utf-8")
     return tmp_path
 

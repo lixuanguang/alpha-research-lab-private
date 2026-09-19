@@ -14,25 +14,28 @@ import pytest
 from msgspec.structs import force_setattr, replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.asof import AsOfSelector, InputBinding, PointEvent
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.events import Disconnect
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.providers.binance.rows import ArchiveRow
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.providers.tardis.decoder import TardisDecoder
-from alpha_research.data.quality import QualityPolicy
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import Correction, TradeRevision
-from alpha_research.data.venues.binance.events import Trade
-from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
-from alpha_research.pipelines.dataset import assemble_dataset, publish_dataset
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.providers.binance import ArchiveRow, BinanceArchiveTrades
+from market_data.adapters.providers.tardis import TardisDecoder
+from market_data.adapters.sources import SourceAdapters
+from market_data.adapters.venues.binance import BinancePayloadDecoder
+from market_data.contracts import (
+    ArchiveTrade,
+    Disconnect,
+    Occurrence,
+    RawObject,
+    SourceRequest,
+    Trade,
+)
+from market_data.datasets import DatasetPublication
+from market_data.query import AsOfSelector, InputBinding, PointEvent
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import Correction, QualityPolicy, TradeRevision
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -53,7 +56,9 @@ class TestAsOfSelector:
         catalog = _CODEC.decode_json(
             (_ROOT / f"configs/reference/{catalog_name}.json").read_bytes(), CatalogSnapshot
         )
-        run = config.resolve(config.jobs[0].name, catalog)
+        run = config.resolve(
+            config.jobs[0].name, catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         return SourceRequest.partition(
             replace(run, instruments=(catalog.instruments[instrument],))
         )[0]
@@ -124,7 +129,7 @@ class TestAsOfSelector:
         )
         event: ArchiveTrade | Trade | Disconnect
         if request.manifest.job.provider == "binance-archive":
-            event = ArchiveTrade.from_row(
+            event = BinanceArchiveTrades.from_row(
                 ArchiveRow(
                     origin=origin,
                     position=position,
@@ -175,6 +180,7 @@ class TestAsOfSelector:
             .validate(
                 request,
                 items,
+                verifier=SourceAdapters.verifier(request),
                 eligibility=self._history(request) if history is None else history,
                 corrections=corrections,
             )
@@ -201,7 +207,9 @@ class TestAsOfSelector:
         canonical = self._canonical(
             request, (original, revised), corrections=(self._correction(original, revised),)
         )
-        selector = AsOfSelector((canonical,), precedence=(self._binding(request),))
+        selector = AsOfSelector(
+            (canonical,), readers=SourceAdapters(), precedence=(self._binding(request),)
+        )
         assert self._select(selector, request, 0) == ()
         for cutoff in (1, 5, 9):
             selected = self._select(selector, request, cutoff)
@@ -233,6 +241,7 @@ class TestAsOfSelector:
                     request, (original, revised), corrections=(self._correction(original, revised),)
                 ),
             ),
+            readers=SourceAdapters(),
             precedence=(self._binding(request),),
         )
         for cutoff, count in ((10, 1), (20, 0)):
@@ -250,12 +259,15 @@ class TestAsOfSelector:
         first = self._item(request, trade_id=99)
         second = self._item(request, trade_id=1, position=1)
         baseline = AsOfSelector(
-            (self._canonical(request, (first, second)),), precedence=(self._binding(request),)
+            (self._canonical(request, (first, second)),),
+            readers=SourceAdapters(),
+            precedence=(self._binding(request),),
         )
         future_duplicate = self._item(request, trade_id=1, position=0, capture=30, digest="b" * 64)
         future = self._item(request, trade_id=123, position=1, capture=31, digest="b" * 64)
         changed = AsOfSelector(
             (self._canonical(request, (first, second, future_duplicate, future)),),
+            readers=SourceAdapters(),
             precedence=(self._binding(request),),
         )
         for selector in (baseline, changed):
@@ -276,7 +288,9 @@ class TestAsOfSelector:
             for i, t in enumerate((99, 1))
         )
         other = AsOfSelector(
-            (self._canonical(request, rehashed),), precedence=(self._binding(request),)
+            (self._canonical(request, rehashed),),
+            readers=SourceAdapters(),
+            precedence=(self._binding(request),),
         )
         assert [r.identity for r in self._select(other, request, 1)] == [
             r.identity for r in self._select(baseline, request, 1)
@@ -292,7 +306,7 @@ class TestAsOfSelector:
             for request in (btc, eth)
         )
         precedence = (self._binding(eth), self._binding(btc))
-        selector = AsOfSelector(payloads, precedence=precedence)
+        selector = AsOfSelector(payloads, readers=SourceAdapters(), precedence=precedence)
         selected = selector.select(
             (btc.instrument.instrument_id,),
             start=_START + timedelta(seconds=2),
@@ -316,6 +330,7 @@ class TestAsOfSelector:
         terminal = self._item(btc, position=2, capture=60, disconnect=True, digest="c" * 64)
         terminal_selector = AsOfSelector(
             (self._canonical(btc, (self._item(btc), terminal)),),
+            readers=SourceAdapters(),
             precedence=(self._binding(btc),),
         )
         assert len(self._select(terminal_selector, btc, 59)) == 1
@@ -326,6 +341,7 @@ class TestAsOfSelector:
         request, other = self._request(), self._request(instrument=1)
         selector = AsOfSelector(
             (self._canonical(request, (self._item(request),)),),
+            readers=SourceAdapters(),
             precedence=(self._binding(request),),
         )
         for instruments in (
@@ -348,7 +364,9 @@ class TestAsOfSelector:
         )
         corrected = self._canonical(request, (self._item(request),), history=history)
         for payload in (original, corrected):
-            selector = AsOfSelector((payload,), precedence=(self._binding(request),))
+            selector = AsOfSelector(
+                (payload,), readers=SourceAdapters(), precedence=(self._binding(request),)
+            )
             assert len(self._select(selector, request, 1)) == 1
         assert self._select(selector, request, 12 * 3600) == ()
         unknown = AsOfSelector(
@@ -357,6 +375,7 @@ class TestAsOfSelector:
                     request, (self._item(request),), history=replace(history, assertions=())
                 ),
             ),
+            readers=SourceAdapters(),
             precedence=(self._binding(request),),
         )
         assert self._select(unknown, request) == () and b'"unknown"' in unknown.history[0]
@@ -367,7 +386,12 @@ class TestAsOfSelector:
             history=replace(history, schema_version="1", assertions=(endpoint,)),
         )
         assert (
-            self._select(AsOfSelector((excluded,), precedence=(self._binding(request),)), request)
+            self._select(
+                AsOfSelector(
+                    (excluded,), readers=SourceAdapters(), precedence=(self._binding(request),)
+                ),
+                request,
+            )
             == ()
         )
 
@@ -388,7 +412,11 @@ class TestAsOfSelector:
         decoded = _WIRE.decode(payload)
         decoded[field] = value
         with pytest.raises(ValueError):
-            AsOfSelector((_CODEC.encode_json(decoded),), precedence=(self._binding(request),))
+            AsOfSelector(
+                (_CODEC.encode_json(decoded),),
+                readers=SourceAdapters(),
+                precedence=(self._binding(request),),
+            )
 
     def test_ambiguous_positions_overlaps_and_incomplete_precedence_fail(self) -> None:
         """Competing raw versions and unspecified logical order cannot use hashes to break ties."""
@@ -396,14 +424,14 @@ class TestAsOfSelector:
         first, second = self._item(request), self._item(request, trade_id=13, digest="b" * 64)
         payload = self._canonical(request, (first, second))
         binding = self._binding(request)
-        selector = AsOfSelector((payload,), precedence=(binding,))
+        selector = AsOfSelector((payload,), readers=SourceAdapters(), precedence=(binding,))
         with pytest.raises(ValueError, match="ambiguous economic"):
             self._select(selector, request)
         with pytest.raises(ValueError, match="overlapping"):
-            AsOfSelector((payload, payload), precedence=(binding,))
+            AsOfSelector((payload, payload), readers=SourceAdapters(), precedence=(binding,))
         for precedence in ((), (binding, binding)):
             with pytest.raises(ValueError, match="precedence"):
-                AsOfSelector((payload,), precedence=precedence)
+                AsOfSelector((payload,), readers=SourceAdapters(), precedence=precedence)
 
     @pytest.mark.parametrize(
         "start,end,cutoff",
@@ -423,6 +451,7 @@ class TestAsOfSelector:
         request = self._request()
         selector = AsOfSelector(
             (self._canonical(request, (self._item(request),)),),
+            readers=SourceAdapters(),
             precedence=(self._binding(request),),
         )
         with pytest.raises((ValueError, TypeError)):
@@ -443,18 +472,18 @@ class TestAsOfSelector:
         raw_directory.mkdir()
         snapshots.mkdir()
         raw = RawStore(raw_directory)
-        origin = RawObject.from_file(
+        origin = RawFiles.describe(
             source,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:mr17",
             ts_received=_START + timedelta(days=1),
             ts_ingested=_START + timedelta(days=1),
         )
-        raw.publish(source, descriptor=origin, request=request)
+        raw.publish(source, descriptor=origin, request=request.binding)
         acquisition = AcquisitionManifest(run=request.manifest, completed=(origin,))
         policy = QualityPolicy(use="exploratory", known_at=_START, max_gap=timedelta(hours=1))
         corrections = {acquisition.run.identity: (self._correction(original, revised),)}
-        identity = publish_dataset(
+        identity = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish(
             (acquisition,),
             raw,
             snapshots,
@@ -466,6 +495,7 @@ class TestAsOfSelector:
         selector = AsOfSelector.read(
             snapshots,
             raw,
+            readers=SourceAdapters(),
             identity=identity,
             max_bytes=_LIMIT,
             precedence=(self._binding(request),),
@@ -477,7 +507,9 @@ class TestAsOfSelector:
         assert selected[0].occurrences[0].event.price == Decimal("101.00")
         assert selected[0].previous is not None and selected[0].previous.ts_knowledge is None
         assert b"original trade availability unknown" in selector.history[0]
-        manifest, _ = assemble_dataset(
+        manifest, _ = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).assemble(
             (acquisition,),
             raw,
             max_bytes=_LIMIT,
@@ -491,6 +523,7 @@ class TestAsOfSelector:
                 AsOfSelector.read(
                     snapshots,
                     raw,
+                    readers=SourceAdapters(),
                     identity=invalid_id,
                     max_bytes=_LIMIT,
                     precedence=(self._binding(request),),
@@ -502,6 +535,7 @@ class TestAsOfSelector:
             AsOfSelector.read(
                 snapshots,
                 raw,
+                readers=SourceAdapters(),
                 identity=identity,
                 max_bytes=_LIMIT,
                 precedence=(self._binding(request),),

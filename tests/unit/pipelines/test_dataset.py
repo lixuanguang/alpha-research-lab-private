@@ -16,12 +16,13 @@ from pathlib import Path
 import pytest
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.venues.binance.codecs import MarketEventCodec
-from alpha_research.data.venues.binance.events import Trade
-from alpha_research.pipelines.dataset import inspect_fixture, main
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from applications.inspect_fixture import inspect_fixture, main
+from configuration import Configuration
+from market_data.adapters.venues.binance import MarketEventCodec
+from market_data.contracts import Trade
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CONFIG = _ROOT / "configs/data-jobs/fixture-inspection.json"
@@ -48,7 +49,9 @@ class TestFixtureInspection:
     ) -> None:
         """Reuse the same pipeline for either listing and preserve all original clock meanings."""
         manifest = Configuration.read(_CONFIG).resolve(
-            job, _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot)
+            job,
+            _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot),
+            implementation_identity=ImplementationIdentity.sha256(),
         )
         fixture = _FIXTURES / f"{symbol.lower()}.txt"
         request, event, digest = inspect_fixture(
@@ -93,7 +96,9 @@ class TestFixtureInspection:
     ) -> None:
         """Fail explicitly on wrong instruments and clocks without poisoning a later invocation."""
         manifest = Configuration.read(_CONFIG).resolve(
-            "btc-fixture", _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot)
+            "btc-fixture",
+            _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot),
+            implementation_identity=ImplementationIdentity.sha256(),
         )
         path = tmp_path / "invalid.txt"
         path.write_text(
@@ -120,7 +125,9 @@ class TestFixtureInspection:
     def test_saved_input_is_one_bounded_utf8_frame(self, tmp_path: Path, payload: bytes) -> None:
         """Reject blank, multiline, oversized or non-UTF-8 saved inputs."""
         manifest = Configuration.read(_CONFIG).resolve(
-            "btc-fixture", _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot)
+            "btc-fixture",
+            _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot),
+            implementation_identity=ImplementationIdentity.sha256(),
         )
         path = tmp_path / "invalid.txt"
         path.write_bytes(payload)
@@ -136,7 +143,9 @@ class TestFixtureInspection:
     def test_trade_configuration_rejects_a_valid_depth_frame(self, tmp_path: Path) -> None:
         """Existing decoder support alone cannot enable an unconfigured stream."""
         manifest = Configuration.read(_CONFIG).resolve(
-            "btc-fixture", _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot)
+            "btc-fixture",
+            _CODEC.decode_json(_CATALOG.read_bytes(), CatalogSnapshot),
+            implementation_identity=ImplementationIdentity.sha256(),
         )
         path = tmp_path / "snapshot.txt"
         path.write_text(

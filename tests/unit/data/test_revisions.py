@@ -14,18 +14,16 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.providers.binance.rows import ArchiveRow
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.providers.tardis.decoder import TardisDecoder
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import Correction, RevisionConflictError, TradeRevision
-from alpha_research.data.venues.binance.events import Trade
-from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.adapters.providers.binance import ArchiveRow, BinanceArchiveTrades
+from market_data.adapters.providers.tardis import TardisDecoder
+from market_data.adapters.venues.binance import BinancePayloadDecoder
+from market_data.contracts import ArchiveTrade, Occurrence, RawObject, SourceRequest, Trade
+from market_data.storage import RawFiles
+from market_data.validation import Correction, RevisionConflictError, TradeRevision
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -45,7 +43,9 @@ class TestTradeRevisions:
         catalog = _CODEC.decode_json(
             (_ROOT / f"configs/reference/{catalog_name}.json").read_bytes(), CatalogSnapshot
         )
-        return SourceRequest.partition(config.resolve(job, catalog))[0]
+        return SourceRequest.partition(
+            config.resolve(job, catalog, implementation_identity=ImplementationIdentity.sha256())
+        )[0]
 
     @pytest.fixture()
     def original(self) -> Occurrence:
@@ -74,7 +74,7 @@ class TestTradeRevisions:
             origin=row.origin,
             position=0,
             raw=row.payload,
-            event=ArchiveTrade.from_row(row, request),
+            event=BinanceArchiveTrades.from_row(row, request),
         )
 
     @staticmethod
@@ -94,7 +94,7 @@ class TestTradeRevisions:
             origin=row.origin,
             position=1,
             raw=payload,
-            event=ArchiveTrade.from_row(row, original.request),
+            event=BinanceArchiveTrades.from_row(row, original.request),
         )
 
     @staticmethod
@@ -169,7 +169,7 @@ class TestTradeRevisions:
             origin=row.origin,
             position=row.position,
             raw=row.payload,
-            event=ArchiveTrade.from_row(row, original.request),
+            event=BinanceArchiveTrades.from_row(row, original.request),
         )
         with pytest.raises(RevisionConflictError):
             TradeRevision.admit((original, changed), policy="reject", corrections=())
@@ -214,9 +214,9 @@ class TestTradeRevisions:
         ):
             path = tmp_path / "capture.txt"
             path.write_bytes(raw)
-            origin = RawObject.from_file(
+            origin = RawFiles.describe(
                 path,
-                request=request,
+                request=request.binding,
                 retrieval_reference="synthetic:mr10-capture",
                 ts_received=_TIME + timedelta(days=2),
                 ts_ingested=_TIME + timedelta(days=2),

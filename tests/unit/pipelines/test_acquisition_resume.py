@@ -16,14 +16,15 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration, ResolvedManifest
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.providers.tardis.transport import TardisTransport, TransientFetchError
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.pipelines.acquisition import acquire
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from applications.acquire import acquire
+from configuration import Configuration, ResolvedManifest
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.providers.tardis import TardisTransport
+from market_data.contracts import SourceRequest, TransientFetchError
+from market_data.storage import RawStore
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -43,7 +44,9 @@ class TestAcquisitionResume:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        original = configuration.resolve("btc-fixture", catalog)
+        original = configuration.resolve(
+            "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         return replace(
             original,
             job=replace(
@@ -289,5 +292,5 @@ class TestAcquisitionResume:
             first = recovered.completed[0]
             assert first.ts_received == early and first.ts_ingested == self._clock()
             assert first.sha256 == pending.sha256
-            with store.open(descriptor=first, request=requests[0]) as saved:
+            with store.open(descriptor=first, request=requests[0].binding) as saved:
                 assert gzip.decompress(saved.read()) == b"original"

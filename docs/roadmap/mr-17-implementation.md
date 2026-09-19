@@ -27,7 +27,7 @@ controls survive instrument filtering, the left query boundary and terminal cont
 instants. Complete canonical history and quality annotations stay separate from
 cutoff results, so earlier versions remain reconstructible after a terminal query.
 
-The [API guide](../../src/alpha_research/data/README.md#select-point-events-at-a-cutoff-mr-17)
+The [API guide](../../src/market_data/README.md#select-point-events-at-a-cutoff-mr-17)
 and [NB 17](../../examples/research-foundations.ipynb) describe inputs and interpretation.
 
 ## Affected scope

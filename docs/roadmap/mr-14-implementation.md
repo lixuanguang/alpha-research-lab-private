@@ -26,7 +26,7 @@ original acquisition and evidence clocks remain meaningful provenance. Rebuilds
 and relocation retain identity; a changed policy or reference changes it.
 
 The [manifest contract](../data/contracts.md#dataset-manifest-identity-and-verification-mr-14)
-and [component guide](../../src/alpha_research/data/README.md#identify-and-verify-a-dataset-manifest-mr-14)
+and [component guide](../../src/market_data/README.md#identify-and-verify-a-dataset-manifest-mr-14)
 own semantics and usage. NB 14 and the [researcher guide](../../examples/README.md)
 explain the observable outputs and limits.
 

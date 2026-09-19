@@ -14,13 +14,12 @@ from test_asof import TestAsOfSelector as _Scenario
 from test_query import TestQueryReader as _QueryScenario
 
 # project library imports
-from alpha_research.data.asof import PointEvent
-from alpha_research.data.events import Disconnect
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.query import QueryReader
-from alpha_research.data.replay import Replay, ReplayCursor, ReplayPhase
-from alpha_research.data.revisions import TradeRevision
-from alpha_research.serialization import DomainCodec
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import Disconnect, Occurrence
+from market_data.query import PointEvent, QueryReader
+from market_data.replay import Replay, ReplayCursor, ReplayPhase
+from market_data.validation import TradeRevision
+from serialization import DomainCodec
 
 type _TraceRow = tuple[datetime, ReplayPhase, int | str | None, Decimal | None]
 
@@ -119,7 +118,12 @@ class TestReplay:
             fixture._item(request, position=2, disconnect=True),
         )
         payload = fixture._canonical(request, items)
-        reader = QueryReader((payload,), precedence=(fixture._binding(request),), max_bytes=262_144)
+        reader = QueryReader(
+            (payload,),
+            readers=SourceAdapters(),
+            precedence=(fixture._binding(request),),
+            max_bytes=262_144,
+        )
         expected = None
         for size in (1, 2, 8):
             trace = _Trace()
@@ -165,6 +169,7 @@ class TestReplay:
         request = fixture._request()
         changed = QueryReader(
             (fixture._canonical(request, (fixture._item(request, price="102"),)),),
+            readers=SourceAdapters(),
             precedence=(fixture._binding(request),),
             max_bytes=262_144,
         )
@@ -189,6 +194,7 @@ class TestReplay:
                 )
             reader = QueryReader(
                 (fixture._canonical(request, items),),
+                readers=SourceAdapters(),
                 precedence=(fixture._binding(request),),
                 max_bytes=262_144,
             )
@@ -206,6 +212,7 @@ class TestReplay:
         request = fixture._request(archive=True)
         reader = QueryReader(
             (fixture._canonical(request, (fixture._item(request),)),),
+            readers=SourceAdapters(),
             precedence=(fixture._binding(request),),
             max_bytes=262_144,
         )
@@ -257,6 +264,7 @@ class TestReplay:
                     (fixture._item(request), fixture._item(request, trade_id=13, digest="b" * 64)),
                 ),
             ),
+            readers=SourceAdapters(),
             precedence=(fixture._binding(request),),
             max_bytes=262_144,
         )

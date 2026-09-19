@@ -18,12 +18,12 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.contracts import RawObject, SourceRequest
+from market_data.storage import RawFiles, RawStore
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -48,9 +48,11 @@ class _CompetingPublisher:
         """Require hidden verified staging, then simulate a no-clobber link collision."""
         assert source.parent == destination.parent
         assert stat.S_IMODE(source.stat().st_mode) == 0o444
-        self._descriptor.verify(source, request=self._request)
+        RawFiles.verify(self._descriptor, source, request=self._request.binding)
         with pytest.raises(FileNotFoundError):
-            RawStore(destination.parent).open(descriptor=self._descriptor, request=self._request)
+            RawStore(destination.parent).open(
+                descriptor=self._descriptor, request=self._request.binding
+            )
         destination.write_bytes(self._payload)
         raise FileExistsError(destination)
 
@@ -88,14 +90,18 @@ class TestRawStore:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        return SourceRequest.partition(configuration.resolve("both-fixture", catalog))[0]
+        return SourceRequest.partition(
+            configuration.resolve(
+                "both-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[0]
 
     @staticmethod
     def _describe(source: Path, request: SourceRequest) -> RawObject:
         """Describe fixture bytes with fixed original provenance and clocks."""
-        return RawObject.from_file(
+        return RawFiles.describe(
             source,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:mr04",
             ts_received=datetime(2026, 9, 14, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 14, tzinfo=UTC),
@@ -115,17 +121,19 @@ class TestRawStore:
         root = tmp_path / "store"
         root.mkdir()
         store = RawStore(root)
-        published = store.publish(source, descriptor=descriptor, request=source_request)
+        published = store.publish(source, descriptor=descriptor, request=source_request.binding)
         original_stat = published.stat()
         assert published == root / descriptor.sha256
         assert stat.S_IMODE(original_stat.st_mode) == 0o444
         assert list(root.iterdir()) == [published]
         source.unlink()
         restored = _CODEC.decode_json(encoded, RawObject)
-        assert store.publish(source, descriptor=restored, request=source_request) == published
+        assert (
+            store.publish(source, descriptor=restored, request=source_request.binding) == published
+        )
         assert published.stat().st_ino == original_stat.st_ino
         assert published.stat().st_mtime_ns == original_stat.st_mtime_ns
-        with RawStore(root).open(descriptor=restored, request=source_request) as stream:
+        with RawStore(root).open(descriptor=restored, request=source_request.binding) as stream:
             assert stream.tell() == 0
             assert stream.read() == payload
             assert not stream.writable()
@@ -148,18 +156,18 @@ class TestRawStore:
         for changed, message in ((payload[:-1], "size mismatch"), (b"X" + payload[1:], "SHA-256")):
             source.write_bytes(changed)
             with pytest.raises(ValueError, match=message):
-                store.publish(source, descriptor=descriptor, request=source_request)
+                store.publish(source, descriptor=descriptor, request=source_request.binding)
             assert not list(root.iterdir())
         source.write_bytes(payload)
         destination = root / descriptor.sha256
         destination.write_bytes(b"conflict")
         inode = destination.stat().st_ino
         with pytest.raises(ValueError, match="size mismatch"):
-            store.publish(source, descriptor=descriptor, request=source_request)
+            store.publish(source, descriptor=descriptor, request=source_request.binding)
         assert destination.read_bytes() == b"conflict"
         assert destination.stat().st_ino == inode
         with pytest.raises(ValueError, match="size mismatch"):
-            store.open(descriptor=descriptor, request=source_request)
+            store.open(descriptor=descriptor, request=source_request.binding)
 
     @pytest.mark.parametrize("kind", ["symlink", "dangling", "directory"])
     def test_reject_nonregular_published_names(
@@ -178,9 +186,9 @@ class TestRawStore:
             destination.symlink_to(source if kind == "symlink" else tmp_path / "missing")
         store = RawStore(root)
         with pytest.raises(ValueError, match="regular file"):
-            store.publish(source, descriptor=descriptor, request=source_request)
+            store.publish(source, descriptor=descriptor, request=source_request.binding)
         with pytest.raises(ValueError, match="regular file"):
-            store.open(descriptor=descriptor, request=source_request)
+            store.open(descriptor=descriptor, request=source_request.binding)
         assert destination.is_dir() if kind == "directory" else destination.is_symlink()
         assert not list(root.glob(".staging-*"))
 
@@ -198,17 +206,18 @@ class TestRawStore:
             replace(source_request, instrument=source_request.manifest.instruments[1]),
         ):
             with pytest.raises(ValueError, match="request identity"):
-                store.publish(source, descriptor=descriptor, request=request)
+                store.publish(source, descriptor=descriptor, request=request.binding)
             with pytest.raises(ValueError, match="request identity"):
-                store.open(descriptor=descriptor, request=request)
+                store.open(descriptor=descriptor, request=request.binding)
         msgspec.structs.force_setattr(source_request, "offset_minutes", True)
         with pytest.raises(ValueError, match="offset"):
-            store.publish(source, descriptor=descriptor, request=source_request)
+            store.publish(source, descriptor=descriptor, request=source_request.binding)
+        msgspec.structs.force_setattr(source_request, "offset_minutes", 0)
         msgspec.structs.force_setattr(descriptor, "sha256", "../escape")
         with pytest.raises(ValueError, match="sha256"):
-            store.publish(source, descriptor=descriptor, request=source_request)
+            store.publish(source, descriptor=descriptor, request=source_request.binding)
         with pytest.raises(ValueError, match="sha256"):
-            store.open(descriptor=descriptor, request=source_request)
+            store.open(descriptor=descriptor, request=source_request.binding)
         assert not (tmp_path / "absent-store").exists()
 
     @pytest.mark.parametrize("competitor", [b"abc", b"bad"])
@@ -222,12 +231,16 @@ class TestRawStore:
         root = tmp_path / "store"
         root.mkdir()
         publisher = _CompetingPublisher(descriptor, source_request, competitor)
-        with patch("alpha_research.data.raw_store.os.link", publisher.link):
+        with patch("market_data.storage.raw.os.link", publisher.link):
             if competitor == b"abc":
-                RawStore(root).publish(source, descriptor=descriptor, request=source_request)
+                RawStore(root).publish(
+                    source, descriptor=descriptor, request=source_request.binding
+                )
             else:
                 with pytest.raises(ValueError, match="SHA-256"):
-                    RawStore(root).publish(source, descriptor=descriptor, request=source_request)
+                    RawStore(root).publish(
+                        source, descriptor=descriptor, request=source_request.binding
+                    )
         assert (root / descriptor.sha256).read_bytes() == competitor
         assert not list(root.glob(".staging-*"))
 
@@ -243,18 +256,18 @@ class TestRawStore:
         root.mkdir()
         failure = _SyncFailure(is_directory)
         store = RawStore(root)
-        with patch("alpha_research.data.raw_store.os.fsync", failure.fsync):
+        with patch("market_data.storage.raw.os.fsync", failure.fsync):
             with pytest.raises(OSError, match="synchronization failure"):
-                store.publish(source, descriptor=descriptor, request=source_request)
+                store.publish(source, descriptor=descriptor, request=source_request.binding)
         assert (root / descriptor.sha256).exists() == is_directory
         assert not list(root.glob(".staging-*"))
         if is_directory:
             source.unlink()
-            with patch("alpha_research.data.raw_store.os.fsync", failure.fsync):
+            with patch("market_data.storage.raw.os.fsync", failure.fsync):
                 with pytest.raises(OSError, match="synchronization failure"):
-                    store.publish(source, descriptor=descriptor, request=source_request)
-        store.publish(source, descriptor=descriptor, request=source_request)
-        with store.open(descriptor=descriptor, request=source_request) as stream:
+                    store.publish(source, descriptor=descriptor, request=source_request.binding)
+        store.publish(source, descriptor=descriptor, request=source_request.binding)
+        with store.open(descriptor=descriptor, request=source_request.binding) as stream:
             assert stream.read() == b"abc"
 
     @pytest.mark.integration
@@ -290,17 +303,17 @@ class TestRawStore:
         )
         assert completed.returncode == 75, completed.stderr.decode()
         (staging,) = root.glob(".staging-*")
-        descriptor.verify(staging, request=source_request)
+        RawFiles.verify(descriptor, staging, request=source_request.binding)
         store = RawStore(root)
         if point == "before":
             with pytest.raises(FileNotFoundError):
-                store.open(descriptor=descriptor, request=source_request)
+                store.open(descriptor=descriptor, request=source_request.binding)
         else:
             assert staging.stat().st_ino == (root / descriptor.sha256).stat().st_ino
-            with store.open(descriptor=descriptor, request=source_request) as stream:
+            with store.open(descriptor=descriptor, request=source_request.binding) as stream:
                 assert stream.read() == b"abc"
             source.unlink()
-        published = store.publish(source, descriptor=descriptor, request=source_request)
+        published = store.publish(source, descriptor=descriptor, request=source_request.binding)
         assert published.read_bytes() == b"abc"
         assert list(root.glob(".staging-*")) == [staging]
         staging.unlink()  # The interrupted child has exited; no writer owns this orphan.

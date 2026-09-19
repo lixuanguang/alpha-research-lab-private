@@ -30,7 +30,7 @@ Exact repeated saved manifests reuse logical content and snapshot identity.
 Nonidentical overlapping instrument/time selections fail instead of adding duplicate
 partition economics. Changing the supported instrument needs only configuration.
 
-The [command guide](../../src/alpha_research/data/README.md#publish-and-inspect-from-the-command-line-mr-16)
+The [command guide](../../src/market_data/README.md#publish-and-inspect-from-the-command-line-mr-16)
 owns arguments, preparation and recovery, the
 [contract](../data/contracts.md#installed-dataset-command-mr-16) owns behavior,
 and NB 16/the [researcher guide](../../examples/README.md) explain the outputs.

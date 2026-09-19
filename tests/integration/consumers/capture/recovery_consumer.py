@@ -15,15 +15,17 @@ from unittest.mock import patch
 from msgspec.structs import replace
 
 # project library imports
-import alpha_research
-from alpha_research.data.live.config import CaptureConfig, CaptureRequest
-from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
-from alpha_research.data.live.replay import CaptureReplay
-from alpha_research.data.live.transport import FeedSocket, VenueTransport
-from alpha_research.data.venues.coinbase.auth import CoinbaseCredentials
-from alpha_research.data.venues.coinbase.book import CoinbaseBook
-from alpha_research.pipelines.live import collect
-from alpha_research.serialization import DomainCodec
+import market_data
+from applications.collect import collect
+from configuration import CaptureConfig
+from market_data.adapters.sources import BookAdapters
+from market_data.adapters.transport import VenueTransport
+from market_data.adapters.venues.coinbase import CoinbaseBook, CoinbaseCredentials
+from market_data.books import CaptureReplay
+from market_data.contracts import CaptureRecord, CaptureRequest, FeedSocket
+from market_data.replay import SavedCapture
+from market_data.storage import CaptureJournal
+from serialization import DomainCodec
 
 _ACK = b'{"type":"subscriptions","channels":[{"name":"level3","product_ids":["BTC-USD"]}]}'
 
@@ -139,8 +141,8 @@ def recovery(directory: Path, output: Path, mode: str) -> dict[str, object]:
             return outcome
 
     with (
-        patch("alpha_research.pipelines.live.CaptureReplay", ObservedReplay),
-        patch("alpha_research.pipelines.live.asyncio.sleep", transport.pause),
+        patch("applications.collect.workflow.CaptureReplay", ObservedReplay),
+        patch("applications.collect.workflow.asyncio.sleep", transport.pause),
     ):
         result = asyncio.run(
             collect(
@@ -209,7 +211,10 @@ def duplicate_and_stale(directory: Path, output: Path) -> dict[str, object]:
         recording_id="00000000-0000-4000-8000-000000000024",
         implementation_identity="a" * 64,
     )
-    journal, replay = CaptureJournal(output, request), CaptureReplay(config)
+    journal, replay = (
+        CaptureJournal(output, request),
+        CaptureReplay(config, book_factory=BookAdapters.create),
+    )
     journal.start()
     match = b'["match","BTC-USD","11","maker","taker","100","0.1",null]'
     rows: tuple[tuple[str, bytes], ...] = (
@@ -249,7 +254,7 @@ def duplicate_and_stale(directory: Path, output: Path) -> dict[str, object]:
         replay.apply(record)
     assert replay.stale_snapshots == 2 and not replay.book.ready
     journal.finish(1)
-    assert CaptureReplay.read(output).summary() == replay.summary()
+    assert SavedCapture.read(output, book_factory=BookAdapters.create).summary() == replay.summary()
     retained = [r for r in journal.records() if r.raw == match]
     assert [r.received_ns for r in retained] == [5, 6]
     return {
@@ -265,7 +270,7 @@ def duplicate_and_stale(directory: Path, output: Path) -> dict[str, object]:
 def main() -> None:
     """Verify installed imports, run recovery cases and print small synthetic observations."""
     directory, output = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
-    installed = Path(alpha_research.__file__).resolve()
+    installed = Path(market_data.__file__).resolve()
     assert "site-packages" in installed.parts and not installed.is_relative_to(directory)
     output.mkdir()
     results = {

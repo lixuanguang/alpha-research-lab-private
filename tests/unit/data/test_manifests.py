@@ -14,13 +14,13 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration, ResolvedManifest
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration, ResolvedManifest
+from market_data.acquisition import AcquisitionManifest
+from market_data.contracts import RawObject, SourceRequest
+from market_data.storage import RawStore
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -40,7 +40,9 @@ class TestAcquisitionManifest:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        run = configuration.resolve("btc-fixture", catalog)
+        run = configuration.resolve(
+            "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         return replace(
             run,
             job=replace(
@@ -83,7 +85,7 @@ class TestAcquisitionManifest:
             AcquisitionManifest.read(path, run=run, store=store)
         source = tmp_path / "empty"
         source.write_bytes(b"")
-        store.publish(source, descriptor=descriptor, request=requests[0])
+        store.publish(source, descriptor=descriptor, request=requests[0].binding)
         restored = AcquisitionManifest.read(path, run=run, store=store)
         assert restored == completed
         assert _CODEC.encode_json(restored) == path.read_bytes()
@@ -175,7 +177,9 @@ class TestAcquisitionManifest:
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
         config = replace(config, jobs=(replace(config.jobs[0], universe="both"),))
-        run = config.resolve("btc-archive", catalog)
+        run = config.resolve(
+            "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         requests = SourceRequest.partition(run)
         descriptors = tuple(map(self._descriptor, requests))
         original = AcquisitionManifest(run=run, completed=descriptors)

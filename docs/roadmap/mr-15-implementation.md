@@ -26,7 +26,7 @@ concurrent same-ID publishers verify the winner. Mutable tags such as `latest`,
 symlinks, missing inputs and damaged bytes fail visibly.
 
 The [snapshot contract](../data/contracts.md#atomic-local-snapshots-mr-15) and
-[component guide](../../src/alpha_research/data/README.md#publish-and-reopen-an-atomic-snapshot-mr-15)
+[component guide](../../src/market_data/README.md#publish-and-reopen-an-atomic-snapshot-mr-15)
 own behavior and usage. NB 15 and the [researcher guide](../../examples/README.md)
 explain the outputs and retained limitations.
 

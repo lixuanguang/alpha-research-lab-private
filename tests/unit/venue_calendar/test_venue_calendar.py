@@ -23,8 +23,8 @@ from hypothesis.strategies import SearchStrategy
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 # project library imports
-import alpha_research.venue_calendar.adapter as calendar_adapter_module
-from alpha_research.venue_calendar import (
+import reference_data.calendars.adapter as calendar_adapter_module
+from reference_data.calendars import (
     EXCHANGE_CALENDARS_VERSION,
     AuctionKind,
     AuctionWindow,
@@ -55,7 +55,7 @@ from alpha_research.venue_calendar import (
     VenueCalendarValidationError,
     VenueId,
 )
-from alpha_research.venue_calendar.models import _VenueCalendarModel
+from reference_data.calendars.models import _VenueCalendarModel
 
 REPOSITORY_ROOT = Path(__file__).parents[3]
 FIXTURE_PATH = REPOSITORY_ROOT / "tests" / "golden" / "venue_calendar" / "c02_calendars.json"

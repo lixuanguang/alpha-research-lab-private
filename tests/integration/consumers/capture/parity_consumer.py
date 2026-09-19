@@ -14,13 +14,14 @@ from pathlib import Path
 import msgspec
 
 # project library imports
-import alpha_research
-from alpha_research.data.book_datasets import BookHistory, BookInput, BookObservation
-from alpha_research.data.book_replay import BookReplay
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.replay import ReplayCursor, ReplayPhase
-from alpha_research.pipelines.dataset import publish_book_dataset
-from alpha_research.serialization import DomainCodec
+import market_data
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import BookObservation
+from market_data.datasets import BookHistory, BookInput, DatasetPublication
+from market_data.replay import BookReplay, ReplayCursor, ReplayPhase
+from market_data.storage import RawStore
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _CODEC = DomainCodec()
 _LIMIT = 600_000_000
@@ -114,10 +115,12 @@ def inspect(source: Path, output: Path) -> dict[str, object]:
     raw.mkdir()
     snapshots.mkdir()
     selected = BookInput.read(source, max_records=32)
-    identity = publish_book_dataset(
+    identity = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
         (source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT
     )
-    payload = selected.admit(RawStore(raw), max_bytes=_LIMIT).require_canonical()
+    payload = selected.admit(
+        RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT
+    ).require_canonical()
     history = _CODEC.decode_json(payload, BookHistory)
     assert all(row.position == index for index, row in enumerate(history.observations))
     terminal = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
@@ -126,6 +129,7 @@ def inspect(source: Path, output: Path) -> dict[str, object]:
     engine = BookReplay.read(
         snapshots,
         RawStore(raw),
+        readers=SourceAdapters(),
         identity=identity,
         request_identity=selected.request.identity,
         batch_size=1,
@@ -246,7 +250,7 @@ def main() -> None:
             inspect(Path(source), output / str(index)) for index, source in enumerate(sys.argv[2:])
         ]
         report = {
-            "installed_package": str(Path(alpha_research.__file__).resolve()),
+            "installed_package": str(Path(market_data.__file__).resolve()),
             "inputs": results,
         }
         (output / "result.json").write_bytes(_CODEC.encode_json(report))

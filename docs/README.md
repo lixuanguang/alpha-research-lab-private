@@ -102,9 +102,9 @@ the QuantLib release restriction.
 | [Data sources](data_source/README.md) | Sources by asset class and data type, historical coverage, access limits and dated verification evidence |
 | [Engineering guide](coding_standards/README.md) | Enforced clarity and numerical engineering requirements |
 | [Instrument identity](architecture/instrument-identity.md), [venue calendars](architecture/venue-calendar.md), [financial units](architecture/financial-units.md) | Implemented domain contracts and golden datasets |
-| [Data contracts](data/contracts.md), [point-in-time semantics](data/point-in-time-semantics.md), [data library](../src/alpha_research/data/README.md) | Implemented events, decoding, provenance and current construction example |
+| [Data contracts](data/contracts.md), [point-in-time semantics](data/point-in-time-semantics.md), [data library](../src/market_data/README.md) | Implemented events, decoding, provenance and current construction example |
 
-The [data command reference](../src/alpha_research/data/README.md) and
+The [data command reference](../src/market_data/README.md) and
 [collector guide](data/l3-collectors.md) own command usage and limits. Backtesting,
 paper trading, deployment, activation and trading stop commands remain planned.
 Keep actual release identities, data provenance and unresolved dependency

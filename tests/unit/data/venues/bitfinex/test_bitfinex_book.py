@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 # project library imports
-from alpha_research.data.live.config import CaptureConfig
-from alpha_research.data.venues.bitfinex.book import BitfinexBook
+from configuration import CaptureConfig
+from market_data.adapters.venues.bitfinex import BitfinexBook
 
 _ROOT = Path(__file__).parents[5]
 

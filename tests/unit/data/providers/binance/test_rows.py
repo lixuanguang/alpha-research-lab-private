@@ -14,14 +14,14 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration, ResolvedManifest
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.providers.binance.rows import ArchiveRow, BinanceArchiveRows
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration, ResolvedManifest
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.providers.binance import ArchiveRow, BinanceArchiveRows
+from market_data.contracts import SourceRequest
+from market_data.storage import RawFiles, RawStore
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[5]
 _CODEC = DomainCodec()
@@ -43,7 +43,9 @@ class TestArchiveRows:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
-        return configuration.resolve("btc-archive", catalog)
+        return configuration.resolve(
+            "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
 
     @staticmethod
     def _archive(
@@ -66,15 +68,15 @@ class TestArchiveRows:
         request = SourceRequest.partition(run)[0]
         source = root / "source.zip"
         source.write_bytes(payload)
-        descriptor = RawObject.from_file(
+        descriptor = RawFiles.describe(
             source,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:mr08",
             ts_received=datetime(2026, 9, 16, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
         )
         store = RawStore(root)
-        store.publish(source, descriptor=descriptor, request=request)
+        store.publish(source, descriptor=descriptor, request=request.binding)
         return AcquisitionManifest(run=run, completed=(descriptor,)), store
 
     def test_exact_order_origins_selection_and_serialization(
@@ -101,7 +103,7 @@ class TestArchiveRows:
                 setattr(row, "position", 99)
         assert _CODEC.decode_json(_CODEC.encode_json(reader), BinanceArchiveRows) == reader
         assert tuple(reader.read(store, max_bytes=4096)) == rows
-        with store.open(descriptor=manifest.completed[0], request=reader.request) as saved:
+        with store.open(descriptor=manifest.completed[0], request=reader.request.binding) as saved:
             assert saved.read() == payload
 
     def test_expected_partitions_missing_pending_and_empty(
@@ -224,7 +226,11 @@ class TestArchiveRows:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        request = SourceRequest.partition(fixture.resolve("btc-fixture", catalog))[0]
+        request = SourceRequest.partition(
+            fixture.resolve(
+                "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[0]
         with pytest.raises(ValueError, match="Binance daily"):
             BinanceArchiveRows(request=request, descriptor=None)
 

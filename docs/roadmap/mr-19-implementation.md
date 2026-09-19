@@ -36,7 +36,7 @@ its batch iterator immediately. Existing snapshot, admission, serialization,
 configuration, revision and eligibility implementations remain unchanged. No wire
 schema, runtime dependency, lock, declarative configuration or executable tooling changes.
 
-The [API guide](../../src/alpha_research/data/README.md#bounded-reference-queries-mr-19),
+The [API guide](../../src/market_data/README.md#bounded-reference-queries-mr-19),
 [researcher guide](../../examples/README.md),
 [NB 19 section 8](../../examples/research-foundations.ipynb) and
 [installed consumer](../../tests/integration/consumers/query/query_consumer.py) exercise the same API.

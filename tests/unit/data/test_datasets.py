@@ -14,18 +14,17 @@ import pytest
 from msgspec.structs import force_setattr, replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.datasets import DatasetInput, DatasetManifest
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.quality import QualityPolicy
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import Correction, TradeRevision
-from alpha_research.pipelines.dataset import assemble_dataset, iter_occurrences
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import SourceRequest
+from market_data.datasets import DatasetInput, DatasetManifest, DatasetPublication
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import Correction, QualityPolicy, TradeRevision
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -51,7 +50,9 @@ class TestDatasetManifest:
         )
         if catalog_evidence is not None:
             catalog = replace(catalog, evidence=catalog_evidence)
-        run = config.resolve("btc-archive", catalog)
+        run = config.resolve(
+            "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         instrument = next(item for item in catalog.instruments if item.symbol == symbol)
         run = replace(run, instruments=(instrument,))
         request = SourceRequest.partition(run)[0]
@@ -60,14 +61,14 @@ class TestDatasetManifest:
         member.compress_type = ZIP_DEFLATED
         with ZipFile(source, "w") as archive:
             archive.writestr(member, content)
-        descriptor = RawObject.from_file(
+        descriptor = RawFiles.describe(
             source,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:mr14",
             ts_received=datetime(2026, 9, 16, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
         )
-        RawStore(root).publish(source, descriptor=descriptor, request=request)
+        RawStore(root).publish(source, descriptor=descriptor, request=request.binding)
         return AcquisitionManifest(run=run, completed=(descriptor,))
 
     @staticmethod
@@ -85,7 +86,7 @@ class TestDatasetManifest:
         policy = QualityPolicy(
             use="exploratory", known_at=acquisitions[0].run.job.start, max_gap=timedelta(hours=1)
         )
-        return assemble_dataset(
+        return DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).assemble(
             acquisitions,
             RawStore(root),
             max_bytes=_LIMIT,
@@ -108,6 +109,7 @@ class TestDatasetManifest:
         """Verify the saved expected identity from explicit local storage locations."""
         return DatasetManifest.read(
             root / "dataset.json",
+            readers=SourceAdapters(),
             identity=manifest.identity,
             partitions=root,
             store=RawStore(root),
@@ -138,7 +140,9 @@ class TestDatasetManifest:
             )
             for index, acquisition in enumerate((first, second))
         )
-        manifest, payloads = assemble_dataset(selected, RawStore(tmp_path), max_bytes=_LIMIT)
+        manifest, payloads = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).assemble(selected, RawStore(tmp_path), max_bytes=_LIMIT)
         assert tuple(part.acquisition for part in manifest.partitions) == (first, second)
         assert tuple(part.eligibility for part in manifest.partitions) == tuple(
             item.eligibility for item in selected
@@ -147,18 +151,25 @@ class TestDatasetManifest:
         self._save(tmp_path, manifest, payloads)
         assert self._read(tmp_path, manifest) == manifest
         with pytest.raises(ValueError, match="not both"):
-            assemble_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).assemble(
                 selected, RawStore(tmp_path), max_bytes=_LIMIT, policy=selected[0].policy
             )
         with pytest.raises(ValueError, match="explicit policy"):
-            assemble_dataset((first,), RawStore(tmp_path), max_bytes=_LIMIT)
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).assemble(
+                (first,), RawStore(tmp_path), max_bytes=_LIMIT
+            )
         legacy = self._build(tmp_path, (first,))
         per_input = DatasetInput(
             acquisition=first,
             policy=legacy[0].partitions[0].policy,
             eligibility=legacy[0].partitions[0].eligibility,
         )
-        assert assemble_dataset((per_input,), RawStore(tmp_path), max_bytes=_LIMIT) == legacy
+        assert (
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).assemble(
+                (per_input,), RawStore(tmp_path), max_bytes=_LIMIT
+            )
+            == legacy
+        )
 
     def test_rebuild_order_roundtrip_and_relocation(self, tmp_path: Path) -> None:
         """Keep equivalent saved inputs stable and bind the ordered full resolved universe."""
@@ -192,7 +203,9 @@ class TestDatasetManifest:
         manifest, payloads = self._build(tmp_path, (acquisition,))
         partition = manifest.partitions[0]
         changed_policy = replace(partition.policy, max_gap=timedelta(minutes=5))
-        changed, changed_bytes = assemble_dataset(
+        changed, changed_bytes = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).assemble(
             (acquisition,),
             RawStore(tmp_path),
             max_bytes=_LIMIT,
@@ -280,6 +293,7 @@ class TestDatasetManifest:
         with pytest.raises(ValueError, match="identity mismatch"):
             DatasetManifest.read(
                 path,
+                readers=SourceAdapters(),
                 identity=manifest.identity,
                 partitions=tmp_path,
                 store=RawStore(tmp_path),
@@ -341,7 +355,7 @@ class TestDatasetManifest:
             ((good,), {}, replace(policy, use="causal")),
         ):
             with pytest.raises(ValueError):
-                assemble_dataset(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).assemble(
                     acquisitions,
                     RawStore(tmp_path),
                     max_bytes=_LIMIT,
@@ -356,7 +370,11 @@ class TestDatasetManifest:
     def test_corrections_preserve_prior_versions_and_availability(self, tmp_path: Path) -> None:
         """Reopen evidenced revisions with all raw lineage and effective later knowledge."""
         acquisition = self._acquisition(tmp_path, content=_RAW + _RAW.replace(b"100.00", b"102.00"))
-        occurrences = tuple(iter_occurrences(acquisition, RawStore(tmp_path), max_bytes=_LIMIT))
+        occurrences = tuple(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                acquisition, RawStore(tmp_path), max_bytes=_LIMIT
+            )
+        )
         correction = Correction(
             supersedes=TradeRevision(occurrences=occurrences[:1]).identity,
             replacement=TradeRevision(occurrences=occurrences[1:]).identity,

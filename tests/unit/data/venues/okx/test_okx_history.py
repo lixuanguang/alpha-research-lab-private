@@ -18,13 +18,16 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.providers.transport import TransientFetchError
-from alpha_research.data.venues.okx.history_config import OKXArchiveRequest, OKXHistoryConfig
-from alpha_research.data.venues.okx.history_reader import OKXArchiveReader
-from alpha_research.data.venues.okx.history_store import OKXArchiveStore
-from alpha_research.data.venues.okx.history_transport import OKXHistoryTransport
-from alpha_research.pipelines.acquisition import acquire_history, main
-from alpha_research.serialization import DomainCodec
+from applications.acquire import acquire_history, main
+from configuration import OKXHistoryConfig
+from market_data.adapters.venues.okx import (
+    OKXArchiveDiscovery,
+    OKXArchiveReader,
+    OKXArchiveStore,
+    OKXHistoryTransport,
+)
+from market_data.contracts import OKXArchiveRequest, TransientFetchError
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[5]
 _SNAPSHOT = (
@@ -200,7 +203,7 @@ class TestOKXHistory:
         path.write_bytes(DomainCodec().encode_json(config))
         output = tmp_path / "history"
         with patch(
-            "alpha_research.pipelines.acquisition.OKXHistoryTransport",
+            "applications.acquire.workflow.OKXHistoryTransport",
             return_value=FixtureHistoryTransport(config),
         ):
             assert main(["archive", "index", "--config", str(path)]) == 0
@@ -246,7 +249,7 @@ class TestOKXHistory:
         """Failure during shared raw publication leaves a non-admitted download directory."""
         config = HistoryFixture.config()
         with patch(
-            "alpha_research.data.venues.okx.history_store.RawStore.publish",
+            "market_data.adapters.venues.okx.history_store.RawStore.publish",
             side_effect=OSError("disk full"),
         ):
             with pytest.raises(OSError):
@@ -340,12 +343,12 @@ class TestOKXHistory:
             b'{"code":"0","data":[{"dateAggrType":"daily","details":[]}]}',
         ):
             with pytest.raises(ValueError):
-                config.select_url(invalid)
+                OKXArchiveDiscovery.select_url(config, invalid)
         request = OKXArchiveRequest(
             config=config,
             implementation_identity="a" * 64,
             index_sha256=hashlib.sha256(index).hexdigest(),
-            url=config.select_url(index),
+            url=OKXArchiveDiscovery.select_url(config, index),
             index_received=datetime.now(UTC),
         )
         assert len(request.identity) == 64
@@ -393,7 +396,7 @@ class TestOKXHistory:
             config=config,
             implementation_identity="a" * 64,
             index_sha256=hashlib.sha256(index).hexdigest(),
-            url=config.select_url(index),
+            url=OKXArchiveDiscovery.select_url(config, index),
             index_received=datetime.now(UTC),
         )
         http = ArchiveHTTP(200, "", b"123")

@@ -11,12 +11,11 @@ from uuid import UUID
 import pytest
 
 # project library imports
-from alpha_research.data.decoders import DecodeContext
-from alpha_research.data.venues.binance.events import DepthSnapshot, Trade
-from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
-from alpha_research.financial_units import Currency
-from alpha_research.instrument_identity import InstrumentId
-from alpha_research.reference_data import SpotInstrument
+from financial_units import Currency
+from market_data.adapters.venues.binance import BinancePayloadDecoder
+from market_data.contracts import DecodeContext, DepthSnapshot, Trade
+from reference_data.catalogs import SpotInstrument
+from reference_data.instruments import InstrumentId
 
 _CAPTURE_TEXT = "2024-06-01T00:00:00.0041023Z"
 _CAPTURE_TIME = datetime(2024, 6, 1, 0, 0, 0, 4103, tzinfo=UTC)

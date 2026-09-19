@@ -11,8 +11,8 @@ import msgspec
 import pytest
 
 # project library imports
-from alpha_research.financial_units import Currency, Money
-from alpha_research.serialization import DomainCodec
+from financial_units import Currency, Money
+from serialization import DomainCodec
 
 _CODEC = DomainCodec()
 
@@ -24,9 +24,7 @@ class _DomainCodecFixture:
     def _packaged_currency_definitions() -> tuple[tuple[str, str], ...]:
         """Read currency code and quantum pairs from the packaged configuration."""
         payload = (
-            resources.files("alpha_research.financial_units")
-            .joinpath("default_currencies.json")
-            .read_bytes()
+            resources.files("financial_units").joinpath("default_currencies.json").read_bytes()
         )
         definitions = msgspec.json.decode(
             payload,

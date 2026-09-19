@@ -38,7 +38,7 @@ Publisher quote amounts remain exact source values without an invented rounding
 or product-equality rule.
 
 The [quality contract](../data/contracts.md#canonical-partition-quality-mr-13) owns
-semantics; the [component guide](../../src/alpha_research/data/README.md#validate-a-canonical-partition-mr-13)
+semantics; the [component guide](../../src/market_data/README.md#validate-a-canonical-partition-mr-13)
 and [researcher guide](../../examples/README.md) explain the current callers.
 
 ## Affected scope

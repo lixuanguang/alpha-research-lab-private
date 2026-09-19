@@ -12,12 +12,13 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.eda import EdaQuery
-from alpha_research.data.query import QueryBatch, QueryReader
-from alpha_research.data.raw_store import RawStore
-from alpha_research.instrument_identity import InstrumentId
-from alpha_research.pipelines.eda import inspect_eda
-from alpha_research.serialization import DomainCodec
+from applications.explore import inspect_eda
+from market_data.adapters.sources import SourceAdapters
+from market_data.query import QueryBatch, QueryReader
+from market_data.storage import RawStore
+from reference_data.instruments import InstrumentId
+from research.exploration import EdaQuery
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 
@@ -55,6 +56,7 @@ class TestEdaPipeline:
         config.write_bytes(DomainCodec().encode_json(selected))
         reader = QueryReader(
             ((_ROOT / "tests/fixtures/replay/canonical.json").read_bytes(),),
+            readers=SourceAdapters(),
             precedence=selected.precedence,
             max_bytes=selected.max_bytes,
         )

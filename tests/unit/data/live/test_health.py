@@ -14,9 +14,9 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.live.book import Wire
-from alpha_research.data.live.health import HealthAlert, HealthMetric, HealthMetrics, HealthPolicy
-from alpha_research.serialization import DomainCodec
+from market_data.adapters.wire import Wire
+from serialization import DomainCodec
+from telemetry import HealthAlert, HealthMetric, HealthMetrics, HealthPolicy
 
 _ROOT = Path(__file__).parents[4]
 

@@ -13,15 +13,15 @@ import pytest
 from msgspec.structs import force_setattr, replace
 
 # project library imports
-from alpha_research.data.eligibility import (
+from financial_units import Currency
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import (
     EligibilityAssertion,
     EligibilityAssertions,
     EligibilityEvidence,
 )
-from alpha_research.financial_units import Currency
-from alpha_research.instrument_identity import InstrumentId
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from reference_data.instruments import InstrumentId
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _FIXTURE = _ROOT / "tests/fixtures/eligibility/assumptions-and-membership.json"

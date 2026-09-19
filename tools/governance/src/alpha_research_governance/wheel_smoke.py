@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import os
+import shutil
 import subprocess  # nosec B404  # [owner=platform; rationale=isolated wheel smoke argv boundary; expires=2027-03-01]
 import sys
 import tempfile
@@ -97,83 +98,29 @@ class _InstalledWheelCheck:
         environment = os.environ.copy()
         environment.pop("PYTHONPATH", None)
         environment["PYTHONNOUSERSITE"] = "1"
-        environment["SMOKE_REPOSITORY_ROOT"] = str(repository_root)
-        command = [
-            str(python),
-            "-I",
-            "-c",
-            (
-                "from importlib.metadata import distributions, version; "
-                "from importlib.util import find_spec; "
-                "import os; "
-                "from datetime import UTC, date, datetime; "
-                "from pathlib import Path; "
-                "import sys; "
-                "import alpha_research; "
-                "from alpha_research.financial_units import QuantLibConventions; "
-                "from alpha_research.instrument_identity import InstrumentId; "
-                "from alpha_research.core import EventProvenance; "
-                "from alpha_research.reference_data import CatalogSnapshot, SpotInstrument; "
-                "from alpha_research.data.decoders import DecodeContext, PayloadDecoder; "
-                "from alpha_research.data import BinancePayloadDecoder, TardisDecoder; "
-                "from alpha_research.data import "
-                "DepthSnapshot, DepthUpdate, Disconnect, MarketEvent, Trade; "
-                "from alpha_research.data.venues.binance.codecs import "
-                "MarketEventCodec; "
-                "from alpha_research.serialization import DomainCodec; "
-                "from alpha_research.financial_units import "
-                "Currency, Money, SettlementConventions; "
-                "from decimal import Decimal; "
-                "from alpha_research.data.venues.binance.events import BinanceMarketEvent; "
-                "from alpha_research.venue_calendar import "
-                "CalendarAuthority, CalendarSourceVersion, "
-                "ExchangeCalendarsAdapter, MarketIdentifierCode, Venue, VenueId; "
-                "root = Path(os.environ['SMOKE_REPOSITORY_ROOT']).resolve(); "
-                "prefix = Path(sys.prefix).resolve(); "
-                "runtime_origin = Path(alpha_research.__file__).resolve(); "
-                "assert runtime_origin.is_relative_to(prefix); "
-                "assert not runtime_origin.is_relative_to(root); "
-                "assert version('alpha-research-lab'); "
-                "assert find_spec('alpha_research_governance') is None; "
-                "assert 'alpha-research-governance' not in "
-                "{item.metadata['Name'] for item in distributions()}; "
-                "assert InstrumentId; "
-                "assert EventProvenance and CatalogSnapshot and SpotInstrument; "
-                "assert DecodeContext and PayloadDecoder and TardisDecoder; "
-                "assert DepthSnapshot and DepthUpdate and Disconnect and MarketEvent and Trade; "
-                "event_codec = MarketEventCodec(); "
-                "domain_codec = DomainCodec(); "
-                "amount = Money(value=Decimal('1.25'), currency=Currency.from_code('USD')); "
-                "assert domain_codec.decode_json("
-                "domain_codec.encode_json(amount), Money) == amount; "
-                "assert SettlementConventions and BinanceMarketEvent "
-                "and callable(event_codec.encode) "
-                "and callable(event_codec.decode) and callable(event_codec.validate) "
-                "and BinancePayloadDecoder and callable(TardisDecoder.decode_line); "
-                "catalog = domain_codec.decode_json("
-                "(root / 'configs/reference/binance-spot.json').read_bytes(), CatalogSnapshot); "
-                "source_decoder = TardisDecoder("
-                "BinancePayloadDecoder(catalog.instruments), 'tardis.binance.spot'); "
-                "event = source_decoder.decode_line('', source_sequence=0, "
-                "local_received=datetime(2024, 6, 1, tzinfo=UTC), "
-                "disconnect_capture_time=datetime(2024, 6, 1, tzinfo=UTC)); "
-                "assert event_codec.decode(event_codec.encode(event)) == event; "
-                "assert QuantLibConventions(); "
-                "venue = Venue(venue_id=VenueId.from_canonical_text("
-                "'11111111-1111-4111-8111-111111111111'), "
-                "mic=MarketIdentifierCode(value='XNYS'), "
-                "operating_mic=MarketIdentifierCode(value='XNYS'), "
-                "name='Smoke venue', timezone_name='America/New_York'); "
-                "version_info = CalendarSourceVersion(calendar_version='smoke-v1', "
-                "base_source='exchange_calendars', base_source_revision='4.13.2', "
-                "adapter_name='exchange_calendars', adapter_version='4.13.2', "
-                "authority=CalendarAuthority.SYNTHETIC_FIXTURE); "
-                "snapshot = ExchangeCalendarsAdapter().build_snapshot(venue=venue, "
-                "calendar_name='XNYS', "
-                "version=version_info, start=date(2024, 11, 27), end=date(2024, 11, 29)); "
-                "assert snapshot.session_for_label(date(2024, 11, 27)).opens_at"
-            ),
-        ]
+        inputs = smoke_root / "inputs"
+        inputs.mkdir()
+        for relative in (
+            "configs/data-jobs/fixture-inspection.json",
+            "configs/reference/binance-spot.json",
+            "tests/fixtures/market_data/tardis/btcusdt.txt",
+            "configs/data-jobs/binance-archive.json",
+            "configs/reference/binance-archive-spot.json",
+            "tests/fixtures/eligibility/membership-corrections.json",
+            "tests/integration/consumers/datasets/ingestion_workflow.py",
+            "tests/support/subprocesses/interrupt_command.py",
+            "configs/live/coinbase-btc-usd.json",
+            "tests/fixtures/market_data/coinbase/coinbase-schema.json",
+            "tests/fixtures/market_data/coinbase/coinbase-snapshot.json",
+            "tests/integration/consumers/capture/recovery_consumer.py",
+            "tests/integration/consumers/wheel_layout.py",
+        ):
+            shutil.copyfile(repository_root / relative, inputs / Path(relative).name)
+        shutil.copytree(
+            repository_root / "tests/fixtures/datasets/historical_snapshot",
+            inputs / "historical_snapshot",
+        )
+        command = [str(python), "-I", str(inputs / "wheel_layout.py"), str(inputs)]
         subprocess.run(  # nosec B603  # [owner=platform; rationale=isolated interpreter smoke argv; expires=2027-03-01]
             command, cwd=smoke_root, env=environment, check=True
         )

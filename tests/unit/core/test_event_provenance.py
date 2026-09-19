@@ -10,7 +10,7 @@ import msgspec
 import pytest
 
 # project library imports
-from alpha_research.core import EventProvenance, KnowledgeBasis
+from market_data.contracts import EventProvenance, KnowledgeBasis
 
 _BASE_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 _DIGEST_A = "a" * 64
