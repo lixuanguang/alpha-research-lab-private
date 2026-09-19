@@ -1,0 +1,11 @@
+{
+  "startup_seconds": 10,
+  "heartbeat_seconds": 3,
+  "progress_seconds": 10,
+  "freshness_seconds": 15,
+  "max_queue": 768,
+  "max_reconnects": 2,
+  "max_invalid": 2,
+  "alert_socket": "/var/run/syslog",
+  "response": "stop"
+}

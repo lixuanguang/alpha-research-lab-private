@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import contextlib
 import hashlib
+import multiprocessing
 import sys
 import time
 from http.client import HTTPException
@@ -18,7 +19,7 @@ from websockets.exceptions import WebSocketException
 
 # project library imports
 from alpha_research.data.live.config import CaptureConfig, CaptureRequest
-from alpha_research.data.live.health import HealthMetric, HealthMetrics
+from alpha_research.data.live.health import HealthAlert, HealthMetric, HealthMetrics, HealthPolicy
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
 from alpha_research.data.live.replay import CaptureReplay
 from alpha_research.data.live.transport import FeedSocket, VenueTransport
@@ -359,6 +360,159 @@ async def collect(
     return summary
 
 
+async def capture_heartbeat(health: HealthMetrics) -> None:
+    """Advance process liveness independently of data and disk progress.
+
+    Args:
+        health: Shared observation owned by this child and its parent watchdog.
+    """
+    while True:
+        health.set(HealthMetric.HEARTBEAT, time.monotonic_ns())
+        await asyncio.sleep(0.1)
+
+
+async def monitored_capture(
+    config: CaptureConfig,
+    output: Path,
+    health: HealthMetrics,
+    credentials: CoinbaseCredentials | None,
+    transport: VenueTransport | None,
+) -> None:
+    """Own the heartbeat task throughout the existing finite capture operation.
+
+    Args:
+        config: Validated native feed and resource limits.
+        output: Unique supervisor-owned capture destination.
+        health: Shared bounded clocks and counters.
+        credentials: Explicit optional Exchange access capability.
+        transport: Optional spawn-picklable synthetic transport; native transport is built in child.
+
+    Raises:
+        SystemExit: Capture finished with gaps or without synchronization.
+    """
+    for metric in (HealthMetric.INGESTION, HealthMetric.PERSISTENCE, HealthMetric.MARKET):
+        health.set(metric, time.monotonic_ns())
+    async with asyncio.TaskGroup() as group:
+        heartbeat = group.create_task(capture_heartbeat(health))
+        try:
+            result = await collect(
+                config,
+                output,
+                implementation_identity=InstalledIdentity.sha256(),
+                credentials=credentials,
+                transport=transport,
+                health=health,
+            )
+        finally:
+            heartbeat.cancel()
+    if result.get("gaps") or not result.get("synchronized"):
+        raise SystemExit(2)
+
+
+def capture_process(
+    config: CaptureConfig,
+    output: Path,
+    health: HealthMetrics,
+    credentials: CoinbaseCredentials | None,
+    transport: VenueTransport | None,
+) -> None:
+    """Run the collector in the watchdog's explicitly owned child process.
+
+    Args:
+        config: Validated native feed and resource limits.
+        output: Unique supervisor-owned capture destination.
+        health: Shared bounded clocks and counters.
+        credentials: Explicit optional Exchange access capability.
+        transport: Optional deterministic transport at the existing boundary.
+
+    Raises:
+        SystemExit: The parent records collector failure without logging exception payloads.
+    """
+    try:
+        asyncio.run(monitored_capture(config, output, health, credentials, transport))
+    except Exception:
+        raise SystemExit(2) from None
+
+
+def supervise(
+    config: CaptureConfig,
+    output: Path,
+    policy: HealthPolicy,
+    *,
+    credentials: CoinbaseCredentials | None = None,
+    transport: VenueTransport | None = None,
+) -> dict[str, object]:
+    """Watch a separate collector; stop it before attempting a bounded local alert.
+
+    Args:
+        config: Explicit feed selection and resource ceilings.
+        output: Parent directory for a unique supervision record and child capture.
+        policy: Independent liveness, progress, freshness and count limits.
+        credentials: Explicit optional Exchange access capability.
+        transport: Optional deterministic transport at the existing boundary.
+
+    Returns:
+        Retained policy, last observation, stop reason and local alert delivery status.
+
+    Raises:
+        ValueError: Configuration is invalid or queue policy exceeds capture capacity.
+    """
+    config.__post_init__()
+    policy.__post_init__()
+    if policy.max_queue >= config.queue_capacity:
+        raise ValueError("health queue threshold must be below capture capacity")
+    root, codec, health = output / str(uuid4()), DomainCodec(), HealthMetrics()
+    root.mkdir(parents=True)
+    (root / "health-policy.json").write_bytes(codec.encode_json(policy))
+    (root / "capture-config.json").write_bytes(codec.encode_json(config))
+    process = multiprocessing.get_context("spawn").Process(
+        target=capture_process, args=(config, root, health, credentials, transport)
+    )
+    reason, values = "", health.snapshot()
+    deadline = (
+        time.monotonic()
+        + policy.startup_seconds
+        + config.duration_seconds
+        + policy.progress_seconds
+    )
+    process.start()
+    try:
+        while True:
+            process.join(0.1)
+            try:
+                values = health.snapshot()
+                reason = policy.reason(values, now_ns=time.monotonic_ns())
+            except TimeoutError:
+                reason = "health_observation_stalled"
+            if not reason and time.monotonic() > deadline:
+                reason = "completion_stalled"
+            if reason or not process.is_alive():
+                reason = reason or ("collector_lost" if process.exitcode != 0 else "completed")
+                break
+    finally:
+        if process.is_alive():
+            process.terminate()
+            process.join(1)
+        if process.is_alive():
+            process.kill()
+            process.join(1)
+    result: dict[str, object] = {
+        "stop_reason": reason,
+        "implementation_identity": InstalledIdentity.sha256(),
+        "policy_identity": hashlib.sha256(codec.encode_json(policy)).hexdigest(),
+        "supervision_directory": str(root.absolute()),
+        "collector_stopped": not process.is_alive(),
+        "exitcode": process.exitcode,
+        "health": {metric.name.lower(): values[metric] for metric in HealthMetric},
+        "alert_delivered": reason != "completed"
+        and HealthAlert.deliver(
+            policy.alert_socket, f"{root.name} {config.venue}:{config.symbol} {reason}"
+        ),
+    }
+    (root / "health-summary.json").write_bytes(codec.encode_json(result))
+    return result
+
+
 class CaptureArguments(argparse.Namespace):
     """Typed installed command arguments; no credential values are accepted on the command line."""
 
@@ -370,6 +524,7 @@ class CaptureArguments(argparse.Namespace):
     interrupted: bool
     snapshot_directory: Path | None
     snapshot_records: int | None
+    health_config: Path | None
 
 
 class InstalledIdentity:
@@ -405,6 +560,7 @@ def main() -> None:
     capture_parser.add_argument("--secrets", type=Path)
     capture_parser.add_argument("--snapshot-directory", type=Path)
     capture_parser.add_argument("--snapshot-records", type=int)
+    capture_parser.add_argument("--health-config", type=Path)
     probe_parser = commands.add_parser("probe")
     probe_parser.add_argument("--config", type=Path, required=True)
     replay_parser = commands.add_parser("replay")
@@ -434,18 +590,40 @@ def main() -> None:
                             "--secrets must select the local Coinbase Exchange secrets file"
                         )
                     credentials = CoinbaseCredentials.read(arguments.secrets)
-                result = asyncio.run(
-                    collect(
+                if arguments.health_config is not None:
+                    if (
+                        arguments.snapshot_directory is not None
+                        or arguments.snapshot_records is not None
+                    ):
+                        raise ValueError("supervised capture does not publish book snapshots")
+                    result = supervise(
                         config,
                         arguments.output,
+                        DomainCodec().decode_json(
+                            arguments.health_config.read_bytes(), HealthPolicy
+                        ),
                         credentials=credentials,
-                        implementation_identity=InstalledIdentity.sha256(),
-                        snapshot_directory=arguments.snapshot_directory,
-                        snapshot_records=arguments.snapshot_records,
                     )
-                )
+                else:
+                    result = asyncio.run(
+                        collect(
+                            config,
+                            arguments.output,
+                            credentials=credentials,
+                            implementation_identity=InstalledIdentity.sha256(),
+                            snapshot_directory=arguments.snapshot_directory,
+                            snapshot_records=arguments.snapshot_records,
+                        )
+                    )
         print(DomainCodec().encode_json(result).decode(), flush=True)
-        if arguments.action == "capture" and (result.get("gaps") or not result.get("synchronized")):
+        if arguments.action == "capture" and (
+            result.get("gaps")
+            or (
+                result.get("stop_reason") != "completed"
+                if arguments.health_config is not None
+                else not result.get("synchronized")
+            )
+        ):
             raise SystemExit(2)
     except CoinbaseAccessError as error:
         print(str(error), file=sys.stderr)
