@@ -78,6 +78,30 @@ class TestArchiveTrade:
         with pytest.raises(AttributeError):
             setattr(event, "timestamp", 0)
 
+    @pytest.mark.parametrize(
+        ("index", "field", "value"),
+        [
+            (1, "price", "1e30"),
+            (2, "quantity", "1e-30"),
+            (3, "quote_quantity", "0e-30"),
+            (3, "quote_quantity", "0." + "1" * 40),
+        ],
+    )
+    def test_decimal_bounds_preserve_exact_values_at_supported_edges(
+        self, selection: SourceRequest, index: int, field: str, value: str
+    ) -> None:
+        """Retain exact source scale through the finite decimal boundary."""
+        fields = list(self._row(selection).columns())
+        fields[index] = value
+        event = ArchiveTrade.from_row(self._row(selection, ",".join(fields).encode()), selection)
+        if field == "price":
+            observed = event.price
+        elif field == "quantity":
+            observed = event.quantity
+        else:
+            observed = event.quote_quantity
+        assert observed.as_tuple() == Decimal(value).as_tuple()
+
     def test_microseconds_follow_source_date_not_magnitude(self, selection: SourceRequest) -> None:
         """Retain the last microsecond of a day and reject the wrong unit or next day."""
         start = datetime(2025, 1, 1, tzinfo=UTC)
@@ -110,12 +134,16 @@ class TestArchiveTrade:
             (0, "\uff11"),
             (0, "1_1"),
             (1, "NaN"),
+            (1, "1e31"),
             (1, "0"),
             (1, "-1"),
             (1, "no-price"),
             (2, "Infinity"),
+            (2, "1e-31"),
             (2, "-1"),
             (3, "NaN"),
+            (3, "0e-1000000000"),
+            (3, "0." + "1" * 41),
             (3, "-1"),
             (4, "1e12"),
             (4, "99999999999999999999"),

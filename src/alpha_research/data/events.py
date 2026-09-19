@@ -17,6 +17,9 @@ type Symbol = str
 type EventTimeBasis = Literal["source_event", "capture_proxy"]
 type PriceLevel = tuple[Decimal, Decimal]
 
+_MAX_DECIMAL_COEFFICIENT_DIGITS = 40
+_MAX_DECIMAL_ADJUSTED_EXPONENT = 30
+
 
 class MarketEventError(ValueError):
     """Report malformed or unsupported source market data."""
@@ -106,7 +109,14 @@ class MarketEventRecord(TaggedEvent, frozen=True, kw_only=True):
 
     @staticmethod
     def _validate_decimal(value: object, *, field_name: str, allow_zero: bool = True) -> Decimal:
-        """Require a finite nonnegative Decimal price or quantity."""
+        """Require a bounded finite nonnegative source price or quantity.
+
+        Source decimals retain their exact coefficient and scale, but their
+        representation is bounded before any rational arithmetic can expand it.
+        The coefficient may contain at most 40 digits and the adjusted exponent
+        must stay in ``[-30, 30]``.  The adjusted exponent also bounds zero's
+        stored exponent, whose extreme values otherwise bypass magnitude checks.
+        """
         if not isinstance(value, Decimal):
             raise TypeError(f"{field_name} must be a Decimal")
         if not value.is_finite():
@@ -114,6 +124,11 @@ class MarketEventRecord(TaggedEvent, frozen=True, kw_only=True):
         if value < 0 or (not allow_zero and value == 0):
             qualifier = "positive" if not allow_zero else "nonnegative"
             raise ValueError(f"{field_name} must be {qualifier}")
+        if (
+            len(value.as_tuple().digits) > _MAX_DECIMAL_COEFFICIENT_DIGITS
+            or abs(value.adjusted()) > _MAX_DECIMAL_ADJUSTED_EXPONENT
+        ):
+            raise ValueError(f"{field_name} exceeds supported decimal bounds")
         return value
 
     @staticmethod

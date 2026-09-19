@@ -206,6 +206,50 @@ git diff --check
 git check-ignore examples/runs/probe.ipynb examples/.kernel-probe/kernel.json examples/.ipynb_checkpoints/probe.ipynb
 ```
 
+## Post-merge review corrections — 2026-09-19
+
+The preceding evidence describes the original MR 27 candidate. This follow-up
+corrects three review findings in the working tree based on merged MR 27 commit
+`828cfaf076701a804f6826b7778031ced66ab7a6`:
+
+- Coinbase snapshot bridging retains the last applied buffered source time and
+  rejects backwards supplied clocks, including nanosecond regressions. Covered
+  messages cannot advance that clock. Replay and reconstruction share the timestamp
+  conversion, and a late REST receipt cannot freshen an old buffered update.
+- Capture finalization runs blocking persistence, replay, verification and publication
+  outside the event loop. Heartbeats continue; cancellation waits for the finalizer,
+  and persistence failures propagate with the corresponding health flag.
+- Shared Binance event validation bounds decimal representations before rational
+  arithmetic. Lazy saved-input readers produce a rejected quality report without
+  canonical bytes for oversized values. Supported values retain their exact scale.
+
+The owning contracts are updated in [data contracts](../data/contracts.md) and the
+[collector guide](../data/l3-collectors.md). All three regression tests reproduced
+the original failures against the base source. The corrected installed package
+passed **649 tests in 61.05 seconds**, including integration cases, with no skips
+or deselections. The final run used CPython 3.14.7 on macOS arm64:
+
+```sh
+UV_PROJECT_ENVIRONMENT=/private/tmp/mr27-fixes-env uv sync --frozen --no-editable --offline
+PYTHONDONTWRITEBYTECODE=1 /private/tmp/mr27-fixes-env/bin/python -I -m pytest -q -p no:cacheprovider -m 'not performance' --basetemp=/private/tmp/m27-fix tests/unit/data tests/unit/pipelines tests/unit/test_serialization.py
+```
+
+All 78 installed Python modules matched the working-tree source bytes; installed
+implementation identity:
+`bfecde8d8087f84ec58404ade35f42c2b94104546b6ecde714a931737ab16c33`.
+Whole-scope Ruff lint/format, strict mypy on the 11 changed Python files, Bandit on
+the five changed runtime modules, engineering standards, architecture links and
+`git diff --check` passed. Development attempts that could not bind local health
+test sockets were rerun with host permission and a shorter temporary path.
+
+Raw and canonical wire schemas are unchanged. Existing raw bytes remain retained,
+but corrected Coinbase clocks can change derived quality and canonical observations;
+regenerate affected derived snapshots from their originals. Out-of-bound Binance
+decimals are now rejected. Historical capture/notebook evidence above was not rerun
+for this patch. These are local synthetic and saved-input checks, not new live-source
+qualification. Revert this correction patch to reverse the code changes while
+preserving original raw inputs and diagnostics; no stored data was rewritten.
+
 ## Risks / reversal
 
 Canonical parity covers only the explicitly selected prefix; whole-capture native

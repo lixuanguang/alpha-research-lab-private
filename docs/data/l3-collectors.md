@@ -339,6 +339,12 @@ budget. Original clocks remain unchanged; Bitfinex's absent exchange time is not
 invented. The standalone `ContinuousQuality` gate can exercise a positive bounded
 lateness policy explicitly, but the live configuration does not enable that mode.
 
+Coinbase snapshot bridging preserves the source timestamp of the last applied
+buffered lifecycle message. Messages already covered by the snapshot do not
+advance that clock, and a backwards source timestamp in the applied bridge
+invalidates reconstruction. A later REST response receipt cannot freshen an old
+buffered update. The snapshot's actual receipt remains its availability boundary.
+
 A source or receipt regression beyond its watermark invalidates reconstruction.
 Schema/sequence failure and gaps stay recovering until a fresh session validates
 its native snapshot/bridge. Reconnect controls cannot resume use. Heartbeats and
@@ -407,6 +413,10 @@ When both budgets have expired, persistence takes precedence.
 Finalization no longer expects fresh market data, but still requires heartbeat
 and a total deadline of startup + capture duration + progress allowance. Shared
 lock acquisition is bounded to 50 ms, including after a lost writer.
+The collector enters finalization before writing the capture-end record and runs
+blocking publication and saved-input verification outside the event loop,
+allowing the heartbeat to continue while that work completes. Storage and parity
+failures still propagate; an active heartbeat does not certify successful publication.
 
 On a failure the parent terminates the child, waits up to one second, then kills
 and waits up to one further second if needed. It attempts the local syslog alert

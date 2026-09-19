@@ -127,6 +127,76 @@ async def receive_snapshot(
     await queue.put(record)
 
 
+def _finalize_capture(
+    journal: CaptureJournal,
+    replay: CaptureReplay,
+    codec: DomainCodec,
+    root: Path,
+    request: CaptureRequest,
+    reason: str,
+    snapshot_directory: Path | None,
+    snapshot_records: int | None,
+) -> dict[str, object]:
+    """Persist terminal state, verify replay parity and publish an optional book prefix.
+
+    Args:
+        journal: Active recording journal that owns the durable input boundary.
+        replay: Live replay state whose terminal records must follow durable append.
+        codec: JSON codec for the persisted capture summary.
+        root: Completed recording directory used by offline verification and publication.
+        request: Immutable recording identity retained in the result summary.
+        reason: Bounded source stop reason retained in terminal records and summary output.
+        snapshot_directory: Optional destination for the selected canonical book snapshot.
+        snapshot_records: Optional raw-position bound paired with ``snapshot_directory``.
+
+    Returns:
+        Final capture summary containing saved-input and replay-parity evidence.
+
+    Raises:
+        OSError: Durable journal, summary or snapshot publication fails.
+        ValueError: Saved replay, canonical verification or parity validation fails.
+    """
+    if not replay.book.ready and not replay.invalid:
+        gap = CaptureRecord(
+            kind="gap",
+            epoch=replay.epoch,
+            received_ns=time.time_ns(),
+            reason="capture_ended_before_synchronization",
+        )
+        journal.append(gap)
+        replay.apply(gap)
+    end = CaptureRecord(kind="end", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason)
+    journal.append(end)
+    replay.apply(end)
+    descriptor = journal.finish(replay.started_ns or end.received_ns)
+    offline = CaptureReplay.read(root)
+    if isinstance(replay, BookCapture):
+        replay.verify(root)
+    if offline.summary() != replay.summary():
+        raise ValueError("saved-input replay differs from captured message-boundary state")
+    summary = {
+        **offline.summary(),
+        "request_identity": request.identity,
+        "saved_input_identity": descriptor.sha256,
+        "saved_bytes": descriptor.size_bytes,
+        "capture_directory": str(root.absolute()),
+        "stop_reason": reason,
+        "replay_parity": True,
+        "canonical_parity": isinstance(replay, BookCapture),
+    }
+    (root / "summary.json").write_bytes(codec.encode_json(summary))
+    if snapshot_directory is not None and snapshot_records is not None:
+        summary["snapshot_identity"] = publish_book_dataset(
+            (root,),
+            RawStore(root),
+            snapshot_directory,
+            max_records=snapshot_records,
+            max_bytes=replay.config.max_bytes,
+        )
+        (root / "summary.json").write_bytes(codec.encode_json(summary))
+    return summary
+
+
 async def collect(
     config: CaptureConfig,
     output: Path,
@@ -306,15 +376,22 @@ async def collect(
                         await task
             if socket is not None:
                 await socket.close()
-        if reason not in ("duration_limit", "message_limit") and not replay.invalid:
-            gap = CaptureRecord(kind="gap", epoch=epoch, received_ns=time.time_ns(), reason=reason)
-            journal.append(gap)
-            replay.apply(gap)
-        ending = CaptureRecord(
-            kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason
-        )
-        journal.append(ending)
-        replay.apply(ending)
+        try:
+            if reason not in ("duration_limit", "message_limit") and not replay.invalid:
+                gap = CaptureRecord(
+                    kind="gap", epoch=epoch, received_ns=time.time_ns(), reason=reason
+                )
+                await asyncio.to_thread(journal.append, gap)
+                await asyncio.to_thread(replay.apply, gap)
+            ending = CaptureRecord(
+                kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason
+            )
+            await asyncio.to_thread(journal.append, ending)
+            await asyncio.to_thread(replay.apply, ending)
+        except OSError:
+            if health is not None:
+                health.set(HealthMetric.PERSISTENCE_FAILED, 1)
+            raise
         if reason in (
             "duration_limit",
             "message_limit",
@@ -324,47 +401,31 @@ async def collect(
             break
         if epoch < config.retries and time.monotonic() < deadline:
             await asyncio.sleep(min(float(1 << epoch), max(0, deadline - time.monotonic())))
-    if not replay.book.ready and not replay.invalid:
-        gap = CaptureRecord(
-            kind="gap",
-            epoch=replay.epoch,
-            received_ns=time.time_ns(),
-            reason="capture_ended_before_synchronization",
-        )
-        journal.append(gap)
-        replay.apply(gap)
-    end = CaptureRecord(kind="end", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason)
-    journal.append(end)
-    replay.apply(end)
-    descriptor = journal.finish(replay.started_ns or end.received_ns)
     if health is not None:
         health.set(HealthMetric.FINALIZING, 1)
-    offline = CaptureReplay.read(root)
-    if isinstance(replay, BookCapture):
-        replay.verify(root)
-    if offline.summary() != replay.summary():
-        raise ValueError("saved-input replay differs from captured message-boundary state")
-    summary = {
-        **offline.summary(),
-        "request_identity": request.identity,
-        "saved_input_identity": descriptor.sha256,
-        "saved_bytes": descriptor.size_bytes,
-        "capture_directory": str(root.absolute()),
-        "stop_reason": reason,
-        "replay_parity": True,
-        "canonical_parity": isinstance(replay, BookCapture),
-    }
-    (root / "summary.json").write_bytes(codec.encode_json(summary))
-    if snapshot_directory is not None and snapshot_records is not None:
-        summary["snapshot_identity"] = publish_book_dataset(
-            (root,),
-            RawStore(root),
+    finalization = asyncio.create_task(
+        asyncio.to_thread(
+            _finalize_capture,
+            journal,
+            replay,
+            codec,
+            root,
+            request,
+            reason,
             snapshot_directory,
-            max_records=snapshot_records,
-            max_bytes=config.max_bytes,
+            snapshot_records,
         )
-        (root / "summary.json").write_bytes(codec.encode_json(summary))
-    return summary
+    )
+    try:
+        try:
+            return await asyncio.shield(finalization)
+        except asyncio.CancelledError:
+            await finalization
+            raise
+    except OSError:
+        if health is not None:
+            health.set(HealthMetric.PERSISTENCE_FAILED, 1)
+        raise
 
 
 async def capture_heartbeat(health: HealthMetrics) -> None:

@@ -68,6 +68,31 @@ class TestCoinbaseBook:
         book.apply(b'["noop","BTC-USD","11",null]')
         assert book.ready
 
+    def test_buffered_source_time_tracks_applied_lifecycle(self) -> None:
+        """Covered source clocks are ignored while applied bridge updates retain exact text."""
+        book = self.book()
+        book.apply(b'["noop","BTC-USD","9","2033-05-18T03:33:20.000000999Z"]')
+        book.apply(
+            b'["open","BTC-USD","11","other","sell","102","2","2033-05-18T03:33:20.000000001Z"]'
+        )
+        book.apply(
+            b'["match","BTC-USD","12","maker","taker","100","0.1","2033-05-18T03:33:20.000000002Z"]'
+        )
+        book.apply(_SNAPSHOT, snapshot=True)
+        assert book.source_time == "2033-05-18T03:33:20.000000002Z"
+        assert book.orders["other"].size == Decimal("2")
+        assert book.orders["maker"].size == Decimal("0.200000000000000001")
+
+    def test_buffered_source_time_regression_requires_resnapshot(self) -> None:
+        """Reject an applied bridge whose supplied source clock moves backwards."""
+        book = self.book()
+        book.apply(
+            b'["open","BTC-USD","11","other","sell","102","2","2033-05-18T03:33:20.000000002Z"]'
+        )
+        book.apply(b'["noop","BTC-USD","12","2033-05-18T03:33:20.000000001Z"]')
+        with pytest.raises(ValueError, match="source time moved backwards"):
+            book.apply(_SNAPSHOT, snapshot=True)
+
     @pytest.mark.parametrize(
         "raw",
         [
@@ -121,6 +146,8 @@ class TestCoinbaseBook:
         book.apply(_SNAPSHOT, snapshot=True)
         book.apply(b'["noop","BTC-USD","11","2026-09-15T00:00:00.123456789Z"]')
         assert book.source_time == "2026-09-15T00:00:00.123456789Z"
+        with pytest.raises(ValueError, match="source time moved backwards"):
+            book.apply(b'["noop","BTC-USD","12","2026-09-15T00:00:00.123456788Z"]')
         with pytest.raises(ValueError):
             book.apply(b'["noop","BTC-USD","12","not-a-time"]')
 

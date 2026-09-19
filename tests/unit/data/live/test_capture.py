@@ -4,10 +4,12 @@ from __future__ import annotations
 
 # standard library imports
 import asyncio
+import contextlib
 import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from http.client import IncompleteRead
 from pathlib import Path
 from threading import Event
@@ -28,7 +30,12 @@ from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.snapshots import SnapshotStore
 from alpha_research.data.venues.coinbase.auth import CoinbaseAccessError, CoinbaseCredentials
-from alpha_research.pipelines.live import collect, receive_frames, receive_snapshot
+from alpha_research.pipelines.live import (
+    collect,
+    monitored_capture,
+    receive_frames,
+    receive_snapshot,
+)
 from alpha_research.serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[4]
@@ -150,6 +157,44 @@ class FailingJournal(CaptureJournal):
         super().append(record)
 
 
+class BlockingReplayReader:
+    """Hold offline replay at a deterministic finalization boundary."""
+
+    def __init__(
+        self,
+        read: Callable[[Path], CaptureReplay],
+        started: Event,
+        release: Event,
+    ) -> None:
+        """Bind the original reader and synchronization events for one invocation.
+
+        Args:
+            read: Original offline replay reader retained after patching.
+            started: Event set when the deliberately slow boundary is entered.
+            release: Event that lets the original reader resume.
+        """
+        self._read = read
+        self._started = started
+        self._release = release
+
+    def __call__(self, root: Path) -> CaptureReplay:
+        """Wait outside the event loop, then preserve the original replay contract.
+
+        Args:
+            root: Completed capture directory to replay.
+
+        Returns:
+            The original offline replay result after the synchronization barrier.
+
+        Raises:
+            AssertionError: The test did not release the deterministic boundary in time.
+        """
+        self._started.set()
+        if not self._release.wait(5):
+            raise AssertionError("finalization replay boundary was not released")
+        return self._read(root)
+
+
 class TestCapture:
     """Check observable recording and installed-library contracts on saved inputs."""
 
@@ -209,6 +254,99 @@ class TestCapture:
         assert final[HealthMetric.MARKET] > initial[HealthMetric.MARKET]
         assert final[HealthMetric.FINALIZING] == 1
         assert final[HealthMetric.INVALID] == final[HealthMetric.PERSISTENCE_FAILED] == 0
+
+    def test_heartbeat_continues_during_offloaded_finalization(self, tmp_path: Path) -> None:
+        """Keep process liveness advancing while saved-input replay is deliberately blocked."""
+        asyncio.run(self._heartbeat_during_finalization(tmp_path))
+
+    async def _heartbeat_during_finalization(self, tmp_path: Path) -> None:
+        """Synchronize with the worker boundary before observing the heartbeat task."""
+        started, release = Event(), Event()
+        health = HealthMetrics()
+        reader = BlockingReplayReader(CaptureReplay.read, started, release)
+        task = asyncio.create_task(
+            monitored_capture(
+                self.config(),
+                tmp_path,
+                health,
+                None,
+                ScriptedTransport(self.config(), (_FRAMES,)),
+            )
+        )
+        try:
+            with patch("alpha_research.pipelines.live.CaptureReplay.read", side_effect=reader):
+                assert await asyncio.to_thread(started.wait, 5)
+                before = health.snapshot()
+                await asyncio.sleep(0.35)
+                during = health.snapshot()
+                assert during[HealthMetric.FINALIZING] == 1
+                assert during[HealthMetric.HEARTBEAT] > before[HealthMetric.HEARTBEAT]
+                release.set()
+                await task
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+
+    def test_cancellation_waits_for_offloaded_finalization(self, tmp_path: Path) -> None:
+        """Wait for a blocked finalizer to finish before cancellation returns to its caller."""
+        asyncio.run(self._cancellation_waits_for_finalization(tmp_path))
+
+    async def _cancellation_waits_for_finalization(self, tmp_path: Path) -> None:
+        """Cancel after entering replay and release the worker after cancellation is pending."""
+        started, release = Event(), Event()
+        health = HealthMetrics()
+        reader = BlockingReplayReader(CaptureReplay.read, started, release)
+        task = asyncio.create_task(
+            collect(
+                self.config(),
+                tmp_path,
+                implementation_identity="a" * 64,
+                transport=ScriptedTransport(self.config(), (_FRAMES,)),
+                health=health,
+            )
+        )
+        try:
+            with patch("alpha_research.pipelines.live.CaptureReplay.read", side_effect=reader):
+                assert await asyncio.to_thread(started.wait, 5)
+                task.cancel()
+                await asyncio.sleep(0)
+                assert not task.done()
+                release.set()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        root = next(tmp_path.iterdir())
+        assert (root / "manifest.json").exists() and (root / "summary.json").exists()
+
+    def test_finalization_persistence_failure_propagates(self, tmp_path: Path) -> None:
+        """Propagate terminal publication errors and expose them to the health watchdog."""
+        config, health = self.config(), HealthMetrics()
+        with patch.object(
+            CaptureJournal, "finish", side_effect=OSError("synthetic final disk full")
+        ):
+            with pytest.raises(OSError, match="final disk full"):
+                asyncio.run(
+                    collect(
+                        config,
+                        tmp_path,
+                        implementation_identity="a" * 64,
+                        transport=ScriptedTransport(config, (_FRAMES,)),
+                        health=health,
+                    )
+                )
+        values = health.snapshot()
+        assert values[HealthMetric.FINALIZING] == 1
+        assert values[HealthMetric.PERSISTENCE_FAILED] == 1
+        root = next(tmp_path.iterdir())
+        assert not (root / "manifest.json").exists()
 
     def test_subscription_deadline(self, tmp_path: Path) -> None:
         """Cancel blocked subscription sends and retain an unavailable closed session."""

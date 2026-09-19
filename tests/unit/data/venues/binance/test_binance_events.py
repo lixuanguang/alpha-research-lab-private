@@ -177,3 +177,35 @@ class TestBinanceEvents:
         msgspec.structs.force_setattr(event, "event_time_basis", invalid_basis)
         with pytest.raises(ValueError, match="event_time_basis"):
             _CODEC.validate(event)
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("price", Decimal("1e31")),
+            ("quantity", Decimal("1e-31")),
+            ("quantity", Decimal("0e-1000000000")),
+            ("price", Decimal("0." + "1" * 41)),
+        ],
+    )
+    def test_trade_rejects_unbounded_decimal_coefficients_and_exponents(
+        self, field: str, value: Decimal
+    ) -> None:
+        """Reject hostile exact decimals before canonical event arithmetic or encoding."""
+        with pytest.raises(ValueError, match="supported decimal bounds"):
+            msgspec.structs.replace(_BinanceEventFixture._trade(), **{field: value})
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("price", Decimal("1e30")),
+            ("quantity", Decimal("1e-30")),
+            ("quantity", Decimal("0e-30")),
+        ],
+    )
+    def test_trade_preserves_decimal_values_at_supported_edges(
+        self, field: str, value: Decimal
+    ) -> None:
+        """Retain exact source scale at both adjusted-exponent boundaries."""
+        event = msgspec.structs.replace(_BinanceEventFixture._trade(), **{field: value})
+        observed = event.price if field == "price" else event.quantity
+        assert observed == value

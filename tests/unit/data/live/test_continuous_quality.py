@@ -1,11 +1,18 @@
 """Exercise bounded continuous quality independently of source transport."""
 
+# standard library imports
+from pathlib import Path
+
 # third party library imports
 import pytest
 
 # project library imports
+from alpha_research.data.live.config import CaptureConfig
 from alpha_research.data.live.journal import CaptureRecord
 from alpha_research.data.live.quality import ContinuousQuality
+from alpha_research.data.live.replay import CaptureReplay
+
+_ROOT = Path(__file__).parents[4]
 
 
 class TestContinuousQuality:
@@ -69,3 +76,53 @@ class TestContinuousQuality:
             source_ns=77,
         )
         assert quality.source_watermark_ns == 78 and quality.status == "recovering"
+
+    def test_coinbase_buffered_source_stays_stale_after_snapshot_receipt(self) -> None:
+        """Replay keeps an old buffered market clock instead of freshening from REST receipt."""
+        config = CaptureConfig.read(_ROOT / "configs/live/coinbase-btc-usd.json")
+        replay = CaptureReplay(config)
+        receipt_ns = 2_000_000_000_000_000_000
+        source_time = "2033-05-18T03:33:20.000000001Z"
+        replay.apply(CaptureRecord(kind="session", epoch=0, received_ns=receipt_ns))
+        replay.apply(
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=receipt_ns + 1,
+                raw=(_ROOT / "tests/fixtures/l3/coinbase-schema.json").read_bytes(),
+            )
+        )
+        replay.apply(
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=receipt_ns + 2,
+                raw=b'{"type":"subscriptions","channels":[{"name":"level3",'
+                b'"product_ids":["BTC-USD"]}]}',
+            )
+        )
+        replay.apply(
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=receipt_ns + 3,
+                raw=(
+                    b'["open","BTC-USD","11","other","sell","102","2",'
+                    b'"2033-05-18T03:33:20.000000001Z"]'
+                ),
+            )
+        )
+        outcome = replay.apply(
+            CaptureRecord(
+                kind="snapshot",
+                epoch=0,
+                received_ns=receipt_ns + 105_000_000_000,
+                raw=(_ROOT / "tests/fixtures/l3/coinbase-snapshot.json").read_bytes(),
+            )
+        )
+        assert outcome == "snapshot"
+        assert replay.book.source_time == source_time
+        assert replay.quality.last_market_ns == receipt_ns + 1
+        assert replay.quality.status == "stale"
+        with pytest.raises(ValueError, match="stale"):
+            replay.quality.require_usable(now_ns=receipt_ns + 105_000_000_000, allow_degraded=True)
