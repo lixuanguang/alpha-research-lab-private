@@ -22,7 +22,7 @@ def main() -> None:
     """Read copied history, reproduce boundaries and reject invalid corrections.
 
     Raises:
-        AssertionError: The installed candidate violates the MR 12 contract.
+        AssertionError: The installed candidate violates the eligibility selection contract.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", type=Path)
@@ -34,7 +34,7 @@ def main() -> None:
     catalog = codec.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    history = EligibilityAssertions.read(inputs / "eligibility.json", catalog=catalog)
+    history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
     original, _, excluded, correction = history.assertions
     before = replace(history, schema_version="1", assertions=history.assertions[:-1])
     assert before.append(correction) == history
@@ -79,7 +79,7 @@ def main() -> None:
     assert before.append(correction) == history
     print(f"Installed runtime: {package}")
     print(
-        "MR 12 passed: prior universe, both clocks, half-open endpoints, "
+        "eligibility selection passed: prior universe, both clocks, half-open endpoints, "
         "unknown/unsupported, round trip and recovery"
     )
 

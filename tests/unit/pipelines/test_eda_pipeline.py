@@ -54,7 +54,7 @@ class TestEdaPipeline:
         config = tmp_path / "query.json"
         config.write_bytes(DomainCodec().encode_json(selected))
         reader = QueryReader(
-            ((_ROOT / "tests/fixtures/mr20/canonical.json").read_bytes(),),
+            ((_ROOT / "tests/fixtures/replay/canonical.json").read_bytes(),),
             precedence=selected.precedence,
             max_bytes=selected.max_bytes,
         )

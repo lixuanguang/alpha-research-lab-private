@@ -33,7 +33,7 @@ class TestEligibilitySelection:
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
         return EligibilityAssertions.read(
-            _ROOT / "tests/fixtures/mr12/eligibility.json", catalog=catalog
+            _ROOT / "tests/fixtures/eligibility/membership-corrections.json", catalog=catalog
         )
 
     def test_future_corrections_preserve_earlier_universe_and_exact_round_trip(self) -> None:
@@ -66,7 +66,7 @@ class TestEligibilitySelection:
     def test_legacy_wire_fields_and_unknown_version_rejection(self) -> None:
         """Preserve version-1 wire fields while rejecting unsupported complete histories."""
         history = self._history()
-        path = _ROOT / "tests/fixtures/mr11/eligibility.json"
+        path = _ROOT / "tests/fixtures/eligibility/assumptions-and-membership.json"
         legacy = EligibilityAssertions.read(path, catalog=history.catalog)
         assert b'"supersedes"' not in _CODEC.encode_json(legacy)
         with pytest.raises(ValueError, match="schema version"):
@@ -128,7 +128,8 @@ class TestEligibilitySelection:
             == "unknown"
         )
         authored = EligibilityAssertions.read(
-            _ROOT / "tests/fixtures/mr11/eligibility.json", catalog=history.catalog
+            _ROOT / "tests/fixtures/eligibility/assumptions-and-membership.json",
+            catalog=history.catalog,
         ).assertions[0]
         assert (
             replace(history, assertions=(authored,)).select(

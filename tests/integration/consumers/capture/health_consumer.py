@@ -115,7 +115,7 @@ def main() -> None:
     output.mkdir()
     observations: list[dict[str, object]] = []
     with (
-        TemporaryDirectory(prefix="mr26-alert-", dir="/tmp") as socket_root,
+        TemporaryDirectory(prefix="health-alert-", dir="/tmp") as socket_root,
         socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver,
     ):
         address = str(Path(socket_root) / "alerts.sock")

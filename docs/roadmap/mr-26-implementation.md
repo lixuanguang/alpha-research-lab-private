@@ -1,5 +1,8 @@
 # MR 26 — Independent live health supervision
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Status: implemented and locally verified for separate
 review on 2026-09-19; not merged or deployed. Branch: `codex/mr-26-live-health`.
 [Draft PR #53](https://github.com/lixuanguang/alpha-research-lab-private/pull/53)
@@ -101,7 +104,7 @@ The temporary installer calls the existing `_InstalledWheelCheck.validate`:
 hash-locked binary dependencies, governance-free imports, exact-value smoke and
 installed compatibility all pass. Source, wheel and installation match across
 **79 runtime files**. The tracked consumer is
-[health_consumer.py](../../tests/fixtures/mr26/health_consumer.py); it ran with `-I`
+[health_consumer.py](../../tests/integration/consumers/capture/health_consumer.py); it ran with `-I`
 outside the checkout. Its final socket-path/startup changes were also exercised
 by the fresh notebook's isolated subprocess and final focused rerun.
 

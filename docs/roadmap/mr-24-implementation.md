@@ -1,5 +1,8 @@
 # MR 24 — Recover sessions without hiding gaps
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Status: implemented and locally verified for review on
 2026-09-18 (Asia/Singapore). Branch: `codex/mr-24-session-recovery`.
 Base: fetched, unchanged `origin/main` at `b30f89e`. Direct prerequisite MR 23 merged

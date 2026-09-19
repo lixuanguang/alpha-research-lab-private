@@ -1,5 +1,8 @@
 # MR 13 — Validate a canonical partition
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-16. Branch: `codex/mr-13-partition-quality`. Base: updated `main` at
 `210db65`, matching freshly fetched `origin/main`. Prerequisites are merged:
@@ -119,7 +122,7 @@ hash-verified binary-only runtime requirements, installs the candidate wheel wit
 `--no-deps`, checks dependency compatibility, exercises public imports/exact codecs
 and verifies that governance tooling is absent. All passed.
 
-The [retained isolated consumer](../../tests/fixtures/mr13/validate_partition.py)
+The [retained isolated consumer](../../tests/integration/consumers/datasets/validate_partition.py)
 then runs through saved acquisition manifests and verified raw objects with `-I`
 and external `site-packages`. It reproduced canonical bytes twice, retained one
 duplicate and two observed gaps, refused causal scope, rejected NaN price, zero

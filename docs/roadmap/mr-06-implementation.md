@@ -1,5 +1,8 @@
 # MR 06: Resume the acquisition manifest
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-15
 on `codex/mr-06-acquisition-resume`. This record covers synthetic MR 06 acceptance;
 MR 05's permitted-source and historical-evidence boundaries remain open.
@@ -90,7 +93,7 @@ uv run --frozen --no-sync python /private/tmp/mr06-verification/check_links.py
 git diff --check 48bf9b7
 ```
 
-The retained [process fixture](../../tests/fixtures/mr06/acquire.py) uses fake HTTP
+The retained [process fixture](../../tests/support/subprocesses/acquire.py) uses fake HTTP
 and real atomic filesystem operations, with process exit 75 at the second partition.
 The [resume tests](../../tests/unit/pipelines/test_acquisition_resume.py) compare
 complete serialized manifests and preserved raw-object inodes across all four exits:

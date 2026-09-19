@@ -1,5 +1,8 @@
 # MR 20 — Replay with shared event stepping
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Status: implemented and locally verified for review on
 2026-09-17. Branch: `codex/mr-20-event-stepping`.
 [PR #46](https://github.com/lixuanguang/alpha-research-lab-private/pull/46)
@@ -31,7 +34,7 @@ state. Callback payloads and exposed cursors/evidence are isolated from mutation
 
 Runtime changes are confined to `data/replay.py`: ordered reference construction,
 clock, phase delivery and completed-step cursor. Its first consumers are focused
-regressions, the [installed fixture](../../tests/fixtures/mr20/replay_consumer.py)
+regressions, the [installed fixture](../../tests/integration/consumers/replay/replay_consumer.py)
 and [NB 20 section 10](../../examples/research-foundations.ipynb). The existing
 query, selector, configuration, canonical/revision serialization, publication and
 live/book implementations are reused unchanged. The

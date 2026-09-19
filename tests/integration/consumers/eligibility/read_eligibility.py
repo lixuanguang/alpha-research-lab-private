@@ -23,7 +23,7 @@ def main() -> None:
     """Read retained history, exercise failures and recover using the installed candidate.
 
     Raises:
-        AssertionError: An installed result differs from the MR 11 contract.
+        AssertionError: An installed result differs from the eligibility assertions contract.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", type=Path)
@@ -35,7 +35,7 @@ def main() -> None:
     catalog = codec.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    source = inputs / "eligibility.json"
+    source = inputs / "assumptions-and-membership.json"
     history = EligibilityAssertions.read(source, catalog=catalog)
     assumption, evidenced, included, excluded = history.assertions
     assert assumption.valid_from == evidenced.valid_from == datetime(2024, 6, 1, tzinfo=UTC)
@@ -46,7 +46,7 @@ def main() -> None:
     assert excluded.valid_to > catalog.instruments[1].valid_to
     assert codec.decode_json(codec.encode_json(history), EligibilityAssertions) == history
     failures = 0
-    with TemporaryDirectory(prefix="mr11-consumer-") as temporary:
+    with TemporaryDirectory(prefix="read-eligibility-") as temporary:
         path = Path(temporary) / "eligibility.json"
         raw = source.read_bytes()
         for payload in (
@@ -79,7 +79,10 @@ def main() -> None:
         assert EligibilityAssertions.read(path, catalog=catalog) == history
     assert failures == 4
     print(f"Installed runtime: {package}")
-    print("MR 11 passed: four retained assertions, exact round trip, four rejections and recovery")
+    print(
+        "Eligibility assertions passed: four retained assertions, exact round trip, "
+        "four rejections and recovery"
+    )
 
 
 if __name__ == "__main__":

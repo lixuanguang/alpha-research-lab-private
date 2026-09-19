@@ -133,7 +133,7 @@ class TestEda:
 
     def test_different_family_projection_retains_contract_units(self) -> None:
         """A synthetic future crosses neutral projection only, with a non-unit multiplier."""
-        path = Path(__file__).parents[2] / "fixtures/mr21/contract.json"
+        path = Path(__file__).parents[2] / "fixtures/instruments/contract.json"
         fields = msgspec.json.decode(path.read_bytes(), type=dict[str, msgspec.Raw])
         codec = DomainCodec()
         instrument = codec.decode_json(fields["instrument_id"], InstrumentId)

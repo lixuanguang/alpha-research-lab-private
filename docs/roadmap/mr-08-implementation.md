@@ -1,5 +1,8 @@
 # MR 08 — Read saved raw frames with explicit gaps
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-16;
 review candidate on `codex/mr-08-saved-archive-rows`. M1 and P1 remain incomplete.
 The [roadmap row](README.md#raw-inputs-and-acquisition) owns scope and acceptance.
@@ -38,7 +41,7 @@ prerequisite or later-MR implementation was introduced.
 - [Reader and raw records](../../src/alpha_research/data/providers/binance/rows.py):
   validated immutable declarations together with their streaming consumer.
 - [Focused regressions](../../tests/unit/data/providers/binance/test_rows.py) and
-  [installed consumer fixture](../../tests/fixtures/mr08/read_saved.py).
+  [installed consumer fixture](../../tests/integration/consumers/datasets/read_saved.py).
 - [Component API documentation](../../src/alpha_research/data/README.md#saved-binance-archive-rows),
   [maintained notebook](../../examples/research-foundations.ipynb), examples guide
   and roadmap status.

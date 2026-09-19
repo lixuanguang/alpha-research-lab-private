@@ -26,7 +26,7 @@ from alpha_research.serialization import DomainCodec
 _ROOT = Path(__file__).parents[3]
 _CONFIG = _ROOT / "configs/data-jobs/fixture-inspection.json"
 _CATALOG = _ROOT / "configs/reference/binance-spot.json"
-_FIXTURES = _ROOT / "tests/fixtures/m0"
+_FIXTURES = _ROOT / "tests/fixtures/market_data/tardis"
 _RECEIVED = datetime(2026, 9, 14, tzinfo=UTC)
 _INGESTED = _RECEIVED + timedelta(seconds=1)
 _CODEC = DomainCodec()

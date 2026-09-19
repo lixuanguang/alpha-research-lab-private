@@ -99,8 +99,8 @@ def main() -> None:
     catalog = codec.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    history = EligibilityAssertions.read(inputs / "eligibility.json", catalog=catalog)
-    with TemporaryDirectory(prefix="mr16-consumer-") as temporary:
+    history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
+    with TemporaryDirectory(prefix="dataset-command-") as temporary:
         root = Path(temporary)
         raw = root / "raw"
         raw.mkdir()
@@ -167,7 +167,7 @@ def main() -> None:
         for identity in ids:
             command.run(["inspect", *common, "--snapshot-id", identity])
         assert len(list(snapshots.glob(".staging-*"))) == 2
-    print("Installed MR 16 consumer passed:", alpha_research.__file__)
+    print("Installed dataset command consumer passed:", alpha_research.__file__)
 
 
 if __name__ == "__main__":

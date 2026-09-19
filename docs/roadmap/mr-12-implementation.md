@@ -1,5 +1,8 @@
 # MR 12 — Select the universe as of a decision
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-16. Branch: `codex/mr-12-as-of-eligibility`. Base: updated `main` at
 `5b10f78`, matching fetched `origin/main`. Prerequisite MR 11 merged in PR #35 at
@@ -93,7 +96,7 @@ with hashes and binary-only dependencies, installs the wheel with `--no-deps`,
 checks dependencies, imports and exact codecs, and confirms governance tooling is
 absent from the runtime. All passed.
 
-The [retained consumer](../../tests/fixtures/mr12/select_eligibility.py) then ran with
+The [retained consumer](../../tests/integration/consumers/eligibility/select_eligibility.py) then ran with
 `-I` from the external directory against copied inputs and external `site-packages`.
 It verified prior and corrected decisions, both clocks, half-open endpoints,
 unknown/unsupported, retained exclusions, exact round trip, rejected unlinked and

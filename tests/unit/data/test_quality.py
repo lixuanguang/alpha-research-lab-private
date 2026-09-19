@@ -56,7 +56,8 @@ class TestPartitionQuality:
     def _history(selection: SourceRequest) -> EligibilityAssertions:
         """Bind the retained synthetic assertions to this test's selected catalog."""
         saved = _CODEC.decode_json(
-            (_ROOT / "tests/fixtures/mr12/eligibility.json").read_bytes(), EligibilityAssertions
+            (_ROOT / "tests/fixtures/eligibility/membership-corrections.json").read_bytes(),
+            EligibilityAssertions,
         )
         return replace(saved, catalog=selection.manifest.catalog)
 
@@ -344,7 +345,7 @@ class TestPartitionQuality:
         decoder = TardisDecoder(
             BinancePayloadDecoder(selection.manifest.instruments), selection.instrument.source
         )
-        raw = (_ROOT / "tests/fixtures/m0/btcusdt.txt").read_bytes()
+        raw = (_ROOT / "tests/fixtures/market_data/tardis/btcusdt.txt").read_bytes()
         origin = RawObject(
             sha256="a" * 64,
             size_bytes=len(raw),

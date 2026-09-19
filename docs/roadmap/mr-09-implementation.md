@@ -1,5 +1,8 @@
 # MR 09 — Decoded raw occurrences
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-16.
 This record covers only
 [MR 09](README.md#canonical-datasets-and-publication).
@@ -104,7 +107,7 @@ checkout root, `/private/tmp/mr09-validation` and its built wheel. It creates an
 isolated runtime environment, exports frozen runtime requirements, installs with
 `--require-hashes --only-binary=:all:`, installs the candidate with `--no-deps`, then
 checks dependency compatibility and the retained import/codec smoke. All passed.
-The copied [consumer](../../tests/fixtures/mr09/read_occurrences.py) passed exact
+The copied [consumer](../../tests/integration/consumers/datasets/read_occurrences.py) passed exact
 trades, distinct files/positions, repeat builds, scoped controls, codec, empty,
 malformed and missing-input cases using `-I` and external `site-packages` imports.
 The environment contains no governance package and uses no checkout path injection.

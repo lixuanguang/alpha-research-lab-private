@@ -1,5 +1,8 @@
 # MR 11 — Historical eligibility assertion reading
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-16.
 Scope is only
 [MR 11](README.md#canonical-datasets-and-publication).
@@ -101,7 +104,7 @@ checkout root, external directory and built wheel. It installs hash-locked runti
 requirements with `--require-hashes --only-binary=:all:`, installs the wheel with
 `--no-deps`, and runs dependency/import/codec smoke checks. All passed.
 
-The [retained consumer](../../tests/fixtures/mr11/read_eligibility.py) runs with
+The [retained consumer](../../tests/integration/consumers/eligibility/read_eligibility.py) runs with
 `-I` from the external directory, loads copied inputs and confirms external
 `site-packages`. It preserved all four assertions, exact round-trip state and the
 excluded member beyond catalog validity; rejected missing identity, backdated

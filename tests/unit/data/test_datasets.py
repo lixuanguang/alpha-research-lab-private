@@ -79,7 +79,8 @@ class TestDatasetManifest:
     ) -> tuple[DatasetManifest, tuple[bytes, ...]]:
         """Assemble admitted partitions with the retained synthetic eligibility history."""
         history = EligibilityAssertions.read(
-            _ROOT / "tests/fixtures/mr12/eligibility.json", catalog=acquisitions[0].run.catalog
+            _ROOT / "tests/fixtures/eligibility/membership-corrections.json",
+            catalog=acquisitions[0].run.catalog,
         )
         policy = QualityPolicy(
             use="exploratory", known_at=acquisitions[0].run.job.start, max_gap=timedelta(hours=1)
@@ -122,7 +123,8 @@ class TestDatasetManifest:
             tmp_path, symbol="ETHUSDT", catalog_evidence="synthetic:independent-source-catalog"
         )
         history = _CODEC.decode_json(
-            (_ROOT / "tests/fixtures/mr12/eligibility.json").read_bytes(), EligibilityAssertions
+            (_ROOT / "tests/fixtures/eligibility/membership-corrections.json").read_bytes(),
+            EligibilityAssertions,
         )
         selected = tuple(
             DatasetInput(

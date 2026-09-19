@@ -52,9 +52,9 @@ def main() -> None:
     )
     run = config.resolve("btc-archive", catalog)
     request = SourceRequest.partition(run)[0]
-    history = EligibilityAssertions.read(inputs / "eligibility.json", catalog=catalog)
+    history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
     policy = QualityPolicy(use="exploratory", known_at=run.job.start, max_gap=timedelta(hours=1))
-    with TemporaryDirectory(prefix="mr15-consumer-") as temporary:
+    with TemporaryDirectory(prefix="publish-snapshot-") as temporary:
         root = Path(temporary)
         raw = root / "raw"
         raw.mkdir()

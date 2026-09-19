@@ -170,7 +170,7 @@ class TestPersistedOccurrences:
         """Gate verified bytes, retain failure context and recover on an unchanged original."""
         store = RawStore(tmp_path)
         history = EligibilityAssertions.read(
-            _ROOT / "tests/fixtures/mr12/eligibility.json", catalog=run.catalog
+            _ROOT / "tests/fixtures/eligibility/membership-corrections.json", catalog=run.catalog
         )
         policy = QualityPolicy(
             use="exploratory", known_at=run.job.start, max_gap=timedelta(minutes=5)

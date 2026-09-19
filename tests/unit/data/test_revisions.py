@@ -203,7 +203,7 @@ class TestTradeRevisions:
     def test_captured_knowledge_bounds_and_earlier_reconstruction(self, tmp_path: Path) -> None:
         """Never backdate a correction before either capture or prior effective knowledge."""
         request = self._request("fixture-inspection", "btc-fixture")
-        original_raw = (_ROOT / "tests/fixtures/m0/btcusdt.txt").read_bytes()
+        original_raw = (_ROOT / "tests/fixtures/market_data/tardis/btcusdt.txt").read_bytes()
         decoder = TardisDecoder(
             BinancePayloadDecoder(request.manifest.instruments), request.instrument.source
         )

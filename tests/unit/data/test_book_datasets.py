@@ -232,7 +232,7 @@ class TestBookDatasets:
         """Run the retained notebook consumer under isolated installed imports."""
         capture = self._capture(tmp_path / "capture", gap=True)
         script = tmp_path / "book_consumer.py"
-        shutil.copyfile(_ROOT / "tests/fixtures/mr25/book_consumer.py", script)
+        shutil.copyfile(_ROOT / "tests/integration/consumers/capture/book_consumer.py", script)
         result = subprocess.run(
             [sys.executable, "-I", str(script), str(capture), str(tmp_path / "result")],
             cwd=tmp_path,

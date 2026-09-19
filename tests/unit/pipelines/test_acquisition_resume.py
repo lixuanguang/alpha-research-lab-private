@@ -90,7 +90,7 @@ class TestAcquisitionResume:
             [
                 sys.executable,
                 "-I",
-                str(_ROOT / "tests/fixtures/mr06/acquire.py"),
+                str(_ROOT / "tests/support/subprocesses/acquire.py"),
                 str(root),
                 str(run_path),
                 point,

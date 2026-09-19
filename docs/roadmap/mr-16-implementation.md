@@ -1,5 +1,8 @@
 # MR 16 — Publish and inspect a validated dataset
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-17. Branch: `codex/mr-16-dataset-command`. Base: freshly fetched `main`
 at `69a45eb`, merging MR 15 in PR #39. Prerequisites MRs 07–15 are ancestors of
@@ -109,7 +112,7 @@ dependency compatibility, public imports/exact codecs and absence of governance
 imports all passed. An earlier installer rerun refused its already-existing venv;
 the final wheel was installed in a fresh directory, without deleting that attempt.
 
-The [retained consumer](../../tests/fixtures/mr16/dataset_command.py) invokes actual
+The [retained consumer](../../tests/integration/consumers/datasets/dataset_command.py) invokes actual
 installed console scripts outside the checkout. For BTC and ETH selected through
 configuration, a child exits abruptly with status 75 before rename; inspection
 refuses the absent candidate, retry/repeated ranges succeed, and earlier snapshots
@@ -300,8 +303,8 @@ fixtures, notebook examples, blank lines, comments and docstrings. No cohesive
 size overage, new runtime abstraction, schema, dependency, lock, entry point,
 declarative configuration or ignore-policy change is needed.
 
-The retained [integration consumer](../../tests/fixtures/mr16/ingestion_workflow.py)
-is invoked by its [integration test](../../tests/unit/pipelines/test_ingestion_workflow.py)
+The retained [integration consumer](../../tests/integration/consumers/datasets/ingestion_workflow.py)
+is invoked by its [integration test](../../tests/integration/test_ingestion_workflow.py)
 and notebook section 13. It injects only source HTTP; transport checksum/ZIP handling,
 installed commands, filesystem persistence, normalization, quality, snapshot and EDA
 are real. The existing abrupt-publication fixture is reused. MR 17–21 APIs are

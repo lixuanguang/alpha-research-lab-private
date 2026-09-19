@@ -1,5 +1,8 @@
 # M0 implementation and local acceptance
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified; commit, push
 and merge authorized by the founder on 2026-09-14. Implementation branch:
 `codex/mr-01-02-configured-fixture`.
@@ -38,7 +41,7 @@ synthetic fixture declarations; the command cannot acquire data or authorize tra
   [request tests](../../tests/unit/data/test_requests.py),
   [pipeline/installed-command tests](../../tests/unit/pipelines/test_dataset.py)
   and the updated [package contract](../../tests/engineering/test_package_definition.py).
-  [Saved frames](../../tests/fixtures/m0/btcusdt.txt) and
+  [Saved frames](../../tests/fixtures/market_data/tardis/btcusdt.txt) and
   [job definitions](../../configs/data-jobs/fixture-inspection.json) are synthetic.
 
 Review the implementation in three usable slices: MR 01a configuration with

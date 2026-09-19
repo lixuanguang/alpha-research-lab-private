@@ -1,5 +1,8 @@
 # MR 15 — Publish and reopen one snapshot atomically
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-17. Branch: `codex/mr-15-atomic-snapshots`. Base: freshly fetched `main`
 at `746e002`, which merges prerequisite MR 14 in PR #38. Runtime and regression
@@ -100,7 +103,7 @@ binary-only runtime dependency installation, `--no-deps` candidate installation,
 dependency compatibility, public imports/exact codecs and absence of the governance
 package all passed.
 
-The [retained isolated consumer](../../tests/fixtures/mr15/publish_snapshot.py) runs
+The [retained isolated consumer](../../tests/integration/consumers/datasets/publish_snapshot.py) runs
 with `-I` outside the checkout, using external `site-packages` and copied inputs.
 It publishes through the pipeline, abruptly exits installed child writers during
 the first staged file, before rename and after rename, checks reader visibility,

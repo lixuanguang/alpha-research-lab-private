@@ -1,5 +1,8 @@
 # MR 17 — Read point events as of a cutoff
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified
 for review on 2026-09-17. [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42)
 retains the hosted checks and merge result.
@@ -115,7 +118,7 @@ The temporary installer calls the existing `_InstalledWheelCheck.validate` with
 this checkout, `installed/` and the built wheel. Its hash-locked, binary-only runtime
 installation, dependency compatibility, governance-free public imports and exact
 codec smoke passed. The retained
-[consumer](../../tests/fixtures/mr17/asof_consumer.py) uses only the copied inputs
+[consumer](../../tests/integration/consumers/query/asof_consumer.py) uses only the copied inputs
 and external installed package. It publishes BTC and ETH together through the same
 configuration path, reopens the explicit snapshot, and selects known eligible
 versions at seconds `0, 5, 9, 10, 43200, 9`: counts **0, 0, 0, 2, 1, 0**.

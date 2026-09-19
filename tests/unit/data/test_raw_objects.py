@@ -88,7 +88,7 @@ class TestRawObject:
         self, tmp_path: Path, source_request: SourceRequest
     ) -> None:
         """Distinguish gzip bytes with identical decompressed contents and byte sizes."""
-        payload = (_ROOT / "tests/fixtures/m0/btcusdt.txt").read_bytes()
+        payload = (_ROOT / "tests/fixtures/market_data/tardis/btcusdt.txt").read_bytes()
         compressed = gzip.compress(payload, mtime=0)
         path = tmp_path / "saved.gz"
         path.write_bytes(compressed)

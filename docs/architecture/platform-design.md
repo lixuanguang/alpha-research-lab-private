@@ -69,14 +69,19 @@ tools/
   native/                   PLANNED: only when an admitted ABI exists
 tests/
   unit/                     CURRENT: domain behavior and focused contracts
+  engineering/              CURRENT: source, packaging and governance contracts
   golden/                   CURRENT: three domain fixtures
-  integration/              PLANNED: installed boundaries and replay parity
+  fixtures/                 CURRENT: static inputs organized by domain and scenario
+  support/subprocesses/     CURRENT: process-level fakes and interruption drivers
+  integration/              CURRENT: workflow tests and standalone installed consumers
   scenarios/                PLANNED: accounting, recovery, and risk drills
 ```
 
 These names describe responsibilities rather than a required package count. A future implementation may combine small
 modules when their state and lifecycle are the same. It should split a boundary when it has different ownership, failure
 handling, release cadence, or data authority.
+The [tests guide](../../tests/README.md) defines the current fixture, subprocess
+and installed-consumer layout and its execution boundaries.
 
 ## Dependency and interface graph
 

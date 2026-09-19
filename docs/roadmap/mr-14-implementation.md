@@ -1,5 +1,8 @@
 # MR 14 — Validate and identify a dataset manifest
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-17. Branch: `codex/mr-14-dataset-manifest`. Base: freshly fetched `main`
 at `7ef4892`, which merges prerequisite MR 13 in PR #37. Runtime and regression
@@ -99,7 +102,7 @@ all passed. An interrupted earlier orchestration left a separate external venv;
 the explicitly reported check completed in `installed/` without reusing uncertain
 installation evidence.
 
-The [retained isolated consumer](../../tests/fixtures/mr14/identify_dataset.py) runs
+The [retained isolated consumer](../../tests/integration/consumers/datasets/identify_dataset.py) runs
 with `-I` from outside the checkout, using external `site-packages` and copied inputs.
 It rebuilt twice, verified saved canonical/raw bytes, changed a policy, exercised
 six failures (unknown nested version, scope, expected identity, missing canonical,
