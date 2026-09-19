@@ -77,7 +77,9 @@ codec = DomainCodec()
 catalog = codec.decode_json(
     Path("configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
 )
-history = EligibilityAssertions.read(Path("tests/fixtures/eligibility/assumptions-and-membership.json"), catalog=catalog)
+history = EligibilityAssertions.read(
+    Path("tests/fixtures/eligibility/assumptions-and-membership.json"), catalog=catalog
+)
 for assertion in history.assertions:
     print(assertion.state, assertion.ts_knowledge, assertion.evidence.basis)
 ```
@@ -107,7 +109,9 @@ from datetime import UTC, datetime
 # project library imports
 from alpha_research.data.eligibility import EligibilityAssertion
 
-history = EligibilityAssertions.read(Path("tests/fixtures/eligibility/membership-corrections.json"), catalog=catalog)
+history = EligibilityAssertions.read(
+    Path("tests/fixtures/eligibility/membership-corrections.json"), catalog=catalog
+)
 members = []
 for instrument in catalog.instruments:
     result = history.select(
