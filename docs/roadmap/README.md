@@ -19,7 +19,8 @@ through [PR #49](https://github.com/lixuanguang/alpha-research-lab-private/pull/
 MR 24's [session recovery and retained-gap evidence](mr-24-implementation.md) merged
 through [PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51) at `12be1a6`.
 MR 25's [continuous quality and saved book publication](mr-25-implementation.md)
-is implemented for review. MRs 26–62 and R1 remain planned except
+is tracked in [PR #52](https://github.com/lixuanguang/alpha-research-lab-private/pull/52),
+which records hosted checks and merge status. MRs 26–62 and R1 remain planned except
 the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
 forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
 

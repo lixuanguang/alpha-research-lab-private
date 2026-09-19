@@ -6,6 +6,10 @@ Owner: repository founder. Status: implemented and locally verified for review o
 `12be1a6`; MRs 10–15 / PRs #34–39 at `d88ba11`, `5b10f78`, `210db65`,
 `7ef4892`, `746e002`, and `69a45eb`. Their merge commits are in main's history.
 The [roadmap](README.md#m3-reliable-live-capture) remains the scope authority.
+[PR #52](https://github.com/lixuanguang/alpha-research-lab-private/pull/52) records
+the hosted checks and merge status. Tested implementation: `98f4fad`. The merge
+follow-up formats README examples, renames a test module and links this record;
+runtime and notebook bytes are unchanged, so their installed evidence is reused.
 
 ## Problem / change
 
@@ -192,6 +196,28 @@ git diff --cached --check
 git check-ignore examples/runs/probe.ipynb examples/.kernel-probe/kernel.json examples/.ipynb_checkpoints/probe.ipynb
 ```
 
+### Merge-time checks
+
+The first [hosted source-validation run](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35417569775)
+on `98f4fad` failed the README's Python-example formatting. The repository-wide
+local check then exposed a duplicate mypy module name between the new live quality
+tests and the existing data quality tests. Formatting the examples and renaming
+the new file to `tests/unit/data/live/test_continuous_quality.py` fixed both without
+changing test assertions or runtime behavior. The historical commands above used
+the original test filename.
+
+```sh
+uv run --frozen --no-sync ruff format src/alpha_research/data/README.md
+make lint format-check typecheck
+uv run --frozen --no-editable pytest -q tests/unit/data/live/test_continuous_quality.py tests/unit/data/test_quality.py
+uv run --frozen --no-sync alpha-governance-architecture
+```
+
+Repository-wide lint and formatting passed (180 formatted files), strict mypy
+passed for 179 source files, and stubtest passed for 1,548 modules. All 15 tests in
+the two quality modules passed in 1.06 seconds; the architecture link check passed
+for 58 documents. The final hosted results and merge status are retained in PR #52.
+
 ## Risks / reversal
 
 Only bounded exploratory publication is admitted. Full visible state per message
@@ -204,8 +230,9 @@ completeness switch. Book query/chronological stepping and installed canonical
 capture/replay parity remain MR 27. Supervision, alert delivery and clock-driven
 health observation remain MR 26. R1 and existing release restrictions still apply.
 
-Full local `make check` and hosted CI have not run; the complete hosted lane remains
-required before merge. No M3 completion, strategy result or deployment is claimed.
+At the initial implementation handoff, full local `make check` and hosted CI had
+not run. PR #52 retains the subsequent hosted results; its complete hosted lane
+is required before merge. No M3 completion, strategy result or deployment is claimed.
 Revert the four commits in reverse order before dependent work, preserving raw
 recordings. New book snapshots require this format reader; old trade snapshots
 and raw captures need no migration. Frozen P1 remains byte-for-byte unchanged,

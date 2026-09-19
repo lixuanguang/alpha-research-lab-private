@@ -1254,10 +1254,16 @@ from alpha_research.pipelines.dataset import publish_book_dataset
 # directories, raw_directory and snapshot_directory are explicit caller-owned Paths.
 raw = RawStore(raw_directory)
 identity = publish_book_dataset(
-    directories, raw, snapshot_directory, max_records=32, max_bytes=600_000_000,
+    directories,
+    raw,
+    snapshot_directory,
+    max_records=32,
+    max_bytes=600_000_000,
 )
 manifest = SnapshotStore(
-    snapshot_directory, raw, manifest_type=BookDatasetManifest,
+    snapshot_directory,
+    raw,
+    manifest_type=BookDatasetManifest,
 ).read(identity, max_bytes=600_000_000)
 ```
 
