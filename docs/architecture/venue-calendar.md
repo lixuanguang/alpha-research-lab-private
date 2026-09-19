@@ -65,9 +65,12 @@ to later replay or serving systems, but C02 alone cannot certify or activate it.
 - At an exact auction end, break end, halt end, or session close, the successor
   half-open state applies. Unknown session labels and invalid/overlapping state
   raise owned exceptions; no nearest-session or favorable-state fallback exists.
-- Closed-state queries are covered only on the declared venue-local calendar
-  dates. Recorded overnight sessions remain queryable across local midnight;
-  other out-of-coverage instants raise `CalendarCoverageError`, not `CLOSED`.
+- Label coverage does not establish instant coverage: an omitted session can
+  start on a covered local date. `CLOSED` requires a gap between retained sessions.
+  Queries before the first open or at/after the final close, and all queries on
+  an empty snapshot, raise `CalendarCoverageError`. Request neighboring session
+  labels when querying pre-open, post-close, weekend, or holiday states. Recorded
+  overnight sessions remain queryable across local midnight.
 - Settlement dates are an explicit bounded set. C02 can answer membership and the
   first available date on or after a candidate. C03 owns day-count, lag, business-
   day adjustment, currency, and other settlement conventions.

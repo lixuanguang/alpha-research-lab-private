@@ -288,6 +288,29 @@ class TestOKXHistory:
         with pytest.raises(ValueError):
             OKXArchiveReader(config).replay(source)
 
+    @pytest.mark.parametrize("missing_clock", [b"", b'"ts":null,', b'"ts":"",'])
+    def test_missing_clock_preserves_archive_ordering(
+        self, tmp_path: Path, missing_clock: bytes
+    ) -> None:
+        """Keep unknown clocks unknown while rejecting regressions across missing values."""
+        config = HistoryFixture.config()
+        source = tmp_path / "archive"
+        missing = (
+            b'{"instId":"BTC-USDT","action":"update",' + missing_clock + b'"bids":[],"asks":[]}\n'
+        )
+        source.write_bytes(HistoryFixture.archive(config, _SNAPSHOT + missing))
+        result = OKXArchiveReader(config).replay(source)
+        assert result["last_source_ms"] is None
+        assert result["state_available"] is True
+
+        source.write_bytes(HistoryFixture.archive(config, _SNAPSHOT + missing + _UPDATE))
+        assert OKXArchiveReader(config).replay(source)["last_source_ms"] == "1788825600014"
+
+        backward = _UPDATE.replace(b"1788825600014", b"1788825600003")
+        source.write_bytes(HistoryFixture.archive(config, _SNAPSHOT + missing + backward))
+        with pytest.raises(ValueError, match="source time moved backwards"):
+            OKXArchiveReader(config).replay(source)
+
     def test_integrity_expansion_deadline_and_member_limits(self, tmp_path: Path) -> None:
         """Validate gzip trailers and fail bounded expansion, time and unsafe member paths."""
         config = HistoryFixture.config()

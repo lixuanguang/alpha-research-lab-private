@@ -150,3 +150,20 @@ class TestOKXBook:
             book.apply(invalid)
         assert book.identity == before and book.sequence_resets == 0
         assert book.bids[Decimal(100)].size == 1
+
+    def test_rejected_frame_does_not_advance_source_clock(self) -> None:
+        """A malformed future frame must not make a subsequent valid frame look stale."""
+        book = self.book()
+        book.apply(self.frame("snapshot", -1, 10, [["100", "1", "0", "1"]]))
+        invalid = self.frame("update", 10, 11, [["100", "-1", "0", "1"]]).replace(
+            b"1788825600004", b"1788825600020"
+        )
+        with pytest.raises(ValueError):
+            book.apply(invalid)
+        assert book.source_time == "1788825600004"
+
+        valid = self.frame("update", 10, 11, [["100", "2", "0", "1"]]).replace(
+            b"1788825600004", b"1788825600010"
+        )
+        assert book.apply(valid) == "update"
+        assert book.source_time == "1788825600010"

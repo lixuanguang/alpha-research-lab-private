@@ -22,8 +22,9 @@ class CIPolicyError(ValueError):
 
 _SECRET_PATTERNS = {
     "assigned_credential": re.compile(
-        rb"(?i)(?:api[_-]?key|client[_-]?secret|password|private[_-]?key|token)"
-        rb"[ \t]*[:=][ \t]*['\"]?[A-Za-z0-9+/_.=-]{20,}['\"]?"
+        rb"(?i)(?P<key_quote>['\"]?)"
+        rb"(?:api[_-]?key|client[_-]?secret|password|private[_-]?key|token)"
+        rb"(?P=key_quote)[ \t]*[:=][ \t]*['\"]?[A-Za-z0-9+/_.=-]{20,}['\"]?"
     ),
     "aws_access_key": re.compile(rb"(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}"),
     "github_token": re.compile(rb"gh[pousr]_[A-Za-z0-9]{36,255}"),

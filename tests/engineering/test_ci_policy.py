@@ -25,6 +25,31 @@ def test_secret_patterns_report_identifiers_without_secret_contents() -> None:
     assert "A" * 24 not in str(secrets.scan_secret_bytes(payload))
 
 
+@pytest.mark.parametrize(
+    ("filename", "prefix", "suffix"),
+    [
+        ("config.json", b'{"api_key": "', b'"}'),
+        ("config.py", b"{'password': '", b"'}"),
+        ("config.yaml", b'"client-secret": ', b"\n"),
+        ("config.toml", b"'token' = '", b"'\n"),
+    ],
+)
+def test_repository_scan_rejects_quoted_credentials(
+    tmp_path: Path, filename: str, prefix: bytes, suffix: bytes
+) -> None:
+    """Reject quoted credential assignments without disclosing their values."""
+    credential = b"A" * 24
+    payload = prefix + credential + suffix
+    assert secrets.scan_secret_bytes(payload) == ("assigned_credential",)
+    (tmp_path / filename).write_bytes(payload)
+
+    with pytest.raises(secrets.CIPolicyError, match="assigned_credential") as caught:
+        secrets.scan_repository_paths(tmp_path, (filename,))
+
+    assert filename in str(caught.value)
+    assert credential.decode() not in str(caught.value)
+
+
 def test_secret_scan_rejects_unsafe_and_oversized_paths(tmp_path: Path) -> None:
     """Reject paths that escape the root, resolve through links, or exceed the bound."""
     secret = tmp_path / "secret.txt"
