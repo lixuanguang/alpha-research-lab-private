@@ -1,8 +1,8 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-19. **All MRs below are planned.**
-Numbering starts at **MR 1** for the work still to build; completed capabilities
-are the starting state, not entries in this backlog. MR numbers identify delivery
+Owner: repository founder. Updated 2026-09-19. **MR 1 is implemented; MRs 2–21 are planned.**
+Numbering identifies the selected delivery slices; completed capabilities become
+the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
 
 This is the quant developer's infrastructure plan. The
@@ -23,7 +23,7 @@ validation and versioned publication → explicit snapshot queries/replay → ED
 | Occurrences, revisions, eligibility and dataset publication | Trace observations and reopen a verified snapshot | Empirical historical eligibility, coverage and revision availability remain unresolved for the frozen sample |
 | Trade cutoff/history queries and chronological replay | Inspect what is knowable and retain corrections and scoped controls | Bounded reference implementation; replay alone does not simulate economic fills |
 | Book reconstruction, publication and replay | Inspect visible books, recovery and matching saved state | Exploratory degraded scope; no queue position or executable-fill claim |
-| Configured EDA and maintained notebooks | Investigate saved data with identities and quality information | Unified research assembly, formal feature/model workflows and economic backtesting are planned |
+| Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; formal feature/model workflows and economic backtesting remain planned |
 
 The [data command reference](../../src/market_data/README.md) owns current usage.
 The [frozen P1 experiment](../research/p1-baseline.md) retains its own identity,
@@ -56,7 +56,7 @@ source evidence and researcher access improve independently.
 
 | MR | Delivery outcome | Prerequisites |
 | --- | --- | --- |
-| 1 | [Research dataset access and source onboarding](#research-dataset-access-and-source-onboarding) | Current query/publication APIs |
+| 1 | [Research dataset access and source onboarding](#research-dataset-access-and-source-onboarding) — implemented | Current query/publication APIs |
 | 2 | [Experiment attempts and temporal splits](#experiment-attempts-and-temporal-splits) | Existing saved inputs; integrates with MR 1 |
 | 3 | [Versioned features and labels](#versioned-features-and-labels) | MR 1; MR 2 for formal comparisons |
 | 4 | [Fitted preprocessing and model evaluation](#fitted-preprocessing-and-model-evaluation) | MRs 2–3; only for a selected learned consumer |
@@ -88,7 +88,7 @@ the other's evidence. Conditional work stays dormant until its consumer exists.
 
 ### Research dataset access and source onboarding
 
-**MR 1.** Give the QR one bounded way to discover saved datasets, select explicit
+**MR 1 — implemented (bounded software acceptance).** Give the QR one bounded way to discover saved datasets, select explicit
 snapshots/universes/fields/time ranges and assemble compatible research inputs.
 Use existing publication, trade and book interfaces; do not merge incompatible
 schemas by pretending every source is a trade. Retain query/input identities,
@@ -105,6 +105,26 @@ Acceptance: a QR can reopen a pinned multi-input selection; a late correction or
 unavailable input cannot appear at an earlier decision; missing coverage remains
 visible; a supported extension works without changing the research runner.
 Own this in `market_data/` and `research/`, composed by `applications/`.
+
+Delivered through `SnapshotCatalog`, `ResearchSelection` / `ResearchReader`, native
+book cutoff projections and the existing `inspect_eda` entry. The configured
+`spot-comparison` job exercises BTC/ETH acquisition through publication and a
+pinned selection alongside a synthetic OKX book, reopened in a fresh process.
+The [installed workflow](../../tests/integration/consumers/datasets/ingestion_workflow.py)
+and [access regressions](../../tests/unit/data/test_research_access.py) cover the
+acceptance boundaries; the [QR guide](../../examples/README.md#select-and-inspect-research-data)
+and [command reference](../../src/market_data/README.md#discover-and-reopen-research-selections)
+own current use. The maintained [QR notebook](../../examples/research-foundations.ipynb)
+follows research activities; the [engineer notebook](../../examples/infrastructure-diagnostics.ipynb)
+owns infrastructure diagnostics. Future research stages are labeled planned rather
+than accumulated as infrastructure milestone sections. Validation commands/results
+and the failed development attempts
+are recorded in the implementation PR, rather than a separate MR archive.
+
+This is synthetic software evidence. Source coverage, book historical membership
+and archive revision availability remain unproven where documented. Unknown
+availability yields no earlier values; no new provider, macro schema, empirical
+P1 acceptance, deployment or execution capability is claimed.
 
 ### Experiment attempts and temporal splits
 

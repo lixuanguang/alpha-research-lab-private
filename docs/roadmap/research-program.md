@@ -70,10 +70,14 @@ stability over one headline return.
 The founder selected long-lived, activity-based notebooks on 2026-09-13.
 The 2026-09-14 retention decision versions maintained `.ipynb`, `.py` and `.md`
 files under repository-root `examples/`; generated runs and kernel files remain
-local and ignored. Notebooks
-evolve into separate data-fetching, EDA, quant strategy research and strategy
-monitoring workspaces as there is working content to separate. They are test
-beds for new ideas and may span many implementation MRs; an MR records the
+local and ignored. The 2026-09-19 cleanup keeps two maintained reader journeys:
+the [QR workflow](../../examples/research-foundations.ipynb), ordered from research
+question through the current data/EDA capabilities and planned later stages, and
+[engineering diagnostics](../../examples/infrastructure-diagnostics.ipynb) for
+installed infrastructure, failure and recovery observations. Source acquisition
+uses the existing commands. Separate data-fetching, strategy or monitoring
+notebooks are conditional on distinct working content that warrants separation.
+They are test beds for new ideas and may span many implementation MRs; an MR records the
 relevant notebook section and decisive scenario rather than requiring a new file.
 
 Exploratory source calls, transformations, signals, models and visualizations

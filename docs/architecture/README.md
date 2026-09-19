@@ -10,7 +10,8 @@ reference-catalog and bounded Binance event/decoder foundations. Historical
 acquisition, occurrence/revision admission, bitemporal eligibility selection,
 quality validation and atomic dataset publication/reopening are implemented.
 Native Bitfinex/OKX acquisition, dataset queries as of a cutoff and bounded book
-replay are also available. Simulation, portfolio and risk enforcement, order
+replay, bounded saved-snapshot discovery and pinned multi-input research selections
+are also available. Simulation, portfolio and risk enforcement, order
 execution, deployment and live trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.

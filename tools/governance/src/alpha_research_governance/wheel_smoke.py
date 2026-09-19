@@ -105,6 +105,7 @@ class _InstalledWheelCheck:
             "configs/reference/binance-spot.json",
             "tests/fixtures/market_data/tardis/btcusdt.txt",
             "configs/data-jobs/binance-archive.json",
+            "configs/live/okx-btc-usdt.json",
             "configs/reference/binance-archive-spot.json",
             "tests/fixtures/eligibility/membership-corrections.json",
             "tests/integration/consumers/datasets/ingestion_workflow.py",

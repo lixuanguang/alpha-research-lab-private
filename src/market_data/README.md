@@ -93,8 +93,8 @@ raise `OSError`; invalid files or linkage raise `ValueError`. A failed read reta
 partial state, so correcting the input and calling `read` again is sufficient.
 
 The [contract](../../docs/data/contracts.md#historical-eligibility-assertions)
-defines evidence/interval rules; [notebook exercise](../../examples/research-foundations.ipynb)
-shows required failures.
+defines evidence/interval rules; [engineer notebook](../../examples/infrastructure-diagnostics.ipynb)
+shows when a membership correction becomes visible through the installed cutoff consumer.
 
 ## Select membership at a decision
 
@@ -574,10 +574,10 @@ repeat after correction. SIGKILL/process loss cannot emit a terminal record; use
 the process exit, last flushed report and saved checkpoint. A failed output sink
 is terminal; reporting cannot guarantee its own availability.
 
-The [offline lab](../../examples/foundation-contract-checks.ipynb) exercises the
-installed acquisition command with synthetic HTTP, interruption, retries and
-changed-byte rejection. The [QR notebook](../../examples/research-foundations.ipynb)
-inspects saved books and synthetic dataset workflows. Raw acquisition alone does
+The [engineer notebook](../../examples/infrastructure-diagnostics.ipynb) exercises the
+installed acquisition command with synthetic HTTP, interruption and verified resume.
+The [QR notebook](../../examples/research-foundations.ipynb) discovers and opens pinned
+trade/book selections through the existing EDA entry. Raw acquisition alone does
 not establish canonical quality or empirical P1 acceptance.
 
 
@@ -602,7 +602,7 @@ catalog instruments. Each instrument produces one full-day source request with
 retains the research selection. Both boundaries participate in identity. A
 cross-midnight selection or Tardis capture policy fails before HTTP.
 
-The notebook provisions durable directories and saves inputs before this command:
+Provision the intended durable directories and explicit configuration before this command:
 
 ```sh
 alpha-acquire --config <run-directory>/jobs.json --catalog <run-directory>/catalog.json \
@@ -612,8 +612,8 @@ alpha-acquire --config <run-directory>/jobs.json --catalog <run-directory>/catal
   --timeout-seconds 10 --max-bytes 67108864 --retry-delays 1 2
 ```
 
-Replace the angle-bracket paths with the notebook's displayed paths before using
-a shell. No API key option applies. The reviewed access reference binds the
+Replace the angle-bracket paths with your provisioned run and store paths before
+using a shell. No API key option applies. The reviewed access reference binds the
 founder's private research selection to dated public documentation; it does not
 automatically establish long-term retention or redistribution rights. The chosen
 ignored directory holds a local working copy with no automatic expiry.
@@ -627,7 +627,7 @@ publisher checksum; the exact ZIP, resolved request and receipt remain saved.
 Repeats verify local bytes without consulting a mutable current publisher checksum.
 A later publisher revision needs a separately identified acquisition; it must not
 silently overwrite this run. CSV semantics and historical coverage are not validated
-by the transport. The notebook streams a bounded feasibility inspection separately.
+by the transport; saved-row admission and queries perform the downstream inspection.
 
 Binance archive rows provide exchange event time (milliseconds before 2025,
 microseconds from 2025), no recorder timestamp and no disconnect markers. Neither
@@ -640,7 +640,7 @@ values and absent-capture provenance, followed by availability/quality consumers
 
 [`BinanceArchiveRows`](adapters/providers/binance/rows.py) selects expected daily partitions
 from an explicit `AcquisitionManifest` using its existing prefix validation.
-Its consumers include the offline notebook’s row-boundary checks, the retained
+Its consumers include the row-boundary regression checks, the retained
 [installed consumer](../../tests/integration/consumers/datasets/read_saved.py) and the
 persisted occurrence pipeline. The reader constructs no acquisition or event decoder.
 
@@ -772,9 +772,9 @@ entire prefix and mark unread rows unvalidated. The originals remain in the stor
 See the [quality contract](../../docs/data/contracts.md#canonical-partition-quality)
 for interval, units, ordering and count semantics, and the
 [retained installed consumer](../../tests/integration/consumers/datasets/validate_partition.py)
-for a complete synthetic saved-input example. the notebook example in
-[research-foundations.ipynb](../../examples/research-foundations.ipynb) displays
-both declared uses and the required failures.
+for a complete synthetic saved-input example. The
+[QR notebook](../../examples/research-foundations.ipynb) retains quality and
+missingness alongside selected values.
 
 
 ## Identify and verify a dataset manifest
@@ -871,8 +871,8 @@ directories; no garbage collection is introduced.
 
 The [snapshot contract](../../docs/data/contracts.md#atomic-local-snapshots),
 [isolated installed consumer](../../tests/integration/consumers/datasets/publish_snapshot.py) and
-notebook exercise in [research-foundations.ipynb](../../examples/research-foundations.ipynb)
-show interruption, retry and prior-snapshot preservation. These synthetic snapshots
+diagnostics in [infrastructure-diagnostics.ipynb](../../examples/infrastructure-diagnostics.ipynb)
+show interruption, retry and preservation of complete inputs. These synthetic snapshots
 retain exploratory degraded scope; they do not establish empirical coverage,
 historical eligibility or P1 acceptance.
 
@@ -888,8 +888,9 @@ Prepare a strict `QualityPolicy` JSON file with `DomainCodec.encode_json`, for e
 The cutoff is an explicit UTC decision time; gap tolerance measures observed silence,
 not recorder completeness. Supply a strict `EligibilityAssertions` JSON file with
 the same catalog as the acquisition. Empty assertions retain unknown membership;
-never substitute synthetic assertions for actual historical evidence. The notebook demonstrates
-preparing these files and inspecting their consequences without network access.
+never substitute synthetic assertions for actual historical evidence. The
+[installed handoff](../../tests/integration/consumers/datasets/ingestion_workflow.py)
+prepares synthetic files; the engineer notebook inspects its consequences offline.
 
 ```sh
 alpha-dataset publish \
@@ -964,8 +965,8 @@ below handles point events from admitted data.
 
 `AsOfSelector` in `market_data.query` reads an explicitly identified snapshot or a tuple
 of existing admitted canonical partition bytes. It reuses `SnapshotStore`, the
-strict cached codecs and the quality/revision/eligibility gates. The notebook and
-installed consumer exercise the same selection method:
+strict cached codecs and the quality/revision/eligibility gates. The engineer
+notebook runs the installed consumer exercising this selection method:
 
 ```python
 from market_data.adapters.sources import SourceAdapters
@@ -1112,7 +1113,7 @@ as each output batch is built. Admission still runs completely when the reader i
 constructed; caching never invents knowledge or bypasses snapshot verification.
 
 This reader introduces no columnar backend or publication adapter. See the
-[query tests](../../tests/unit/data/test_query.py), [notebook section 8](../../examples/research-foundations.ipynb)
+[query tests](../../tests/unit/data/test_query.py), [installed query consumer](../../tests/integration/consumers/query/query_consumer.py)
 and [workload evidence](../../examples/notebook-operations.md#query-workload-evidence)
 for their respective correctness and measurement scopes.
 
@@ -1163,9 +1164,8 @@ cooperative during query admission; a consumer can abort a step by raising, with
 the same incomplete-step recovery rule. Cursor/phase callbacks expose progress
 and failure context without a second telemetry framework.
 
-[notebook exercise](../../examples/research-foundations.ipynb) and the
-[installed consumer](../../tests/integration/consumers/replay/replay_consumer.py) exercise the
-same operation. This trade/control scope rejects unsupported canonical book
+The [installed consumer](../../tests/integration/consumers/replay/replay_consumer.py)
+exercises this operation. This trade/control scope rejects unsupported canonical book
 inputs. L2/L3 publication/adapters and accepted-snapshot/recovery-epoch state
 belong to the book adapter below. The planned economic runner must prove economic
 batch/resume parity; configured EDA already uses this boundary for standalone replay.
@@ -1193,8 +1193,8 @@ then propagate; no partial query summary is declared complete. If the report sin
 itself fails, delivery cannot be guaranteed: repair it and rerun. Input snapshots
 remain immutable; the pipeline owns no persistent mutable analysis state.
 
-`QuerySummary.collect` consumes the same projected batches in the notebook and
-standalone workflow. It retains per-binding row counts and exact min/max prices
+`QuerySummary.collect` consumes projected batches in the existing EDA workflow.
+It retains per-binding row counts and exact min/max prices
 when projected; quantities/currencies are never summed across instruments. Controls
 remain counted and hashed with full lineage. An empty query still retains its
 evidence. History summarizes retained heads, not every predecessor or an eligible
@@ -1210,11 +1210,117 @@ claims no I/O pushdown. The reader's canonical-byte cap is not an RSS bound.
 
 The [standalone consumer](../../tests/integration/consumers/query/eda_consumer.py) builds a
 small deterministic synthetic archive, publishes two instruments, retains EDA
-records and replays outside Jupyter. [notebook exercise](../../examples/research-foundations.ipynb)
-plots the same bounded interval. The [contract fixture](../../tests/fixtures/instruments/contract.json)
+records and replays outside Jupyter. The
+[QR notebook](../../examples/research-foundations.ipynb) uses the same EDA entry for
+named pinned trade/book inputs; its small prototype is a separate depth calculation.
+The [contract fixture](../../tests/fixtures/instruments/contract.json)
 exercises neutral identity, exact quantity/multiplier and projected-batch summaries
 only, with no spot-record coercion. It is not admitted to the spot reader/replay;
 unsupported source products, lifecycle/adapter fields and unit combinations fail.
+
+## Discover and reopen research selections
+
+Owner: `market_data.datasets` owns discovery/admission, `market_data.query` owns
+family-specific cutoff selection, `research.exploration` owns named assembly and
+compatibility, and `applications.explore` composes the existing installed EDA entry.
+This bounded interface is available for exploratory saved trade and book inputs.
+
+`SnapshotCatalog(snapshot_directory).discover(max_entries=..., max_bytes=...)`
+returns typed `DatasetManifest` / `BookDatasetManifest` metadata in identity order.
+Read their partitions for instrument IDs, native request identities, source/units,
+selected intervals or prefixes, and quality/eligibility evidence. The entry cap
+includes hidden staging directories; the byte cap is aggregate manifest bytes.
+Discovery ignores staging and non-identity names, rejects malformed committed
+manifests and never selects a mutable latest alias. It checks manifest identity,
+not raw/canonical availability: every selected input is fully verified on opening.
+
+The same `inspect_eda` entry also accepts a `ResearchSelection` JSON file. Compose
+it from explicitly selected `TradeSelection(name=..., query=EdaQuery(...))` and
+`BookSelection(name=..., query=BookQuery(...))` records. Names must be unique. Each
+trade selection supplies complete snapshot precedence and a selected universe;
+book selection pins one native request and instrument. All inputs share one
+inclusive UTC `known_at`; each has explicit fields and its own half-open window.
+
+```python
+# project library imports
+from applications.explore import inspect_eda
+from market_data.datasets import SnapshotCatalog
+from research.exploration import BookSelection, ResearchSelection, TradeSelection
+from serialization import DomainCodec
+
+# Paths, raw store, queries and the retention sink are explicit caller-owned inputs.
+# Inspect candidates before authoring trade_query and book_query; never take "latest".
+candidates = SnapshotCatalog(snapshot_directory).discover(max_entries=100, max_bytes=1_048_576)
+selection = ResearchSelection(
+    inputs=(
+        TradeSelection(name="transactions", query=trade_query),
+        BookSelection(name="visible_depth", query=book_query),
+    )
+)
+selection_path.write_bytes(DomainCodec().encode_json(selection))
+result = inspect_eda(selection_path, snapshot_directory, raw, report=retain_record)
+dataset = result["dataset"]
+```
+
+The completed record retains `selection_identity`, full resolved configuration,
+implementation identity, `dataset` and per-input `trade_summaries`. Persist the
+selection bytes and expected identity together with the complete report and
+retain both stores. Reopening this same file reproduces the typed inputs. The
+semantic selection identity includes names/order, snapshots, native requests,
+universes, precedence, fields, windows and cutoff. File locations, batch sizes and
+byte ceilings do not change it; `config_identity` includes delivery/budget choices.
+These are selection identities, not experiment execution-attempt identities.
+
+`ResearchDataset.inputs` contains separate `TradeResearchInput` and
+`BookResearchInput` records. Trade batches preserve exact prices/quantities,
+scoped controls, membership assertions and query identities. `TradeCoverage`
+retains counts and reasons per binding, including no eligible values and requested
+intervals outside the normalized source selection. A nonzero count does not prove
+complete coverage. A history-mode trade query is refused here: it can contain
+unknown predecessors and remains available through standalone `EdaQuery`/replay.
+
+`BookQuery` requires `snapshot_id`, `request_identity`, `instrument`, `start`,
+`end`, `known_at`, `columns`, `batch_size` and `max_bytes`; `clock="receipt"` is
+the only supported window clock. L2 supports `bids`/`asks`, L3 `orders`; incompatible
+fields fail explicitly. Native `source_time` remains uninterpreted source metadata.
+Known `degraded` snapshot/update messages in the receipt window yield
+`BookMarketRow` with original nanoseconds, position, epoch, sequence, state identity
+and status. All other known boundaries remain complete controls, including earlier
+controls and controls at the window end. They must not be interpreted as eligible
+book values. Exact nanoseconds are compared without float conversion or rounding
+down; existing native admission refuses receipt regressions during reconstruction.
+Unknown archive availability yields an empty value result with a reason;
+download time never becomes historical availability. `BookReplay` remains the
+interface for inspecting unschedulable archive history and chronological stepping.
+
+Book evidence retains the original request, raw/prefix identity, currencies and
+depth. Coverage and historical membership remain unproven. Diagnostic provenance
+may describe later retrievals or revisions; it is audit evidence, not an earlier
+market observation. All missingness stays visible: there is no forward fill,
+resampling, implicit join, currency conversion or trade/book coercion. Contradictory
+quote currencies for one canonical instrument fail before returning an assembly.
+Distinct instruments and currencies remain separate named inputs.
+
+Missing bytes, wrong bindings, corruption or invalid configuration fail the whole
+read, retaining a `failed` record through the existing callback. No partial dataset
+is returned or reported complete. Book results are available in `dataset` and are
+never passed to the optional trade-batch `consume` callback. The reference assembly
+retains all selected rows; summed input byte ceilings and per-file verification
+bounds are explicit, while batch size does not bound total process memory.
+
+For a supported extension, the existing
+[`binance-archive.json`](../../configs/data-jobs/binance-archive.json) now defines
+`spot-comparison`, selecting BTC and ETH independently of the original `btc-archive`
+job. Pass `--job spot-comparison` to the existing acquisition command with the
+same explicit catalog, store, rights and resource options. Publish the completed
+manifest normally, then pin the discovered snapshot and selected instruments.
+The [installed handoff](../../tests/integration/consumers/datasets/ingestion_workflow.py)
+exercises this job with checksummed synthetic HTTP, interruption/resume, publication,
+BTC/ETH selections plus a synthetic OKX book, and fresh-process reopening. The
+[source acquisition runner](../applications/acquire/workflow.py) needs no change.
+This establishes software integration, not new empirical source or retention rights.
+New providers, release/revision data or product mechanics still need their own
+adapters and temporal schemas. The frozen P1 empirical gaps remain open.
 
 ## Bounded saved books
 

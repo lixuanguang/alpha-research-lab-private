@@ -2,6 +2,13 @@
 
 # project library imports
 from market_data.query.asof import AsOfSelector, EconomicOrder, InputBinding, PointEvent
+from market_data.query.books import (
+    BookColumn,
+    BookMarketRow,
+    BookQuery,
+    BookQueryBatch,
+    BookQueryReader,
+)
 from market_data.query.reader import (
     QueryBatch,
     QueryColumn,
@@ -14,6 +21,11 @@ from market_data.query.reader import (
 
 __all__ = [
     "AsOfSelector",
+    "BookColumn",
+    "BookMarketRow",
+    "BookQuery",
+    "BookQueryBatch",
+    "BookQueryReader",
     "EconomicOrder",
     "InputBinding",
     "PointEvent",

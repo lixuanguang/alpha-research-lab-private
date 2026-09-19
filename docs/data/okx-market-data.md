@@ -5,7 +5,8 @@ order IDs or queue priority. Bitfinex R0 and Coinbase Exchange remain the L3
 sources. Both maintained OKX examples select native **BTC-USDT spot**, with a
 shared canonical listing ID distinct from BTC/USD. USDT is not USD.
 
-Start with the [notebook](../../examples/market-data-capture.ipynb).
+Use the [installed commands](#installed-commands) for acquisition and the
+[QR notebook](../../examples/research-foundations.ipynb) for pinned dataset inspection.
 Binance history and the frozen P1 baseline remain separate. Shared
 [publication and book replay](../../src/market_data/README.md#published-book-queries-and-shared-stepping)
 preserve OKX's distinct L2 and historical coverage limits.

@@ -72,7 +72,7 @@ src/
     replay/                 Historical stepping, cursors and saved replay
     books/                  Shared book state and reconstruction contracts
   research/
-    exploration/            Existing EDA; PLANNED: saved-data selection/alignment
+    exploration/            EDA and pinned multi-input saved-data selections
     observations/           FUTURE: completed decision observations
     features/               CONDITIONAL: research transforms/state
     labels/                 CONDITIONAL: outcome generation and alignment
@@ -93,7 +93,7 @@ src/
     collect/                Existing capture/probe/replay command and workflow
     publish_dataset/        Existing dataset publish/inspect command
     inspect_fixture/        Existing configured fixture command
-    explore/                Existing EDA; PLANNED: research assembly consumer
+    explore/                EDA and research assembly composition
     features/               CONDITIONAL: feature/label research workflows
     train_model/            CONDITIONAL: fit and retain a model attempt
     evaluate_model/         CONDITIONAL: research/delayed-outcome evaluation
@@ -457,6 +457,18 @@ Keep the existing frozen `msgspec.Struct` and explicit invariant requirements;
 this design does not migrate market events to Pydantic.
 
 ## Dataset, feature, label, and experiment contracts
+
+**Current saved research access:** `market_data.datasets.SnapshotCatalog` discovers
+bounded manifest metadata; `research.exploration.ResearchSelection` pins named
+trade/book inputs at one cutoff. `ResearchReader` assembles separate typed results
+through existing snapshot admission and family-specific queries; the existing
+`applications.explore.inspect_eda` composes it. Values retain source identities,
+units, controls, membership and coverage limits. Book selection uses exact receipt
+clocks and cannot invent availability for archives. No implicit join, filling or
+currency conversion is performed. The
+[public contract](../../src/market_data/README.md#discover-and-reopen-research-selections)
+owns the supported fields, resource bounds, missingness and refusal behavior.
+
 
 Planned dataset, feature, label, signal, model, cost, risk, portfolio, and candidate records carry identity, version,
 inputs, units, availability, owner, and failure policy. They are small records around real consumers, not a global
