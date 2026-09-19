@@ -1216,6 +1216,110 @@ exercises neutral identity, exact quantity/multiplier and projected-batch summar
 only, with no spot-record coercion. It is not admitted to the spot reader/replay;
 unsupported source products, lifecycle/adapter fields and unit combinations fail.
 
+## Discover and reopen research selections
+
+Owner: `market_data.datasets` owns discovery/admission, `market_data.query` owns
+family-specific cutoff selection, `research.exploration` owns named assembly and
+compatibility, and `applications.explore` composes the existing installed EDA entry.
+This bounded interface is available for exploratory saved trade and book inputs.
+
+`SnapshotCatalog(snapshot_directory).discover(max_entries=..., max_bytes=...)`
+returns typed `DatasetManifest` / `BookDatasetManifest` metadata in identity order.
+Read their partitions for instrument IDs, native request identities, source/units,
+selected intervals or prefixes, and quality/eligibility evidence. The entry cap
+includes hidden staging directories; the byte cap is aggregate manifest bytes.
+Discovery ignores staging and non-identity names, rejects malformed committed
+manifests and never selects a mutable latest alias. It checks manifest identity,
+not raw/canonical availability: every selected input is fully verified on opening.
+
+The same `inspect_eda` entry also accepts a `ResearchSelection` JSON file. Compose
+it from explicitly selected `TradeSelection(name=..., query=EdaQuery(...))` and
+`BookSelection(name=..., query=BookQuery(...))` records. Names must be unique. Each
+trade selection supplies complete snapshot precedence and a selected universe;
+book selection pins one native request and instrument. All inputs share one
+inclusive UTC `known_at`; each has explicit fields and its own half-open window.
+
+```python
+# project library imports
+from applications.explore import inspect_eda
+from market_data.datasets import SnapshotCatalog
+from research.exploration import BookSelection, ResearchSelection, TradeSelection
+from serialization import DomainCodec
+
+# Paths, raw store, queries and the retention sink are explicit caller-owned inputs.
+# Inspect candidates before authoring trade_query and book_query; never take "latest".
+candidates = SnapshotCatalog(snapshot_directory).discover(max_entries=100, max_bytes=1_048_576)
+selection = ResearchSelection(
+    inputs=(
+        TradeSelection(name="transactions", query=trade_query),
+        BookSelection(name="visible_depth", query=book_query),
+    )
+)
+selection_path.write_bytes(DomainCodec().encode_json(selection))
+result = inspect_eda(selection_path, snapshot_directory, raw, report=retain_record)
+dataset = result["dataset"]
+```
+
+The completed record retains `selection_identity`, full resolved configuration,
+implementation identity, `dataset` and per-input `trade_summaries`. Persist the
+selection bytes and expected identity together with the complete report and
+retain both stores. Reopening this same file reproduces the typed inputs. The
+semantic selection identity includes names/order, snapshots, native requests,
+universes, precedence, fields, windows and cutoff. File locations, batch sizes and
+byte ceilings do not change it; `config_identity` includes delivery/budget choices.
+These are selection identities, not experiment execution-attempt identities.
+
+`ResearchDataset.inputs` contains separate `TradeResearchInput` and
+`BookResearchInput` records. Trade batches preserve exact prices/quantities,
+scoped controls, membership assertions and query identities. `TradeCoverage`
+retains counts and reasons per binding, including no eligible values and requested
+intervals outside the normalized source selection. A nonzero count does not prove
+complete coverage. A history-mode trade query is refused here: it can contain
+unknown predecessors and remains available through standalone `EdaQuery`/replay.
+
+`BookQuery` requires `snapshot_id`, `request_identity`, `instrument`, `start`,
+`end`, `known_at`, `columns`, `batch_size` and `max_bytes`; `clock="receipt"` is
+the only supported window clock. L2 supports `bids`/`asks`, L3 `orders`; incompatible
+fields fail explicitly. Native `source_time` remains uninterpreted source metadata.
+Known `degraded` snapshot/update messages in the receipt window yield
+`BookMarketRow` with original nanoseconds, position, epoch, sequence, state identity
+and status. All other known boundaries remain complete controls, including earlier
+controls and controls at the window end. They must not be interpreted as eligible
+book values. Exact nanoseconds are compared without float conversion or rounding
+down; existing native admission refuses receipt regressions during reconstruction.
+Unknown archive availability yields an empty value result with a reason;
+download time never becomes historical availability. `BookReplay` remains the
+interface for inspecting unschedulable archive history and chronological stepping.
+
+Book evidence retains the original request, raw/prefix identity, currencies and
+depth. Coverage and historical membership remain unproven. Diagnostic provenance
+may describe later retrievals or revisions; it is audit evidence, not an earlier
+market observation. All missingness stays visible: there is no forward fill,
+resampling, implicit join, currency conversion or trade/book coercion. Contradictory
+quote currencies for one canonical instrument fail before returning an assembly.
+Distinct instruments and currencies remain separate named inputs.
+
+Missing bytes, wrong bindings, corruption or invalid configuration fail the whole
+read, retaining a `failed` record through the existing callback. No partial dataset
+is returned or reported complete. Book results are available in `dataset` and are
+never passed to the optional trade-batch `consume` callback. The reference assembly
+retains all selected rows; summed input byte ceilings and per-file verification
+bounds are explicit, while batch size does not bound total process memory.
+
+For a supported extension, the existing
+[`binance-archive.json`](../../configs/data-jobs/binance-archive.json) now defines
+`spot-comparison`, selecting BTC and ETH independently of the original `btc-archive`
+job. Pass `--job spot-comparison` to the existing acquisition command with the
+same explicit catalog, store, rights and resource options. Publish the completed
+manifest normally, then pin the discovered snapshot and selected instruments.
+The [installed handoff](../../tests/integration/consumers/datasets/ingestion_workflow.py)
+exercises this job with checksummed synthetic HTTP, interruption/resume, publication,
+BTC/ETH selections plus a synthetic OKX book, and fresh-process reopening. The
+[source acquisition runner](../applications/acquire/workflow.py) needs no change.
+This establishes software integration, not new empirical source or retention rights.
+New providers, release/revision data or product mechanics still need their own
+adapters and temporal schemas. The frozen P1 empirical gaps remain open.
+
 ## Bounded saved books
 
 `DatasetPublication.publish_books` accepts completed native capture or OKX

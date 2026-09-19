@@ -23,16 +23,25 @@ from msgspec.structs import replace
 # project library imports
 import market_data
 from applications.explore import inspect_eda
-from configuration import Configuration
+from configuration import CaptureConfig, Configuration
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.sources import SourceAdapters
-from market_data.datasets import SnapshotStore
-from market_data.query import QueryReader
-from market_data.storage import RawStore
+from market_data.contracts import CaptureRecord, CaptureRequest
+from market_data.datasets import BookInput, DatasetPublication, SnapshotCatalog, SnapshotStore
+from market_data.query import BookMarketRow, BookQuery, QueryReader
+from market_data.storage import CaptureJournal, RawStore
 from market_data.validation import QualityPolicy
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import EligibilityAssertions
-from research.exploration import EdaQuery
+from research.exploration import (
+    BookResearchInput,
+    BookSelection,
+    EdaQuery,
+    ResearchDataset,
+    ResearchSelection,
+    TradeResearchInput,
+    TradeSelection,
+)
 from serialization import DomainCodec
 
 _LIMIT = 262_144
@@ -45,6 +54,7 @@ class _Arguments(argparse.Namespace):
     inputs: Path
     output: Path
     acquire: str | None
+    reopen: bool
 
 
 class _ArchiveHTTP:
@@ -153,10 +163,26 @@ def main() -> None:
     parser.add_argument("inputs", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--acquire", choices=("interrupt", "complete"))
+    parser.add_argument("--reopen", action="store_true")
     args = parser.parse_args(namespace=_Arguments())
     inputs, output = args.inputs.resolve(), args.output.resolve()
     assert "site-packages" in Path(market_data.__file__).parts
     executable = Path(sys.executable).parent
+    if args.reopen:
+        reopened = inspect_eda(
+            output / "selection.json",
+            output / "snapshots",
+            RawStore(output / "raw"),
+            report=_Workflow(inputs, output).report,
+        )
+        dataset = reopened["dataset"]
+        assert isinstance(dataset, ResearchDataset)
+        print(
+            _CODEC.encode_json(
+                {"selection_identity": dataset.identity, "inputs": len(dataset.inputs)}
+            ).decode()
+        )
+        return
     if args.acquire is not None:
         http = _ArchiveHTTP(output, args.acquire)
         selected = Configuration.read(output / "jobs.json")
@@ -167,7 +193,7 @@ def main() -> None:
             "--catalog",
             str(inputs / "binance-archive-spot.json"),
             "--job",
-            "btc-archive",
+            selected.jobs[0].name,
             "--store",
             str(output / "raw"),
             "--manifest",
@@ -190,7 +216,9 @@ def main() -> None:
     (output / "snapshots").mkdir()
     fixture = _Workflow(inputs, output)
     config = Configuration.read(inputs / "binance-archive.json")
-    config = replace(config, jobs=(replace(config.jobs[0], universe="both"),))
+    config = replace(
+        config, jobs=(next(job for job in config.jobs if job.name == "spot-comparison"),)
+    )
     (output / "jobs.json").write_bytes(_CODEC.encode_json(config))
     catalog = _CODEC.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
@@ -294,7 +322,94 @@ def main() -> None:
     )
     assert sum(len(batch.rows) for batch in cutoff) == 0
     assert all("original trade availability unknown" in item.reasons for item in cutoff[0].evidence)
+    capture_config = CaptureConfig.read(inputs / "okx-btc-usdt.json")
+    capture_request = CaptureRequest(
+        config=capture_config,
+        recording_id="00000000-0000-0000-0000-000000000001",
+        implementation_identity=completed.run.implementation_identity,
+    )
+    capture = output / "depth"
+    journal = CaptureJournal(capture, capture_request)
+    journal.start()
+    journal.append(CaptureRecord(kind="session", epoch=0, received_ns=1717200000000000000))
+    journal.append(
+        CaptureRecord(
+            kind="frame",
+            epoch=0,
+            received_ns=1717200000000000001,
+            raw=b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}',
+        )
+    )
+    journal.append(
+        CaptureRecord(
+            kind="frame",
+            epoch=0,
+            received_ns=1717200000000001000,
+            raw=b'{"arg":{"channel":"books","instId":"BTC-USDT"},"action":"snapshot","data":[{"prevSeqId":-1,"seqId":10,"bids":[["100","2","0","1"]],"asks":[["101","3","0","1"]]}]}',
+        )
+    )
+    journal.append(
+        CaptureRecord(kind="end", epoch=0, received_ns=1717200000000002000, reason="message_limit")
+    )
+    journal.finish(1)
+    book_id = DatasetPublication(
+        SourceAdapters(), completed.run.implementation_identity
+    ).publish_books((capture,), raw, output / "snapshots", max_records=16, max_bytes=_LIMIT)
+    book = BookInput.read(capture, max_records=16)
+    trade_inputs = tuple(
+        TradeSelection(
+            name=name,
+            query=replace(query, instruments=(instrument.instrument_id,), mode="cutoff"),
+        )
+        for name, instrument in zip(("btc", "eth"), completed.run.instruments, strict=True)
+    )
+    selection = ResearchSelection(
+        inputs=(
+            *trade_inputs,
+            BookSelection(
+                name="okx_depth",
+                query=BookQuery(
+                    snapshot_id=book_id,
+                    request_identity=book.request.identity,
+                    instrument=book.request.config.instrument_id,
+                    start=query.start,
+                    end=query.end,
+                    known_at=query.known_at,
+                    columns=("bids", "asks"),
+                    batch_size=2,
+                    max_bytes=_LIMIT,
+                ),
+            ),
+        )
+    )
+    (output / "selection.json").write_bytes(_CODEC.encode_json(selection))
+    discovered = SnapshotCatalog(output / "snapshots").discover(max_entries=4, max_bytes=_LIMIT)
+    assert {item.identity for item in discovered} == {identity, book_id}
+    research = inspect_eda(
+        output / "selection.json", output / "snapshots", raw, report=fixture.report
+    )
+    dataset = research["dataset"]
+    assert isinstance(dataset, ResearchDataset) and dataset.identity == selection.identity
+    assert len(dataset.inputs) == 3
+    for index in range(2):
+        item = dataset.inputs[index]
+        assert isinstance(item, TradeResearchInput)
+        assert item.coverage[0].selected_rows == 0 and item.batches[0].evidence
+        assert "original trade availability unknown" in item.coverage[0].reasons
+    native = dataset.inputs[2]
+    assert isinstance(native, BookResearchInput)
+    assert (
+        sum(isinstance(row, BookMarketRow) for batch in native.batches for row in batch.rows) == 1
+    )
+    reopened_records = fixture.command(
+        [sys.executable, "-I", str(Path(__file__).resolve()), str(inputs), str(output), "--reopen"]
+    )
+    assert reopened_records == [{"selection_identity": selection.identity, "inputs": 3}]
     result = {
+        "selection_identity": selection.identity,
+        "research_inputs": 3,
+        "book_market_rows": 1,
+        "configured_job": config.jobs[0].name,
         "snapshot_id": identity,
         "partitions": len(saved.partitions),
         "scope": saved.scope,

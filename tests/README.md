@@ -70,7 +70,8 @@ to run `python -I <copied-consumer> <inputs>`; `eda_consumer.py` and
 | `read_eligibility.py` | Archive reference catalog and `fixtures/eligibility/assumptions-and-membership.json` |
 | `select_eligibility.py` | Archive reference catalog and `fixtures/eligibility/membership-corrections.json` |
 | `publish_snapshot.py` | Dataset inputs plus `support/subprocesses/interrupt_snapshot.py` |
-| `dataset_command.py`, `ingestion_workflow.py` | Dataset inputs plus `support/subprocesses/interrupt_command.py` |
+| `dataset_command.py` | Dataset inputs plus `support/subprocesses/interrupt_command.py` |
+| `ingestion_workflow.py` | Dataset inputs, `support/subprocesses/interrupt_command.py`, and `configs/live/okx-btc-usdt.json` |
 | `eda_consumer.py` | Query inputs plus `fixtures/instruments/contract.json` |
 | `replay_consumer.py` | `fixtures/replay/canonical.json`, `configs/data-jobs/fixture-inspection.json`, `configs/reference/binance-spot.json` |
 
@@ -92,9 +93,17 @@ and fault injection. No `research/features` or `applications/features` exists ye
 the checkout. It imports every shipped API, checks package resources and identity
 scope, and runs the four existing commands with copied synthetic/saved inputs.
 It reuses ingestion/recovery consumers for acquisition resume, dataset admission,
-EDA and book replay; governance is absent from this installation. On macOS,
+EDA, pinned mixed trade/book selection, fresh-process reopening and book replay;
+governance is absent from this installation. On macOS,
 `TMPDIR=/private/tmp make check` keeps Unix-domain socket paths within OS limits.
 
 The `fixtures/datasets/historical_snapshot` fixture was produced before migration.
 Its original wheel/revision, canonical bytes and implementation identity are
 retained in `provenance.json`; tests do not regenerate it under current code.
+
+The [research access tests](unit/data/test_research_access.py) exercise published
+mixed inputs, late corrections, membership withdrawal, unknown archive clocks,
+exact receipt cutoffs, controls, coverage, field/unit incompatibility and missing
+raw bytes. The installed handoff selects the configured `spot-comparison` job;
+synthetic HTTP and book messages establish software behavior only. No source access,
+empirical completeness or deployment qualification is asserted.

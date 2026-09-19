@@ -9,7 +9,7 @@ owns experimental methodology. This guide explains what a QR supplies, what the
 platform does and what to retain. It is not a second implementation backlog.
 
 **Available now:** bounded acquisition, saved-input publication, trade queries,
-book reconstruction/replay and EDA. **Planned:** reusable feature/label and model
+book reconstruction/replay, pinned multi-input selection and EDA. **Planned:** reusable feature/label and model
 workflows, economic backtesting, candidate packaging and paper/live operation.
 Exploratory notebook calculations are possible today; they do not establish that
 the corresponding maintained platform workflow exists. Current empirical data
@@ -47,7 +47,7 @@ different questions and should retain separate conclusions.
 | Activity | You provide | Result to retain | Current support |
 | --- | --- | --- | --- |
 | [Frame the question](#frame-a-research-question) | Mechanism, universe, horizon and comparison intent | Research note and applicable evaluation boundaries | Methodology available; maintain records manually |
-| [Select and inspect data](#select-and-inspect-research-data) | Explicit sample, fields, clocks and quality needs | Saved-input/snapshot/query identities and coverage limitations | Bounded APIs and notebooks available; unified assembly planned |
+| [Select and inspect data](#select-and-inspect-research-data) | Explicit sample, fields, clocks and quality needs | Saved-input/snapshot/query identities and coverage limitations | Pinned trade/book selections and bounded discovery available |
 | [Onboard missing inputs](#onboard-a-missing-source-or-dataset) | Source/data requirements and intended use | Qualified dataset plus source limitations | Existing source configurations supported; new capabilities require implementation |
 | [Explore features and labels](#research-features-and-labels) | Formula, window, target and missingness policy | Versioned definitions, diagnostics and information intervals | Notebook exploration possible; reusable workflow planned |
 | [Compare models or rules](#compare-models-or-deterministic-rules) | Splits, transforms, trainer/rule and selection criteria | Complete attempts, out-of-sample predictions and applicable fitted state | Maintained fit/evaluation workflow planned |
@@ -85,19 +85,26 @@ and source clocks before calculating a result. Pin the printed saved directories
 for notebook repeatability; formal queries use explicit snapshot identity rather
 than a mutable latest-input selection.
 
-The current Python entry `applications.explore.inspect_eda` consumes an explicit
-`research.exploration.EdaQuery` configuration, saved snapshots and a `RawStore`,
-with a retention callback. See the [configured EDA contract](../src/market_data/README.md#configured-eda-and-extension-boundaries)
-and the connected notebook example. It returns summaries and retainable query/
-quality identities; it does not acquire data or construct a feature matrix.
-Trade `QueryReader` batches and [book replay](../src/market_data/README.md#published-book-queries-and-shared-stepping)
-are distinct interfaces. Their byte budgets bound retained inputs, not total RSS.
+Use `SnapshotCatalog.discover` to inspect saved trade/book manifest identities,
+instruments, source requests and units. Discovery checks metadata only; opening
+verifies every retained input. Author a `ResearchSelection` with uniquely named
+trade/book queries, explicit snapshots, universes, fields and windows, and one
+shared knowledge cutoff. Save that JSON and its printed selection identity.
 
-**Planned assembly:** the research dataset interface will expose saved-data discovery and bounded multi-input
-selection/alignment over these interfaces. A research selection will retain its
-snapshot/universe/field/time identities plus missingness and quality information.
-Joining an input cannot make it visible before its actual availability. Unknown
-historical knowledge remains unknown, even when a file can be opened successfully.
+The current Python entry `applications.explore.inspect_eda` reopens this selection
+with the existing snapshot/raw stores and a retention callback. Its `dataset`
+result retains separate typed inputs, query identities, exact units, controls,
+quality and missingness. Trade windows use business time; book windows explicitly
+use receipt time. The [research selection reference](../src/market_data/README.md#discover-and-reopen-research-selections)
+shows the public records and retention workflow. Standalone `EdaQuery` remains
+available for single-snapshot cutoff/history inspection.
+
+Inspect coverage reasons even when values exist. An absent eligible value is not
+a zero, an empty market or proof that membership was known. Unknown archive
+availability stays unavailable at the decision cutoff. Missing files fail the
+whole read. This interface does not resample, fill missing periods, convert USD
+and USDT, or construct features. Trade and native book fields retain their own
+schemas. The sum of input byte ceilings is bounded; it is not a total RSS bound.
 
 Finish this activity with a pinned sample and a statement of what it can support.
 If missing evidence prevents causal research, retain an exploratory conclusion
@@ -117,8 +124,15 @@ consumer. Distinguish obtaining more data from implementing a new capability.
 | New historical-to-live use | Declare required cadence, freshness and recovery behavior | Qualify applicable capture/replay/runtime compatibility; historical access does not establish live availability |
 | A new tradable product | Declare the product and intended strategy mechanics | Add missing lifecycle, simulation, accounting, risk and execution capabilities before economic/operational admission |
 
-The planned [source extension workflow](../docs/roadmap/README.md#research-dataset-access-and-source-onboarding)
-will exercise a concrete source extension. Today, new unsupported capabilities
+The configured `spot-comparison` job in
+[`binance-archive.json`](../configs/data-jobs/binance-archive.json) selects BTC and
+ETH through the existing acquisition command. The
+[installed handoff](../tests/integration/consumers/datasets/ingestion_workflow.py)
+acquires and publishes synthetic checksummed responses, combines the pinned trade
+selection with a saved synthetic OKX book, and reopens all three named inputs in a
+fresh process. Section 14 of the main notebook runs that same consumer. It proves
+software extension through configuration; it supplies no new empirical coverage,
+historical eligibility or revision evidence. New unsupported capabilities
 need an implementation change. Exploratory source calls may start in a notebook;
 maintained source handling belongs to the shared data adapter, so multiple
 candidates can reuse the resulting dataset. Keep a macro release or fundamental
@@ -342,7 +356,7 @@ The current notebook has eighteen sections:
 | 11: configured EDA | Select six synthetic revisions across two instruments, retain exact summaries and attempt observations, plot the three-second business interval and inspect standalone replay. Exercise a synthetic contract projection and unsupported capability refusals. |
 | 12: source negotiation | Inspect the saved Bitfinex version, native acknowledgement, sequence range and exact receipt clocks. Refuse incompatible subscriptions, versions and product/stream combinations without reconnecting. |
 | 13: durable capture | Inspect the committed input cursor; exclude uncommitted tails and reject damaged committed bytes, failed writers and invalid units. |
-| 14: acquisition handoff | Acquire a synthetic two-instrument universe through installed commands, interrupt/resume without repeating completed fetches, refuse the incomplete acquisition and interrupted snapshot, then publish/reopen and inspect six history rows. HTTP is injected; persistence and all downstream stages are real. |
+| 14: acquisition handoff | Acquire a synthetic two-instrument universe through installed commands, interrupt/resume without repeating completed fetches, refuse the incomplete acquisition and interrupted snapshot, then publish/reopen and inspect six history rows. Discover and reopen a pinned BTC/ETH plus OKX book selection in a fresh process. HTTP and the book messages are synthetic; persistence and downstream stages are real. |
 | 15: session recovery | Inspect synthetic gaps, reconnects, committed prefixes and fresh-session synchronization without hiding missing intervals. |
 | 16: bounded book publication | Publish saved prefixes with quality/freshness scope and reject incompatible or invalid inputs. |
 | 17: collector health | Watch synthetic child collectors with independent heartbeat, ingestion, persistence, freshness and count limits. Inspect process death, journal failure, local syslog delivery and protection when alert delivery fails. |

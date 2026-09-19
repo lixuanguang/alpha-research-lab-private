@@ -23,6 +23,7 @@ class TestIngestionWorkflow:
         """Reject partial acquisition, preserve resume lineage and consume the published ID."""
         for source in (
             "configs/data-jobs/binance-archive.json",
+            "configs/live/okx-btc-usdt.json",
             "configs/reference/binance-archive-spot.json",
             "tests/fixtures/eligibility/membership-corrections.json",
             "tests/integration/consumers/datasets/ingestion_workflow.py",
@@ -47,6 +48,8 @@ class TestIngestionWorkflow:
         summary = msgspec.json.decode(
             (tmp_path / "run/result.json").read_bytes(), type=dict[str, object]
         )
+        assert summary["research_inputs"] == 3 and summary["book_market_rows"] == 1
+        assert summary["configured_job"] == "spot-comparison" and summary["selection_identity"]
         assert summary["partitions"] == 2 and summary["history_rows"] == 6
         assert summary["cutoff_rows"] == 0 and summary["scope"] == "exploratory_degraded"
         assert summary["repeat_fetches"] == 0 and summary["incomplete_publish_exit"] == 3

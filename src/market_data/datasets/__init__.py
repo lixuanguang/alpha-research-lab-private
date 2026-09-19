@@ -2,6 +2,7 @@
 
 # project library imports
 from market_data.datasets.books import BookDatasetManifest, BookHistory, BookInput, BookPartition
+from market_data.datasets.catalog import SnapshotCatalog
 from market_data.datasets.manifests import DatasetInput, DatasetManifest, DatasetPartition
 from market_data.datasets.publication import DatasetPublication
 from market_data.datasets.readers import DatasetReaders
@@ -17,5 +18,6 @@ __all__ = [
     "DatasetPartition",
     "DatasetPublication",
     "DatasetReaders",
+    "SnapshotCatalog",
     "SnapshotStore",
 ]

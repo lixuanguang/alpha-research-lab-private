@@ -10,11 +10,20 @@ from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
 
+# third party library imports
+import msgspec
+
 # project library imports
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryBatch, QueryReader
 from market_data.storage import RawStore
-from research.exploration import EdaQuery, QuerySummary
+from research.exploration import (
+    EdaQuery,
+    QuerySummary,
+    ResearchReader,
+    ResearchSelection,
+    TradeResearchInput,
+)
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 
@@ -30,15 +39,18 @@ def inspect_eda(
     """Resolve config, verify the snapshot, summarize batches and report the complete attempt.
 
     Args:
-        config: Strict EdaQuery JSON, limited to one MiB.
+        config: Strict EdaQuery or ResearchSelection JSON, limited to one MiB.
+            Multi-input selections return typed native inputs under ``dataset``.
         snapshots: Existing immutable snapshot root; no acquisition is performed.
         raw: Retained raw store for complete snapshot verification.
         report: Synchronous retention sink for started, complete or failed attempt records.
             Persist the complete record to retain resolved config, evidence and identities.
-        consume: Optional batch observer shared with notebook plots; its failures propagate.
+        consume: Optional trade-batch observer shared with notebook plots; its failures propagate.
+            Book results remain in the typed dataset and are never sent as trade batches.
 
     Returns:
-        Completed report. Timing includes verification and selection, with query time separate.
+        Completed report. Multi-input reports retain the dataset, trade summaries and total
+        duration. Single-query reports also include separate query time and resource metrics.
         RSS is the process lifetime high-water mark (macOS/Linux); input-block delta is
         OS block I/O, not application reads, and may be zero for cached inputs.
 
@@ -56,6 +68,31 @@ def inspect_eda(
             payload = source.read(1_048_577)
         if len(payload) > 1_048_576:
             raise ValueError("EDA config exceeds one MiB")
+        fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
+        version = codec.decode_json(fields.get("schema_version", b'"eda-query-v1"'), str)
+        if version == "research-selection-v1":
+            selection = codec.decode_json(payload, ResearchSelection)
+            record.update(
+                config=selection,
+                config_identity=hashlib.sha256(codec.encode_json(selection)).hexdigest(),
+                selection_identity=selection.identity,
+                implementation_identity=ImplementationIdentity.sha256(),
+                stage="research_inputs",
+            )
+            dataset = ResearchReader(snapshots, raw, readers=SourceAdapters()).read(selection)
+            summaries = tuple(
+                (item.name, QuerySummary.collect(item.batches, consume=consume))
+                for item in dataset.inputs
+                if isinstance(item, TradeResearchInput)
+            )
+            record.update(
+                status="complete",
+                dataset=dataset,
+                trade_summaries=summaries,
+                duration_seconds=perf_counter() - started,
+            )
+            report(dict(record))
+            return record
         selected = codec.decode_json(payload, EdaQuery)
         record.update(
             config=selected,
