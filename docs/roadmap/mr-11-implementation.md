@@ -44,7 +44,7 @@ availability. A later recording of actual source evidence may preserve its earli
 evidenced availability. Synthetic evidence remains explicitly labeled.
 
 The [data contract](../data/contracts.md#historical-eligibility-assertions-mr-11)
-owns detailed semantics; the [component guide](../../src/alpha_research/data/README.md#read-historical-eligibility-assertions)
+owns detailed semantics; the [component guide](../../src/market_data/README.md#read-historical-eligibility-assertions)
 provides the runnable API example. The module reuses existing UTC/text validators,
 catalog/financial-unit invariants and the cached exact codec. No dataset pipeline,
 configuration resolver, public export, dependency or ignore policy changed.

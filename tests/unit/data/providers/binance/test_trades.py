@@ -13,13 +13,12 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.providers.binance.rows import ArchiveRow
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.requests import SourceRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.adapters.providers.binance import ArchiveRow, BinanceArchiveTrades
+from market_data.contracts import ArchiveTrade, RawObject, SourceRequest
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[5]
 _CODEC = DomainCodec()
@@ -40,7 +39,11 @@ class TestArchiveTrade:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
-        return SourceRequest.partition(config.resolve("btc-archive", catalog))[0]
+        return SourceRequest.partition(
+            config.resolve(
+                "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[0]
 
     @staticmethod
     def _row(selection: SourceRequest, payload: bytes = _PAYLOAD) -> ArchiveRow:
@@ -63,7 +66,7 @@ class TestArchiveTrade:
     def test_exact_values_clocks_and_roundtrip(self, selection: SourceRequest) -> None:
         """Keep decimal scale, publisher quote quantity, raw precision and unknown clocks."""
         row = self._row(selection)
-        event = ArchiveTrade.from_row(row, selection)
+        event = BinanceArchiveTrades.from_row(row, selection)
         assert str(event.price) == "100.00"
         assert str(event.quantity) == "2.0"
         assert event.quote_quantity == Decimal("199.999")
@@ -93,7 +96,9 @@ class TestArchiveTrade:
         """Retain exact source scale through the finite decimal boundary."""
         fields = list(self._row(selection).columns())
         fields[index] = value
-        event = ArchiveTrade.from_row(self._row(selection, ",".join(fields).encode()), selection)
+        event = BinanceArchiveTrades.from_row(
+            self._row(selection, ",".join(fields).encode()), selection
+        )
         if field == "price":
             observed = event.price
         elif field == "quantity":
@@ -117,12 +122,12 @@ class TestArchiveTrade:
         )
         selection = SourceRequest.partition(run)[0]
         payload = _PAYLOAD.replace(b"1717200000001", b"1735775999999999")
-        event = ArchiveTrade.from_row(self._row(selection, payload), selection)
+        event = BinanceArchiveTrades.from_row(self._row(selection, payload), selection)
         assert event.timestamp_unit == "us"
         assert event.ts_event == selection.end - timedelta(microseconds=1)
         for stamp in (b"1735689600000", b"1735776000000000"):
             with pytest.raises(ValueError, match="row 7"):
-                ArchiveTrade.from_row(
+                BinanceArchiveTrades.from_row(
                     self._row(selection, _PAYLOAD.replace(b"1717200000001", stamp)), selection
                 )
 
@@ -161,18 +166,20 @@ class TestArchiveTrade:
         fields = list(self._row(selection).columns())
         fields[index] = value
         with pytest.raises(ValueError, match="row 7"):
-            ArchiveTrade.from_row(self._row(selection, ",".join(fields).encode()), selection)
-        assert ArchiveTrade.from_row(self._row(selection), selection).trade_id == 11
+            BinanceArchiveTrades.from_row(
+                self._row(selection, ",".join(fields).encode()), selection
+            )
+        assert BinanceArchiveTrades.from_row(self._row(selection), selection).trade_id == 11
 
     def test_foreign_binding_and_selection(self, selection: SourceRequest) -> None:
         """Reject origin substitution and narrower-row selections not authorized by the job."""
         row = self._row(selection)
         with pytest.raises(ValueError, match="identity"):
-            ArchiveTrade.from_row(
+            BinanceArchiveTrades.from_row(
                 replace(row, origin=replace(row.origin, request_identity="b" * 64)), selection
             )
         with pytest.raises(ValueError, match="selection"):
-            ArchiveTrade.from_row(
+            BinanceArchiveTrades.from_row(
                 replace(row, selection_start=row.selection_start + timedelta(minutes=1)), selection
             )
 
@@ -197,7 +204,7 @@ class TestArchiveTrade:
         self, selection: SourceRequest, field: str, value: object
     ) -> None:
         """Catch direct-constructor bypasses before consumption and reject them on the wire."""
-        event = ArchiveTrade.from_row(self._row(selection), selection)
+        event = BinanceArchiveTrades.from_row(self._row(selection), selection)
         msgspec.structs.force_setattr(event, field, value)
         with pytest.raises((TypeError, ValueError)):
             event.__post_init__()
@@ -206,7 +213,7 @@ class TestArchiveTrade:
 
     def test_strict_wire_and_direct_constructor(self, selection: SourceRequest) -> None:
         """Keep the existing exact JSON-number decoder contract and reject Python floats."""
-        event = ArchiveTrade.from_row(self._row(selection), selection)
+        event = BinanceArchiveTrades.from_row(self._row(selection), selection)
         payload = _CODEC.encode_json(event)
         with pytest.raises(ValueError, match="unknown field"):
             _CODEC.decode_json(payload[:-1] + b',"extra":1}', ArchiveTrade)

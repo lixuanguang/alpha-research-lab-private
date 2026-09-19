@@ -12,10 +12,9 @@ import msgspec
 import pytest
 
 # project library imports
-from alpha_research.data.decoders import DecodeContext
-from alpha_research.data.events import Disconnect, MarketEventError, MarketEventRecord
-from alpha_research.data.providers.tardis.decoder import TardisDecoder
-from alpha_research.instrument_identity import InstrumentId
+from market_data.adapters.providers.tardis import TardisDecoder
+from market_data.contracts import DecodeContext, Disconnect, MarketEventError, MarketEventRecord
+from reference_data.instruments import InstrumentId
 
 _INSTRUMENT_ID = InstrumentId(UUID(int=7))
 

@@ -13,10 +13,10 @@ from tempfile import TemporaryDirectory
 from msgspec.structs import replace
 
 # project library imports
-import alpha_research
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+import market_data
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from serialization import DomainCodec
 
 
 def main() -> None:
@@ -29,7 +29,7 @@ def main() -> None:
     parser.add_argument("inputs", type=Path)
     arguments = parser.parse_args()
     inputs: Path = arguments.inputs
-    package = Path(alpha_research.__file__).resolve()
+    package = Path(market_data.__file__).resolve()
     assert "site-packages" in package.parts
     codec = DomainCodec()
     catalog = codec.decode_json(

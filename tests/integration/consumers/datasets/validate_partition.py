@@ -14,17 +14,18 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 from msgspec.structs import replace
 
 # project library imports
-import alpha_research
-from alpha_research.configuration import Configuration
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.quality import QualityPolicy, QualityReport
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.pipelines.dataset import validate_saved_partition
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+import market_data
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import SourceRequest
+from market_data.datasets import DatasetPublication
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import QualityPolicy, QualityReport
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 
 def main() -> None:
@@ -37,13 +38,15 @@ def main() -> None:
     parser.add_argument("inputs", type=Path)
     arguments = parser.parse_args()
     inputs: Path = arguments.inputs
-    assert "site-packages" in Path(alpha_research.__file__).parts
+    assert "site-packages" in Path(market_data.__file__).parts
     codec = DomainCodec()
     config = Configuration.read(inputs / "binance-archive.json")
     catalog = codec.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    run = config.resolve("btc-archive", catalog)
+    run = config.resolve(
+        "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+    )
     request = SourceRequest.partition(run)[0]
     history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
     policy = QualityPolicy(use="exploratory", known_at=run.job.start, max_gap=timedelta(minutes=5))
@@ -64,20 +67,20 @@ def main() -> None:
             member.compress_type = ZIP_DEFLATED
             with ZipFile(source, "w") as archive:
                 archive.writestr(member, content)
-            descriptor = RawObject.from_file(
+            descriptor = RawFiles.describe(
                 source,
-                request=request,
+                request=request.binding,
                 retrieval_reference=f"synthetic:mr13:{label}",
                 ts_received=datetime(2026, 9, 16, tzinfo=UTC),
                 ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
             )
-            store.publish(source, descriptor=descriptor, request=request)
+            store.publish(source, descriptor=descriptor, request=request.binding)
             state = AcquisitionManifest(run=run, completed=(descriptor,))
             state.save(root / "acquisition.json")
             saved = AcquisitionManifest.read(root / "acquisition.json", run=run, store=store)
-            report = validate_saved_partition(
-                saved, store, max_bytes=4096, policy=policy, eligibility=history
-            )
+            report = DatasetPublication(
+                SourceAdapters(), ImplementationIdentity.sha256()
+            ).validate_partition(saved, store, max_bytes=4096, policy=policy, eligibility=history)
             reports.append(report)
             assert codec.decode_json(codec.encode_json(report), QualityReport) == report
             if label == "duplicate-and-gap":
@@ -85,12 +88,16 @@ def main() -> None:
                 canonical = report.require_canonical()
                 assert report.scope == "exploratory_degraded"
                 assert (
-                    validate_saved_partition(
+                    DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+                    .validate_partition(
                         saved, store, max_bytes=4096, policy=policy, eligibility=history
-                    ).canonical
+                    )
+                    .canonical
                     == canonical
                 )
-                strict = validate_saved_partition(
+                strict = DatasetPublication(
+                    SourceAdapters(), ImplementationIdentity.sha256()
+                ).validate_partition(
                     saved,
                     store,
                     max_bytes=4096,
@@ -110,12 +117,14 @@ def main() -> None:
             print(
                 label, report.scope, report.invalid_count, report.gap_count, report.duplicate_count
             )
-        missing = validate_saved_partition(
+        missing = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).validate_partition(
             AcquisitionManifest(run=run), store, max_bytes=4096, policy=policy, eligibility=history
         )
         assert missing.canonical is None and missing.invalid_count == 1
     assert len(reports) == 4
-    print(f"Installed partition validation consumer passed: {alpha_research.__file__}")
+    print(f"Installed partition validation consumer passed: {market_data.__file__}")
 
 
 if __name__ == "__main__":

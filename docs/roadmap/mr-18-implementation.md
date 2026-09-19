@@ -73,7 +73,7 @@ correctness fixtures, not representative performance evidence.
 Runtime changes are confined to `data/asof.py` and `data/query.py`, with a focused
 returned-evidence mutation regression. Existing configuration, codecs, quality,
 revision admission, manifest verification and atomic snapshot storage remain the
-owning implementations. The [API guide](../../src/alpha_research/data/README.md#bounded-reference-queries-mr-19),
+owning implementations. The [API guide](../../src/market_data/README.md#bounded-reference-queries-mr-19),
 [researcher guide](../../examples/README.md), [NB 18 section 9](../../examples/research-foundations.ipynb)
 and [operations guide](../../examples/notebook-operations.md#mr-18-query-workload)
 explain the delivered behavior. The frozen P1 specification is unchanged.

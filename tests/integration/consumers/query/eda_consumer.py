@@ -15,26 +15,24 @@ import msgspec
 from msgspec.structs import replace
 
 # project library imports
-import alpha_research
-from alpha_research.configuration import Configuration
-from alpha_research.data.asof import InputBinding, PointEvent
-from alpha_research.data.eda import EdaQuery, QuerySummary
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.quality import QualityPolicy
-from alpha_research.data.query import QueryBatch, QueryMarketRow, QueryReader
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.replay import Replay, ReplayPhase
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import Correction, TradeRevision
-from alpha_research.financial_units import Multiplier, Price, Quantity, UnitError
-from alpha_research.instrument_identity import InstrumentId, InstrumentIdentity, InstrumentKind
-from alpha_research.pipelines.dataset import iter_occurrences, publish_dataset
-from alpha_research.pipelines.eda import inspect_eda
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+import market_data
+from applications.explore import inspect_eda
+from configuration import Configuration
+from financial_units import Multiplier, Price, Quantity, UnitError
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import ArchiveTrade, SourceRequest
+from market_data.datasets import DatasetPublication
+from market_data.query import InputBinding, PointEvent, QueryBatch, QueryMarketRow, QueryReader
+from market_data.replay import Replay, ReplayPhase
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import Correction, QualityPolicy, TradeRevision
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from reference_data.instruments import InstrumentId, InstrumentIdentity, InstrumentKind
+from research.exploration import EdaQuery, QuerySummary
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 
 class _Evidence:
@@ -80,7 +78,7 @@ def main() -> None:
         AssertionError: An installed query, exact-unit or refusal contract fails.
     """
     inputs, local = (Path(value).resolve() for value in sys.argv[1:])
-    installed = Path(alpha_research.__file__).resolve()
+    installed = Path(market_data.__file__).resolve()
     assert "site-packages" in installed.parts and not installed.is_relative_to(inputs)
     local.mkdir()
     (local / "raw").mkdir()
@@ -100,7 +98,9 @@ def main() -> None:
     precedence: list[InputBinding] = []
     for offset, universe in enumerate(("btc", "eth")):
         selected = replace(config, jobs=(replace(config.jobs[0], universe=universe),))
-        run = selected.resolve("btc-archive", catalog)
+        run = selected.resolve(
+            "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         request = SourceRequest.partition(run)[0]
         source = local / f"{universe}.zip"
         with ZipFile(source, "w", compression=ZIP_DEFLATED) as archive:
@@ -119,16 +119,20 @@ def main() -> None:
                     for revision in (0, 1)
                 ),
             )
-        origin = RawObject.from_file(
+        origin = RawFiles.describe(
             source,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:mr21",
             ts_received=start + timedelta(days=1),
             ts_ingested=start + timedelta(days=1),
         )
-        store.publish(source, descriptor=origin, request=request)
+        store.publish(source, descriptor=origin, request=request.binding)
         acquisition = AcquisitionManifest(run=run, completed=(origin,))
-        items = tuple(iter_occurrences(acquisition, store, max_bytes=262_144))
+        items = tuple(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                acquisition, store, max_bytes=262_144
+            )
+        )
         corrections[run.identity] = tuple(
             Correction(
                 supersedes=TradeRevision(occurrences=(original,)).identity,
@@ -143,7 +147,7 @@ def main() -> None:
         precedence.append(
             (request.instrument.source, run.job.stream, request.instrument.instrument_id)
         )
-    snapshot = publish_dataset(
+    snapshot = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish(
         tuple(acquisitions),
         store,
         local / "snapshots",
@@ -185,6 +189,7 @@ def main() -> None:
     reader = QueryReader.read(
         local / "snapshots",
         store,
+        readers=SourceAdapters(),
         identity=snapshot,
         max_bytes=query.max_bytes,
         precedence=query.precedence,

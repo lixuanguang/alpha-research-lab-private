@@ -24,10 +24,9 @@ from hypothesis.strategies import SearchStrategy
 from pydantic import TypeAdapter, ValidationError
 
 # project library imports
-from alpha_research.financial_units import (
-    BusinessDayConvention as BDC,
-)
-from alpha_research.financial_units import (
+import financial_units.conventions as conventions
+from financial_units import BusinessDayConvention as BDC
+from financial_units import (
     Compounding,
     ConventionError,
     Currency,
@@ -52,11 +51,10 @@ from alpha_research.financial_units import (
     UnitError,
     Volatility,
     Yield,
-    conventions,
 )
-from alpha_research.financial_units.models import _FinancialUnitModel
-from alpha_research.instrument_identity import InstrumentId
-from alpha_research.venue_calendar import SettlementCalendar
+from financial_units.models import _FinancialUnitModel
+from reference_data.calendars import SettlementCalendar
+from reference_data.instruments import InstrumentId
 
 D = Decimal
 SHARES = Dimension(instrument_id=InstrumentId(UUID(int=1)), kind=QuantityKind.SHARE)

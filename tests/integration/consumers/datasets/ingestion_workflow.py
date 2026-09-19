@@ -21,18 +21,19 @@ import msgspec
 from msgspec.structs import replace
 
 # project library imports
-import alpha_research
-from alpha_research.configuration import Configuration
-from alpha_research.data.eda import EdaQuery
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.quality import QualityPolicy
-from alpha_research.data.query import QueryReader
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.pipelines.eda import inspect_eda
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+import market_data
+from applications.explore import inspect_eda
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.sources import SourceAdapters
+from market_data.datasets import SnapshotStore
+from market_data.query import QueryReader
+from market_data.storage import RawStore
+from market_data.validation import QualityPolicy
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from research.exploration import EdaQuery
+from serialization import DomainCodec
 
 _LIMIT = 262_144
 _CODEC = DomainCodec()
@@ -154,7 +155,7 @@ def main() -> None:
     parser.add_argument("--acquire", choices=("interrupt", "complete"))
     args = parser.parse_args(namespace=_Arguments())
     inputs, output = args.inputs.resolve(), args.output.resolve()
-    assert "site-packages" in Path(alpha_research.__file__).parts
+    assert "site-packages" in Path(market_data.__file__).parts
     executable = Path(sys.executable).parent
     if args.acquire is not None:
         http = _ArchiveHTTP(output, args.acquire)
@@ -252,7 +253,9 @@ def main() -> None:
     )
     assert (output / "acquisition.json").read_bytes() == acquired
     raw = RawStore(output / "raw")
-    saved = SnapshotStore(output / "snapshots", raw).read(identity, max_bytes=_LIMIT)
+    saved = SnapshotStore(output / "snapshots", raw, readers=SourceAdapters()).read(
+        identity, max_bytes=_LIMIT
+    )
     assert tuple(part.acquisition.completed[0] for part in saved.partitions) == completed.completed
     query = EdaQuery(
         snapshot_id=identity,
@@ -272,7 +275,12 @@ def main() -> None:
     summary = inspect_eda(output / "query.json", output / "snapshots", raw, report=fixture.report)
     assert summary["rows"] == 6
     reader = QueryReader.read(
-        output / "snapshots", raw, identity=identity, max_bytes=_LIMIT, precedence=query.precedence
+        output / "snapshots",
+        raw,
+        readers=SourceAdapters(),
+        identity=identity,
+        max_bytes=_LIMIT,
+        precedence=query.precedence,
     )
     cutoff = tuple(
         reader.batches(

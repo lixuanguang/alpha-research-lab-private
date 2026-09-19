@@ -10,7 +10,7 @@ acquisition, manifests and dataset validity remain planned.
 ## Problem / change
 
 MR 03 can verify saved bytes but cannot publish an immutable object safely.
-[`RawStore`](../../src/alpha_research/data/raw_store.py) now stages a saved file on
+[`RawStore`](../../src/market_data/storage/raw.py) now stages a saved file on
 the destination filesystem, verifies its exact bytes with `RawObject.verify`,
 and publishes its SHA-256 name through an atomic, no-overwrite hard link. File
 and directory synchronization must succeed before the method acknowledges
@@ -21,7 +21,7 @@ original source is gone; conflicts remain unchanged and fail explicitly.
 The first consumers are the storage acceptance cases and section 12 of the
 [foundation notebook](../../examples/research-foundations.ipynb). The library owns
 bounded file operations and immutable publication; no pipeline or forwarding
-wrapper is introduced. The [component guide](../../src/alpha_research/data/README.md#durable-raw-byte-store)
+wrapper is introduced. The [component guide](../../src/market_data/README.md#durable-raw-byte-store)
 owns the callable contract, filesystem prerequisites, errors and recovery steps.
 
 ## Affected scope

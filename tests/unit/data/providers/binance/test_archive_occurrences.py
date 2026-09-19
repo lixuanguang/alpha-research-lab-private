@@ -13,16 +13,17 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration, ResolvedManifest
-from alpha_research.data.live.config import CaptureRequest
-from alpha_research.data.providers.binance.occurrences import BinanceArchiveOccurrences
-from alpha_research.data.providers.binance.rows import BinanceArchiveRows
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.venues.okx.history_config import OKXArchiveRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration, ResolvedManifest
+from market_data.adapters.providers.binance import BinanceArchiveOccurrences, BinanceArchiveRows
+from market_data.contracts import (
+    RawObject,
+    RequestBinding,
+    SourceRequest,
+)
+from market_data.storage import RawFiles, RawStore
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[5]
 _CODEC = DomainCodec()
@@ -41,7 +42,7 @@ class _TrackingRawStore(RawStore):
         self,
         *,
         descriptor: RawObject,
-        request: SourceRequest | CaptureRequest | OKXArchiveRequest,
+        request: RequestBinding,
     ) -> BinaryIO:
         """Delegate verification and retain the actual opened file for assertions."""
         self.opened = super().open(descriptor=descriptor, request=request)
@@ -62,7 +63,9 @@ class TestBinanceArchiveOccurrences:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
-        return configuration.resolve("btc-archive", catalog)
+        return configuration.resolve(
+            "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
 
     @staticmethod
     def _save(
@@ -75,15 +78,15 @@ class TestBinanceArchiveOccurrences:
         member.compress_type = ZIP_DEFLATED
         with ZipFile(source, "w") as archive:
             archive.writestr(member, content)
-        descriptor = RawObject.from_file(
+        descriptor = RawFiles.describe(
             source,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:occurrences",
             ts_received=datetime(2026, 9, 16, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
         )
         store = _TrackingRawStore(root)
-        store.publish(source, descriptor=descriptor, request=request)
+        store.publish(source, descriptor=descriptor, request=request.binding)
         return BinanceArchiveRows(request=request, descriptor=descriptor), store
 
     def test_decodes_invalid_row_after_research_endpoint(

@@ -44,7 +44,7 @@ The Tardis-specific capture rules below remain valid for their existing inputs.
 Tardis source lines begin with an ISO UTC capture string. The provider decoder
 preserves it in `original_capture_time` and currently parses it through the
 `TardisDecoder.parse_capture_time` method in
-[`data/providers/tardis/decoder.py`](../../src/alpha_research/data/providers/tardis/decoder.py).
+[`data/providers/tardis/decoder.py`](../../src/market_data/adapters/providers/tardis/decoder.py).
 The provider owns this parsing behavior and preserves the timing rules. Python
 timestamps represent microseconds, so a source fraction with more than six digits is
 rounded **up** by one microsecond whenever any discarded digit is nonzero. This
@@ -83,11 +83,11 @@ candidate.
 ### Planned economic ordering and event stepping
 
 Decision date: 2026-09-14. MR 17 now supplies the reference economic order through
-[`AsOfSelector`](../../src/alpha_research/data/asof.py); MR 20 supplies the bounded
-[`Replay`](../../src/alpha_research/data/replay.py) iterator, clock/cursor and
+[`AsOfSelector`](../../src/market_data/query/asof.py); MR 20 supplies the bounded
+[`Replay`](../../src/market_data/replay/events.py) iterator, clock/cursor and
 scheduled-step operation. The notebook and installed consumer exercise it; E1
 and MR 44 will compose economics through the same operation. Decoder provenance
-and occurrence identities remain unchanged. The [MR 17 guide](../../src/alpha_research/data/README.md#select-point-events-at-a-cutoff-mr-17)
+and occurrence identities remain unchanged. The [MR 17 guide](../../src/market_data/README.md#select-point-events-at-a-cutoff-mr-17)
 defines the implemented cutoff projection and its separate retained history.
 
 Order admitted events by effective knowledge time, then predefined source/stream

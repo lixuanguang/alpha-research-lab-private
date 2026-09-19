@@ -8,8 +8,8 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.live.config import CaptureConfig
-from alpha_research.serialization import DomainCodec
+from configuration import CaptureConfig
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[4]
 

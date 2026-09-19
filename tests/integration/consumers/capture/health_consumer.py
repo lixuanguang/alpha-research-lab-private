@@ -17,12 +17,14 @@ from tempfile import TemporaryDirectory
 from msgspec.structs import replace
 
 # project library imports
-import alpha_research
-from alpha_research.data.live.config import CaptureConfig
-from alpha_research.data.live.health import HealthPolicy
-from alpha_research.data.live.replay import CaptureReplay
-from alpha_research.data.live.transport import FeedSocket, VenueTransport
-from alpha_research.pipelines.live import supervise
+import market_data
+from applications.collect import supervise
+from configuration import CaptureConfig
+from market_data.adapters.sources import BookAdapters
+from market_data.adapters.transport import VenueTransport
+from market_data.contracts import FeedSocket
+from market_data.replay import SavedCapture
+from telemetry import HealthPolicy
 
 _FRAMES: tuple[bytes, ...] = (
     b'{"event":"conf","status":"OK","flags":65536}',
@@ -173,7 +175,9 @@ def main() -> None:
             journals = list(destination.rglob("journal.jsonl"))
             assert len(journals) == 1
             completed = (journals[0].parent / "manifest.json").exists()
-            replay = CaptureReplay.read(journals[0].parent, completed=completed)
+            replay = SavedCapture.read(
+                journals[0].parent, book_factory=BookAdapters.create, completed=completed
+            )
             if mode == "healthy":
                 assert replay.book.ready and not replay.gaps
             elif not completed:
@@ -185,7 +189,7 @@ def main() -> None:
                 "committed_frames": replay.frames,
             }
             observations.append(observation)
-    evidence: dict[str, object] = {"package": alpha_research.__file__, "observations": observations}
+    evidence: dict[str, object] = {"package": market_data.__file__, "observations": observations}
     print(json.dumps(evidence))
 
 

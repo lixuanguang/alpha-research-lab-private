@@ -11,11 +11,12 @@ from uuid import UUID
 import pytest
 
 # project library imports
-from alpha_research.data import BinancePayloadDecoder, TardisDecoder
-from alpha_research.data.venues.binance.events import DepthSnapshot, DepthUpdate, Trade
-from alpha_research.financial_units import Currency, Dimension, Price, Quantity, QuantityKind
-from alpha_research.instrument_identity import InstrumentId
-from alpha_research.reference_data import SpotInstrument
+from financial_units import Currency, Dimension, Price, Quantity, QuantityKind
+from market_data.adapters.providers.tardis import TardisDecoder
+from market_data.adapters.venues.binance import BinancePayloadDecoder
+from market_data.contracts import DepthSnapshot, DepthUpdate, Trade
+from reference_data.catalogs import SpotInstrument
+from reference_data.instruments import InstrumentId
 
 _RECEIVED = datetime(2026, 1, 1, tzinfo=UTC)
 _START = datetime(2024, 6, 1, tzinfo=UTC)

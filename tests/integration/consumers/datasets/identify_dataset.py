@@ -13,18 +13,18 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 from msgspec.structs import replace
 
 # project library imports
-import alpha_research
-from alpha_research.configuration import Configuration
-from alpha_research.data.datasets import DatasetManifest
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.quality import QualityPolicy
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.pipelines.dataset import assemble_dataset
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+import market_data
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import SourceRequest
+from market_data.datasets import DatasetManifest, DatasetPublication
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import QualityPolicy
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 
 def main() -> None:
@@ -37,13 +37,15 @@ def main() -> None:
     parser.add_argument("inputs", type=Path)
     arguments = parser.parse_args()
     inputs: Path = arguments.inputs
-    assert "site-packages" in Path(alpha_research.__file__).parts
+    assert "site-packages" in Path(market_data.__file__).parts
     codec = DomainCodec()
     config = Configuration.read(inputs / "binance-archive.json")
     catalog = codec.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    run = config.resolve("btc-archive", catalog)
+    run = config.resolve(
+        "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+    )
     request = SourceRequest.partition(run)[0]
     history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
     policy = QualityPolicy(use="exploratory", known_at=run.job.start, max_gap=timedelta(hours=1))
@@ -55,19 +57,21 @@ def main() -> None:
         member.compress_type = ZIP_DEFLATED
         with ZipFile(source, "w") as archive:
             archive.writestr(member, b"12,100.00,2.0,200,1717200000000,true,true\n" * 2)
-        descriptor = RawObject.from_file(
+        descriptor = RawFiles.describe(
             source,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:mr14",
             ts_received=datetime(2026, 9, 16, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
         )
-        raw_path = store.publish(source, descriptor=descriptor, request=request)
+        raw_path = store.publish(source, descriptor=descriptor, request=request.binding)
         AcquisitionManifest(run=run, completed=(descriptor,)).save(root / "acquisition.json")
         acquisition = AcquisitionManifest.read(root / "acquisition.json", run=run, store=store)
         builds: list[DatasetManifest] = []
         for selected_policy in (policy, policy, replace(policy, max_gap=timedelta(minutes=5))):
-            manifest, payloads = assemble_dataset(
+            manifest, payloads = DatasetPublication(
+                SourceAdapters(), ImplementationIdentity.sha256()
+            ).assemble(
                 (acquisition,),
                 store,
                 max_bytes=262_144,
@@ -81,6 +85,7 @@ def main() -> None:
             assert (
                 DatasetManifest.read(
                     root / "dataset.json",
+                    readers=SourceAdapters(),
                     identity=manifest.identity,
                     partitions=root,
                     store=store,
@@ -114,6 +119,7 @@ def main() -> None:
             try:
                 DatasetManifest.read(
                     root / "dataset.json",
+                    readers=SourceAdapters(),
                     identity=manifest.identity,
                     partitions=root,
                     store=store,
@@ -132,6 +138,7 @@ def main() -> None:
             try:
                 DatasetManifest.read(
                     root / "dataset.json",
+                    readers=SourceAdapters(),
                     identity=manifest.identity,
                     partitions=root,
                     store=store,
@@ -144,7 +151,7 @@ def main() -> None:
                 raise AssertionError("reader accepted missing bytes")
             path.write_bytes(original)
         try:
-            assemble_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).assemble(
                 (acquisition,),
                 store,
                 max_bytes=262_144,
@@ -161,6 +168,7 @@ def main() -> None:
         assert (
             DatasetManifest.read(
                 root / "dataset.json",
+                readers=SourceAdapters(),
                 identity=manifest.identity,
                 partitions=root,
                 store=store,
@@ -168,7 +176,7 @@ def main() -> None:
             )
             == manifest
         )
-    print(f"Installed dataset identity consumer passed: {alpha_research.__file__}")
+    print(f"Installed dataset identity consumer passed: {market_data.__file__}")
 
 
 if __name__ == "__main__":

@@ -17,9 +17,9 @@ import duckdb
 import msgspec
 
 # project library imports
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.revisions import TradeRevision
-from alpha_research.serialization import DomainCodec
+from market_data.contracts import ArchiveTrade
+from market_data.validation import TradeRevision
+from serialization import DomainCodec
 
 
 def main() -> None:

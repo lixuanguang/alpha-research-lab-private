@@ -13,23 +13,17 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration, ResolvedManifest
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.quality import QualityPolicy
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import Correction, RevisionConflictError, TradeRevision
-from alpha_research.pipelines.dataset import (
-    admit_saved_trades,
-    iter_occurrences,
-    validate_saved_partition,
-)
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration, ResolvedManifest
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import ArchiveTrade, Occurrence, RawObject, SourceRequest
+from market_data.datasets import DatasetPublication
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import Correction, QualityPolicy, RevisionConflictError, TradeRevision
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -51,7 +45,9 @@ class TestPersistedOccurrences:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
-        return config.resolve("btc-archive", catalog)
+        return config.resolve(
+            "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
 
     @staticmethod
     def _save(
@@ -65,14 +61,14 @@ class TestPersistedOccurrences:
             member.compress_type = ZIP_DEFLATED
             with ZipFile(path, "w") as archive:
                 archive.writestr(member, content)
-            descriptor = RawObject.from_file(
+            descriptor = RawFiles.describe(
                 path,
-                request=request,
+                request=request.binding,
                 retrieval_reference="synthetic:mr09",
                 ts_received=datetime(2026, 9, 16, tzinfo=UTC),
                 ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
             )
-            RawStore(root).publish(path, descriptor=descriptor, request=request)
+            RawStore(root).publish(path, descriptor=descriptor, request=request.binding)
             descriptors.append(descriptor)
         state = AcquisitionManifest(run=run, completed=tuple(descriptors))
         state.save(root / "manifest.json")
@@ -88,19 +84,32 @@ class TestPersistedOccurrences:
         run = replace(run, job=replace(run.job, start=run.job.start + timedelta(minutes=1)))
         state = self._save(tmp_path, run, (before + inside + inside + endpoint,))
         store = RawStore(tmp_path)
-        occurrences = tuple(iter_occurrences(state, store, max_bytes=4096))
+        occurrences = tuple(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                state, store, max_bytes=4096
+            )
+        )
         assert [item.position for item in occurrences] == [1, 2]
         assert occurrences[0].raw == occurrences[1].raw == inside
         assert len({item.identity for item in occurrences}) == 2
         assert occurrences[0].event == occurrences[1].event
         reopened = AcquisitionManifest.read(tmp_path / "manifest.json", run=run, store=store)
-        assert tuple(iter_occurrences(reopened, store, max_bytes=4096)) == occurrences
+        assert (
+            tuple(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                    reopened, store, max_bytes=4096
+                )
+            )
+            == occurrences
+        )
         for item in occurrences:
             assert _CODEC.decode_json(_CODEC.encode_json(item), Occurrence) == item
             assert isinstance(item.event, ArchiveTrade)
             assert item.event.ts_knowledge is item.event.ts_source_received is None
             assert item.origin == state.completed[0]
-        with store.open(descriptor=state.completed[0], request=occurrences[0].request) as saved:
+        with store.open(
+            descriptor=state.completed[0], request=occurrences[0].request.binding
+        ) as saved:
             assert saved.read() == (tmp_path / "source.zip").read_bytes()
 
     def test_saved_duplicate_and_correction_admission(
@@ -110,7 +119,7 @@ class TestPersistedOccurrences:
         store = RawStore(tmp_path)
         first = self._save(tmp_path, run, (_FIRST,))
         shifted = self._save(tmp_path, run, (_SECOND + _FIRST,))
-        heads = admit_saved_trades(
+        heads = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).admit_trades(
             (first, shifted, first), store, max_bytes=4096, policy="reject", corrections=()
         )
         assert len(heads) == 2
@@ -118,7 +127,11 @@ class TestPersistedOccurrences:
         assert len(duplicate.occurrences) == 2
         assert {item.position for item in duplicate.occurrences} == {0, 1}
         revised = self._save(tmp_path, run, (_SECOND + _FIRST.replace(b"100.00", b"102.00"),))
-        changed = tuple(iter_occurrences(revised, store, max_bytes=4096))[1]
+        changed = tuple(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                revised, store, max_bytes=4096
+            )
+        )[1]
         evidence = Correction(
             supersedes=duplicate.identity,
             replacement=TradeRevision(occurrences=(changed,)).identity,
@@ -127,10 +140,12 @@ class TestPersistedOccurrences:
             evidence_reference="synthetic:mr10-saved-revision",
         )
         with pytest.raises(RevisionConflictError):
-            admit_saved_trades(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).admit_trades(
                 (first, shifted, revised), store, max_bytes=4096, policy="evidenced", corrections=()
             )
-        accepted = admit_saved_trades(
+        accepted = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).admit_trades(
             (first, shifted, revised),
             store,
             max_bytes=4096,
@@ -141,7 +156,7 @@ class TestPersistedOccurrences:
         assert current.previous == duplicate and current.ts_knowledge == evidence.ts_available
         assert _CODEC.decode_json(_CODEC.encode_json(current), TradeRevision) == current
         assert (
-            admit_saved_trades(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).admit_trades(
                 (revised, first, shifted),
                 store,
                 max_bytes=4096,
@@ -152,11 +167,11 @@ class TestPersistedOccurrences:
         )
         invalid = self._save(tmp_path, run, (_FIRST + _SECOND.replace(b"101.00", b"NaN"),))
         with pytest.raises(ValueError, match="row 1"):
-            admit_saved_trades(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).admit_trades(
                 (first, invalid), store, max_bytes=4096, policy="reject", corrections=()
             )
         with pytest.raises(FileNotFoundError, match="completion"):
-            admit_saved_trades(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).admit_trades(
                 (first, AcquisitionManifest(run=run)),
                 store,
                 max_bytes=4096,
@@ -176,9 +191,9 @@ class TestPersistedOccurrences:
             use="exploratory", known_at=run.job.start, max_gap=timedelta(minutes=5)
         )
         good = self._save(tmp_path, run, (_FIRST + _FIRST + _SECOND,))
-        accepted = validate_saved_partition(
-            good, store, max_bytes=4096, policy=policy, eligibility=history
-        )
+        accepted = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).validate_partition(good, store, max_bytes=4096, policy=policy, eligibility=history)
         assert (accepted.invalid_count, accepted.gap_count, accepted.duplicate_count) == (0, 1, 1)
         assert accepted.scope == "exploratory_degraded"
         canonical = accepted.require_canonical()
@@ -186,36 +201,38 @@ class TestPersistedOccurrences:
             bad = self._save(
                 tmp_path, run, (_FIRST + _SECOND.replace(b"101.00", invalid) + _FIRST,)
             )
-            rejected = validate_saved_partition(
-                bad, store, max_bytes=4096, policy=policy, eligibility=history
-            )
+            rejected = DatasetPublication(
+                SourceAdapters(), ImplementationIdentity.sha256()
+            ).validate_partition(bad, store, max_bytes=4096, policy=policy, eligibility=history)
             assert rejected.invalid_count == 1 and rejected.canonical is None
             assert "row 1" in " ".join(rejected.reasons)
             assert "unread remainder not validated" in " ".join(rejected.reasons)
             with pytest.raises(ValueError, match="publication refused"):
                 rejected.require_canonical()
             with store.open(
-                descriptor=bad.completed[0], request=SourceRequest.partition(run)[0]
+                descriptor=bad.completed[0], request=SourceRequest.partition(run)[0].binding
             ) as raw:
                 assert raw.read() == (tmp_path / "source.zip").read_bytes()
-        missing = validate_saved_partition(
+        missing = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).validate_partition(
             AcquisitionManifest(run=run), store, max_bytes=4096, policy=policy, eligibility=history
         )
         assert missing.invalid_count == 1 and missing.canonical is None
         assert "completion" in " ".join(missing.reasons)
         assert (
-            validate_saved_partition(
-                good, store, max_bytes=4096, policy=policy, eligibility=history
-            ).require_canonical()
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+            .validate_partition(good, store, max_bytes=4096, policy=policy, eligibility=history)
+            .require_canonical()
             == canonical
         )
         saved_path = tmp_path / good.completed[0].sha256
         saved_path.chmod(0o644)
         saved_path.write_bytes(b"mutated")
         assert (
-            validate_saved_partition(
-                good, store, max_bytes=4096, policy=policy, eligibility=history
-            ).canonical
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+            .validate_partition(good, store, max_bytes=4096, policy=policy, eligibility=history)
+            .canonical
             is None
         )
 
@@ -226,8 +243,16 @@ class TestPersistedOccurrences:
         first = self._save(tmp_path, run, (_FIRST,))
         second = self._save(tmp_path, run, (_FIRST + _SECOND,))
         store = RawStore(tmp_path)
-        a = next(iter_occurrences(first, store, max_bytes=4096))
-        b = next(iter_occurrences(second, store, max_bytes=4096))
+        a = next(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                first, store, max_bytes=4096
+            )
+        )
+        b = next(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                second, store, max_bytes=4096
+            )
+        )
         assert a.position == b.position == 0 and a.event == b.event
         assert a.identity != b.identity and a.message_identity != b.message_identity
         same_message = replace(a, record_index=1)
@@ -235,7 +260,11 @@ class TestPersistedOccurrences:
         assert same_message.identity != a.identity
         run = replace(run, instruments=run.catalog.instruments)
         both = self._save(tmp_path, run, (_FIRST, _FIRST))
-        bound = tuple(iter_occurrences(both, store, max_bytes=4096))
+        bound = tuple(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                both, store, max_bytes=4096
+            )
+        )
         assert bound[0].position == bound[1].position == 0
         assert bound[0].request.instrument.symbol == "BTCUSDT"
         assert bound[1].request.instrument.symbol == "ETHUSDT"
@@ -258,22 +287,43 @@ class TestPersistedOccurrences:
         """Keep absent input distinct from an empty archive and refuse incompatible adapters."""
         store = RawStore(tmp_path)
         with pytest.raises(FileNotFoundError, match="completion"):
-            tuple(iter_occurrences(AcquisitionManifest(run=run), store, max_bytes=4096))
+            tuple(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                    AcquisitionManifest(run=run), store, max_bytes=4096
+                )
+            )
         state = self._save(tmp_path, run, (b"",))
-        assert tuple(iter_occurrences(state, store, max_bytes=4096)) == ()
+        assert (
+            tuple(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                    state, store, max_bytes=4096
+                )
+            )
+            == ()
+        )
         config = Configuration.read(_ROOT / "configs/data-jobs/fixture-inspection.json")
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        fixture = config.resolve("btc-fixture", catalog)
+        fixture = config.resolve(
+            "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         tardis = replace(
             fixture, job=replace(fixture.job, mode="historical", pipeline="acquisition.fetch")
         )
         with pytest.raises(ValueError, match="Binance daily"):
-            tuple(iter_occurrences(AcquisitionManifest(run=tardis), store, max_bytes=4096))
+            tuple(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                    AcquisitionManifest(run=tardis), store, max_bytes=4096
+                )
+            )
         (tmp_path / state.completed[0].sha256).unlink()
         with pytest.raises(FileNotFoundError):
-            tuple(iter_occurrences(state, store, max_bytes=4096))
+            tuple(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                    state, store, max_bytes=4096
+                )
+            )
 
     def test_failures_outside_selection_and_iterator_recovery(
         self, tmp_path: Path, run: ResolvedManifest
@@ -282,29 +332,50 @@ class TestPersistedOccurrences:
         invalid = _SECOND.replace(b"1717200000000", b"1717203600000").replace(b"101.00", b"NaN")
         state = self._save(tmp_path, run, (_FIRST + invalid,))
         store = RawStore(tmp_path)
-        iterator = iter_occurrences(state, store, max_bytes=4096)
+        iterator = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).occurrences(state, store, max_bytes=4096)
         first = next(iterator)
         with pytest.raises(ValueError, match=r"row 1.*price must be finite"):
             next(iterator)
         iterator.close()
         valid = self._save(tmp_path, run, (_FIRST + _SECOND,))
-        iterator = iter_occurrences(valid, store, max_bytes=4096)
+        iterator = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).occurrences(valid, store, max_bytes=4096)
         assert next(iterator).event == first.event
         iterator.close()
-        assert len(tuple(iter_occurrences(valid, store, max_bytes=4096))) == 2
+        assert (
+            len(
+                tuple(
+                    DatasetPublication(
+                        SourceAdapters(), ImplementationIdentity.sha256()
+                    ).occurrences(valid, store, max_bytes=4096)
+                )
+            )
+            == 2
+        )
         path = tmp_path / valid.completed[0].sha256
         path.chmod(0o600)
         payload = path.read_bytes()
         path.write_bytes(bytes([payload[0] ^ 1]) + payload[1:])
         with pytest.raises(ValueError, match="SHA-256"):
-            next(iter_occurrences(valid, store, max_bytes=4096))
+            next(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                    valid, store, max_bytes=4096
+                )
+            )
 
     def test_envelope_constructor_wire_and_unsafe_metadata(
         self, tmp_path: Path, run: ResolvedManifest
     ) -> None:
         """Fail closed on schema, origin, sequence, raw bytes and unsafe event replacements."""
         state = self._save(tmp_path, run, (_FIRST,))
-        item = next(iter_occurrences(state, RawStore(tmp_path), max_bytes=4096))
+        item = next(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).occurrences(
+                state, RawStore(tmp_path), max_bytes=4096
+            )
+        )
         for field, value in (
             ("schema_version", "2"),
             ("position", True),

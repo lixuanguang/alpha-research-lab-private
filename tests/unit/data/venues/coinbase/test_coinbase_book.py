@@ -9,8 +9,8 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.live.config import CaptureConfig
-from alpha_research.data.venues.coinbase.book import CoinbaseBook
+from configuration import CaptureConfig
+from market_data.adapters.venues.coinbase import CoinbaseBook
 
 _ROOT = Path(__file__).parents[5]
 _SCHEMA = (

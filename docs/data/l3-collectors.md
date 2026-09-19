@@ -361,7 +361,7 @@ Both are required together. Publication uses the capture's existing byte budget,
 shared `QualityReport` gate and atomic `SnapshotStore`. A publication refusal does
 not remove the completed raw recording or its summary. Original raw configuration
 and capture serialization remain compatible. Saved-only publication and explicit
-book reopening are described in the [data guide](../../src/alpha_research/data/README.md#bounded-saved-books-mr-25).
+book reopening are described in the [data guide](../../src/market_data/README.md#bounded-saved-books-mr-25).
 
 The native OKX decoder now commits both sides of a message together: a malformed
 second side leaves the preceding state and source cursor intact. Native sequence
@@ -456,7 +456,7 @@ A divergent message leaves `first-divergence.json` beside the original raw objec
 with the first raw position and expected/observed states. No vendor download is
 used to replace the recording. Preserve these files together when diagnosing failure.
 
-The [book replay API](../../src/alpha_research/data/README.md#published-book-queries-and-shared-stepping-mr-27)
+The [book replay API](../../src/market_data/README.md#published-book-queries-and-shared-stepping-mr-27)
 queries atomic messages, schedules only known receipts, and restores the shared
 completed cursor together with accepted snapshot and recovery epoch in consumer state.
 The [capture notebook](../../examples/market-data-capture.ipynb) section 10 and

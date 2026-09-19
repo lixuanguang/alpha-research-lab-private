@@ -19,20 +19,20 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.book_datasets import (
+from configuration import CaptureConfig, OKXHistoryConfig
+from market_data.adapters.sources import SourceAdapters
+from market_data.adapters.venues.okx import OKXArchiveStore
+from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, OKXArchiveRequest
+from market_data.datasets import (
     BookDatasetManifest,
     BookHistory,
     BookInput,
-    BookObservation,
+    DatasetPublication,
+    SnapshotStore,
 )
-from alpha_research.data.live.config import CaptureConfig, CaptureRequest
-from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.data.venues.okx.history_config import OKXArchiveRequest, OKXHistoryConfig
-from alpha_research.data.venues.okx.history_store import OKXArchiveStore
-from alpha_research.pipelines.dataset import publish_book_dataset
-from alpha_research.serialization import DomainCodec
+from market_data.storage import CaptureJournal, RawStore
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -162,13 +162,17 @@ class TestBookDatasets:
         raw.mkdir()
         snapshots.mkdir()
         inputs = (live, archive)
-        identity = publish_book_dataset(
-            inputs, RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
+        identity = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).publish_books(inputs, RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT)
+        store = SnapshotStore(
+            snapshots, RawStore(raw), readers=SourceAdapters(), manifest_type=BookDatasetManifest
         )
-        store = SnapshotStore(snapshots, RawStore(raw), manifest_type=BookDatasetManifest)
         manifest = store.read(identity, max_bytes=_LIMIT)
         assert (
-            publish_book_dataset(inputs, RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT)
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
+                inputs, RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
+            )
             == identity
         )
         observed = self._observations(snapshots, manifest)
@@ -184,13 +188,15 @@ class TestBookDatasets:
             for row in historical
         )
         assert historical[0].bids[0][1].size == 2 and historical[1].bids == ()
-        changed = publish_book_dataset(
-            inputs, RawStore(raw), snapshots, max_records=4, max_bytes=_LIMIT
-        )
+        changed = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).publish_books(inputs, RawStore(raw), snapshots, max_records=4, max_bytes=_LIMIT)
         assert changed != identity
         assert store.read(identity, max_bytes=_LIMIT) == manifest
         with pytest.raises(ValueError):
-            SnapshotStore(snapshots, RawStore(raw)).read(identity, max_bytes=_LIMIT)
+            SnapshotStore(snapshots, RawStore(raw), readers=SourceAdapters()).read(
+                identity, max_bytes=_LIMIT
+            )
 
     def test_invalid_input_and_failed_publication_preserve_prior(self, tmp_path: Path) -> None:
         """No malformed or partially staged book history can become a visible snapshot."""
@@ -198,34 +204,39 @@ class TestBookDatasets:
         raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw.mkdir()
         snapshots.mkdir()
-        identity = publish_book_dataset(
-            (live,), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
-        )
+        identity = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).publish_books((live,), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT)
         invalid = self._capture(tmp_path / "bad", invalid=True)
         with pytest.raises(ValueError, match="publication refused"):
-            publish_book_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
                 (invalid,), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
             )
-        with patch("alpha_research.data.snapshots.os.rename", side_effect=OSError("interrupted")):
+        with patch("market_data.datasets.snapshots.os.rename", side_effect=OSError("interrupted")):
             with pytest.raises(OSError, match="interrupted"):
-                publish_book_dataset(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
                     (live,), RawStore(raw), snapshots, max_records=4, max_bytes=_LIMIT
                 )
         assert [path.name for path in snapshots.iterdir()] == [identity]
         selected = BookInput.read(live, max_records=64)
-        assert selected.admit(RawStore(raw), max_bytes=1).scope == "rejected"
+        assert (
+            selected.admit(RawStore(raw), readers=SourceAdapters(), max_bytes=1).scope == "rejected"
+        )
         with pytest.raises(ValueError, match="bounded prefix"):
             replace(selected, max_records=0)
         with pytest.raises(ValueError, match="duplicate book"):
-            publish_book_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
                 (live, live), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
             )
         (raw / selected.raw.sha256).chmod(0o644)
         (raw / selected.raw.sha256).write_bytes(b"corrupt")
         with pytest.raises(ValueError):
-            SnapshotStore(snapshots, RawStore(raw), manifest_type=BookDatasetManifest).read(
-                identity, max_bytes=_LIMIT
-            )
+            SnapshotStore(
+                snapshots,
+                RawStore(raw),
+                readers=SourceAdapters(),
+                manifest_type=BookDatasetManifest,
+            ).read(identity, max_bytes=_LIMIT)
 
     @pytest.mark.integration
     def test_installed_book_consumer(self, tmp_path: Path) -> None:

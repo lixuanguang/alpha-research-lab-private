@@ -15,18 +15,11 @@ from test_asof import TestAsOfSelector as _Scenario
 from test_query import TestQueryReader as _QueryScenario
 
 # project library imports
-from alpha_research.data.eda import EdaQuery, QuerySummary
-from alpha_research.data.query import QueryBatch, QueryMarketRow
-from alpha_research.financial_units import (
-    Dimension,
-    Multiplier,
-    Price,
-    Quantity,
-    QuantityKind,
-    UnitError,
-)
-from alpha_research.instrument_identity import InstrumentId, InstrumentIdentity, InstrumentKind
-from alpha_research.serialization import DomainCodec
+from financial_units import Dimension, Multiplier, Price, Quantity, QuantityKind, UnitError
+from market_data.query import QueryBatch, QueryMarketRow
+from reference_data.instruments import InstrumentId, InstrumentIdentity, InstrumentKind
+from research.exploration import EdaQuery, QuerySummary
+from serialization import DomainCodec
 
 
 class TestEda:

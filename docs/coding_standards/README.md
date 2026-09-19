@@ -335,8 +335,12 @@ between groups:
 
 `__future__` imports form their own group immediately after the module
 docstring, with a blank line before and after it. Standard-library, third-party,
-and project groups must occur in that order. `alpha_research` and
-`alpha_research_governance` are project imports. Apply the same headings,
+and project groups must occur in that order. `applications`, `configuration`,
+`financial_units`, `market_data`, `reference_data`, `research`, `runtime`,
+`serialization`, `telemetry` and `alpha_research_governance` are project imports.
+Runtime cross-owner imports use the owner's explicit `__init__.py` API. The
+engineering checker rejects retired `alpha_research` imports, forbidden dependency
+directions, private implementation access and extra command entrypoints. Apply the same headings,
 ordering, and separation to relative imports, imports inside `TYPE_CHECKING`,
 and nested import blocks. Do not add a heading for an empty category.
 

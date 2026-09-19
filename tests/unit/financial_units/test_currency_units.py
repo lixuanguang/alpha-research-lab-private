@@ -14,7 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 # project library imports
-from alpha_research.financial_units import (
+from financial_units import (
     Currency,
     Dimension,
     FXRate,
@@ -25,8 +25,8 @@ from alpha_research.financial_units import (
     Rounding,
     UnitError,
 )
-from alpha_research.financial_units.models import _FinancialUnitModel
-from alpha_research.instrument_identity import InstrumentId
+from financial_units.models import _FinancialUnitModel
+from reference_data.instruments import InstrumentId
 
 
 class _CurrencyDefinition(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -38,11 +38,7 @@ class _CurrencyDefinition(msgspec.Struct, frozen=True, forbid_unknown_fields=Tru
 
 def _packaged_currency_definitions() -> tuple[_CurrencyDefinition, ...]:
     """Read all currency defaults through the packaged, typed configuration."""
-    payload = (
-        resources.files("alpha_research.financial_units")
-        .joinpath("default_currencies.json")
-        .read_bytes()
-    )
+    payload = resources.files("financial_units").joinpath("default_currencies.json").read_bytes()
     return msgspec.json.decode(
         payload,
         type=tuple[_CurrencyDefinition, ...],

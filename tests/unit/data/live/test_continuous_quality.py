@@ -7,10 +7,11 @@ from pathlib import Path
 import pytest
 
 # project library imports
-from alpha_research.data.live.config import CaptureConfig
-from alpha_research.data.live.journal import CaptureRecord
-from alpha_research.data.live.quality import ContinuousQuality
-from alpha_research.data.live.replay import CaptureReplay
+from configuration import CaptureConfig
+from market_data.adapters.sources import BookAdapters
+from market_data.books import CaptureReplay
+from market_data.contracts import CaptureRecord
+from market_data.validation import ContinuousQuality
 
 _ROOT = Path(__file__).parents[4]
 
@@ -80,7 +81,7 @@ class TestContinuousQuality:
     def test_coinbase_buffered_source_stays_stale_after_snapshot_receipt(self) -> None:
         """Replay keeps an old buffered market clock instead of freshening from REST receipt."""
         config = CaptureConfig.read(_ROOT / "configs/live/coinbase-btc-usd.json")
-        replay = CaptureReplay(config)
+        replay = CaptureReplay(config, book_factory=BookAdapters.create)
         receipt_ns = 2_000_000_000_000_000_000
         source_time = "2033-05-18T03:33:20.000000001Z"
         replay.apply(CaptureRecord(kind="session", epoch=0, received_ns=receipt_ns))

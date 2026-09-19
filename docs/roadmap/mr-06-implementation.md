@@ -10,16 +10,16 @@ MR 05's permitted-source and historical-evidence boundaries remain open.
 ## Problem / change
 
 One-partition acquisition could leave published bytes without a saved completion.
-[`acquire`](../../src/alpha_research/pipelines/acquisition.py) now validates a saved
+[`acquire`](../../src/applications/acquire/workflow.py) now validates a saved
 manifest, verifies the entire completed prefix, selects remaining partitions
 sequentially, and applies bounded backoff only to classified transient transport
-failures. [`AcquisitionManifest`](../../src/alpha_research/data/manifests.py) owns
+failures. [`AcquisitionManifest`](../../src/market_data/acquisition/manifests.py) owns
 strict input/checkpoint validation and atomic durable file replacement. It persists
 a receipt before raw publication; the pipeline appends a completion afterward.
 A fresh process reuses pending published bytes and skips completed requests.
 Missing or changed completed objects fail before another source access.
 
-The [component contract](../../src/alpha_research/data/README.md#sequential-acquisition-and-resume)
+The [component contract](../../src/market_data/README.md#sequential-acquisition-and-resume)
 owns caller inputs, state lifetime, retry classification and clock semantics.
 The manifest retains the expected resolved job/catalog/code identity, an ordered
 completion prefix and at most one pending receipt. Completed clocks remain fixed.

@@ -12,13 +12,14 @@ from msgspec.structs import force_setattr, replace
 from test_book_datasets import TestBookDatasets as _Inputs
 
 # project library imports
-from alpha_research.data.book_datasets import BookCapture, BookHistory, BookInput, BookObservation
-from alpha_research.data.book_replay import BookReplay
-from alpha_research.data.live.journal import CaptureJournal
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.replay import ReplayCursor, ReplayPhase
-from alpha_research.pipelines.dataset import publish_book_dataset
-from alpha_research.serialization import DomainCodec
+from market_data.adapters.sources import BookAdapters, SourceAdapters
+from market_data.collection import BookCapture
+from market_data.contracts import BookObservation
+from market_data.datasets import BookHistory, BookInput, DatasetPublication
+from market_data.replay import BookReplay, ReplayCursor, ReplayPhase
+from market_data.storage import CaptureJournal, RawStore
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _CODEC = DomainCodec()
 _END = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(seconds=1)
@@ -63,7 +64,7 @@ class TestBookReplay:
         root = _Inputs._capture(tmp_path / "capture", gap=True)
         payload = (
             BookInput.read(root, max_records=32)
-            .admit(RawStore(root), max_bytes=_LIMIT)
+            .admit(RawStore(root), readers=SourceAdapters(), max_bytes=_LIMIT)
             .require_canonical()
         )
         engine, view = self._engine(payload), _View()
@@ -106,13 +107,14 @@ class TestBookReplay:
         raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw.mkdir()
         snapshots.mkdir()
-        identity = publish_book_dataset(
-            (source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT
-        )
+        identity = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).publish_books((source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT)
         selected = BookInput.read(source, max_records=32)
         engine = BookReplay.read(
             snapshots,
             RawStore(raw),
+            readers=SourceAdapters(),
             identity=identity,
             request_identity=selected.request.identity,
             terminal=_END,
@@ -127,7 +129,9 @@ class TestBookReplay:
             pass
         assert view.rows == [] and len(view.phases) == 4
         assert engine.cursor is not None and engine.cursor.position is None
-        payload = selected.admit(RawStore(raw), max_bytes=_LIMIT).require_canonical()
+        payload = selected.admit(
+            RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT
+        ).require_canonical()
         history = _CODEC.decode_json(payload, BookHistory)
         with pytest.raises(ValueError, match="cannot invent"):
             replace(history, observations=(replace(history.observations[0], received_ns=1),))
@@ -144,6 +148,7 @@ class TestBookReplay:
             BookReplay.read(
                 snapshots,
                 RawStore(raw),
+                readers=SourceAdapters(),
                 identity=identity,
                 request_identity=selected.request.identity,
                 terminal=_END,
@@ -157,7 +162,9 @@ class TestBookReplay:
         root = _Inputs._capture(tmp_path / "capture")
         selected = BookInput.read(root, max_records=32)
         assert selected.capture is not None
-        captured = BookCapture(selected.capture.config, 32)
+        captured = BookCapture(
+            selected.capture.config, 32, readers=SourceAdapters(), book_factory=BookAdapters.create
+        )
         for index, record in enumerate(CaptureJournal(root, selected.capture).records()):
             changed = (
                 replace(record, raw=record.raw.replace(b"0.300000000000000001", b"0.4"))
@@ -176,7 +183,7 @@ class TestBookReplay:
         root = _Inputs._capture(tmp_path / "capture")
         payload = (
             BookInput.read(root, max_records=32)
-            .admit(RawStore(root), max_bytes=_LIMIT)
+            .admit(RawStore(root), readers=SourceAdapters(), max_bytes=_LIMIT)
             .require_canonical()
         )
         engine = self._engine(payload)

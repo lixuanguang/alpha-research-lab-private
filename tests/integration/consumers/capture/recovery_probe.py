@@ -12,13 +12,17 @@ from pathlib import Path
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.data.book_datasets import BookCapture, BookInput
-from alpha_research.data.live.config import CaptureConfig, CaptureRequest
-from alpha_research.data.live.journal import CaptureJournal
-from alpha_research.data.live.replay import CaptureReplay
-from alpha_research.data.live.transport import FeedSocket, VenueTransport
-from alpha_research.pipelines.live import InstalledIdentity, collect
-from alpha_research.serialization import DomainCodec
+from applications.collect import collect
+from configuration import CaptureConfig
+from market_data.adapters.sources import BookAdapters, SourceAdapters
+from market_data.adapters.transport import VenueTransport
+from market_data.books import CaptureReplay
+from market_data.collection import BookCapture
+from market_data.contracts import CaptureRequest, FeedSocket
+from market_data.datasets import BookInput
+from market_data.storage import CaptureJournal
+from runtime import InstalledIdentity
+from serialization import DomainCodec
 
 
 class _Socket:
@@ -65,7 +69,7 @@ def main() -> None:
     codec = DomainCodec()
     request = codec.decode_json((source / "request.json").read_bytes(), CaptureRequest)
     assert request.config.venue == "bitfinex"
-    replay, frames = CaptureReplay(request.config), []
+    replay, frames = CaptureReplay(request.config, book_factory=BookAdapters.create), []
     for record in CaptureJournal(source, request).records():
         outcome = replay.apply(record)
         if record.kind == "frame":
@@ -90,7 +94,9 @@ def main() -> None:
     # Corrupt only the experimental live-side receipt to prove first-event diagnosis.
     selected = BookInput.read(source, max_records=32)
     assert selected.capture is not None
-    changed = BookCapture(selected.capture.config, 32)
+    changed = BookCapture(
+        selected.capture.config, 32, readers=SourceAdapters(), book_factory=BookAdapters.create
+    )
     changed_root = output / "divergence"
     changed_root.mkdir()
     for name in ("request.json", "manifest.json", selected.raw.sha256):

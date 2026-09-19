@@ -14,10 +14,12 @@ import pytest
 from msgspec.structs import force_setattr, replace
 
 # project library imports
-from alpha_research.data.live.config import CaptureConfig, CaptureRequest
-from alpha_research.data.live.journal import CaptureCursor, CaptureJournal, CaptureRecord
-from alpha_research.data.live.replay import CaptureReplay
-from alpha_research.serialization import DomainCodec
+from configuration import CaptureConfig
+from market_data.adapters.sources import BookAdapters
+from market_data.contracts import CaptureCursor, CaptureRecord, CaptureRequest
+from market_data.replay import SavedCapture
+from market_data.storage import CaptureJournal
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[4]
 _SESSION = CaptureRecord(kind="session", epoch=0, received_ns=1789663921432175123)
@@ -74,7 +76,7 @@ class TestCaptureJournal:
         journal.append(_SESSION)
         failures: list[OSError | None] = [None] * (sync_number - 1)
         failures.append(OSError("disk full"))
-        with patch("alpha_research.data.live.journal.os.fsync", side_effect=failures):
+        with patch("market_data.storage.journal.os.fsync", side_effect=failures):
             with pytest.raises(OSError, match="disk full"):
                 journal.append(_FRAME)
         assert not (journal.root / "manifest.json").exists()
@@ -86,15 +88,15 @@ class TestCaptureJournal:
         # Rename may already expose the new cursor only after journal fsync succeeded.
         assert records[:-1] == ([_SESSION, _FRAME] if sync_number == 4 else [_SESSION])
         assert records[-1].reason == "interrupted_persistence_unknown_tail"
-        assert CaptureReplay.read(journal.root, completed=False).invalid
+        assert SavedCapture.read(
+            journal.root, book_factory=BookAdapters.create, completed=False
+        ).invalid
 
     def test_failed_cursor_rename(self, tmp_path: Path) -> None:
         """Complete unacknowledged JSON lines remain excluded by the preceding cursor."""
         journal = self.journal(tmp_path / "capture")
         journal.append(_SESSION)
-        with patch(
-            "alpha_research.data.live.journal.os.replace", side_effect=OSError("rename failed")
-        ):
+        with patch("market_data.storage.journal.os.replace", side_effect=OSError("rename failed")):
             with pytest.raises(OSError, match="rename failed"):
                 journal.append(_FRAME)
         assert list(journal.records(completed=False))[:-1] == [_SESSION]
@@ -149,7 +151,7 @@ class TestCaptureJournal:
         if with_end:
             journal.append(_SESSION)
             journal.append(CaptureRecord(kind="end", epoch=0, received_ns=_SESSION.received_ns))
-        replay = CaptureReplay.read(journal.root, completed=False)
+        replay = SavedCapture.read(journal.root, book_factory=BookAdapters.create, completed=False)
         assert not replay.ended and replay.invalid and replay.gaps
 
     def test_legacy_completed_and_interrupted_reading(self, tmp_path: Path) -> None:
@@ -160,8 +162,10 @@ class TestCaptureJournal:
         journal.append(CaptureRecord(kind="end", epoch=0, received_ns=_FRAME.received_ns))
         journal.finish(_SESSION.received_ns)
         (journal.root / "cursor.json").unlink()
-        assert CaptureReplay.read(journal.root).messages == 1
-        assert CaptureReplay.read(journal.root, completed=False).invalid
+        assert SavedCapture.read(journal.root, book_factory=BookAdapters.create).messages == 1
+        assert SavedCapture.read(
+            journal.root, book_factory=BookAdapters.create, completed=False
+        ).invalid
 
     def test_process_death(self, tmp_path: Path) -> None:
         """Kill a child after acknowledgement and an unsynced tail; retain exactly the cursor."""
@@ -170,9 +174,9 @@ class TestCaptureJournal:
         code = """
 import os, signal, sys
 from pathlib import Path
-from alpha_research.data.live.config import CaptureRequest
-from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
-from alpha_research.serialization import DomainCodec
+from market_data.contracts import CaptureRequest, CaptureRecord
+from market_data.storage import CaptureJournal
+from serialization import DomainCodec
 root = Path(sys.argv[1])
 request = DomainCodec().decode_json(Path(sys.argv[2]).read_bytes(), CaptureRequest)
 journal = CaptureJournal(root, request)
@@ -198,7 +202,9 @@ os.kill(os.getpid(), signal.SIGKILL)
         assert result.returncode == -9
         child = CaptureJournal(tmp_path / "child", journal.request)
         assert list(child.records(completed=False))[:-1] == [_SESSION]
-        assert CaptureReplay.read(child.root, completed=False).invalid
+        assert SavedCapture.read(
+            child.root, book_factory=BookAdapters.create, completed=False
+        ).invalid
         assert not (child.root / "manifest.json").exists()
 
     @pytest.mark.parametrize(
@@ -271,4 +277,6 @@ os.kill(os.getpid(), signal.SIGKILL)
             journal.start()
         with pytest.raises(OSError, match="not active"):
             journal.append(_SESSION)
-        assert CaptureReplay.read(journal.root, completed=False).invalid
+        assert SavedCapture.read(
+            journal.root, book_factory=BookAdapters.create, completed=False
+        ).invalid

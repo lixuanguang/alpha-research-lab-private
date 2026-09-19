@@ -19,6 +19,7 @@ from alpha_research_governance.engineering_standards.python_standards import (
     DEFAULT_SOURCE_ROOTS,
     PythonStandardsChecker,
 )
+from alpha_research_governance.engineering_standards.source_layout import SourceLayoutChecker
 
 
 class EngineeringStandardsError(ValueError):
@@ -235,6 +236,7 @@ def validate_repository(
     """
     findings = (
         *tooling_configuration_findings(repository_root),
+        *SourceLayoutChecker.findings(repository_root),
         *source_tree_findings(
             repository_root,
             source_roots=source_roots,

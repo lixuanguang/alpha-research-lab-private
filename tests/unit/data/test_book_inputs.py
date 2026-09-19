@@ -5,11 +5,12 @@ from decimal import Decimal
 from pathlib import Path
 
 # project library imports
-from alpha_research.data.book_datasets import BookHistory, BookInput
-from alpha_research.data.live.config import CaptureConfig, CaptureRequest
-from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
-from alpha_research.data.raw_store import RawStore
-from alpha_research.serialization import DomainCodec
+from configuration import CaptureConfig
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import CaptureRecord, CaptureRequest
+from market_data.datasets import BookHistory, BookInput
+from market_data.storage import CaptureJournal, RawStore
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -75,7 +76,9 @@ class TestBookInputs:
         ):
             journal.append(record)
         journal.finish(1)
-        report = BookInput.read(root, max_records=32).admit(RawStore(root), max_bytes=_LIMIT)
+        report = BookInput.read(root, max_records=32).admit(
+            RawStore(root), readers=SourceAdapters(), max_bytes=_LIMIT
+        )
         history = _CODEC.decode_json(report.require_canonical(), BookHistory)
         match = history.observations[-3]
         assert match.orders[0].order_id == "maker"

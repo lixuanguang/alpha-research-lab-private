@@ -11,16 +11,14 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.events import Disconnect
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.providers.tardis.decoder import TardisDecoder
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.venues.binance.events import Trade
-from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.adapters.providers.tardis import TardisDecoder
+from market_data.adapters.venues.binance import BinancePayloadDecoder
+from market_data.contracts import Disconnect, Occurrence, SourceRequest, Trade
+from market_data.storage import RawFiles
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -32,9 +30,9 @@ class TestCapturedOccurrences:
     @staticmethod
     def _bind(request: SourceRequest, path: Path) -> Occurrence:
         """Bind a saved single line using its actual bytes and retained receipt clocks."""
-        origin = RawObject.from_file(
+        origin = RawFiles.describe(
             path,
-            request=request,
+            request=request.binding,
             retrieval_reference="synthetic:mr09-captured",
             ts_received=datetime(2026, 9, 16, tzinfo=UTC),
             ts_ingested=datetime(2026, 9, 16, tzinfo=UTC),
@@ -65,7 +63,11 @@ class TestCapturedOccurrences:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        return SourceRequest.partition(config.resolve("both-fixture", catalog))[:2]
+        return SourceRequest.partition(
+            config.resolve(
+                "both-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[:2]
 
     def test_controls_scope_identical_bytes_and_sequence_zero(
         self, tmp_path: Path, requests: tuple[SourceRequest, ...]

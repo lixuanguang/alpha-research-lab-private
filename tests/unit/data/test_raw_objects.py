@@ -14,11 +14,12 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.requests import SourceRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.contracts import RawObject, SourceRequest
+from market_data.storage import RawFiles
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -40,7 +41,11 @@ class TestRawObject:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        return SourceRequest.partition(configuration.resolve("both-fixture", catalog))[0]
+        return SourceRequest.partition(
+            configuration.resolve(
+                "both-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[0]
 
     @pytest.fixture()
     def raw_object(self, tmp_path: Path, source_request: SourceRequest) -> RawObject:
@@ -55,9 +60,9 @@ class TestRawObject:
         """
         path = tmp_path / "saved.bin"
         path.write_bytes(b"abc")
-        return RawObject.from_file(
+        return RawFiles.describe(
             path,
-            request=source_request,
+            request=source_request.binding,
             retrieval_reference="synthetic:raw-object-v1",
             ts_received=_RECEIVED,
             ts_ingested=_INGESTED,
@@ -76,7 +81,10 @@ class TestRawObject:
         restored = _CODEC.decode_json(encoded, RawObject)
         assert restored == raw_object
         for _ in range(2):
-            assert restored.verify(tmp_path / "saved.bin", request=source_request) is restored
+            assert (
+                RawFiles.verify(restored, tmp_path / "saved.bin", request=source_request.binding)
+                is restored
+            )
         assert restored.ts_received == _RECEIVED
         assert restored.ts_ingested == _INGESTED
         assert restored.retrieval_reference == "synthetic:raw-object-v1"
@@ -92,9 +100,9 @@ class TestRawObject:
         compressed = gzip.compress(payload, mtime=0)
         path = tmp_path / "saved.gz"
         path.write_bytes(compressed)
-        descriptor = RawObject.from_file(
+        descriptor = RawFiles.describe(
             path,
-            request=source_request,
+            request=source_request.binding,
             retrieval_reference="synthetic:gzip-fixture-v1",
             ts_received=_RECEIVED,
             ts_ingested=_INGESTED,
@@ -102,12 +110,12 @@ class TestRawObject:
         assert descriptor.sha256 == hashlib.sha256(compressed).hexdigest()
         assert descriptor.sha256 != hashlib.sha256(payload).hexdigest()
         assert descriptor.size_bytes == len(compressed)
-        descriptor.verify(path, request=source_request)
+        RawFiles.verify(descriptor, path, request=source_request.binding)
         changed_header = compressed[:4] + b"\x01" + compressed[5:]
         assert gzip.decompress(changed_header) == payload
         path.write_bytes(changed_header)
         with pytest.raises(ValueError, match="SHA-256 mismatch"):
-            descriptor.verify(path, request=source_request)
+            RawFiles.verify(descriptor, path, request=source_request.binding)
 
     @pytest.mark.parametrize(
         ("payload", "message"),
@@ -125,9 +133,9 @@ class TestRawObject:
         path = tmp_path / "saved.bin"
         path.write_bytes(payload)
         with pytest.raises(ValueError, match=message):
-            raw_object.verify(path, request=source_request)
+            RawFiles.verify(raw_object, path, request=source_request.binding)
         path.write_bytes(b"abc")
-        assert raw_object.verify(path, request=source_request) is raw_object
+        assert RawFiles.verify(raw_object, path, request=source_request.binding) is raw_object
 
     def test_wrong_request_fails_before_file_access(
         self, tmp_path: Path, source_request: SourceRequest, raw_object: RawObject
@@ -147,14 +155,14 @@ class TestRawObject:
         for other in other_requests:
             for path in (tmp_path / "saved.bin", tmp_path / "absent.bin"):
                 with pytest.raises(ValueError, match="request identity mismatch"):
-                    raw_object.verify(path, request=other)
+                    RawFiles.verify(raw_object, path, request=other.binding)
         renamed = replace(
             source_request,
             manifest=replace(
                 source_request.manifest, job=replace(source_request.manifest.job, name="renamed")
             ),
         )
-        raw_object.verify(tmp_path / "saved.bin", request=renamed)
+        RawFiles.verify(raw_object, tmp_path / "saved.bin", request=renamed.binding)
 
     @pytest.mark.parametrize(
         "payload", [b"", b"\x00\xff\r\n" * 262_145], ids=["empty", "multiple-chunks"]
@@ -165,16 +173,16 @@ class TestRawObject:
         """Count all bytes across a read boundary without text or compression assumptions."""
         path = tmp_path / "binary"
         path.write_bytes(payload)
-        descriptor = RawObject.from_file(
+        descriptor = RawFiles.describe(
             path,
-            request=source_request,
+            request=source_request.binding,
             retrieval_reference="synthetic:binary",
             ts_received=_RECEIVED,
             ts_ingested=_RECEIVED,
         )
         assert descriptor.size_bytes == len(payload)
         assert descriptor.sha256 == hashlib.sha256(payload).hexdigest()
-        descriptor.verify(path, request=source_request)
+        RawFiles.verify(descriptor, path, request=source_request.binding)
 
     @pytest.mark.parametrize(
         ("field", "value", "message"),
@@ -212,7 +220,7 @@ class TestRawObject:
             replace(raw_object, **{field: value})
         msgspec.structs.force_setattr(raw_object, field, value)
         with pytest.raises(ValueError, match=message):
-            raw_object.verify(tmp_path / "absent.bin", request=source_request)
+            RawFiles.verify(raw_object, tmp_path / "absent.bin", request=source_request.binding)
 
     @pytest.mark.parametrize(
         ("before", "after"),
@@ -241,14 +249,14 @@ class TestRawObject:
     ) -> None:
         """Propagate actionable local I/O errors and reject tampered request invariants."""
         with pytest.raises(FileNotFoundError):
-            raw_object.verify(tmp_path / "absent.bin", request=source_request)
+            RawFiles.verify(raw_object, tmp_path / "absent.bin", request=source_request.binding)
         msgspec.structs.force_setattr(source_request, "offset_minutes", True)
         with pytest.raises(ValueError, match="offset"):
-            raw_object.verify(tmp_path / "saved.bin", request=source_request)
+            RawFiles.verify(raw_object, tmp_path / "saved.bin", request=source_request.binding)
         with pytest.raises(ValueError, match="offset"):
-            RawObject.from_file(
+            RawFiles.describe(
                 tmp_path / "absent.bin",
-                request=source_request,
+                request=source_request.binding,
                 retrieval_reference="synthetic:invalid-request",
                 ts_received=_RECEIVED,
                 ts_ingested=_INGESTED,

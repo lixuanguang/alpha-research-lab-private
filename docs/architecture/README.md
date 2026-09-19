@@ -32,15 +32,16 @@ cadences. Shared economic semantics are canonical; strategy variants, asset
 mechanics, storage, and computation lanes remain separate until a consumer or
 measured workload justifies a shared boundary.
 
-The current runtime still ships under `src/alpha_research/`. The selected
-[functional source layout](platform-design.md#current-and-planned-repository-shape)
-replaces that umbrella with purpose-named packages directly under `src/`, plus
-`applications/` for executable workflow composition. The
-[MR 28 refactoring plan](../roadmap/source-layout-refactor.md) owns the current-file
-mapping, dependency repairs, coordinated import/packaging cutover and acceptance;
-the [roadmap](../roadmap/README.md#functional-source-ownership-from-mr-28)
-assigns owners to each MR from 28 through 62. This documentation selects the
-target; it does not change the current imports and commands described below.
+The current runtime ships functional packages directly under `src/`, with
+`applications/` owning executable workflow composition. MR 28 stages 1–3 retire
+the `alpha_research` import namespace and migrate the installed commands together.
+The [source-layout record](../roadmap/source-layout-refactor.md) gives the file
+mapping, dependency repairs, identity changes and validation evidence. Each library
+has one explicit public `__init__.py`; applications select adapters and inject
+reader, verifier and book-construction capabilities. Shared libraries never import
+applications or select source factories. Historical feature work remains separate.
+The [roadmap](../roadmap/README.md#functional-source-ownership-from-mr-28) assigns
+owners to subsequent work.
 
 ## Current boundary
 
@@ -121,9 +122,9 @@ interfaces will use versioned schemas when such a boundary is introduced.
 
 This graph focuses on the foundations retained after
 [C0](../roadmap/README.md#existing-abstractions-to-retain-or-retire).
-The [dataset pipeline](../../src/alpha_research/pipelines/dataset.py) composes
+The [dataset pipeline](../../src/market_data/datasets/publication.py) composes
 decoders and the saved-input validation/publication libraries. The
-[data library guide](../../src/alpha_research/data/README.md) describes those consumers.
+[data library guide](../../src/market_data/README.md) describes those consumers.
 
 ## Implemented domain contracts
 

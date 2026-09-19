@@ -4,9 +4,10 @@
 from pathlib import Path
 
 # project library imports
-from alpha_research.data.live.config import CaptureConfig
-from alpha_research.data.live.journal import CaptureRecord
-from alpha_research.data.live.replay import CaptureReplay
+from configuration import CaptureConfig
+from market_data.adapters.sources import BookAdapters
+from market_data.books import CaptureReplay
+from market_data.contracts import CaptureRecord
 
 _ROOT = Path(__file__).parents[4]
 
@@ -17,7 +18,7 @@ class TestCaptureReplay:
     def test_replay_requires_fresh_snapshot_after_gap(self) -> None:
         """Invalid data stays unusable until a new epoch is acknowledged and snapshotted."""
         config = CaptureConfig.read(_ROOT / "configs/live/bitfinex-btc-usd.json")
-        replay = CaptureReplay(config)
+        replay = CaptureReplay(config, book_factory=BookAdapters.create)
         for epoch in (0, 1):
             replay.apply(CaptureRecord(kind="session", epoch=epoch, received_ns=1 + epoch * 10))
             for raw in (

@@ -8,16 +8,16 @@ was supplied, so no source-data request was made. This record covers MR 05 only.
 ## Problem / change
 
 The existing request, descriptor and durable store did not have a fetch consumer.
-[`fetch_partition`](../../src/alpha_research/pipelines/acquisition.py) now composes
+[`fetch_partition`](../../src/applications/acquire/workflow.py) now composes
 an explicitly supplied HTTP connection and UTC clock with
-[`TardisTransport`](../../src/alpha_research/data/providers/tardis/transport.py),
+[`TardisTransport`](../../src/market_data/adapters/providers/tardis/transport.py),
 `RawObject` and `RawStore`. One selected instrument/minute produces exact retained
 gzip bytes, an immutable descriptor, and run/partition progress. `stored` is emitted
 only after verified durable publication. Failures emit their stage and error type;
 HTTP bodies and credentials are excluded. Original source clocks remain in the raw
 frames; local receipt and post-publication ingestion clocks are recorded separately.
 
-The [component guide](../../src/alpha_research/data/README.md#one-partition-acquisition)
+The [component guide](../../src/market_data/README.md#one-partition-acquisition)
 owns the callable inputs, HTTP/gzip checks, lifetime and failure semantics.
 Configuration now admits the paired `historical` / `acquisition.fetch` capability
 with its first consumer. Existing fixture jobs remain unchanged; the fixture

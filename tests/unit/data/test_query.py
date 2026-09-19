@@ -14,11 +14,10 @@ from msgspec.structs import force_setattr
 from test_asof import TestAsOfSelector as _Scenario
 
 # project library imports
-from alpha_research.data.asof import AsOfSelector
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.query import QueryBatch, QueryColumn, QueryMarketRow, QueryReader
-from alpha_research.data.revisions import TradeRevision
-from alpha_research.data.venues.binance.events import Trade
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import Occurrence, Trade
+from market_data.query import AsOfSelector, QueryBatch, QueryColumn, QueryMarketRow, QueryReader
+from market_data.validation import TradeRevision
 
 
 class TestQueryReader:
@@ -43,7 +42,12 @@ class TestQueryReader:
                 )
             )
             precedence.append(fixture._binding(request))
-        return QueryReader(tuple(payloads), precedence=tuple(precedence), max_bytes=262_144)
+        return QueryReader(
+            tuple(payloads),
+            readers=SourceAdapters(),
+            precedence=tuple(precedence),
+            max_bytes=262_144,
+        )
 
     @staticmethod
     def _batches(
@@ -160,7 +164,12 @@ class TestQueryReader:
         payload = fixture._canonical(
             request, (original, revised), corrections=(fixture._correction(original, revised),)
         )
-        reader = QueryReader((payload,), precedence=(fixture._binding(request),), max_bytes=262_144)
+        reader = QueryReader(
+            (payload,),
+            readers=SourceAdapters(),
+            precedence=(fixture._binding(request),),
+            max_bytes=262_144,
+        )
         history = list(
             reader.batches(
                 (request.instrument.instrument_id,),
@@ -249,14 +258,22 @@ class TestQueryReader:
         payload = fixture._canonical(request, (fixture._item(request),))
         for limit in (0, True, len(payload) - 1):
             with pytest.raises(ValueError, match="max_bytes"):
-                QueryReader((payload,), precedence=(fixture._binding(request),), max_bytes=limit)
+                QueryReader(
+                    (payload,),
+                    readers=SourceAdapters(),
+                    precedence=(fixture._binding(request),),
+                    max_bytes=limit,
+                )
         with pytest.raises(ValueError, match="overlapping"):
             QueryReader(
-                (payload, payload), precedence=(fixture._binding(request),), max_bytes=262_144
+                (payload, payload),
+                readers=SourceAdapters(),
+                precedence=(fixture._binding(request),),
+                max_bytes=262_144,
             )
-        assert AsOfSelector((payload,), precedence=(fixture._binding(request),)).history == (
-            payload,
-        )
+        assert AsOfSelector(
+            (payload,), readers=SourceAdapters(), precedence=(fixture._binding(request),)
+        ).history == (payload,)
 
     def test_returned_evidence_cannot_mutate_cached_admission(self) -> None:
         """Unsafe mutations of returned policy and membership cannot alter later queries."""

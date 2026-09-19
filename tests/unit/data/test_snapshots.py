@@ -17,18 +17,17 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.datasets import DatasetManifest
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.quality import QualityPolicy, QualityReport
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.pipelines.dataset import assemble_dataset, publish_dataset
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import SourceRequest
+from market_data.datasets import DatasetManifest, DatasetPublication, SnapshotStore
+from market_data.storage import RawFiles, RawStore
+from market_data.validation import QualityPolicy, QualityReport
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -116,7 +115,9 @@ class TestSnapshotStore:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
-        run = config.resolve("btc-archive", catalog)
+        run = config.resolve(
+            "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         acquisitions: list[AcquisitionManifest] = []
         for symbol in ("BTCUSDT", "ETHUSDT"):
             instrument = next(item for item in catalog.instruments if item.symbol == symbol)
@@ -127,19 +128,21 @@ class TestSnapshotStore:
             member.compress_type = ZIP_DEFLATED
             with ZipFile(source, "w") as archive:
                 archive.writestr(member, b"12,100.00,2.0,200,1717200000000,true,true\n" * 2)
-            descriptor = RawObject.from_file(
+            descriptor = RawFiles.describe(
                 source,
-                request=request,
+                request=request.binding,
                 retrieval_reference="synthetic:mr15",
                 ts_received=datetime(2026, 9, 17, tzinfo=UTC),
                 ts_ingested=datetime(2026, 9, 17, tzinfo=UTC),
             )
-            store.publish(source, descriptor=descriptor, request=request)
+            store.publish(source, descriptor=descriptor, request=request.binding)
             acquisitions.append(AcquisitionManifest(run=selected, completed=(descriptor,)))
         history = EligibilityAssertions.read(
             _ROOT / "tests/fixtures/eligibility/membership-corrections.json", catalog=catalog
         )
-        manifest, payloads = assemble_dataset(
+        manifest, payloads = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).assemble(
             tuple(acquisitions),
             store,
             max_bytes=_LIMIT,
@@ -157,9 +160,9 @@ class TestSnapshotStore:
         """Publish the full pipeline result and preserve earlier bytes after a policy change."""
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
-        store = SnapshotStore(root, raw)
+        store = SnapshotStore(root, raw, readers=SourceAdapters())
         part = manifest.partitions[0]
-        identity = publish_dataset(
+        identity = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish(
             tuple(item.acquisition for item in manifest.partitions),
             raw,
             root,
@@ -173,7 +176,7 @@ class TestSnapshotStore:
         inodes = {path.name: path.stat().st_ino for path in (root / identity).iterdir()}
         assert store.publish(manifest, payloads, max_bytes=_LIMIT) == identity
         assert {path.name: path.stat().st_ino for path in (root / identity).iterdir()} == inodes
-        changed = publish_dataset(
+        changed = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish(
             tuple(item.acquisition for item in manifest.partitions),
             raw,
             root,
@@ -196,7 +199,7 @@ class TestSnapshotStore:
         """Reuse reproduced quality without allowing reports to acknowledge a damaged snapshot."""
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
-        store = SnapshotStore(root, raw)
+        store = SnapshotStore(root, raw, readers=SourceAdapters())
         identity = store.publish(manifest, payloads, max_bytes=_LIMIT)
         sink = _QualitySink()
         assert store.read(identity, max_bytes=_LIMIT, report=sink.report) == manifest
@@ -225,7 +228,9 @@ class TestSnapshotStore:
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
         with pytest.raises(ValueError, match="max_bytes"):
-            SnapshotStore(root, raw).publish(manifest, payloads, max_bytes=limit)
+            SnapshotStore(root, raw, readers=SourceAdapters()).publish(
+                manifest, payloads, max_bytes=limit
+            )
         assert list(root.iterdir()) == []
 
     def test_late_invalid_bytes_and_rejected_quality_never_publish(
@@ -234,14 +239,14 @@ class TestSnapshotStore:
         """Refuse incomplete tuples, a damaged second partition and causal admission."""
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
-        store = SnapshotStore(root, raw)
+        store = SnapshotStore(root, raw, readers=SourceAdapters())
         for invalid in (payloads[:1], (*payloads, b"extra"), (payloads[0], b"damaged")):
             with pytest.raises(ValueError):
                 store.publish(manifest, invalid, max_bytes=_LIMIT)
             assert list(root.iterdir()) == []
         part = manifest.partitions[0]
         with pytest.raises(ValueError, match="publication refused"):
-            publish_dataset(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish(
                 tuple(item.acquisition for item in manifest.partitions),
                 raw,
                 root,
@@ -262,7 +267,7 @@ class TestSnapshotStore:
         """Fail closed on damaged retained files, including idempotent publication retries."""
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
-        store = SnapshotStore(root, raw)
+        store = SnapshotStore(root, raw, readers=SourceAdapters())
         identity = store.publish(manifest, payloads, max_bytes=_LIMIT)
         part = manifest.partitions[0]
         path = root / identity / "manifest.json"
@@ -287,7 +292,7 @@ class TestSnapshotStore:
         """Never interpret a tag, staging path, symlink or empty directory as a snapshot."""
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
-        store = SnapshotStore(root, raw)
+        store = SnapshotStore(root, raw, readers=SourceAdapters())
         for invalid in ("latest", "", "../raw", ".staging-test", "A" * 64):
             with pytest.raises(ValueError, match="explicit lowercase"):
                 store.read(invalid, max_bytes=_LIMIT)
@@ -317,9 +322,9 @@ class TestSnapshotStore:
         """Keep prepublication failures invisible and reconcile uncertain durable success."""
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
-        store = SnapshotStore(root, raw)
+        store = SnapshotStore(root, raw, readers=SourceAdapters())
         failure = _SyncFailure(boundary)
-        with patch("alpha_research.data.snapshots.os.fsync", failure.fsync):
+        with patch("market_data.datasets.snapshots.os.fsync", failure.fsync):
             with pytest.raises(OSError, match="synchronization failure"):
                 store.publish(manifest, payloads, max_bytes=_LIMIT)
         assert (root / manifest.identity).exists() == (boundary == 5)
@@ -333,9 +338,9 @@ class TestSnapshotStore:
         """Exercise the real nonempty-directory collision and preserve the winner's inodes."""
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
-        store = SnapshotStore(root, raw)
+        store = SnapshotStore(root, raw, readers=SourceAdapters())
         competitor = _CompetingPublisher(store, manifest.identity)
-        with patch("alpha_research.data.snapshots.os.rename", competitor.rename):
+        with patch("market_data.datasets.snapshots.os.rename", competitor.rename):
             assert store.publish(manifest, payloads, max_bytes=_LIMIT) == manifest.identity
         assert {
             p.name: p.stat().st_ino for p in (root / manifest.identity).iterdir()
@@ -353,7 +358,7 @@ class TestSnapshotStore:
         """Abruptly exit an installed writer and inspect visibility from the surviving reader."""
         manifest, payloads, raw = inputs
         root = tmp_path / "snapshots"
-        store = SnapshotStore(root, raw)
+        store = SnapshotStore(root, raw, readers=SourceAdapters())
         previous = replace(manifest, normalization_identity="a" * 64)
         store.publish(previous, payloads, max_bytes=_LIMIT)
         working = tmp_path / "working"

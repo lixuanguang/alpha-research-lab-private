@@ -10,17 +10,16 @@ from decimal import Decimal
 from pathlib import Path
 
 # project library imports
-import alpha_research
-from alpha_research.configuration import Configuration
-from alpha_research.data.asof import PointEvent
-from alpha_research.data.events import Disconnect
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.query import QueryReader
-from alpha_research.data.replay import Replay, ReplayCursor, ReplayPhase
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import TradeRevision
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+import market_data
+from configuration import Configuration
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import Disconnect, Occurrence, SourceRequest
+from market_data.query import PointEvent, QueryReader
+from market_data.replay import Replay, ReplayCursor, ReplayPhase
+from market_data.validation import TradeRevision
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 
 class _Trace:
@@ -51,16 +50,19 @@ def main() -> None:
         AssertionError: A shared ordering, phase or checkpoint invariant fails.
     """
     directory = Path(sys.argv[1]).resolve()
-    installed = Path(alpha_research.__file__).resolve()
+    installed = Path(market_data.__file__).resolve()
     assert "site-packages" in installed.parts and not installed.is_relative_to(directory)
     codec = DomainCodec()
     catalog = codec.decode_json((directory / "binance-spot.json").read_bytes(), CatalogSnapshot)
-    run = Configuration.read(directory / "fixture-inspection.json").resolve("btc-fixture", catalog)
+    run = Configuration.read(directory / "fixture-inspection.json").resolve(
+        "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+    )
     request = SourceRequest.partition(run)[0]
     start, terminal = request.start, request.start + timedelta(seconds=12)
     payload = (directory / "canonical.json").read_bytes()
     reader = QueryReader(
         (payload,),
+        readers=SourceAdapters(),
         precedence=((request.instrument.source, "trade", request.instrument.instrument_id),),
         max_bytes=262_144,
     )

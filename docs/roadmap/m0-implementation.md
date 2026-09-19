@@ -19,19 +19,19 @@ manifest and per-instrument minute requests. `alpha-inspect-fixture` loads those
 bindings and composes the existing Tardis/Binance decoders to return an exact trade
 or an actionable diagnostic. BTCUSDT and ETHUSDT use the same implementation.
 
-The [component command reference](../../src/alpha_research/data/README.md#configured-fixture-command)
+The [component command reference](../../src/market_data/README.md#configured-fixture-command)
 owns current usage, identities, supported combinations, input bounds and exit codes.
 Definitions do not activate themselves. Rights/revision references remain explicit
 synthetic fixture declarations; the command cannot acquire data or authorize trading.
 
 ## Affected scope
 
-- MR 01: [configuration](../../src/alpha_research/configuration.py) owns typed
+- MR 01: [configuration](../../src/configuration/data_jobs.py) owns typed
   universe/job definitions, parsing, capability/interval validation and immutable
-  resolution; [requests](../../src/alpha_research/data/requests.py) owns bounded
+  resolution; [requests](../../src/market_data/contracts/requests.py) owns bounded
   minute partitioning and semantic identities. Their consumers are the dataset
   fixture pipeline and the completed local notebook checkpoint.
-- MR 02: [dataset pipeline](../../src/alpha_research/pipelines/dataset.py) owns
+- MR 02: [dataset pipeline](../../src/market_data/datasets/publication.py) owns
   configuration/catalog I/O, decoder construction, explicit frame/clock inputs,
   result routing and exit codes. Installation adds one entry point in
   [pyproject.toml](../../pyproject.toml). Existing catalog, decoders, provenance and

@@ -20,7 +20,7 @@ the public domain interface.
 
 ## Public interface
 
-The owned library is `alpha_research.venue_calendar`:
+The owned library is `reference_data.calendars`:
 
 | Value or operation | Contract |
 | --- | --- |

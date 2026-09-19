@@ -91,7 +91,15 @@ class PythonSourceChecker:
     }
     _CATEGORY_RANK: ClassVar[dict[str, int]] = {"standard": 0, "third-party": 1, "project": 2}
     _PROJECT_ROOTS: ClassVar[tuple[str, ...]] = (
-        "alpha_research",
+        "applications",
+        "configuration",
+        "financial_units",
+        "market_data",
+        "reference_data",
+        "research",
+        "runtime",
+        "serialization",
+        "telemetry",
         "alpha_research_governance",
     )
     _TYPING_MODULES: ClassVar[frozenset[str]] = frozenset({"typing", "typing_extensions"})

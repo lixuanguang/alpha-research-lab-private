@@ -9,8 +9,8 @@ from decimal import Decimal
 import pytest
 
 # project library imports
-from alpha_research.data.venues.okx.book import OKXBook
-from alpha_research.serialization import DomainCodec
+from market_data.adapters.venues.okx import OKXBook
+from serialization import DomainCodec
 
 
 class TestOKXBook:

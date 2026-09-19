@@ -13,19 +13,18 @@ import msgspec
 import pytest
 
 # project library imports
-from alpha_research.core import EventProvenance
-from alpha_research.data.events import Disconnect, MarketEventError, MarketEventRecord
-from alpha_research.data.venues.binance.codecs import (
-    MarketEvent,
-    MarketEventCodec,
-)
-from alpha_research.data.venues.binance.events import (
+from market_data.adapters.venues.binance import MarketEvent, MarketEventCodec
+from market_data.contracts import (
     BinanceMarketEvent,
     DepthSnapshot,
     DepthUpdate,
+    Disconnect,
+    EventProvenance,
+    MarketEventError,
+    MarketEventRecord,
     Trade,
 )
-from alpha_research.instrument_identity import InstrumentId
+from reference_data.instruments import InstrumentId
 
 _BASE_TIME = datetime(2024, 6, 1, tzinfo=UTC)
 _INSTRUMENT_ID = InstrumentId(UUID(int=11))

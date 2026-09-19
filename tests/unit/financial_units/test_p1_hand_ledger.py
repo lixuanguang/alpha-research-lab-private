@@ -7,15 +7,8 @@ from decimal import Decimal
 from uuid import UUID
 
 # project library imports
-from alpha_research.financial_units import (
-    Currency,
-    Dimension,
-    Money,
-    Price,
-    Quantity,
-    QuantityKind,
-)
-from alpha_research.instrument_identity import InstrumentId
+from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
+from reference_data.instruments import InstrumentId
 
 
 def test_hand_ledger_reconciles_exact_cash_open_mark_and_round_trip() -> None:

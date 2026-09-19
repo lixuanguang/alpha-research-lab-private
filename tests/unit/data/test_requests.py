@@ -13,10 +13,11 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.requests import SourceRequest
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.contracts import SourceRequest
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -31,7 +32,9 @@ class TestSourceRequests:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        manifest = configuration.resolve("both-fixture", catalog)
+        manifest = configuration.resolve(
+            "both-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         requests = SourceRequest.partition(manifest)
         assert len(requests) == 120
         assert len({item.identity for item in requests}) == 120
@@ -48,7 +51,11 @@ class TestSourceRequests:
         assert requests[-1].end == manifest.job.end
         first = requests[0]
         assert _CODEC.decode_json(_CODEC.encode_json(first), SourceRequest) == first
-        btc = SourceRequest.partition(configuration.resolve("btc-fixture", catalog))
+        btc = SourceRequest.partition(
+            configuration.resolve(
+                "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )
         assert btc[0].identity == first.identity
         renamed = replace(
             manifest, job=replace(manifest.job, name="another-name", universe="another-alias")
@@ -62,7 +69,9 @@ class TestSourceRequests:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        manifest = configuration.resolve("btc-fixture", catalog)
+        manifest = configuration.resolve(
+            "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         first = SourceRequest.partition(manifest)[0]
         for offset in (-1, 60, True):
             with pytest.raises(ValueError, match="offset"):
@@ -81,7 +90,9 @@ class TestSourceRequests:
         )
         instrument = replace(catalog.instruments[0], price_tick=Decimal("1"))
         catalog = replace(catalog, instruments=(instrument,))
-        manifest = configuration.resolve("btc-fixture", catalog)
+        manifest = configuration.resolve(
+            "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
         unsafe = replace(instrument)
         msgspec.structs.force_setattr(unsafe, "price_tick", 1.0)
         assert unsafe == instrument

@@ -105,10 +105,10 @@ class TestPackageDefinitionContracts:
         assert "alpha-research-governance==0.1.0" in development_dependencies
         runtime_scripts = _require_table(runtime_project, "scripts")
         assert runtime_scripts == {
-            "alpha-acquire": "alpha_research.pipelines.acquisition:main",
-            "alpha-collect": "alpha_research.pipelines.live:main",
-            "alpha-dataset": "alpha_research.pipelines.dataset:dataset_main",
-            "alpha-inspect-fixture": "alpha_research.pipelines.dataset:main",
+            "alpha-acquire": "applications.acquire:main",
+            "alpha-collect": "applications.collect:main",
+            "alpha-dataset": "applications.publish_dataset:main",
+            "alpha-inspect-fixture": "applications.inspect_fixture:main",
         }
         installed_commands = {
             entry.name
@@ -135,7 +135,7 @@ class TestPackageDefinitionContracts:
 
         assert "wheel-smoke:" in makefile
         assert "python -m alpha_research_governance.wheel_smoke" in makefile
-        assert "find_spec('alpha_research_governance') is None" in smoke
+        assert "wheel_layout.py" in smoke
         assert "--no-dev" in smoke
         assert "alpha_research_lab-" in smoke
         assert "--require-hashes" in smoke

@@ -13,10 +13,10 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.financial_units import Currency
-from alpha_research.financial_units.models import _FinancialUnitModel
-from alpha_research.reference_data import CatalogSnapshot, SpotInstrument
-from alpha_research.serialization import DomainCodec
+from financial_units import Currency
+from financial_units.models import _FinancialUnitModel
+from reference_data.catalogs import CatalogSnapshot, SpotInstrument
+from serialization import DomainCodec
 
 _CATALOG_PATH = Path(__file__).parents[2] / "configs" / "reference" / "binance-spot.json"
 _START = datetime(2024, 6, 1, tzinfo=UTC)

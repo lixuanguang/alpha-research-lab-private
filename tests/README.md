@@ -55,7 +55,7 @@ and inputs, a working directory outside the checkout, and the installed runtime.
 They must not import repository test helpers or add the checkout to `sys.path`.
 The subprocess support scripts may terminate without cleanup using `os._exit`;
 invoke them through their test or consumer, never in the pytest process itself.
-The package's real orchestration stays in `src/alpha_research/pipelines/`;
+The package's real orchestration stays in `src/applications/`;
 consumers compose it with synthetic transports, failure injection and assertions.
 
 For manual installed checks, copy the selected consumer and its inputs into a
@@ -107,3 +107,22 @@ their bytes or claim a new research run.
 Former locations in the first column were relative to `tests/fixtures/`; current
 locations are relative to `tests/`. The ingestion workflow's pytest wrapper moved
 from `unit/pipelines/` to `integration/`, retaining its test name and marker.
+
+## Functional layout verification (MR 28 stages 1–3)
+
+`engineering/test_source_layout.py` exercises forbidden dependency directions,
+private/module API bypasses, duplicate commands, installed inventory faults and
+pre-refactor snapshot reopening. Existing behavioral test groups keep their names;
+their imports use functional APIs, with internal imports reserved for focused tests
+and fault injection. No `research/features` or `applications/features` exists yet.
+
+`make wheel-smoke` installs the frozen runtime into a clean environment outside
+the checkout. It imports every shipped API, checks package resources and identity
+scope, and runs the four existing commands with copied synthetic/saved inputs.
+It reuses ingestion/recovery consumers for acquisition resume, dataset admission,
+EDA and book replay; governance is absent from this installation. On macOS,
+`TMPDIR=/private/tmp make check` keeps Unix-domain socket paths within OS limits.
+
+The `fixtures/datasets/historical_snapshot` fixture was produced before migration.
+Its original wheel/revision, canonical bytes and implementation identity are
+retained in `provenance.json`; tests do not regenerate it under current code.

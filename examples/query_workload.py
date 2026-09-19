@@ -17,12 +17,13 @@ from typing import ClassVar, Literal
 from unittest.mock import patch
 
 # project library imports
-import alpha_research
-from alpha_research.data.datasets import DatasetManifest
-from alpha_research.data.query import QueryMarketRow, QueryReader
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.serialization import DomainCodec
+import market_data
+from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import SourceRequest
+from market_data.datasets import DatasetManifest
+from market_data.query import QueryMarketRow, QueryReader
+from market_data.storage import RawStore
+from serialization import DomainCodec
 
 SNAPSHOT = "c0f8f3953dee8a15a79d1e9a597e37220c094b3d3c555c8f06d0ec366d3ed278"
 MAX_BYTES = 268_435_456
@@ -87,7 +88,7 @@ def main() -> None:
     root, operation = Path(sys.argv[1]).resolve(), sys.argv[2]
     if sys.platform != "darwin" or operation not in ("timing", "io"):
         raise ValueError("requires macOS RSS units and operation timing or io")
-    package = Path(alpha_research.__file__).resolve()
+    package = Path(market_data.__file__).resolve()
     if "site-packages" not in package.parts:
         raise ValueError("benchmark requires an installed candidate")
     manifest = DomainCodec().decode_json(
@@ -116,6 +117,7 @@ def main() -> None:
         reader = QueryReader.read(
             root / "snapshots",
             RawStore(root / "raw"),
+            readers=SourceAdapters(),
             identity=SNAPSHOT,
             max_bytes=MAX_BYTES,
             precedence=(binding,),

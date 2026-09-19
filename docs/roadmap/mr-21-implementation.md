@@ -58,7 +58,7 @@ public exports and ignore policy are unchanged. One synthetic JSON fixture is ad
 
 The notebook additionally verifies the complete installed runtime file inventory
 and selects the installed dataset command beside its kernel interpreter. These
-acceptance fixes ensure all cells use the same candidate. The [API guide](../../src/alpha_research/data/README.md#configured-eda-and-extension-boundaries-mr-21),
+acceptance fixes ensure all cells use the same candidate. The [API guide](../../src/market_data/README.md#configured-eda-and-extension-boundaries-mr-21),
 [researcher guide](../../examples/README.md) and [operations guide](../../examples/notebook-operations.md#mr-21-configured-eda-and-clean-kernel-acceptance)
 describe current use.
 

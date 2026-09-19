@@ -18,11 +18,11 @@ from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 # project library imports
-from alpha_research.configuration import ResolvedManifest
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.raw_store import RawStore
-from alpha_research.pipelines.acquisition import acquire
-from alpha_research.serialization import DomainCodec
+from applications.acquire import acquire
+from configuration import ResolvedManifest
+from market_data.acquisition import AcquisitionManifest
+from market_data.storage import RawStore
+from serialization import DomainCodec
 
 
 class _Arguments(argparse.Namespace):
@@ -138,8 +138,8 @@ def main() -> None:
     with (
         patch.object(HTTPSConnection, "request", scenario.request),
         patch.object(HTTPSConnection, "getresponse", scenario.respond),
-        patch("alpha_research.data.raw_store.os.link", scenario.link),
-        patch("alpha_research.data.manifests.os.replace", scenario.replace),
+        patch("market_data.storage.raw.os.link", scenario.link),
+        patch("market_data.acquisition.manifests.os.replace", scenario.replace),
     ):
         if args.command is not None:
             sys.argv = ["alpha-acquire", *args.command]

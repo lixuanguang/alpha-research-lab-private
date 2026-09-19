@@ -17,16 +17,16 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.providers.binance.transport import BinanceArchiveTransport
-from alpha_research.data.providers.tardis.transport import TardisTransport
-from alpha_research.data.providers.transport import TransientFetchError
-from alpha_research.data.raw_store import RawStore
-from alpha_research.data.requests import SourceRequest
-from alpha_research.pipelines.acquisition import main
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from applications.acquire import main
+from configuration import Configuration
+from market_data.acquisition import AcquisitionManifest
+from market_data.adapters.providers.binance import BinanceArchiveTransport
+from market_data.adapters.providers.tardis import TardisTransport
+from market_data.contracts import SourceRequest, TransientFetchError
+from market_data.storage import RawStore
+from reference_data.catalogs import CatalogSnapshot
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -96,7 +96,11 @@ class TestBinanceArchive:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
-        return SourceRequest.partition(configuration.resolve("btc-archive", catalog))[0]
+        return SourceRequest.partition(
+            configuration.resolve(
+                "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[0]
 
     @staticmethod
     def _fetch(request: SourceRequest, *, max_bytes: int = 4096) -> bytes:

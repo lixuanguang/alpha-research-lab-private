@@ -1,6 +1,7 @@
 # Platform design: institutional destination
 
-**Status: planned design.** The repository does not implement the platform described here.
+**Status: destination design with current functional ownership.** MR 28 stages 1–3 implement
+the existing capabilities in the source tree below. Future capabilities remain planned.
 
 The long-term goal is an institutional-grade monorepo for multi-asset, multi-strategy research, productionization, and
 monitoring. It should approach the engineering depth expected at a strong proprietary trading or hedge-fund platform
@@ -10,8 +11,8 @@ contributors and operators join.
 
 This design records the technical destination and functional source owners without
 requiring empty skeletons or prematurely installed infrastructure. Every module, service, store, and native lane below is
-**PLANNED** unless marked **CURRENT**. The functional source owners below are the selected target for MR 28 onward;
-their selection is not evidence that the migration or capability is implemented.
+**PLANNED** unless marked **CURRENT** or listed as an existing capability in the source tree.
+Source-layout completion is not evidence for future capability or operational acceptance.
 
 ## Architectural stance
 
@@ -38,16 +39,16 @@ Existing code migration is tracked in the [roadmap](../roadmap/README.md#oop-mig
 
 ## Current and planned repository shape
 
-The current implementation remains under `src/alpha_research/`. Starting with
-MR 28, source ownership is selected by functionality directly under `src/`.
+The current implementation uses functional packages directly under `src/`.
+MR 28 stages 1–3 removed the `alpha_research` umbrella and migrated its consumers.
 The [source refactoring plan](../roadmap/source-layout-refactor.md) maps the
 inspected files, dependency repairs, package cutover and validation stages.
 The [MR ownership assignments](../roadmap/README.md#functional-source-ownership-from-mr-28)
 bind every MR from 28 through 62 to this structure.
 
-The following tree is the **target**, not the current filesystem. Unannotated
-capabilities receive existing behavior during MR 28; future capabilities are
-created with their first working consumer. The extra `market_data/books/` owner
+Unannotated source capabilities in the following tree are **CURRENT**. Entries
+marked FUTURE, CONDITIONAL, PLANNED or OPTIONAL remain absent until their first
+working consumer requires them. The extra `market_data/books/` owner
 holds the existing shared book state/reconstruction used by capture and replay.
 
 ```text
@@ -63,6 +64,9 @@ src/
     acquisition/            Historical acquisition policy and checkpoints
     collection/             Receipt, session recovery and canonical capture
     adapters/
+      sources/              Explicit reader/verifier and native-book selection
+      wire/                 Strict vendor JSON primitives
+      transport/            Shared native feed transport
       providers/            Binance archives, Tardis framing and transport
       venues/               Binance, Bitfinex, Coinbase and OKX feed semantics
     storage/                Verified raw bytes and durable capture journals
@@ -123,9 +127,9 @@ contains deployment definitions, while `applications/deploy/` owns executable
 installation composition. Market-data adapters and execution adapters stay with
 their respective capabilities; there is no mixed top-level `venues/` package.
 
-MR 28 retires the `alpha_research` source umbrella after migrating its consumers.
-Initially, one distribution may install these functional packages using the
-existing uv path and lock. Distribution names, deployable artifacts and Python
+MR 28 stages 1–3 retire the `alpha_research` source umbrella. One
+`alpha-research-lab` distribution installs all nine functional roots using the
+existing uv build path and frozen dependency set. Distribution names, deployable artifacts and Python
 package names are separate decisions. Neither preserving the old import prefix
 nor creating one distribution per folder is required. Supporting module filenames
 can evolve within the named owners; changes to an owning boundary must update
@@ -136,8 +140,8 @@ and installed-consumer layout and its execution boundaries.
 
 ### Functional APIs and application entrypoints
 
-These rules apply to the MR 28 migration and subsequent implementation; they
-do not claim the current layout already complies.
+These rules apply to the current implementation and subsequent work. The
+engineering check validates owned imports, explicit APIs and command metadata.
 
 - Each owned library package exposes one curated public API module,
   `__init__.py`, containing actual exported types/operations and explicit
@@ -165,7 +169,7 @@ do not claim the current layout already complies.
   never imports the application it supervises. Strategy logic cannot construct
   executable venue clients or change independent risk/activation policy.
 
-MR 28 adds narrow import/entrypoint enforcement to the existing engineering
+MR 28 stages 1–3 add narrow import/entrypoint enforcement to the existing engineering
 checks. Its [migration acceptance](../roadmap/source-layout-refactor.md#mr-28-delivery-stages)
 covers packaging, callers, private boundaries and preserved behavior. Future
 capabilities follow the same rules without an empty-folder or framework mandate.

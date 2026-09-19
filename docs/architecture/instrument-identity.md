@@ -18,7 +18,7 @@ the [current architecture decision](README.md#current-architecture-decisions).
 
 ## Public interface
 
-The owned library is `alpha_research.instrument_identity`:
+The owned library is `reference_data.instruments`:
 
 | Value or operation | Contract |
 | --- | --- |

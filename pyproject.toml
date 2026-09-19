@@ -18,10 +18,10 @@ dependencies = [
 ]
 
 [project.scripts]
-alpha-collect = "alpha_research.pipelines.live:main"
-alpha-acquire = "alpha_research.pipelines.acquisition:main"
-alpha-dataset = "alpha_research.pipelines.dataset:dataset_main"
-alpha-inspect-fixture = "alpha_research.pipelines.dataset:main"
+alpha-collect = "applications.collect:main"
+alpha-acquire = "applications.acquire:main"
+alpha-dataset = "applications.publish_dataset:main"
+alpha-inspect-fixture = "applications.inspect_fixture:main"
 
 [dependency-groups]
 dev = [
@@ -57,7 +57,7 @@ alpha-research-governance = { path = "tools/governance", editable = false }
 "tools/typing" = "tools/typing"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/alpha_research"]
+packages = ["src/applications", "src/configuration", "src/financial_units", "src/market_data", "src/reference_data", "src/research", "src/runtime", "src/serialization", "src/telemetry"]
 
 [tool.ruff]
 target-version = "py314"
@@ -71,7 +71,7 @@ select = ["E", "F", "I", "W", "UP", "RUF", "D", "ANN401"]
 convention = "google"
 
 [tool.ruff.lint.isort]
-known-first-party = ["alpha_research", "alpha_research_governance"]
+known-first-party = ["applications", "configuration", "financial_units", "market_data", "reference_data", "research", "runtime", "serialization", "telemetry", "alpha_research_governance"]
 
 [tool.ruff.lint.isort.import-heading]
 standard-library = "standard library imports"
@@ -87,7 +87,7 @@ disallow_any_explicit = true
 disallow_any_unimported = true
 disallow_any_decorated = true
 disallow_any_expr = true
-packages = ["alpha_research", "alpha_research_governance"]
+packages = ["applications", "configuration", "financial_units", "market_data", "reference_data", "research", "runtime", "serialization", "telemetry", "alpha_research_governance"]
 mypy_path = ["src", "tools/governance/src", "tools/typing/stubs"]
 warn_unused_configs = true
 

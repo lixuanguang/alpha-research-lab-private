@@ -14,21 +14,17 @@ import pytest
 from msgspec.structs import force_setattr, replace
 
 # project library imports
-from alpha_research.configuration import Configuration
-from alpha_research.data.eligibility import EligibilityAssertions
-from alpha_research.data.events import Disconnect
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.providers.binance.rows import ArchiveRow
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.providers.tardis.decoder import TardisDecoder
-from alpha_research.data.quality import QualityPolicy, QualityReport
-from alpha_research.data.raw_objects import RawObject
-from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import Correction, TradeRevision
-from alpha_research.data.venues.binance.events import Trade
-from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
-from alpha_research.reference_data import CatalogSnapshot
-from alpha_research.serialization import DomainCodec
+from configuration import Configuration
+from market_data.adapters.providers.binance import ArchiveRow, BinanceArchiveTrades
+from market_data.adapters.providers.tardis import TardisDecoder
+from market_data.adapters.sources import SourceAdapters
+from market_data.adapters.venues.binance import BinancePayloadDecoder
+from market_data.contracts import Disconnect, Occurrence, RawObject, SourceRequest, Trade
+from market_data.validation import Correction, QualityPolicy, QualityReport, TradeRevision
+from reference_data.catalogs import CatalogSnapshot
+from reference_data.eligibility import EligibilityAssertions
+from runtime import ImplementationIdentity
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
@@ -50,7 +46,11 @@ class TestPartitionQuality:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
-        return SourceRequest.partition(config.resolve("btc-archive", catalog))[0]
+        return SourceRequest.partition(
+            config.resolve(
+                "btc-archive", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[0]
 
     @staticmethod
     def _history(selection: SourceRequest) -> EligibilityAssertions:
@@ -91,7 +91,7 @@ class TestPartitionQuality:
             origin=origin,
             position=position,
             raw=raw,
-            event=ArchiveTrade.from_row(row, selection),
+            event=BinanceArchiveTrades.from_row(row, selection),
         )
 
     def test_duplicate_rebuild_roundtrip_and_causal_refusal(self, selection: SourceRequest) -> None:
@@ -99,24 +99,41 @@ class TestPartitionQuality:
         item = self._item(selection)
         duplicate = self._item(selection, position=1, digest="b" * 64)
         policy, history = self._policy(), self._history(selection)
-        report = policy.validate(selection, (item, duplicate, item), eligibility=history)
+        report = policy.validate(
+            selection,
+            (item, duplicate, item),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=history,
+        )
         assert report.scope == "exploratory_degraded"
         assert (report.invalid_count, report.gap_count, report.duplicate_count) == (0, 0, 1)
         assert "recorder coverage unknown" in report.reasons
         assert "original trade availability unknown" in report.reasons
-        assert report == policy.validate(selection, (duplicate, item), eligibility=history)
+        assert report == policy.validate(
+            selection,
+            (duplicate, item),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=history,
+        )
         payload = report.require_canonical()
         assert payload.count(b'"position":') == 2
         assert b'"scope":"exploratory_degraded"' in payload
         assert _CODEC.decode_json(_CODEC.encode_json(report), QualityReport) == report
         assert _CODEC.decode_json(_CODEC.encode_json(policy), QualityPolicy) == policy
-        strict = replace(policy, use="causal").validate(selection, (item,), eligibility=history)
+        strict = replace(policy, use="causal").validate(
+            selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=history
+        )
         assert strict.scope == "rejected" and strict.canonical is None
         with pytest.raises(ValueError, match=r"publication refused.*coverage unknown"):
             strict.require_canonical()
         assert (
             replace(policy, max_gap=timedelta(hours=2))
-            .validate(selection, (item, duplicate), eligibility=history)
+            .validate(
+                selection,
+                (item, duplicate),
+                verifier=SourceAdapters.verifier(selection),
+                eligibility=history,
+            )
             .canonical
             != payload
         )
@@ -132,14 +149,29 @@ class TestPartitionQuality:
             position=1,
         )
         policy = replace(self._policy(), max_gap=timedelta(minutes=5))
-        report = policy.validate(selection, (first, last), eligibility=self._history(selection))
+        report = policy.validate(
+            selection,
+            (first, last),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=self._history(selection),
+        )
         assert report.gap_count == 3 and report.scope == "exploratory_degraded"
-        empty = policy.validate(selection, (), eligibility=self._history(selection))
+        empty = policy.validate(
+            selection,
+            (),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=self._history(selection),
+        )
         assert empty.gap_count == 1 and empty.canonical is None
         assert "no admissible trades" in " ".join(empty.reasons)
         assert (
             replace(policy, max_gap=timedelta(minutes=20))
-            .validate(selection, (first, last), eligibility=self._history(selection))
+            .validate(
+                selection,
+                (first, last),
+                verifier=SourceAdapters.verifier(selection),
+                eligibility=self._history(selection),
+            )
             .gap_count
             == 1
         )
@@ -157,14 +189,24 @@ class TestPartitionQuality:
         """Invalid nested inputs cannot bypass constructors or poison a later valid run."""
         bad = self._item(selection)
         force_setattr(bad.event, field, value)
-        report = self._policy().validate(selection, (bad,), eligibility=self._history(selection))
+        report = self._policy().validate(
+            selection,
+            (bad,),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=self._history(selection),
+        )
         assert report.invalid_count == 1 and report.canonical is None
         assert any(reason.startswith("input 0:") for reason in report.reasons)
         with pytest.raises(ValueError, match="publication refused"):
             report.require_canonical()
         assert (
             self._policy()
-            .validate(selection, (self._item(selection),), eligibility=self._history(selection))
+            .validate(
+                selection,
+                (self._item(selection),),
+                verifier=SourceAdapters.verifier(selection),
+                eligibility=self._history(selection),
+            )
             .canonical
             is not None
         )
@@ -184,6 +226,7 @@ class TestPartitionQuality:
         report = self._policy().validate(
             selection,
             (self._item(selection, payload) for payload in (raw,)),
+            verifier=SourceAdapters.verifier(selection),
             eligibility=self._history(selection),
         )
         assert report.invalid_count == 1 and report.canonical is None
@@ -204,7 +247,10 @@ class TestPartitionQuality:
     ) -> None:
         """Enforce trade-specific positive quantity, exact ticks and exclusive selection end."""
         report = self._policy().validate(
-            selection, (self._item(selection, raw),), eligibility=self._history(selection)
+            selection,
+            (self._item(selection, raw),),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=self._history(selection),
         )
         assert report.invalid_count == 1 and report.canonical is None
         assert reason in " ".join(report.reasons)
@@ -230,12 +276,18 @@ class TestPartitionQuality:
             ((earlier, ordered), "regressed"),
         )
         for items, expected in scenarios:
-            report = self._policy().validate(selection, items, eligibility=self._history(selection))
+            report = self._policy().validate(
+                selection,
+                items,
+                verifier=SourceAdapters.verifier(selection),
+                eligibility=self._history(selection),
+            )
             assert report.invalid_count == 1 and report.canonical is None
             assert expected in " ".join(report.reasons)
         collision = self._policy().validate(
             selection,
             (self._item(selection), replace(ordered, position=0)),
+            verifier=SourceAdapters.verifier(selection),
             eligibility=self._history(selection),
         )
         assert "conflicting content" in " ".join(collision.reasons)
@@ -247,7 +299,12 @@ class TestPartitionQuality:
         original = self._item(selection)
         changed = self._item(selection, _RAW.replace(b"100.00", b"101.00"), digest="b" * 64)
         policy, history = self._policy(), self._history(selection)
-        rejected = policy.validate(selection, (original, changed), eligibility=history)
+        rejected = policy.validate(
+            selection,
+            (original, changed),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=history,
+        )
         assert rejected.canonical is None and "revision admission" in " ".join(rejected.reasons)
         correction = Correction(
             supersedes=TradeRevision(occurrences=(original,)).identity,
@@ -257,19 +314,28 @@ class TestPartitionQuality:
             evidence_reference="synthetic:mr13-late-revision",
         )
         report = policy.validate(
-            selection, (original, changed), eligibility=history, corrections=(correction,)
+            selection,
+            (original, changed),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=history,
+            corrections=(correction,),
         )
         payload = report.require_canonical()
         assert b'"previous":{' in payload and b'"ts_available":"2024-06-01T03:00:00Z"' in payload
         assert payload.count(b'"ts_knowledge":null') == 2
         assert report.duplicate_count == 0
         assert report == policy.validate(
-            selection, (changed, original), eligibility=history, corrections=(correction,)
+            selection,
+            (changed, original),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=history,
+            corrections=(correction,),
         )
         assert (
             policy.validate(
                 selection,
                 (original, changed),
+                verifier=SourceAdapters.verifier(selection),
                 eligibility=history,
                 corrections=(replace(correction, supersedes="0" * 64),),
             ).canonical
@@ -287,31 +353,51 @@ class TestPartitionQuality:
         history = replace(history, schema_version="1", assertions=(early, excluded))
         policy = self._policy()
         item = self._item(selection)
-        report = policy.validate(selection, (item,), eligibility=history)
+        report = policy.validate(
+            selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=history
+        )
         assert b'"reason":"delisted"' in report.require_canonical()
         assert "excluded" in " ".join(report.reasons)
         assert (
             replace(policy, use="causal")
-            .validate(selection, (item,), eligibility=history)
+            .validate(
+                selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=history
+            )
             .canonical
             is None
         )
-        unknown = policy.validate(selection, (item,), eligibility=replace(history, assertions=()))
+        unknown = policy.validate(
+            selection,
+            (item,),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=replace(history, assertions=()),
+        )
         assert "unknown" in " ".join(unknown.reasons)
         full = self._history(selection)
         before = replace(full, schema_version="1", assertions=full.assertions[:-1])
         assert (
-            policy.validate(selection, (item,), eligibility=before).reasons
-            == policy.validate(selection, (item,), eligibility=full).reasons
+            policy.validate(
+                selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=before
+            ).reasons
+            == policy.validate(
+                selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=full
+            ).reasons
         )
         assert "unknown" in " ".join(
             replace(policy, known_at=_START + timedelta(hours=12))
-            .validate(selection, (item,), eligibility=full)
+            .validate(
+                selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=full
+            )
             .reasons
         )
         changed_catalog = replace(full.catalog, evidence="changed catalog/units identity")
         with pytest.raises(ValueError, match="catalog/units"):
-            policy.validate(selection, (item,), eligibility=replace(full, catalog=changed_catalog))
+            policy.validate(
+                selection,
+                (item,),
+                verifier=SourceAdapters.verifier(selection),
+                eligibility=replace(full, catalog=changed_catalog),
+            )
 
     def test_terminal_reader_failure_rejects_prefix(self, selection: SourceRequest) -> None:
         """Retain the first iterator failure without claiming to count unread records."""
@@ -330,7 +416,10 @@ class TestPartitionQuality:
             raise OSError("missing raw object: synthetic interruption")
 
         report = self._policy().validate(
-            selection, interrupted(), eligibility=self._history(selection)
+            selection,
+            interrupted(),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=self._history(selection),
         )
         assert report.invalid_count == 1 and report.canonical is None
         assert "unread remainder not validated" in " ".join(report.reasons)
@@ -341,7 +430,11 @@ class TestPartitionQuality:
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )
-        selection = SourceRequest.partition(config.resolve("btc-fixture", catalog))[0]
+        selection = SourceRequest.partition(
+            config.resolve(
+                "btc-fixture", catalog, implementation_identity=ImplementationIdentity.sha256()
+            )
+        )[0]
         decoder = TardisDecoder(
             BinancePayloadDecoder(selection.manifest.instruments), selection.instrument.source
         )
@@ -364,7 +457,9 @@ class TestPartitionQuality:
         assert isinstance(event, Trade)
         item = Occurrence(request=selection, origin=origin, position=0, raw=raw, event=event)
         policy, history = self._policy(), self._history(selection)
-        prior_bytes = policy.validate(selection, (item,), eligibility=history).require_canonical()
+        prior_bytes = policy.validate(
+            selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=history
+        ).require_canonical()
         shifted = replace(
             item,
             event=replace(
@@ -375,9 +470,16 @@ class TestPartitionQuality:
                 ),
             ),
         )
-        rejected = policy.validate(selection, (shifted,), eligibility=history)
+        rejected = policy.validate(
+            selection, (shifted,), verifier=SourceAdapters.verifier(selection), eligibility=history
+        )
         assert rejected.invalid_count == 1 and "original bytes/clocks" in " ".join(rejected.reasons)
-        assert policy.validate(selection, (item,), eligibility=history).canonical == prior_bytes
+        assert (
+            policy.validate(
+                selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=history
+            ).canonical
+            == prior_bytes
+        )
         disconnect = decoder.decode_line(
             "",
             source_sequence=1,
@@ -391,7 +493,12 @@ class TestPartitionQuality:
         control = Occurrence(
             request=selection, origin=origin, position=1, raw=b"\n", event=disconnect
         )
-        report = policy.validate(selection, (item, control), eligibility=history)
+        report = policy.validate(
+            selection,
+            (item, control),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=history,
+        )
         assert report.gap_count == 1 and b'"disconnect"' in report.require_canonical()
 
     def test_policy_and_report_boundaries(self, selection: SourceRequest) -> None:
@@ -414,7 +521,10 @@ class TestPartitionQuality:
                 _CODEC.encode_json(policy)[:-1] + b',"complete":true}', QualityPolicy
             )
         report = policy.validate(
-            selection, (self._item(selection),), eligibility=self._history(selection)
+            selection,
+            (self._item(selection),),
+            verifier=SourceAdapters.verifier(selection),
+            eligibility=self._history(selection),
         )
         invalid_reports: tuple[tuple[str, object], ...] = (
             ("scope", "rejected"),

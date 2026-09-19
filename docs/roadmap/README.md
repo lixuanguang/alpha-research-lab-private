@@ -23,16 +23,14 @@ merged in [PR #52](https://github.com/lixuanguang/alpha-research-lab-private/pul
 at `8b3027b`. MR 26 merged through
 [PR #53](https://github.com/lixuanguang/alpha-research-lab-private/pull/53) at `c4469fa`;
 its [acceptance record](mr-26-implementation.md) retains tested states.
-MR 27 has [local implementation and acceptance evidence](mr-27-implementation.md);
-it is not yet merged. MRs 28–62 and R1 remain planned except
-the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
-forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
+MR 27 is present in the starting main revision `a0dcc86`; its
+[acceptance record](mr-27-implementation.md) retains the source evidence.
+MR 28 stages 1–3 implement the [functional source-layout migration](source-layout-refactor.md).
+Stage 4 historical features and MRs 29–62/R1 remain planned, except previously
+recorded bounded collector work. No M1–M7 completion or P1 result is claimed.
 
-**Next implementation after MR 27 merges: MR 28 — Refactor functional source ownership,
-then compute versioned historical features**. The
-[source-layout stage](source-layout-refactor.md#mr-28-delivery-stages) migrates
-the current implementation before adding the feature consumer. This is planned
-work: the checkout still uses `src/alpha_research/`.
+**Next MR 28 work: stage 4 historical features, in a separate task.**
+Source-layout completion does not complete MR 28 feature acceptance or M4.
 MR 27 reuses the shared stepping/cursor operation for bounded published books and
 compares exact live prefixes, raw normalization and consumer outputs for Bitfinex
 and OKX. Unknown archive availability remains unscheduled; no M3 completion is claimed.
@@ -95,7 +93,7 @@ correction histories, bitemporal eligibility, quality reports and atomic snapsho
 with installed publish/inspect commands. Native book collection/replay has its
 [source-specific scope](crypto-l3-collectors.md). The
 [architecture overview](../architecture/README.md) and
-[data guide](../../src/alpha_research/data/README.md) describe current interfaces.
+[data guide](../../src/market_data/README.md) describe current interfaces.
 
 Tardis transport evidence remains synthetic; permitted Binance archives retain
 unknown historical eligibility, coverage and revision availability. Their current
@@ -117,7 +115,7 @@ A monorepo provides shared source history, atomic changes and reusable contracts
 It can contain multiple packages, native libraries, applications and independently
 released artifacts. It does not require every application to install the whole
 repository, run in one process or deploy on the same schedule. Keep the current
-uv development/build path while MR 28 replaces the single `alpha_research`
+uv development/build path while MR 28 replaces the single `market_data`
 import package with functional packages directly under `src/`. One distribution
 may contain those packages initially. Separate distributions or build targets
 follow actual installation/release needs; source ownership does not wait for
@@ -139,15 +137,15 @@ Each owned library has one curated public API module and no runnable command.
 Each application folder has at most one runnable entry function; related actions
 are subcommands. Libraries do not import applications, and applications do not
 import sibling application workflows. Shared behavior belongs in the relevant
-library. These are the MR 28 target rules, not claims about current compliance.
+library. The engineering checks now enforce these source-layout boundaries.
 
 The [refactoring plan](source-layout-refactor.md) records the 78-file source
 inventory, every current file family's destination, substantive dependency
 repairs, CLI compatibility, installed identity changes and verification. MR 28
 first separates shared behavior, then cuts over packages/callers and enforces
 the boundaries, then delivers historical features. The first three stages are
-the **MR 28 source-layout stage**. They may close in reviewable implementation
-slices before feature acceptance; no new MR IDs or milestone counts are added.
+the **MR 28 source-layout stage**, implemented by this change. Its evidence is
+recorded separately from stage 4; no new MR IDs or milestone counts are added.
 
 All new implementation in MRs 28–62, including E1, uses this layout after that
 stage. E1 depends on the layout stage, not on historical feature completion or
@@ -231,7 +229,7 @@ workflow or particular storage backend is required only where explicitly consume
 External source acceptance remains a separate, mandatory baseline gate.
 `NB XX` identifies an MR's learning checkpoint in the relevant activity notebook;
 it does not prescribe a separate notebook file. MRs 00–27 and retained acceptance
-records describe paths under the existing `src/alpha_research/`. Target source
+records describe historical paths under the retired `src/alpha_research/`. Target source
 paths for MR 28 onward are relative to `src/`; documentation paths remain
 repository-relative. Unlinked future paths are planned, not available imports.
 The refactoring plan connects the current paths to their selected owners.
@@ -340,7 +338,7 @@ an unapproved provider to obtain a pass.
 MRs 09–16 are merged, with checkpoints 09–16 in
 [research-foundations.ipynb](../../examples/research-foundations.ipynb).
 The [record index](#merged-implementation-records) links each tested revision;
-[current command usage](../../src/alpha_research/data/README.md#publish-and-inspect-from-the-command-line-mr-16)
+[current command usage](../../src/market_data/README.md#publish-and-inspect-from-the-command-line-mr-16)
 belongs to the data library guide. Published exploratory snapshots do not close
 historical coverage, eligibility or causal-availability acceptance.
 
@@ -537,7 +535,7 @@ for M5's deterministic baseline.
 
 | MR | Depends on | Functional owner and application (relative to `src/`) | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- | --- |
-| **28 — Refactor functional source ownership and compute historical features** | M2 | Migrate current owners through the [source-layout stages](source-layout-refactor.md#mr-28-delivery-stages), then implement `research/features/`; compose in `applications/features/`. | Complete the source-layout stages, then deliver pure feature definitions with input requirements, units, windows, availability and lineage, composed by the historical feature application. | [Source-layout acceptance](source-layout-refactor.md#verification-evidence-reuse-and-reversal) preserves existing commands, source/data contracts and installed package behavior. Independent window examples and future perturbations preserve earlier feature outputs; missing/stale inputs retain explicit status and available-at time. Neither migration alone nor features alone close this MR. |
+| **28 — Refactor functional source ownership and compute historical features** | M2 | Stages 1–3 implemented; stage 4 pending. Migrate current owners through the [source-layout stages](source-layout-refactor.md#mr-28-delivery-stages), then implement `research/features/`; compose in `applications/features/`. | Complete the source-layout stages, then deliver pure feature definitions with input requirements, units, windows, availability and lineage, composed by the historical feature application. | [Source-layout acceptance](source-layout-refactor.md#verification-evidence-reuse-and-reversal) preserves existing commands, source/data contracts and installed package behavior. Independent window examples and future perturbations preserve earlier feature outputs; missing/stale inputs retain explicit status and available-at time. Neither migration alone nor features alone close this MR. |
 | **29 — Fit and reuse preprocessing state** | 28 | Extend `research/features/preprocessing.py`; integrate fit/transform in the existing `applications/features/` workflow. | Separate fit from transform with immutable state/version and explicit permitted training rows; keep fitted parameters out of global mutable configuration. | Held-out/future rows cannot influence fitted state; saved state reproduces transformations and rejects incompatible schema/units. |
 | **30 — Reuse features incrementally** | 28, M3; 29 if fitted | Extend `research/features/incremental.py` and checkpoint state; reuse `market_data/replay/` and the same `applications/features/` entrypoint for incremental mode. | Add bounded window state/checkpoints consumed by the streaming feature pipeline using the same semantic definitions. | Exact captured replay and historical processing agree under declared ordering, late-data and numerical policy; restart/warm-up does not silently reuse invalid state. |
 | **31 — Record a model research attempt** | 28–29; selected model | Implement `research/models/training.py` and model-attempt records in `research/experiments/`; compose in `applications/train_model/`. | Compose a selected trainer/evaluator with immutable code, config, feature, split, model and trial identities; tracking storage is an adapter to owned records. | Retained attempts, including failures, reproduce model inputs and evaluation under the declared numerical contract. A database or MLflow installation alone does not satisfy this package. |
@@ -868,11 +866,11 @@ authorized observed outcomes under MRs 58–61 and retains the original errors.
 | Boundary inspected | Existing capability | Remaining P1 work |
 | --- | --- | --- |
 | [C01](../architecture/instrument-identity.md), [C02](../architecture/venue-calendar.md), [C03](../architecture/financial-units.md) | Canonical IDs, temporal symbology, bounded calendars, exact `Currency`, `Money`, `Price`, `Quantity`, tick/lot arithmetic | Compose these contracts; do not recreate identifiers, clocks or money in notebooks. C01 valid-time mapping alone is not a knowledge-time universe selector. |
-| [serialization.py](../../src/alpha_research/serialization.py) | Cached typed JSON codecs and exact financial values, including currency quantum | Reuse for actual new records; add their constructor/invariant checks and schema versions with their consumers. |
-| [core/events.py](../../src/alpha_research/core/events.py) | `EventProvenance`, UTC normalization, source revision/sequence, knowledge/valid times, deterministic ordering and `is_available` | Cross-object ordering, correction admission and dataset-level as-of selection. No replacement provenance framework. |
-| [reference_data.py](../../src/alpha_research/reference_data.py), [authored catalog](../../configs/reference/binance-spot.json) | Strict `SpotInstrument`/`CatalogSnapshot`, canonical snapshot hash and complete-interval resolution | M0 resolves run selections; add evidence-backed historical eligibility and required quantity rules. The catalog covers BTCUSDT/ETHUSDT for 2024-06-01 only and explicitly records research assumptions. |
-| [data contracts](../data/contracts.md), [decoder context](../../src/alpha_research/data/decoders.py) | Frozen trade/depth/disconnect records and source lineage; strict canonical codecs | Raw requests, storage, request manifests, checkpoints, dataset identity/publication and quality reports. |
-| [Tardis framing](../../src/alpha_research/data/providers/tardis/decoder.py), [Binance payload decoding](../../src/alpha_research/data/venues/binance/payloads.py) | One-line capture parsing, conservative submicrosecond rounding, configured symbol validation, payload mapping, blank-line disconnect proxies | C0 retains these libraries with direct caller composition. Add transport and multi-line streaming with actual pipeline consumers. A decoder is not a downloader or completeness check. |
+| [serialization.py](../../src/serialization/codec.py) | Cached typed JSON codecs and exact financial values, including currency quantum | Reuse for actual new records; add their constructor/invariant checks and schema versions with their consumers. |
+| [core/events.py](../../src/market_data/contracts/provenance.py) | `EventProvenance`, UTC normalization, source revision/sequence, knowledge/valid times, deterministic ordering and `is_available` | Cross-object ordering, correction admission and dataset-level as-of selection. No replacement provenance framework. |
+| [reference_data.py](../../src/reference_data/catalogs/models.py), [authored catalog](../../configs/reference/binance-spot.json) | Strict `SpotInstrument`/`CatalogSnapshot`, canonical snapshot hash and complete-interval resolution | M0 resolves run selections; add evidence-backed historical eligibility and required quantity rules. The catalog covers BTCUSDT/ETHUSDT for 2024-06-01 only and explicitly records research assumptions. |
+| [data contracts](../data/contracts.md), [decoder context](../../src/market_data/contracts/decoders.py) | Frozen trade/depth/disconnect records and source lineage; strict canonical codecs | Raw requests, storage, request manifests, checkpoints, dataset identity/publication and quality reports. |
+| [Tardis framing](../../src/market_data/adapters/providers/tardis/decoder.py), [Binance payload decoding](../../src/market_data/adapters/venues/binance/payloads.py) | One-line capture parsing, conservative submicrosecond rounding, configured symbol validation, payload mapping, blank-line disconnect proxies | C0 retains these libraries with direct caller composition. Add transport and multi-line streaming with actual pipeline consumers. A decoder is not a downloader or completeness check. |
 | [pyproject.toml](../../pyproject.toml), [Makefile](../../Makefile), [CI](../../.github/workflows/ci.yml) | CPython 3.14.7, uv 0.12.7, strict source checks and installed runtime wheel checks | Add narrow public imports/runner coverage when introduced. Jupyter tooling is not in the project lock. |
 
 There are no implemented strategy, simulation, accounting or research run/report
@@ -884,6 +882,10 @@ current imports or commands. Create a module with working behavior, tests and a
 concrete consumer; supporting filenames may evolve within the named owners.
 
 ### OOP migration status
+
+MR 28 stages 1–3 enforce functional imports, one explicit API per owned package,
+and application command limits. This is distinct from the broader tooling/test
+class-cohesion migration below; it does not close that work.
 
 **Status: runtime remediation complete and locally verified on 2026-09-14.
 Repository-wide tooling/test migration and automated enforcement remain pending.**
@@ -1047,7 +1049,7 @@ production support for another instrument family or another empirical experiment
 | C01/C02/C03, provenance, reference records, immutable market events and canonical codecs | Domain contracts and exact arithmetic. | Event bytes, validation failures, temporal semantics and configured-symbol support remain covered; runtime APIs have cohesive class owners. |
 | `TardisDecoder` | Source framing and provenance. | Reuse a configured instance across lines, including after rejected input. |
 | `BinancePayloadDecoder` | Venue parsing and validated symbol configuration. | Supply it explicitly to the framing decoder; no provider-specific composition subclass. |
-| Current `data/__init__.py` exports, replaced by functional public APIs in MR 28 | Public event types, `MarketEventCodec` and retained decoder types. | Until cutover, external callers use this surface and internal modules use defining imports. MR 28 migrates cross-owner callers to the functional APIs. The old codec function exports have been retired. |
+| Functional public APIs in `market_data/contracts` and owned adapters | Public event types, `MarketEventCodec` and retained decoder types. | Cross-owner callers use the owning `__init__.py`; implementation imports stay within the same owner. The old umbrella and codec function exports are retired. |
 
 C0 removes `BinanceTardisDecoder` and the compatibility-only `data/models.py`
 and `data/venues/binance/decoder.py` modules. These imports are no longer
@@ -1055,7 +1057,7 @@ supported in the current candidate. Tests, installed-wheel smoke and the active
 local notebook now use retained library types. Construct
 `TardisDecoder(payload_decoder=BinancePayloadDecoder(instruments), source_id="tardis.binance.spot")`
 at the caller, later in the dataset pipeline. See the
-[working call example](../../src/alpha_research/data/README.md#pipeline-use).
+[working call example](../../src/market_data/README.md#pipeline-use).
 Serialized events and historical notebook snapshots keep their original meaning.
 
 ### Consequential integration details
