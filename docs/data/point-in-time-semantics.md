@@ -1,7 +1,7 @@
 # Point-in-time semantics for the market-data foundation
 
 Owner: repository founder. Status: implemented for the immutable provenance and
-Tardis decoder foundation; dataset acquisition and replay consumers are planned.
+Tardis decoder, saved datasets, queries and replay; economic consumers are planned.
 The current boundary defines timestamp meaning without claiming a downloaded
 sample or historical venue truth.
 
@@ -25,7 +25,7 @@ validity interval.
 ## Binance archive source amendment
 
 On 2026-09-15 the founder selected public Binance daily trade archives for the
-[P1 sample](../research/p1-baseline.md). MR 07 downloads and retains exact ZIP
+[P1 sample](../research/p1-baseline.md). Acquisition downloads and retains exact ZIP
 bytes. The archive `time` is exchange event time: milliseconds for the selected
 2024 sample, microseconds for spot archives from 2025-01-01. These rows supply
 neither recorder capture nor historical knowledge clocks or disconnect markers.
@@ -33,10 +33,9 @@ Do not pass them through the Tardis decoder or invent its required capture prefi
 
 `exchange-time-only-v1` is the acquisition selection's explicit time policy.
 Local receipt/ingestion describe acquisition today and remain preserved on repeat.
-MR 09 owns the later row decoder and absent-capture provenance; MR 17 owns
-availability selection. An explicit `event-time-assumption-v1` research scenario
-may assume event-time availability without claiming historical knowability. None
-of these later consumers is implemented by the source acquisition amendment.
+The row decoder preserves absent-capture provenance and the cutoff selector
+preserves unknown availability. An explicit `event-time-assumption-v1` research
+scenario may assume event-time availability without claiming historical knowability.
 The Tardis-specific capture rules below remain valid for their existing inputs.
 
 ## Capture precision and proxies
@@ -80,15 +79,13 @@ invented snapshot timestamps fail at the payload boundary. The adapter does not
 download data or assert historical exchange metadata in this foundation
 candidate.
 
-### Planned economic ordering and event stepping
+### Chronological ordering and event stepping
 
-Decision date: 2026-09-14. MR 17 now supplies the reference economic order through
-[`AsOfSelector`](../../src/market_data/query/asof.py); MR 20 supplies the bounded
-[`Replay`](../../src/market_data/replay/events.py) iterator, clock/cursor and
-scheduled-step operation. The notebook and installed consumer exercise it; E1
-and MR 44 will compose economics through the same operation. Decoder provenance
-and occurrence identities remain unchanged. The [MR 17 guide](../../src/market_data/README.md#select-point-events-at-a-cutoff-mr-17)
-defines the implemented cutoff projection and its separate retained history.
+[`AsOfSelector`](../../src/market_data/query/asof.py) supplies the reference cutoff
+order; the bounded [`Replay`](../../src/market_data/replay/events.py) iterator
+supplies the clock/cursor and scheduled-step operation. Economic composition through
+that operation remains planned. The [cutoff guide](../../src/market_data/README.md#select-point-events-at-a-cutoff)
+defines the implemented projection and its separate retained history.
 
 Order admitted events by effective knowledge time, then predefined source/stream
 precedence, stable logical partition/session order and source-local sequence.
@@ -98,7 +95,7 @@ partition. Deduplicate/reconcile object versions before scheduling; unresolved
 competing versions or ambiguous logical ordering fail admission. Preserve each
 admitted revision and its effective availability in replay history: a
 latest-revision projection at one cutoff is a distinct query result, not a
-history for replay through earlier cutoffs. MRs 19–20 must not collapse history
+history for replay through earlier cutoffs. Query and replay consumers must not collapse history
 at the terminal cutoff before advancing the clock. Instrument/column selection
 also preserves [applicable control information](contracts.md#control-scope-through-queries).
 Content hashes, whole-snapshot identities and digest-derived occurrence IDs identify retained
@@ -125,7 +122,7 @@ Complete source admission for that timestamp across batch boundaries before
 applying the remaining phases. Phase precedence applies within one timestamp,
 never across an entire batch or decision interval.
 
-E1's synthetic chronology case creates an intent at `00:02:00`, fills on an
+The planned synthetic chronology case creates an intent at `00:02:00`, fills on an
 eligible trade known at `00:02:01`, then admits a gap at `00:02:30`. The later
 gap cannot undo the accepted fill, although its coverage/valuation consequences
 remain visible. With identical saved inputs, config and ordering policy, batch
@@ -138,10 +135,9 @@ A cursor binds the input/configuration and ordering-policy versions and a stable
 logical source position. Resume at a completed step, with the clock, frozen
 observations, pending intent, outstanding scheduled times, applied-fill identities
 and ledger supplied by the consumer; otherwise reject the incomplete/incompatible
-checkpoint. MR 20 proves
-event/cursor parity; the early economic slice and MR 44 prove resumed economic
-state equals uninterrupted state. This is offline replay state, not M6 durable
-account recovery.
+checkpoint. Existing replay checks cover event/cursor parity; the planned
+economic runner must prove resumed economic state equals uninterrupted state.
+Offline replay state is separate from durable account recovery.
 
 Test future perturbations at the selector and economic consumer: changing only
 information strictly after cutoff `t`, including a later row that changes an
@@ -149,20 +145,17 @@ object's digest, cannot change decisions, fills or balances through `t`. Full
 provenance/run identities may change. Do not label a changed knowledge assertion
 at or before `t` a future-only perturbation.
 
-## Planned consumers
+## Consumer obligations
 
-The semantics above are inputs to the planned raw store, dataset publication,
-order-book, and replay boundaries. Those consumers must preserve the original
-capture text, source sequence, provenance identity, exact values, and proxy
-reasons when they add persistence or point-in-time selection.
+Storage, dataset publication, order-book and replay consumers preserve original
+capture text, source sequence, provenance identity, exact values and proxy reasons.
+Planned feature and economic consumers must preserve those semantics end to end.
 
-The [milestone plan](../roadmap/README.md) places revision-aware
-availability selection in MR 17/M2, before feature engineering. A selected input
-must satisfy `available_at <= decision_time` under its declared knowledge model;
+A selected input must satisfy `available_at <= decision_time` under its declared knowledge model;
 derived features also include their processing/availability assumptions. Dataset
 identity makes a result reproducible but cannot make an event-time-only join causal.
 
-For planned live capture, retain actual local receipt/order and durable progress,
+For live capture, retain actual local receipt/order and durable progress,
 then replay those exact captured inputs through the shared downstream contracts.
 Historical vendor capture, local live receipt and later archive ingestion have
 different meanings. Do not backdate a late correction or recovery backfill, or

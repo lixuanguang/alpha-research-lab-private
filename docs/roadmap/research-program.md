@@ -129,8 +129,8 @@ universe membership, versions, parameters and input dependencies into an immutab
 run manifest. Collection jobs may serve several strategies or a wider EDA universe.
 Deployment/account/trading authority is added only for the corresponding runtime
 consumer and cannot be inferred from a research selection. Historical EDA and
-deterministic strategies can advance after M2 without M3 live capture or M4 models;
-the [implementation roadmap](README.md#completion-and-dependency-model) owns these dependencies.
+deterministic strategies can use saved data without live capture or fitted models;
+the [implementation roadmap](README.md#delivery-order-and-dependencies) owns these dependencies.
 
 | Artifact | Minimum contents | Purpose |
 | --- | --- | --- |

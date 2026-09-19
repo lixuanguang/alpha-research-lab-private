@@ -16,19 +16,17 @@ Neutral records are public in
 public in their provider and venue adapter APIs. Callers
 construct `TardisDecoder` with a configured `BinancePayloadDecoder` and reuse
 `decode_line`. Both decoders are public library types; cross-owner consumers import from the
-owning public API, while defining modules remain internal. The
-[C0 migration](../roadmap/README.md#existing-abstractions-to-retain-or-retire)
-removes the composition-only subclass and compatibility import paths. Event
-schemas and decoding semantics are unchanged.
+owning public API, while defining modules remain internal. Provider framing and
+venue decoding remain separate responsibilities.
 
 | Module | Contract |
 | --- | --- |
-| [`data/events.py`](../../src/market_data/contracts/events.py) | Frozen `TaggedEvent` and `MarketEventRecord` templates, shared validation, and `Disconnect` |
-| [`data/decoders.py`](../../src/market_data/contracts/decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol; no provider framing or venue schema |
-| [`data/providers/tardis/decoder.py`](../../src/market_data/adapters/providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, blank-line handling, and raw JSON handoff |
-| [`data/venues/binance/events.py`](../../src/market_data/contracts/binance.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade` with Binance symbol and event invariants |
+| [`market_data/contracts/events.py`](../../src/market_data/contracts/events.py) | Frozen `TaggedEvent` and `MarketEventRecord` templates, shared validation, and `Disconnect` |
+| [`market_data/contracts/decoders.py`](../../src/market_data/contracts/decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol; no provider framing or venue schema |
+| [`market_data/adapters/providers/tardis/decoder.py`](../../src/market_data/adapters/providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, blank-line handling, and raw JSON handoff |
+| [`market_data/contracts/binance.py`](../../src/market_data/contracts/binance.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade` with Binance symbol and event invariants |
 | [`market_data.adapters.venues.binance`](../../src/market_data/adapters/venues/binance/payloads.py) | `BinancePayloadDecoder`, source envelope/payload schemas, cached source decoders, and payload-to-event mapping |
-| [`data/venues/binance/codecs.py`](../../src/market_data/adapters/venues/binance/codecs.py) | Closed `MarketEvent` union and reusable strict `MarketEventCodec` |
+| [`market_data/adapters/venues/binance/codecs.py`](../../src/market_data/adapters/venues/binance/codecs.py) | Closed `MarketEvent` union and reusable strict `MarketEventCodec` |
 
 `market_data.contracts` owns only the neutral context and payload-decoder protocol. The
 Tardis provider owns line framing, capture parsing, provenance construction, and
@@ -36,8 +34,8 @@ blank-line handling without imposing a venue JSON envelope. The Binance payload
 decoder requires Binance's combined-stream `stream`/`data` envelope and maps its
 payload to canonical events. `BinanceMarketEvent.validate()` calls shared
 `MarketEventRecord.validate()` before checking the Binance symbol; concrete event
-validators then add snapshot, update, or trade invariants. The current candidate
-adds no second venue or live-feed implementation. The boundary change preserves
+validators then add snapshot, update, or trade invariants. This decoder
+is scoped to Binance payloads. Other venue adapters retain their own protocols and
 source bytes, event timestamps, source order, and event identity.
 
 ## Authored catalog and identity
@@ -64,11 +62,10 @@ The current catalog and decoders do not implement that activation workflow.
 
 Capability support is scoped by source, product, representation and mode. Existing
 depth decoding is not book reconstruction or live gap recovery; a different-family
-fixture is not admission to the spot ledger or executable trading. The
-[milestone support contract](../roadmap/README.md#shared-configuration-and-support-contracts)
-assigns ingestion, query/replay, simulation and operating proofs separately.
+fixture is not admission to the spot ledger or executable trading. Ingestion, query/replay, simulation and operation each need evidence for their
+own capability and selected source/product.
 
-## Historical eligibility assertions (MR 11)
+## Historical eligibility assertions
 
 [`EligibilityAssertions`](../../src/reference_data/eligibility/assertions.py) reads a
 version-1 or version-2 JSON file of immutable assertions plus its complete authored catalog.
@@ -96,16 +93,12 @@ fields/versions, malformed/unsafe nested values and files over one MiB fail clos
 An empty assertion tuple asserts nothing; the reader never infers eligibility.
 
 The evidence identity is a caller-supplied reference, not independently authenticated
-proof: the reader neither fetches the referenced document nor verifies its contents.
-Source-evidence admission still requires a trustworthy retained document supporting
+proof: the reader neither fetches the referenced document nor verifies its contents. Source-evidence admission still requires a trustworthy retained document supporting
 the claimed historical availability. The [synthetic fixture](../../tests/fixtures/eligibility/assumptions-and-membership.json)
-and NB 11 prove temporal validation only; empirical P1 eligibility remains unresolved.
-MR 12 adds the selection/correction contract below; quality acceptance and publication
-remain planned. The
-[usage example](../../src/market_data/README.md#read-historical-eligibility-assertions)
-and [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-11-implementation.md) identify the consumer and checks.
+and notebook demonstrate temporal validation only; empirical P1 eligibility remains
+unresolved. The selection/correction, quality and publication contracts follow below.
 
-### Decision-time selection and corrections (MR 12)
+### Decision-time selection and corrections
 
 `history.select(instrument_id, valid_at=..., known_at=...)` is a pure query over
 validated history. Both clocks must be aware UTC: validity uses
@@ -140,7 +133,6 @@ is omitted). Corrections require version 2, which old readers reject. Evidence
 authenticity remains external; these operations do not promote assumptions or
 synthetic fixtures into actual P1 membership proof. Validation and selection are
 bounded in-memory reference operations, with no large-history performance claim.
-See the [MR 12 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-12-implementation.md) for installed and notebook evidence.
 
 ## Provenance, events, and wire values
 
@@ -185,7 +177,7 @@ domain invariants remain strict.
 ## Capture and source semantics
 
 `TardisDecoder.parse_capture_time` in
-[`data/providers/tardis/decoder.py`](../../src/market_data/adapters/providers/tardis/decoder.py)
+[`market_data/adapters/providers/tardis/decoder.py`](../../src/market_data/adapters/providers/tardis/decoder.py)
 parses the leading ISO UTC capture text. Its timing contract is unchanged. A source
 fraction beyond six digits rounds upward
 by one microsecond whenever any discarded digit is nonzero. The original text is
@@ -215,7 +207,7 @@ to that orchestrator. The decoder and its parsing, validation, and codec
 dependencies remain library components without acquisition or persistence I/O.
 See the [pipeline call example](../../src/market_data/README.md#pipeline-use).
 
-## Trade duplicate and correction admission (MR 10)
+## Trade duplicate and correction admission
 
 [`TradeRevision`](../../src/market_data/validation/revisions.py) is the current bounded
 individual-trade admission envelope. Its economic key is source, venue, canonical
@@ -233,7 +225,7 @@ retains the batch's economic payloads and lineage for diagnostics. Correction
 records bind predecessor/replacement payload identities, UTC publication and
 availability, and a retained evidence reference. Missing, branched, dangling,
 cyclic or temporally reversed evidence fails. This is a pre-publication admission
-gate; MR 13 adds partition quality below, while snapshot publication remains MR 15.
+gate; partition quality and snapshot publication apply their own contracts below.
 
 One returned head contributes once per economic key and embeds its immutable
 `previous` history. Serialize/reopen the entire envelope using `DomainCodec`.
@@ -247,15 +239,13 @@ substitute for missing market capture or historical publication evidence.
 This implementation retains the complete batch in memory and admits linear histories
 with distinct payload identities. A reversion to an identical prior payload requires
 additional source revision evidence and fails under this bounded policy. A reference
-is an assertion supplied by the caller, not independently fetched/verified proof.
-The [MR 10 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-10-implementation.md) and NB 10 label their synthetic
-inputs explicitly. Shared as-of selection remains MR 17.
+is an assertion supplied by the caller, not independently fetched/verified proof. Cutoff selection is a separate consumer.
 
-## Canonical partition quality (MR 13)
+## Canonical partition quality
 
 [`QualityPolicy`](../../src/market_data/validation/quality.py) consumes a single
 `SourceRequest`, its original occurrences, linked eligibility history and optional
-MR 10 correction evidence. `use` explicitly selects exploratory or causal use;
+explicit correction evidence. `use` explicitly selects exploratory or causal use;
 `known_at` is the fixed eligibility cutoff, and positive `max_gap` is an observed
 silence tolerance. The library keeps no mutable state between validations.
 [`DatasetPublication.validate_partition`](../../src/market_data/datasets/publication.py) is the
@@ -275,7 +265,7 @@ Position/record index and event time (archive) or capture time (Tardis) must not
 regress within a raw object. Equal-time source order remains in retained occurrences;
 separate file traversal order does not matter. Exact repeated occurrences are
 idempotent. Economic duplicates contribute once with all distinct lineage; revision
-heads retain their full predecessors and effective availability through MR 10.
+heads retain their full predecessors and effective availability through revision admission.
 There is no clock-adjustment option: a changed canonical capture must still match
 its original source bytes. Blank-line control proxies remain supplied context,
 not evidence of continuous capture. Controls keep their request binding.
@@ -302,15 +292,14 @@ Raw bytes remain with the caller or immutable store, including after rejection.
 Accepted deterministic JSON bytes use schema `canonical-trade-partition-v1` and
 explicit scope, policy, complete request/catalog, eligibility history, selected
 membership segments, reasons, full revision heads and binding-scoped controls.
-Heads use MR 10's deterministic payload-identity order; source order is retained
+Heads use revision admission's deterministic payload-identity order; source order is retained
 in occurrence positions. No event or assertion is forward-filled or replaced by
 its final sample value. Changed policies produce changed bytes. Reports are local
-validation results, not authenticated evidence or snapshot identities. MR 14 owns
-the dataset manifest reader/identity, MR 15 owns atomic publication, and MR 16 owns
-the installed dataset command. This bounded in-memory path has synthetic quality
+validation results, not authenticated evidence or snapshot identities. Manifest
+verification, atomic publication and the installed command are separate consumers. This bounded in-memory path has synthetic quality
 evidence and no large-partition performance or empirical P1 acceptance claim.
 
-## Dataset manifest identity and verification (MR 14)
+## Dataset manifest identity and verification
 
 `DatasetManifest` version `1` binds an **ordered** tuple of `DatasetPartition`
 records. Each entry retains the canonical SHA-256, complete acquisition manifest,
@@ -351,10 +340,10 @@ attestation. It retains all eligibility exclusions and revision predecessors and
 never upgrades unknown historical coverage/availability. The saved-input path uses
 one completed raw archive per canonical partition; combining separately acquired
 revision archives remains outside this bounded consumer. Atomic visibility and
-reopening a published snapshot are supplied below by MR 15; queries and the installed dataset
-command remain later consumers. See the [MR 14 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-14-implementation.md).
+reopening a published snapshot are supplied by `SnapshotStore`; queries and the
+installed dataset command consume these verified records.
 
-## Atomic local snapshots (MR 15)
+## Atomic local snapshots
 
 `SnapshotStore` binds an existing, durably provisioned snapshot directory and the
 retained `RawStore`. `DatasetPublication.publish` composes admission, manifest assembly and
@@ -383,14 +372,13 @@ keeps the original full histories, exclusions and exploratory degraded scope.
 Failure before rename exposes no snapshot under its identity. Process death may
 leave an orphan `.staging-*` directory, which cannot be selected by the reader;
 ordinary exceptions clean up their staging directory. Failure after rename can
-leave a complete visible snapshot whose durable acknowledgement is uncertain.
-Retry the same inputs/identity to verify it and synchronize the parent. Both failure
+leave a complete visible snapshot whose durable acknowledgement is uncertain. Retry the same inputs/identity to verify it and synchronize the parent. Both failure
 and later successful publication leave earlier snapshots readable, provided their
 raw inputs remain available. There is no automatic orphan collection or raw-file
 deletion. Tests establish process-interruption behavior, not physical power-loss
-or distributed-filesystem guarantees. See the [MR 15 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-15-implementation.md).
+or distributed-filesystem guarantees.
 
-## Planned boundaries
+## Consumer boundaries
 
 Event codecs alone do not provide acquisition, manifests, snapshot publication,
 research configuration, accounting, strategy or operational workflows. Their
@@ -400,24 +388,24 @@ semantics.
 
 ### Control scope through queries
 
-MR 09's [`Occurrence`](../../src/market_data/contracts/occurrences.py) retains the
+[`Occurrence`](../../src/market_data/contracts/occurrences.py) retains the
 source, request/input binding and instrument subscription that determine a saved
 control event's affected scope. It binds exact raw digest, line position and bytes
 alongside the decoded record. The saved-file inputs have no live capture-session
-identity; later collector adapters must retain it where applicable. The existing
+identity; native collector envelopes retain their own session identity. The existing
 `Disconnect` type stays unchanged. See the
-[implemented contract](../../src/market_data/README.md#decoded-raw-occurrences-mr-09).
+[implemented contract](../../src/market_data/README.md#decoded-raw-occurrences).
 A null instrument or the `global` stream tag neither identifies the affected
 instruments nor makes the disconnect apply repository-wide.
 
-MRs 17 and 19 preserve all control/quality information applicable to the selected
+Cutoff and query consumers preserve all control/quality information applicable to the selected
 input bindings through instrument/time filtering and column projection. Return
 the applicable records or equivalent scoped, time-aware quality metadata with
 the market rows, including known interval state needed at the query boundary.
 Retain effective knowledge, affected interval, reason and source lineage even
 when those fields are absent from the requested market columns. Unknown required
 scope cannot silently become valid coverage. Replay admits this information at
-its own availability time under the [shared timing contract](point-in-time-semantics.md#planned-economic-ordering-and-event-stepping).
+its own availability time under the [shared timing contract](point-in-time-semantics.md#chronological-ordering-and-event-stepping).
 
 The decisive planned fixture queries one supported instrument with its trades
 and an applicable instrument-less disconnect: query/replay must invalidate the
@@ -439,15 +427,15 @@ The decoding boundary is covered by
 [`test_tardis_binance.py`](../../tests/unit/data/providers/tardis/test_tardis_binance.py),
 and [`test_binance_decoder.py`](../../tests/unit/data/venues/binance/test_binance_decoder.py).
 These tests cover the library boundary; the
-[P1 acceptance map](../roadmap/README.md#p1-acceptance-map)
+[frozen baseline acceptance](../roadmap/README.md#frozen-baseline-acceptance)
 identifies the remaining end-to-end requirements.
 
-## Installed dataset command (MR 16)
+## Installed dataset command
 
 `alpha-dataset publish` composes strict saved acquisitions, declared quality and
 eligibility/correction evidence, admission, atomic publication and verified reopen.
 `alpha-dataset inspect` requires an explicit snapshot SHA-256 and verifies all
-retained inputs before completion. The command reuses the preceding MR 10–15
+retained inputs before completion. The command reuses the preceding admission and publication
 contracts; it creates no additional canonical format or historical evidence.
 
 Exact repeated manifests are idempotent. Nonidentical overlapping instrument/time
@@ -465,15 +453,14 @@ cannot produce an apparently valid snapshot. Exploratory gaps remain visibly
 Flushed partition reports retain invalid/gap/duplicate counts and reasons before
 admission. Persistence stages distinguish a candidate ID, durable acknowledgement
 and completed verification. Failure after rename may leave a complete snapshot;
-retry verifies and synchronizes it. The [command guide](../../src/market_data/README.md#publish-and-inspect-from-the-command-line-mr-16)
-owns arguments, file preparation, exit codes and recovery. Actual commands and
-limitations are in the [MR 16 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md).
+retry verifies and synchronizes it. The [command guide](../../src/market_data/README.md#publish-and-inspect-from-the-command-line)
+owns arguments, file preparation, exit codes and recovery.
 
-## Point-event cutoff projection (MR 17)
+## Point-event cutoff projection
 
 `AsOfSelector` consumes verified snapshot partitions or admitted canonical bytes,
 revalidates their existing quality contract, and preserves full immutable history.
-Its [API guide](../../src/market_data/README.md#select-point-events-at-a-cutoff-mr-17)
+Its [API guide](../../src/market_data/README.md#select-point-events-at-a-cutoff)
 owns invocation, precedence, window semantics, control boundary behavior and limits.
 Availability is filtered before terminal revision, business-window and eligibility
 selection. Unknown original archive availability is not inferred from event time,
@@ -488,8 +475,7 @@ uses effective knowledge, explicit source/stream/subscription precedence, partit
 start and source position. Content hashes only identify lineage. Ambiguous ties,
 overlapping binding intervals and competing heads require upstream reconciliation.
 
-The reference implementation and NB 17 have synthetic causality/control evidence
-and an actual installed published-archive consumer. This does not extend the
-archive-only snapshot publication boundary to captured or collector data, establish
-historical P1 availability, or implement MR 19 queries/MR 20 replay. The
-[MR 17 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-17-implementation.md) retains actual validation.
+The reference selector has synthetic causality/control evidence and an installed
+published-archive consumer. It does not establish historical P1 availability.
+Bounded queries and trade replay consume this selection contract; native book
+publication/replay uses its separate schema and adapter.

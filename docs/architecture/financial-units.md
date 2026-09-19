@@ -93,7 +93,7 @@ rounded. No netting, spread, fee or cashflow convention is inferred.
 
 Decision date: 2026-09-14. This resolves the P1 consumer contract before
 observations and ledger implementation; it does not add APIs or widen C03's
-implemented decimal grid. The [P1 plan](../roadmap/README.md#exact-economics)
+implemented decimal grid. The [P1 plan](../roadmap/README.md#first-economic-backtest)
 owns delivery with the first consuming operations.
 
 | Quantity | Representation and boundary |
@@ -123,7 +123,7 @@ sale releasing basis `302/3` and retaining `604/3`. Round-trip and resumed state
 must preserve these fractions under changed Decimal contexts. For fees, a true
 tie of `0.205` at quantum `0.01` yields `0.21` under the independent oracle's
 half-up and `0.20` under P1's half-even. Existing oracle amounts remain unchanged;
-MR 38 must add the explicit half-up operation needed by that oracle, since C03
+cost accounting must add the explicit half-up operation needed by that oracle, since C03
 does not currently expose it. These are planned consumer tests, not new claims
 about the existing foundation test suite.
 

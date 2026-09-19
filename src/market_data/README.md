@@ -4,7 +4,7 @@ Owner: repository founder. Status: bounded acquisition, saved data, query/replay
 and native capture capabilities are implemented. Scope and source-quality limits
 remain as described below; no historical-feature or trading acceptance is implied.
 
-MR 28 stages 1–3 move these capabilities to functional packages. Import records
+Import records
 from `market_data.contracts`, dataset services from `market_data.datasets`, query
 and replay from their respective APIs, and concrete decoders from their owned
 `market_data.adapters.providers.*` / `market_data.adapters.venues.*` APIs.
@@ -38,10 +38,8 @@ The two configured decoder classes retain their separate provider-framing and
 venue-parsing responsibilities. Repository-wide tooling/test migration and OOP
 enforcement remain separate work.
 
-Callers compose the retained decoders directly and reuse `decode_line`. The
-[C0 migration](../../docs/roadmap/README.md#existing-abstractions-to-retain-or-retire)
-removes the composition-only subclass and compatibility import paths without
-changing serialized events. Cross-owner imports use functional public APIs; defining modules stay private to their owner:
+Callers compose the decoders directly and reuse `decode_line`. Cross-owner
+imports use functional public APIs; defining modules stay private to their owner:
 
 | Module | Ownership |
 | --- | --- |
@@ -94,14 +92,13 @@ validates the complete selected catalog before returning any history. Missing fi
 raise `OSError`; invalid files or linkage raise `ValueError`. A failed read retains no
 partial state, so correcting the input and calling `read` again is sufficient.
 
-The [contract](../../docs/data/contracts.md#historical-eligibility-assertions-mr-11)
-defines evidence/interval rules; [NB 11](../../examples/research-foundations.ipynb)
-shows required failures. [Installed acceptance](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-11-implementation.md#installed-wheel-outside-the-checkout)
-copies these files outside the checkout and invokes the retained consumer there.
+The [contract](../../docs/data/contracts.md#historical-eligibility-assertions)
+defines evidence/interval rules; [notebook exercise](../../examples/research-foundations.ipynb)
+shows required failures.
 
 ## Select membership at a decision
 
-MR 12 uses the same history object; queries and appends keep no mutable selection
+Membership selection uses the same history object; queries and appends keep no mutable selection
 state. Continue the example above with the separate synthetic correction fixture:
 
 ```python
@@ -140,11 +137,8 @@ correction becomes known, including any validity dates removed by the correction
 Dangling, cross-member, same-time, unevidenced or branched corrections fail.
 Version-1 inputs remain supported; only version 2 admits corrections.
 
-The [selection contract](../../docs/data/contracts.md#decision-time-selection-and-corrections-mr-12)
-defines precedence and unknown outcomes. [NB 12](../../examples/research-foundations.ipynb)
-displays both clocks' boundaries and controlled failures; the
-[installed record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-12-implementation.md) runs the same contract
-outside the checkout. This is synthetic membership evidence, without historical
+The [selection contract](../../docs/data/contracts.md#decision-time-selection-and-corrections)
+defines precedence and unknown outcomes. This is synthetic membership evidence, without historical
 source authentication, quality acceptance or publication.
 
 ## Catalog and event identity
@@ -228,7 +222,7 @@ selection, error policy, and delivery to downstream consumers. The decoder and
 the lower-level parsing, validation, and codec modules are reusable library
 components; decoding performs no acquisition or persistence. Orchestrator
 composition is now implemented by [`DatasetPublication`](datasets/publication.py)
-for the M0 fixture consumer. Its `main` orchestrator owns configuration/catalog
+for the fixture consumer. Its `main` orchestrator owns configuration/catalog
 loading, explicit selection, output and exit codes; `inspect_fixture` owns
 bounded frame I/O and direct decoder construction. No replacement decoder wrapper is needed.
 
@@ -254,7 +248,7 @@ Focused coverage is in
 [`test_serialization.py`](../../tests/unit/test_serialization.py), alongside
 the financial-unit tests that exercise exact Currency values. These references
 describe library coverage. The
-[P1 acceptance map](../../docs/roadmap/README.md#p1-acceptance-map)
+[frozen baseline acceptance](../../docs/roadmap/README.md#frozen-baseline-acceptance)
 identifies the remaining end-to-end requirements.
 
 ## Configured fixture command
@@ -273,16 +267,14 @@ uv run --frozen --no-editable alpha-inspect-fixture \
 Select `eth-fixture` with `ethusdt.txt`, or `both-fixture` with either saved frame,
 to exercise the same implementation. These timestamps and revision/rights
 references describe authored synthetic fixtures; provide actual retained receipt,
-ingestion and line-position metadata for any other saved input. The complete
-[outside-checkout workflow and results](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/m0-implementation.md)
-include controlled failures.
+ingestion and line-position metadata for any other saved input.
 
 The version-1 JSON [configuration](../../configs/data-jobs/fixture-inspection.json)
 separates available `universes` and named `jobs`; `--job` alone selects a run.
 Unknown fields, schema versions, duplicate names/IDs, missing universe bindings
 and unsupported provider/venue/product/dataset/stream/mode/pipeline/policies fail
 before fixture access. Only selected instruments are resolved against the catalog.
-M0 supports Tardis/Binance spot raw trades in `fixture` mode through
+The fixture command supports Tardis/Binance spot raw trades in `fixture` mode through
 `dataset.inspect`, with `utc-minute` partitions and `source-capture-v1` semantics.
 An unsupported depth frame is rejected even though the retained decoder can parse it.
 
@@ -316,8 +308,8 @@ Config, catalog and frame reads are each capped at one MiB. Inspection accepts
 one nonblank UTF-8 trade frame, with an optional line ending. Blank disconnects,
 multiple frames, compression and acquisition remain unsupported by this command.
 Raw-object verification and durable publication are the separate libraries below;
-acquisition resume and dataset-level validation remain planned. No transport or credentials
-are read. Existing decoder/provenance/event wire contracts remain unchanged.
+acquisition resume and dataset validation belong to their respective workflows.
+This fixture command reads no transport credentials. Existing decoder/provenance/event wire contracts remain unchanged.
 
 ## Saved raw-object verification
 
@@ -346,13 +338,8 @@ The caller must supply trusted metadata and exclude concurrent writers during
 description/verification. This checks observed bytes, not later reads, provider
 authenticity or semantic membership of the payload in the assigned request.
 Describing already incomplete bytes cannot prove transport completeness. Empty
-files are representable without claiming a quiet interval. MR 04 supplies the
-store below; transport validation remains owned by MR 05.
-
-The [MR 03 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-03-implementation.md) records
-focused tests, outside-checkout wheel verification and
-[companion notebook](../../examples/foundation-contract-checks.ipynb) section 11
-(NB 03), including a changed gzip header with identical decoded content.
+files are representable without claiming a quiet interval. The raw store below supplies atomic publication; acquisition owns transport
+validation.
 
 
 ## Durable raw-byte store
@@ -408,12 +395,8 @@ removal/replacement of objects or directory ancestors, and hostile directory acc
 must be excluded during verification and reads. Mode `0444` guards accidental
 writes; it cannot constrain the owner. Durability relies on the filesystem/device
 honoring synchronization; process-interruption tests do not prove physical
-power-loss behavior or network/object-store support. This MR adds no persistent
-descriptor/manifest, garbage collector, acquisition transport or dataset validity.
-
-The [MR 04 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-04-implementation.md),
-[storage tests](../../tests/unit/data/test_raw_store.py) and companion notebook section 12
-retain the publication, reuse, conflict and interruption evidence.
+power-loss behavior or network/object-store support. The store does not own acquisition manifests, garbage collection, transport or
+dataset validity.
 
 
 ## One-partition acquisition
@@ -425,7 +408,7 @@ transport, `RawObject` and `RawStore`. Resolve a `Configuration` job with
 product, stream, interval and catalog checks remain active. Fixture inspection
 accepts only `dataset.inspect`; changing a job selection cannot silently use the
 wrong consumer. The sequential callable below adds the persistent manifest; the
-installed acquisition CLI remains MR 07 work.
+installed command exposes the complete job workflow.
 
 Supply the callable with the request, an existing `RawStore`, an unopened
 `HTTPSConnection("api.tardis.dev")`, a UTC clock, a synchronous JSON report sink,
@@ -446,8 +429,7 @@ Content-Length when present, and the gzip trailer/CRC. Compressed and expanded
 representations each have the caller's byte cap; empty gzip content is retained
 without a coverage claim. The timeout bounds socket inactivity, not total elapsed
 time or DNS resolution. There are no retries or redirects. Invalid HTTP/gzip
-responses publish nothing; semantic frame validation and bounded saved-line
-iteration remain MR 08/09 work. A gzip-wrapped invalid exchange message may be
+responses publish nothing; saved-row iteration and semantic validation belong to the reader and decoder. A gzip-wrapped invalid exchange message may be
 retained as raw evidence, never labeled a validated dataset.
 
 The pipeline emits JSON with run/request identity, partition start, stage,
@@ -464,9 +446,7 @@ failure; do not infer rollback or advance a checkpoint. Use the sequential
 acquisition callable below for durable manifest reconciliation, restart and retry. The caller must keep the report sink
 available; a failing sink propagates and can prevent terminal telemetry delivery.
 
-The [MR 05 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-05-implementation.md) contains exact
-verification commands, the source-documentation investigation, and the open
-rights/retention and actual-source framing/timestamp boundaries. Notebook section
+Notebook section
 13 calls the installed implementation with synthetic HTTP responses and then
 uses the retained decoders on the saved bytes.
 
@@ -527,9 +507,7 @@ reopen before retrying uncertain persistence.
 Existing partition reports are retained. Retry reports include run/request identity,
 attempt and delay; `checkpointed` includes the durable completion count. Propagated
 exceptions remain the failure boundary; a failed report sink cannot guarantee its
-own telemetry. The installed command below adds whole-job reporting in MR 07.
-The [MR 06 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-06-implementation.md) and companion notebook
-section 14 contain actual synthetic commands/results. No source acceptance,
+own telemetry. The installed command below supplies whole-job reporting. No source acceptance,
 canonical dataset, frame iteration or coverage claim is added.
 
 ## Installed acquisition command
@@ -539,7 +517,7 @@ explicit `--job` from `--config` against `--catalog`, then calls the same `acqui
 operation above. Use a `historical` / `acquisition.fetch` job and an existing,
 durably provisioned manifest directory/raw store under exclusive caller control.
 Config/catalog reads retain the one-MiB limit. The manifest cannot overwrite
-these input paths. No manifest format or event serialization changes in MR 07.
+these input paths.
 
 For **admitted source inputs only**, the installed command shape is:
 
@@ -596,14 +574,11 @@ repeat after correction. SIGKILL/process loss cannot emit a terminal record; use
 the process exit, last flushed report and saved checkpoint. A failed output sink
 is terminal; reporting cannot guarantee its own availability.
 
-The [MR 07 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-07-implementation.md) and
-companion notebook section 15 exercise the installed command outside the checkout through
-synthetic HTTP, abrupt interruption, retries, repeats and damaged-byte rejection.
-The [main notebook](../../examples/research-foundations.ipynb) now connects actual
-archive acquisition, verified cache reads, row previews and exact financial units.
-Each section explains the operation; the linked record retains prior verification.
-This is an intermediate raw-acquisition workflow; canonical row decoding, coverage
-validation, dataset publication and M1/P1 acceptance remain later work.
+The [offline lab](../../examples/foundation-contract-checks.ipynb) exercises the
+installed acquisition command with synthetic HTTP, interruption, retries and
+changed-byte rejection. The [QR notebook](../../examples/research-foundations.ipynb)
+inspects saved books and synthetic dataset workflows. Raw acquisition alone does
+not establish canonical quality or empirical P1 acceptance.
 
 
 ## Binance public daily archive acquisition
@@ -658,16 +633,16 @@ Binance archive rows provide exchange event time (milliseconds before 2025,
 microseconds from 2025), no recorder timestamp and no disconnect markers. Neither
 today's local receipt nor an event-time simulation assumption establishes historical
 knowledge. Existing Tardis fixtures, source-capture decoding and their wire meanings
-are unchanged. The MR 08 reader is described below; MR 09 owns canonical row decoding
-and absent-capture provenance below, with availability/quality consumers later.
+are unchanged. The saved-row reader is described below; the occurrence decoder owns canonical
+values and absent-capture provenance, followed by availability/quality consumers.
 
 ## Saved Binance archive rows
 
 [`BinanceArchiveRows`](adapters/providers/binance/rows.py) selects expected daily partitions
 from an explicit `AcquisitionManifest` using its existing prefix validation.
-Its consumers include the offline notebook's NB 08 checks, the retained
-[installed consumer](../../tests/integration/consumers/datasets/read_saved.py) and MR 09's
-persisted dataset pipeline. The reader constructs no acquisition or event decoder.
+Its consumers include the offline notebook’s row-boundary checks, the retained
+[installed consumer](../../tests/integration/consumers/datasets/read_saved.py) and the
+persisted occurrence pipeline. The reader constructs no acquisition or event decoder.
 
 For an independently resolved `run`, explicit `manifest_path` and `store`:
 
@@ -706,17 +681,14 @@ raise `FileNotFoundError`. A valid archive with an empty CSV yields zero rows; z
 raw bytes are an invalid ZIP. Neither empty nor nonempty content supplies recorder
 evidence: `recorder_coverage` is always `"unknown"`. No disconnect, capture/knowledge
 timestamp or price padding is synthesized. Invalid input remains in immutable
-storage, with no checkpoint or dataset mutation. MR 09 adds numeric/time decoding
-below; correction, eligibility, quality and publication retain their later owners.
+storage, with no checkpoint or dataset mutation. The occurrence decoder adds numeric/time decoding; correction, eligibility,
+quality and publication each retain their own contracts.
 
-The [MR 08 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-08-implementation.md)
-identifies the tested candidate, commands, notebook outputs and limitations.
-
-## Decoded raw occurrences (MR 09)
+## Decoded raw occurrences
 
 [`DatasetPublication.occurrences`](datasets/publication.py) consumes an explicit saved
 `AcquisitionManifest` and `RawStore`. The manifest retains the resolved universe
-and source bindings. Its persisted adapter is the MR 08 Binance daily-trade reader;
+and source bindings. Its persisted adapter is the Binance daily-trade reader;
 Tardis fixture inspection and public decoders retain their existing behavior.
 No acquisition is performed. With the saved manifest, independently retained `run`,
 `manifest_path` and `store` from the example above:
@@ -758,7 +730,7 @@ for the current one-record adapters). Its message identity hashes schema, reques
 identity, raw digest and position; occurrence identity also includes record index.
 Identical saved inputs reproduce identities. A different raw object or binding
 cannot collide merely because sequences restart at zero. These are positional
-occurrence identities, **not** MR 10 economic trade/revision keys. Original capture
+occurrence identities, separate from economic trade/revision keys. Original capture
 text and message grouping survive without changing `Disconnect`.
 
 For a Tardis trade or disconnect, supply its explicit request, raw descriptor,
@@ -773,11 +745,9 @@ completions/objects, incompatible bindings and corrupted or malformed inputs fai
 without mutating raw storage or the acquisition manifest. Empty archives yield no
 occurrences and prove no coverage. Rebuild after correcting/selecting explicit
 input; no mutable normalization checkpoint exists. Revisions, eligibility, quality,
-snapshot publication and the dataset command remain MRs 10–16.
-See the [MR 09 evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-09-implementation.md) and
-[NB 09](../../examples/research-foundations.ipynb), section 9.
+snapshot publication and the dataset command apply separate contracts.
 
-## Validate a canonical partition (MR 13)
+## Validate a canonical partition
 
 Import `QualityPolicy` from [`quality.py`](validation/quality.py). For saved Binance inputs,
 call `DatasetPublication.validate_partition` on `DatasetPublication` from `market_data.datasets` with one
@@ -799,15 +769,15 @@ trade quantities are distinct from zero-quantity depth deletions. Repeated ident
 occurrences are idempotent; different duplicate origins survive. Wrong records and
 unevidenced conflicts return no bytes; terminal saved-reader failures reject the
 entire prefix and mark unread rows unvalidated. The originals remain in the store.
-See the [quality contract](../../docs/data/contracts.md#canonical-partition-quality-mr-13)
+See the [quality contract](../../docs/data/contracts.md#canonical-partition-quality)
 for interval, units, ordering and count semantics, and the
 [retained installed consumer](../../tests/integration/consumers/datasets/validate_partition.py)
-for a complete synthetic saved-input example. NB 13 in
+for a complete synthetic saved-input example. the notebook example in
 [research-foundations.ipynb](../../examples/research-foundations.ipynb) displays
 both declared uses and the required failures.
 
 
-## Identify and verify a dataset manifest (MR 14)
+## Identify and verify a dataset manifest
 
 The assembly boundary accepts an ordered tuple of `DatasetInput` records from
 [`datasets.py`](datasets/manifests.py). Each record retains its own `acquisition`, `policy`,
@@ -825,9 +795,9 @@ and `venues/`; a future source does not require a branch in either workflow.
 Partitions retain their source, stream, instrument, raw ordering and quality evidence.
 Independent streams are not merged into a consolidated cross-venue book.
 The currently installed saved adapter and version-1 canonical format still support
-archive trades only. MR 25 owns actual LOB adapters, book admission and the versioned
-canonical/manifest extension needed for book partitions; configuration alone cannot
-enable them. MR 19/20 own later query/replay composition.
+archive trades. Book publication uses the separate canonical/manifest format
+described below; a trade configuration cannot enable book behavior. Queries and
+replay select the appropriate admitted format.
 
 The existing shared-evidence call remains supported:
 
@@ -853,13 +823,13 @@ It verifies all raw/canonical files and reproduces admission before returning th
 manifest. Only `exploratory_degraded` is supported; historical evidence limitations
 remain visible. This is a bounded in-memory reference path with one saved raw
 archive per partition, not a query API or an atomic snapshot. The
-[manifest contract](../../docs/data/contracts.md#dataset-manifest-identity-and-verification-mr-14)
+[manifest contract](../../docs/data/contracts.md#dataset-manifest-identity-and-verification)
 explains identity and version semantics; the
-[isolated consumer](../../tests/integration/consumers/datasets/identify_dataset.py) and NB 14 in
+[isolated consumer](../../tests/integration/consumers/datasets/identify_dataset.py) and the notebook example in
 [research-foundations.ipynb](../../examples/research-foundations.ipynb) provide
 complete saved-input examples. Atomic publication follows below.
 
-## Publish and reopen an atomic snapshot (MR 15)
+## Publish and reopen an atomic snapshot
 
 Call `DatasetPublication.publish(acquisitions, raw_store, destination, max_bytes=limit,
 policy=policy, eligibility=history, corrections=corrections)` from
@@ -876,7 +846,7 @@ Keep that ID with the research inputs. Reopen using
 `SnapshotStore(destination, raw_store, readers=SourceAdapters()).read(identity, max_bytes=limit)` from
 [`snapshots.py`](datasets/snapshots.py). The reader verifies every canonical/raw file and
 repeats admission before returning the manifest. `latest` and filesystem paths
-cannot stand in for the ID. The MR 16 command below exposes this consumer.
+cannot stand in for the ID. The dataset command below exposes this consumer.
 An optional `report(run_identity, quality)` sink on `SnapshotStore.read` or
 `DatasetManifest.read` receives each reproduced report after its canonical bytes
 match. Inspection uses those reports directly. An earlier partition's report does
@@ -899,26 +869,26 @@ snapshot is visible, while after rename a complete snapshot may need its parent
 synchronization acknowledged. Abrupt process exits can leave hidden staging
 directories; no garbage collection is introduced.
 
-The [snapshot contract](../../docs/data/contracts.md#atomic-local-snapshots-mr-15),
+The [snapshot contract](../../docs/data/contracts.md#atomic-local-snapshots),
 [isolated installed consumer](../../tests/integration/consumers/datasets/publish_snapshot.py) and
-NB 15 in [research-foundations.ipynb](../../examples/research-foundations.ipynb)
+notebook exercise in [research-foundations.ipynb](../../examples/research-foundations.ipynb)
 show interruption, retry and prior-snapshot preservation. These synthetic snapshots
 retain exploratory degraded scope; they do not establish empirical coverage,
-historical eligibility, M1 completion or P1 acceptance.
+historical eligibility or P1 acceptance.
 
-## Publish and inspect from the command line (MR 16)
+## Publish and inspect from the command line
 
 `alpha-dataset` consumes saved `alpha-acquire` manifests and their retained raw
 store. It does not download data or resolve a mutable latest tag. Install the
 candidate with `uv sync --frozen --no-editable`, then use an existing snapshot
-store directory on a filesystem supporting the MR 15 synchronization/rename contract.
+store directory on a filesystem supporting the snapshot publication synchronization/rename contract.
 
 Prepare a strict `QualityPolicy` JSON file with `DomainCodec.encode_json`, for example
 `QualityPolicy(use="exploratory", known_at=sample_start, max_gap=timedelta(seconds=30))`.
 The cutoff is an explicit UTC decision time; gap tolerance measures observed silence,
 not recorder completeness. Supply a strict `EligibilityAssertions` JSON file with
 the same catalog as the acquisition. Empty assertions retain unknown membership;
-never substitute synthetic assertions for actual historical evidence. NB 16 demonstrates
+never substitute synthetic assertions for actual historical evidence. The notebook demonstrates
 preparing these files and inspecting their consequences without network access.
 
 ```sh
@@ -948,7 +918,7 @@ day; separate days need separate acquisitions.
 
 Exact repeated manifests are reused in first-seen order. Nonidentical acquisitions whose
 instrument/time selections overlap fail instead of adding duplicate economics.
-Arbitrary overlap reconciliation remains unsupported. Within a partition, MR 10
+Arbitrary overlap reconciliation remains unsupported. Within a partition, revision admission
 retains duplicate lineage and evidenced correction histories. Supply each correction as
 `--correction <resolved-acquisition-run-sha256> /saved/correction.json`; it is a
 strict `Correction` record keyed to the original input run. Multi-instrument evidence
@@ -987,11 +957,10 @@ Abrupt process death may leave only the last progress record. A failed publicati
 can leave a complete visible snapshot after rename; repeat the same command to
 verify and synchronize it. Preserve both stores and earlier snapshots.
 
-The [MR 16 implementation record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md)
-records installed synthetic/retained-source results and NB 16. The fixture inspector
-`alpha-inspect-fixture` is unchanged. MR 17 owns event selection as of a cutoff.
+Use `alpha-inspect-fixture` for one configured raw frame; the cutoff selector
+below handles point events from admitted data.
 
-## Select point events at a cutoff (MR 17)
+## Select point events at a cutoff
 
 `AsOfSelector` in `market_data.query` reads an explicitly identified snapshot or a tuple
 of existing admitted canonical partition bytes. It reuses `SnapshotStore`, the
@@ -1059,14 +1028,11 @@ coverage. Each call reconstructs a private validated view, so unsafe mutation of
 an earlier returned record cannot affect subsequent queries.
 
 This is a bounded in-memory reference API, without column projection, batching,
-query identities, cancellation, event stepping or a performance claim. The MR 19 query consumer below adds bounded batches; MR 20 owns event stepping.
-MR 18 requires a measured workload. Snapshot publication
+query identities, cancellation, event stepping or a performance claim. The query reader below adds bounded batches; replay owns event stepping. Snapshot publication
 currently supports archive inputs; captured trades and scoped controls are tested
 using admitted synthetic canonical bytes, without extending publication support.
-See the [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-17-implementation.md) and
-[notebook section 7](../../examples/research-foundations.ipynb).
 
-## Bounded reference queries (MR 19)
+## Bounded reference queries
 
 `QueryReader` in `market_data.query` opens an explicit snapshot ID through the existing
 complete raw/canonical verification. Its constructor also accepts admitted canonical
@@ -1132,7 +1098,7 @@ window keeps a later correction that retires its earlier in-window value. Termin
 membership exclusions do not erase that history. Unknown originals remain unusable
 until actual evidence permits selection. History is **replay input, not an eligible
 cutoff projection**; its partition/head order is not chronological replay order.
-MR 20 owns ordering, membership application and shared event stepping.
+Chronological replay owns ordering, membership application and shared event stepping.
 
 Every batch carries a versioned query SHA-256 covering input/snapshot identity,
 precedence, selected instruments, business bounds, knowledge cutoff, columns and
@@ -1144,17 +1110,14 @@ queries reuse the admitted private partitions and copy returned records/evidence
 unsafe mutation of a result cannot change a later query. History copies records
 as each output batch is built. Admission still runs completely when the reader is
 constructed; caching never invents knowledge or bypasses snapshot verification.
-MR 18 measures this reference optimization and the separate pre-admission Parquet
-experiment in its [workload record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-18-implementation.md).
 
-See [NB 19, section 8](../../examples/research-foundations.ipynb),
-[focused tests](../../tests/unit/data/test_query.py), and the
-[acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-19-implementation.md) for measured
-memory/read counts, installed-consumer evidence and limitations. MR 19 introduces
-no columnar backend or publication adapter; EDA and replay consumers follow below.
+This reader introduces no columnar backend or publication adapter. See the
+[query tests](../../tests/unit/data/test_query.py), [notebook section 8](../../examples/research-foundations.ipynb)
+and [workload evidence](../../examples/notebook-operations.md#query-workload-evidence)
+for their respective correctness and measurement scopes.
 
 
-## Chronological event stepping (MR 20)
+## Chronological event stepping
 
 `Replay` in `market_data.replay` consumes an admitted `QueryReader`, explicit instrument
 and business bounds, inclusive terminal knowledge time, resolved consumer
@@ -1200,15 +1163,15 @@ cooperative during query admission; a consumer can abort a step by raising, with
 the same incomplete-step recovery rule. Cursor/phase callbacks expose progress
 and failure context without a second telemetry framework.
 
-[NB 20](../../examples/research-foundations.ipynb) and the
+[notebook exercise](../../examples/research-foundations.ipynb) and the
 [installed consumer](../../tests/integration/consumers/replay/replay_consumer.py) exercise the
 same operation. This trade/control scope rejects unsupported canonical book
 inputs. L2/L3 publication/adapters and accepted-snapshot/recovery-epoch state
-remain with the later collector consumers. E1/MR 44 own economic batch/resume
-proofs; MR 21 consumes this boundary for standalone EDA replay.
+belong to the book adapter below. The planned economic runner must prove economic
+batch/resume parity; configured EDA already uses this boundary for standalone replay.
 
 
-## Configured EDA and extension boundaries (MR 21)
+## Configured EDA and extension boundaries
 
 `applications.explore.inspect_eda(config, snapshots, raw, report=..., consume=...)` is the
 installed Python orchestration entry. Supply a strict `research.exploration.EdaQuery` JSON
@@ -1247,15 +1210,13 @@ claims no I/O pushdown. The reader's canonical-byte cap is not an RSS bound.
 
 The [standalone consumer](../../tests/integration/consumers/query/eda_consumer.py) builds a
 small deterministic synthetic archive, publishes two instruments, retains EDA
-records and replays outside Jupyter. [NB 21](../../examples/research-foundations.ipynb)
+records and replays outside Jupyter. [notebook exercise](../../examples/research-foundations.ipynb)
 plots the same bounded interval. The [contract fixture](../../tests/fixtures/instruments/contract.json)
 exercises neutral identity, exact quantity/multiplier and projected-batch summaries
 only, with no spot-record coercion. It is not admitted to the spot reader/replay;
 unsupported source products, lifecycle/adapter fields and unit combinations fail.
-See the [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-21-implementation.md) for
-commands, observations, justified review size and remaining scope.
 
-## Bounded saved books (MR 25)
+## Bounded saved books
 
 `DatasetPublication.publish_books` accepts completed native capture or OKX
 archive directories, an existing `RawStore`, a provisioned snapshot directory and
@@ -1313,11 +1274,10 @@ failure, and reopening reproduces admission from retained original bytes.
 
 Only `exploratory_degraded` publication is supported. Historical eligibility,
 complete coverage, full depth, causal use, trade queries, fills and execution are
-not admitted. MR 27 adds bounded chronological book stepping below. The
-[MR 25 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-25-implementation.md) retains acceptance.
+not admitted. Book replay provides bounded chronological book stepping below.
 
 
-## Published book queries and shared stepping (MR 27)
+## Published book queries and shared stepping
 
 `BookReplay.read(..., readers=SourceAdapters())` verifies the entire `BookDatasetManifest` against retained raw
 bytes, then selects one explicit `request_identity`. Supply the snapshot identity,
@@ -1358,5 +1318,3 @@ saved input available for diagnosis and never reports canonical success. Canonic
 prefix retention shares the configured byte cap and fails explicitly if exceeded.
 
 No source/format gains complete coverage, executable use or derivative mechanics.
-The [MR 27 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-27-implementation.md) identifies the
-real bounded captures, archive check, synthetic failure evidence and limitations.

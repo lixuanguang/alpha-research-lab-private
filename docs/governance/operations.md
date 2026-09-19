@@ -20,9 +20,9 @@ The [QuantLib restriction](../architecture/README.md#dependency-and-release-boun
 blocks release use until its source-to-wheel uncertainty is
 resolved. Passing development checks or deleting the allowance does not satisfy
 source admission or remove that block.
-The [R1 trusted consumer](../roadmap/README.md#r1-trusted-artifact-before-first-deployment)
+The [trusted artifact consumer](../roadmap/README.md#trusted-deployment-artifact)
 is also required before an actual collector or paper deployment. Clearing the
-dependency restriction alone does not implement artifact verification. MR 59
+dependency restriction alone does not implement artifact verification. Bounded activation
 subsequently binds executable trading authority to the verified release.
 
 Build and verify one immutable artifact. Record its commit, digest, dependency
@@ -75,8 +75,8 @@ exposure, margin and pending orders across strategies. Define which failures sto
 one instance, an account or all trading. A failed strategy must not disable shared
 account protection or conceal another strategy's live orders.
 For a first dedicated single-instance paper account, base cash/position/order
-and pending-commitment reconciliation is mandatory. MR 54 allocation/arbitration
-and MR 55 allocation reconciliation must additionally pass before the second
+and pending-commitment reconciliation is mandatory. Shared allocation/arbitration
+and allocation reconciliation must additionally pass before the second
 instance shares the account. Stop and recovery controls apply in either scope.
 
 Add dashboards, centralized telemetry and additional operators when the workload

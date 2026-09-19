@@ -21,12 +21,10 @@ dataset records. These use frozen `msgspec.Struct` values with cached strict
 typed codecs. Order-intent and execution consumers remain planned; the established
 C01, C02 and C03 foundation contracts remain preserved.
 
-The [platform roadmap](../roadmap/README.md) selects the next work. The retired
-blueprint and package catalog remain in Git history. MRs 01–16 deliver the
-configured fixture consumer and versioned dataset publication; MRs 17–27 add
-bounded query/replay, EDA and collector integration. MR 28 completed the functional
-source-layout stages. Planned D1 and experiment cores extend researcher access;
-planned E1 starts the economic path toward the reproducible costed baseline; the same strategy logic later serves paper operation.
+The [platform roadmap](../roadmap/README.md) selects future infrastructure work.
+Its first outcomes are researcher data access, auditable comparisons and a small
+costed backtest. Shared research interfaces support features, models and rules;
+the same accepted decision components later serve paper operation.
 
 The full monorepo is one source tree with multiple deployables and release
 cadences. Shared economic semantics are canonical; strategy variants, asset
@@ -34,15 +32,12 @@ mechanics, storage, and computation lanes remain separate until a consumer or
 measured workload justifies a shared boundary.
 
 The current runtime ships functional packages directly under `src/`, with
-`applications/` owning executable workflow composition. MR 28 stages 1–3 retire
-the `alpha_research` import namespace and migrate the installed commands together.
-The [source-layout record](../roadmap/source-layout-refactor.md) gives the file
-mapping, dependency repairs, identity changes and validation evidence. Each library
-has one explicit public `__init__.py`; applications select adapters and inject
-reader, verifier and book-construction capabilities. Shared libraries never import
-applications or select source factories. Historical feature work remains separate.
-The [roadmap](../roadmap/README.md#functional-source-ownership-from-mr-28) assigns
-owners to subsequent work.
+`applications/` owning executable workflow composition. Each library has one
+explicit public `__init__.py`; applications select adapters and inject reader,
+verifier and book-construction capabilities. Shared libraries never import
+applications or select source factories. The [functional source map and API
+rules](platform-design.md#current-and-planned-repository-shape) describe current
+owners and clearly label planned capabilities.
 
 ## Current boundary
 
@@ -50,15 +45,15 @@ The planned research-to-operation path is:
 
 ```text
 configured fixture -> versioned data + explicit availability
-    -> reference query/replay + E1 synthetic economics
+    -> reference query/replay + synthetic economics
     -> reproducible baseline with declared cost assumptions and exact accounting
-    -> reusable research + live inputs + R1 verified artifact
+    -> reusable research + qualified live inputs + verified artifact
     -> paper/shadow with risk, reconciliation, monitoring, stop and recovery
     -> explicit bounded live activation using those qualified controls
 ```
 
-The [milestone dependency graph](../roadmap/README.md#completion-and-dependency-model)
-owns detailed order. R1 precedes any actual deployment, including a collector
+The [delivery dependencies](../roadmap/README.md#delivery-order-and-dependencies)
+own detailed order. Artifact verification precedes any actual deployment, including a collector
 pulled forward for a concrete data need. Operational controls accompany their
 runtime and must pass before activation.
 
@@ -95,23 +90,19 @@ The following rules govern new code and documentation:
    preserve the relevant numerical, temporal, integrity, security, and recovery
    behavior before the existing boundary is retired.
 
-Current and selected foundation-boundary imports are:
+Current dependency direction is organized by functional owner:
 
-```text
-instrument_identity -> _validation
-venue_calendar.models -> _validation
-financial_units -> instrument_identity
-financial_units -> venue_calendar
-serialization -> financial_units, instrument_identity, msgspec
-core.events -> msgspec
-reference_data -> financial_units, instrument_identity, serialization
-data.events -> core.events, instrument_identity, msgspec
-data.decoders -> core.events, msgspec
-data.providers.tardis.decoder -> data.decoders, data.events
-data.venues.binance.events -> data.events
-data.venues.binance.codecs -> data.events, data.venues.binance.events, serialization, msgspec
-data.venues.binance.payloads -> data.decoders, data.events, data.venues.binance.events, instrument_identity, reference_data
-```
+- `reference_data/instruments/` and `reference_data/calendars/` own identity and
+  time contracts; `financial_units/` owns exact economic values and conventions.
+- `market_data/contracts/` owns neutral event/source records. Adapters, storage,
+  validation, datasets, query and replay implement their respective capabilities
+  through explicit public APIs and injected reader/verifier operations.
+- `research/exploration/` consumes admitted data for EDA. Future feature, model,
+  strategy, simulation and accounting owners are marked in the platform design.
+- `configuration/` resolves definitions and selections. `runtime/` and `telemetry/`
+  supply identity, supervision and observations without importing applications.
+- `applications/` composes these libraries and exposes the installed commands.
+  Libraries never import applications; applications never import sibling workflows.
 
 Foundational contracts do not depend on notebooks, research-only approximations,
 deployment composition roots, or workstation configuration. Provider details
@@ -121,11 +112,9 @@ interpretation. Portfolio construction emits targets; execution turns an
 intent into orders only after an independent risk boundary. Cross-process
 interfaces will use versioned schemas when such a boundary is introduced.
 
-This graph focuses on the foundations retained after
-[C0](../roadmap/README.md#existing-abstractions-to-retain-or-retire).
-The [dataset pipeline](../../src/market_data/datasets/publication.py) composes
-decoders and the saved-input validation/publication libraries. The
-[data library guide](../../src/market_data/README.md) describes those consumers.
+The [dataset library](../../src/market_data/datasets/publication.py) assembles
+saved-input validation and publication with injected source capabilities. The
+[data library guide](../../src/market_data/README.md) describes public consumers.
 
 ## Implemented domain contracts
 

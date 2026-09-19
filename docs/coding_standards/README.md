@@ -59,7 +59,7 @@ that Git does not track. A missing root, unreadable source, malformed
 configuration, or finding fails closed. It has no source-rule waiver or
 function-registration mechanism. The checker does not yet enforce the
 orchestrator-only function rule or assess class cohesion; those are review
-requirements pending the [OOP migration](../roadmap/README.md#oop-migration-status).
+requirements pending the [OOP migration](../roadmap/README.md#python-ownership-and-enforcement).
 A passing check does not establish OOP compliance. Line-scoped tool suppressions
 are separate and must carry the owner, rationale, and expiry metadata described
 below.
@@ -90,13 +90,10 @@ when practical.
 
 ## Design and interfaces
 
-For the MR 28 source migration and later implementation, follow the selected
-[functional ownership and entrypoint rules](../architecture/platform-design.md#functional-apis-and-application-entrypoints)
-and [per-MR assignments](../roadmap/README.md#functional-source-ownership-from-mr-28).
-The [migration plan](../roadmap/source-layout-refactor.md) covers the current
-namespace and its consumers. Current imports/checker configuration remain in
-force until their coordinated cutover; documentation alone does not establish
-that the target layout or its enforcement is implemented.
+Follow the [functional ownership and entrypoint rules](../architecture/platform-design.md#functional-apis-and-application-entrypoints).
+The current source map lives in architecture; each future roadmap capability
+names its intended owner. Import and command enforcement applies to the current
+functional layout.
 
 Give each module one cohesive responsibility and each consumer the smallest
 useful interface. Names must reveal domain purpose; use one term for one
@@ -201,7 +198,7 @@ changing implementation code, including development tooling. Implementation
 plans MUST identify the concrete consumer and responsibility of each new
 abstraction, and explicitly retain, change or retire relevant existing
 abstractions before adding consumers that depend on them. The
-[P1 ownership map](../roadmap/README.md#p1-code-ownership-and-call-flow)
+[functional source map](../architecture/platform-design.md#current-and-planned-repository-shape)
 applies this rule to the next implementation slices.
 
 ### Python scope and migration
@@ -223,7 +220,7 @@ Existing non-orchestrator functions remain migration work, not a permanent
 exception or evidence that migration is complete. New and materially changed
 implementation MUST follow this rule. Migrate each affected API with its callers,
 exports, tests and documentation; retain current API descriptions until the code
-changes. The [roadmap](../roadmap/README.md#oop-migration-status) owns the remaining
+changes. The [roadmap](../roadmap/README.md#python-ownership-and-enforcement) owns the remaining
 implementation and enforcement work. This policy update changes no runtime API
 or checker behavior by itself.
 

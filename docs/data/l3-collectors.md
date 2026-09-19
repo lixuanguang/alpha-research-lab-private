@@ -1,10 +1,10 @@
 # Bounded crypto L3 capture and replay
 
-Owner: repository founder. Status: implemented development collector slice under
-MRs 22–27; Coinbase authenticated external acceptance remains access-blocked.
-The [implementation evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/crypto-l3-collectors.md) records actual
-commands and retained inputs. This workflow records new observations. It is not
-historical backfill, dataset acceptance, a deployed service or an execution model.
+Owner: repository founder. Status: bounded development capture, durability,
+recovery, quality, supervision and replay are implemented. Coinbase authenticated
+external acceptance remains access-blocked. This workflow records new observations;
+it does not establish historical backfill, complete source coverage, a deployed
+service or an execution model.
 
 ## Start here
 
@@ -105,7 +105,7 @@ A recording gets an exclusive UUID directory under the supplied venue output:
   receipt nanoseconds, epoch, record kind and local control reason. Each line is
   flushed and fsynced before decoding or consumer use. Messages remain atomic and
   are never resorted by exchange timestamps.
-- `cursor.json` (MR 23): the request identity, committed byte offset, record count
+- `cursor.json`: the request identity, committed byte offset, record count
   and incremental SHA-256 of that exact prefix. Each append returns only after
   journal fsync, synced `cursor.pending`, atomic replacement and directory fsync.
   New output-directory ancestors are synchronized before the writer starts.
@@ -155,14 +155,11 @@ fails closed. After any persistence failure the writer refuses append/publicatio
 start a new UUID recording and retain the old one. No exact lost-message count is
 invented for a process that died with messages in memory.
 
-Completed legacy recordings remain verified through their unchanged manifests.
-Legacy interrupted recordings without `cursor.json` retain bounded newline-prefix
-inspection and the unknown-loss marker, without a cursor acknowledgement claim.
-An empty recording that died before its first session and an end record without
+Completed legacy recordings remain verified through their unchanged manifests. Legacy interrupted recordings without `cursor.json` retain bounded newline-prefix
+inspection and the unknown-loss marker, without a cursor acknowledgement claim. An empty recording that died before its first session and an end record without
 verified publication both count as interrupted. Checkpoints acknowledge
-saved input, not downstream consumer state; consumer resume remains later work.
-The [MR 23 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-23-implementation.md) retains fault and installed
-acceptance evidence. No exactly-once or gap-free-history
+saved input, not downstream consumer state. Shared book replay requires its own
+consumer state beside the source cursor. No exactly-once or gap-free-history
 claim follows from a completed capture. Clean duration/message limits are intended
 recording boundaries; source continuity outside those boundaries is unknown.
 
@@ -213,20 +210,17 @@ boundary. Its rolling trace binds original frames, output classifications and
 message-boundary order-state fingerprints. Live collection replays the saved
 object and compares the entire final summary and trace. This preserves visible
 resting order state; it establishes neither queue priority, hidden liquidity,
-executable fills, nor a simulator. General MR 20 event-time stepping and canonical
-quality/publication remain separate roadmap prerequisites.
+executable fills, nor a simulator. Shared book publication/replay follows below.
 
-The planned [shared dataset and replay integration](../roadmap/README.md#collector-integration-with-shared-datasets-and-replay)
-is an explicit MR 25/27 checkpoint, reusing MR 09–15 normalization/publication
-and MR 20 replay through the existing pipelines.
+The [shared book path](../../src/market_data/README.md#published-book-queries-and-shared-stepping)
+reuses publication and chronological stepping with its own format and quality scope.
 
-## MR 22 verified source contract
+## Verified source contract
 
-MR 22 selects the existing **Bitfinex spot `tBTCUSD`, R0/F0, depth 25** job for
+The maintained example selects the **Bitfinex spot `tBTCUSD`, R0/F0, depth 25** job for
 bounded foreground verification. It reuses `CaptureConfig`, `CaptureRequest`,
 `VenueTransport`, `BitfinexBook` and `collect`; no second transport or configuration
-schema is added. The [acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-22-implementation.md) binds
-the actual installed candidate, acknowledgements and exact saved session.
+schema is added.
 
 | Boundary | Supported meaning |
 | --- | --- |
@@ -256,12 +250,8 @@ assumed. Restart/maintenance notices invalidate the session under existing behav
 
 `SEQ_ALL` is documented as beta server-order evidence, not matching-engine
 completeness. This bounded job is not a continuous service or historical backfill.
-MR 23 retains its [durability evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-23-implementation.md);
-MR 24 retains its [recovery evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md);
-MR 26 owns supervision acceptance, MR 25/27 own canonical book
-publication/shared replay, and R1 still precedes deployment.
 
-## MR 24 session recovery
+## Session recovery
 
 The collector now drains already accepted queue entries after an invalid frame
 instead of dropping the tail of a completed recording. It stops the affected
@@ -277,7 +267,7 @@ connections and snapshots (maximum six); retry delays are 1, 2, 4, 8 and 16 seco
 capped by the remaining receive interval. Existing fixed endpoints, connection and
 HTTP timeouts remain. Rate-limit and protocol failures retain an invalid gap and
 consume the same finite budget. These are per-invocation ceilings; there is no
-shared-IP limiter or service supervisor. Coinbase reserves one message slot per
+shared-IP limiter within this recovery loop. Coinbase reserves one message slot per
 epoch for the independent REST response, preserving `max_messages` across retries;
 an unused reservation is not filled by additional stream messages.
 
@@ -286,7 +276,7 @@ It never repairs the preceding unknown interval. No selected stream has a
 historical backfill adapter. Snapshots retain their actual later response receipt;
 no earlier knowledge timestamp is assigned. A prior-epoch or closed-epoch snapshot
 is retained and counted as stale without changing current state. Canonical
-knowledge/quality admission remains MR 25 work.
+knowledge/quality admission uses the book-publication contract below.
 
 At the replay boundary, byte-identical adjacent sequenced Bitfinex/Coinbase frames
 within an epoch count as duplicates and do not repeat economic mutations. Both
@@ -299,11 +289,8 @@ Derived summaries add `frames`, `duplicates`, `stale_snapshots` and
 input can produce a different derived trace when a formerly invalid exact repeat
 is now explicitly classified as a duplicate.
 
-The [MR 24 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md) and section 15 of the
-[foundations notebook](../../examples/research-foundations.ipynb) retain exact
-arithmetic, disconnect-during-snapshot, bridge-gap, simulated HTTP 429 and stale
-response evidence. They do not establish Coinbase external eligibility or shared
-canonical dataset admission.
+These recovery guarantees do not establish Coinbase external eligibility or
+complete source coverage.
 
 ## Official protocol references
 
@@ -329,7 +316,7 @@ The Binance historical acquisition command and
 scope. Earlier notebook attempts retain their historical meaning; current
 researcher examples use OKX and Bitfinex as described above.
 
-## MR 25 continuous quality and bounded publication
+## Continuous quality and bounded publication
 
 `CaptureReplay.quality` is the same scoped gate used by the collector and saved
 input admission. Each durable boundary exposes status, reason, scope, transition
@@ -361,17 +348,14 @@ Both are required together. Publication uses the capture's existing byte budget,
 shared `QualityReport` gate and atomic `SnapshotStore`. A publication refusal does
 not remove the completed raw recording or its summary. Original raw configuration
 and capture serialization remain compatible. Saved-only publication and explicit
-book reopening are described in the [data guide](../../src/market_data/README.md#bounded-saved-books-mr-25).
+book reopening are described in the [data guide](../../src/market_data/README.md#bounded-saved-books).
 
 The native OKX decoder now commits both sides of a message together: a malformed
 second side leaves the preceding state and source cursor intact. Native sequence
 rules, visible depth and archive unknown-continuity restrictions remain unchanged.
-The [MR 25 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-25-implementation.md) separates
-synthetic recovery evidence, reuse of bounded saved source observations and
-remaining MR 26/27/R1 work.
 
 
-## MR 26 independent health supervision
+## Independent health supervision
 
 The optional `--health-config` capture flag selects a separate parent watchdog.
 The parent owns one spawned collector and observes a fixed nine-integer shared
@@ -388,18 +372,18 @@ uv run --frozen --no-editable alpha-collect capture \
 ```
 
 This command starts a new bounded source capture. It is a usage example, not an
-MR 26 external-source or deployment test. The maintained health example uses
+external-source or deployment test. The maintained health example uses
 macOS's `/var/run/syslog`; select an existing local Unix datagram syslog receiver
 on another supported POSIX host. No remote alert destination is contacted.
 `HealthPolicy` refuses unknown fields, invalid thresholds and responses other
 than `stop`. The queue threshold must be below the configured capture capacity.
 Supervised capture deliberately refuses the optional book-publication flags;
-shared capture/publication/replay workflow completion remains MR 27.
+the foreground capture path provides publication/replay parity separately.
 
 The parent polls every 100 ms. Startup has its own finite allowance. The child
 updates a process heartbeat every 100 ms; accepted frame receipt, successful
 journal append and validated economic progress have separate clocks. Economic
-freshness reuses MR 25's source/receipt policy, projected to monotonic elapsed
+freshness reuses the book source/receipt policy, projected to monotonic elapsed
 nanoseconds when market progress changes. Source clocks in saved raw input remain
 unchanged. Heartbeats and duplicate frames cannot refresh economic progress.
 The queue metric retains peak occupancy; reconnects count epochs after the first;
@@ -429,22 +413,20 @@ status. The installed command exits nonzero on unhealthy completion.
 
 A protective stop may leave accepted queue entries or an in-flight disk operation
 uncommitted. Inspect the child's directory with `alpha-collect replay --capture
-<child-directory> --interrupted`; MR 23's cursor verifies the retained prefix and
+<child-directory> --interrupted`; the durable cursor verifies the retained prefix and
 marks the unknown tail invalid. Do not treat a stopped capture as continuous or
 restart by appending to it. Start a new explicitly configured recording after
 addressing the cause. A failed summary write propagates after stop/alert; failed
 storage cannot be relied on to record its own failure.
 
-The [MR 26 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-26-implementation.md) and notebook section 17
-exercise synthetic feeds, actual child death, a read-only journal and a temporary
-local syslog receiver. Delivery means socket acceptance, not human acknowledgement.
-The parent watchdog itself still needs an external service manager for deployed
-availability; host loss, remote alert routing and service activation are unproven.
-R1 remains required before deployment. This change enables no book-dependent
-execution consumer and makes no new named-source or canonical-parity claim.
+Alert delivery means socket acceptance, not human acknowledgement. The watchdog
+still needs an external service manager for deployed availability; host loss,
+remote alert routing and service activation are unproven. Artifact verification
+remains required before deployment. Supervision alone does not establish
+book-dependent execution or canonical parity.
 
 
-## MR 27: published capture and replay parity
+## Published capture and replay parity
 
 The foreground installed capture path accepts the existing paired
 `--snapshot-directory <provisioned-directory> --snapshot-records 32` options.
@@ -456,19 +438,16 @@ A divergent message leaves `first-divergence.json` beside the original raw objec
 with the first raw position and expected/observed states. No vendor download is
 used to replace the recording. Preserve these files together when diagnosing failure.
 
-The [book replay API](../../src/market_data/README.md#published-book-queries-and-shared-stepping-mr-27)
+The [book replay API](../../src/market_data/README.md#published-book-queries-and-shared-stepping)
 queries atomic messages, schedules only known receipts, and restores the shared
-completed cursor together with accepted snapshot and recovery epoch in consumer state.
-The [capture notebook](../../examples/market-data-capture.ipynb) section 10 and
-[MR 27 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-27-implementation.md) retain Bitfinex/OKX source,
-snapshot/query/replay identities and installed-consumer results. Section 18 of the
-foundations notebook injects disconnects and duplicate saved frames, with explicitly
+completed cursor together with accepted snapshot and recovery epoch in consumer
+state. Section 18 of the [foundations notebook](../../examples/research-foundations.ipynb) injects disconnects and duplicate saved frames, with explicitly
 new local receipt clocks, and shows a retained first-divergence failure.
 
 The canonical proof covers the selected prefix (32 positions in acceptance), while
 native summary parity covers the finite recording. Continuous service, complete
 coverage, source clock accuracy and execution remain outside this acceptance.
 Coinbase live acceptance still requires verified Exchange access. The existing
-supervised CLI path remains raw-capture-only and refuses snapshot flags; MR 26's
-independent supervision evidence is reused unchanged. R1 remains required for any
+supervised CLI path remains raw-capture-only and refuses snapshot flags; independent
+supervision follows its separate contract. Artifact verification remains required for any
 deployment. No new venue connection is needed to replay an existing saved recording.

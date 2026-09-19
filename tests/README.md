@@ -80,35 +80,7 @@ arguments for saved captures and synthetic endpoints; use their existing pytest
 callers or the maintained [capture notebook](../examples/market-data-capture.ipynb)
 and [research notebook](../examples/research-foundations.ipynb).
 
-## Historical path migration
-
-MR identifiers describe historical delivery packages, not code ownership.
-Acceptance records retain their tested revisions and original command paths;
-their source links now point to the maintained locations. Reproducing an old
-record requires its recorded revision. Notebook outputs and serialized evidence
-identifiers retain their historical provenance; this move does not regenerate
-their bytes or claim a new research run.
-
-| Former fixture location | Current location |
-| --- | --- |
-| `m0/` | `fixtures/market_data/tardis/` |
-| `l3/` | `fixtures/market_data/coinbase/` |
-| Python under `mr04/`, `mr06/`; `mr15/interrupt_snapshot.py`, `mr16/interrupt_command.py` | `support/subprocesses/`, retaining script basenames |
-| Consumers under `mr08/`, `mr09/`, `mr10/`, `mr13/`, `mr14/`, `mr15/`, `mr16/` | `integration/consumers/datasets/` |
-| Consumers under `mr11/`, `mr12/` | `integration/consumers/eligibility/` |
-| Consumers under `mr17/`, `mr19/`, `mr21/` | `integration/consumers/query/` |
-| Consumer under `mr20/` | `integration/consumers/replay/` |
-| Consumers under `mr24/` through `mr27/` | `integration/consumers/capture/` |
-| `mr11/eligibility.json` | `fixtures/eligibility/assumptions-and-membership.json` |
-| `mr12/eligibility.json` | `fixtures/eligibility/membership-corrections.json` |
-| `mr20/canonical.json` | `fixtures/replay/canonical.json` |
-| `mr21/contract.json` | `fixtures/instruments/contract.json` |
-
-Former locations in the first column were relative to `tests/fixtures/`; current
-locations are relative to `tests/`. The ingestion workflow's pytest wrapper moved
-from `unit/pipelines/` to `integration/`, retaining its test name and marker.
-
-## Functional layout verification (MR 28 stages 1–3)
+## Functional layout verification
 
 `engineering/test_source_layout.py` exercises forbidden dependency directions,
 private/module API bypasses, duplicate commands, installed inventory faults and

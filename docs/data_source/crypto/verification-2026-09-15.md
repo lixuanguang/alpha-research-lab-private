@@ -4,7 +4,7 @@
 
 This is a source survey for the [crypto guide](README.md), performed against
 primary provider documentation and two bounded public Binance archive downloads.
-It is separate from the integrated MR 07 acquisition acceptance. No strategy,
+It is separate from the integrated acquisition acceptance. No strategy,
 canonical dataset, L2 reconstruction or new runtime adapter was implemented.
 
 The substantive corrections are aggregate fills versus individual trades,
@@ -117,7 +117,7 @@ documentation page does not prove endpoint availability or user entitlement.
 The documentation index is also the package metadata README. Its navigation
 change does not alter runtime behavior; no wheel rebuild, installed-consumer
 rerun or fresh notebook execution is needed to verify these source-survey facts.
-Existing MR 07 runtime evidence remains linked in the crypto guide. Full provider
+The crypto guide links the current acquisition interface. Full provider
 backfills, historical option-chain availability and L2 replay remain unverified.
 
 ## Source-summary follow-up

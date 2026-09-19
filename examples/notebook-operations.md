@@ -1,9 +1,9 @@
 # Notebook setup, execution and troubleshooting
 
 Owner: repository founder. Current retention guidance updated 2026-09-19. This is
-the supporting operations guide; historical execution records retain their tested revisions. Start with the [researcher's guide](README.md) to choose a question and
+the supporting operations guide. Start with the [researcher's guide](README.md) to choose a question and
 understand the data. This page owns notebook setup, execution and source/output retention. The
-[roadmap](../docs/roadmap/README.md#local-notebook-workflow) owns implementation
+[roadmap](../docs/roadmap/README.md#execution-and-maintenance) owns implementation
 acceptance; the [research program](../docs/roadmap/research-program.md#notebook-research-and-package-promotion)
 owns research methodology and promotion.
 
@@ -34,7 +34,7 @@ an empty notebook per future capability or a notebook per MR.
    local while investigated; formal promoted results call the versioned package.
 3. For changed executable examples, exercise the applicable boundary case, restart
    the kernel and run all cells. Retain commands, identities, conclusions and
-   limitations in the owning MR record; promote decisive regression cases into
+   limitations in the change or research record; promote decisive regression cases into
    focused tests. Unchanged code/output evidence need not be rerun for prose.
 4. Before **each commit, push and merge to main**, review maintained notebook,
    runner and guide sources. Keep credentials, restricted/raw data and bulk
@@ -156,247 +156,36 @@ No new project runtime dependencies or `sys.path` changes are needed.
 ## Interactive kernel and import repair
 
 The kernel requires `ipykernel` and the installed runtime package. The primary
-notebook also requires `matplotlib==3.10.8` for its MR 21 synthetic EDA plot.
+notebook also requires `matplotlib==3.10.8` for its synthetic EDA plot.
 `nbclient`/`nbformat` are runner tooling, so their absence from an interactive
 kernel is permitted and recorded accurately in the notebook table.
 
 After switching to source that adds or changes a module, refresh the installed
 candidate in the interpreter selected by the editor, then restart that kernel and
 run all cells. `--no-sync` only preserves an existing installation; it does not
-install new source. The package version remains `0.1.0` across these MRs, so check
+install new source. The package version remains `0.1.0` across source changes, so check
 installed file identity instead of treating the version string as proof that the
 current candidate is installed.
 
-Historical environment failures and repairs are retained in the
-[M0 import record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/m0-implementation.md#interactive-notebook-import-repair),
-[MR 04 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-04-implementation.md#editor-environment-repair-before-merge)
-and [MR 05 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-05-implementation.md#duplicate-file-cleanup).
-MR 21 found extra duplicate runtime files in the existing development environment;
-its final acceptance uses a clean external wheel installation. The primary notebook
-now compares the complete installed runtime file set as well as file bytes, and
-selects the dataset command beside the kernel interpreter rather than from `PATH`.
-If that inventory check fails, use a clean wheel environment and restart; do not
-interpret a matching package version or matching subset of files as acceptance.
+The primary notebook compares the complete installed runtime inventory and bytes,
+and selects the dataset command beside the kernel interpreter rather than from
+`PATH`. If that check fails, install a clean wheel environment and restart; a
+matching package version or matching subset of files is insufficient.
 
 ## Where the detailed checks live
 
-These references explain implementation and retain historical test evidence;
-they do not change what a source proves about the market.
+Use the [QR walkthrough](README.md#follow-the-connected-dataset-walkthrough) for
+the primary notebook's sections and interpretation. The offline lab covers units,
+clocks, corrupted input, interrupted writes and acquisition recovery. The
+[test guide](../tests/README.md) identifies focused and isolated installed consumers.
 
-| Research concern | Notebook location | Engineering record |
-| --- | --- | --- |
-| Time, instrument identity and exact amounts | Offline lab, sections 4–7 | [Frozen case](../docs/research/p1-baseline.md) |
-| Selecting the intended saved observations | Offline lab, section 10 | [M0](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/m0-implementation.md) |
-| Changed or truncated files | Offline lab, section 11 | [MR 03](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-03-implementation.md) |
-| Interrupted writes | Offline lab, section 12 | [MR 04](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-04-implementation.md) |
-| Download failures | Offline lab, section 13 | [MR 05](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-05-implementation.md) |
-| Resuming collection | Offline lab, sections 14–15 | [MR 06](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-06-implementation.md), [MR 07](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-07-implementation.md) |
-| Equal-time rows, empty content and missing archives | Offline lab, section 16 | [MR 08](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-08-implementation.md) |
-| Separate dataset inputs, duplicates and quality scope | Primary notebook, sections 5–6; [dataset tests](../tests/unit/data/test_datasets.py) | [MR 09](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-09-implementation.md), [MR 13](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-13-implementation.md), [MR 14](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-14-implementation.md) |
-| Atomic publication and installed commands | Primary notebook, section 6; [snapshot tests](../tests/unit/data/test_snapshots.py) | [MR 15](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-15-implementation.md), [MR 16](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md) |
-| Corrections, membership and cutoff selection | Primary notebook, section 7; [as-of tests](../tests/unit/data/test_asof.py) | [MR 10](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-10-implementation.md), [MR 12](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-12-implementation.md), [MR 17](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-17-implementation.md) |
+A replay cursor binds source identity and progress. A stateful consumer must also
+retain its own state, pending schedules and applied event identities. Do not infer
+economic restart parity from the source-cursor example. Collector recovery preserves
+unknown gaps and requires fresh source synchronization; publication retains the
+source's declared quality scope.
 
-Historical checkpoint records below describe the notebook at each tested revision.
-The current primary notebook combines NB 09–17 into sections 5–7; fixed fixtures and
-engineering tests retain the detailed cases. New activity notebooks should grow
-from working research needs; do not create empty fetching,
-EDA, strategy or monitoring notebooks to represent planned capabilities.
-
-## Researcher guide verification
-
-This section records the earlier presentation-only change. The subsequent source
-migration is recorded below; its executable cells and evidence supersede that
-presentation snapshot for current use.
-
-The 2026-09-16 presentation change is based on MR 08 commit `1a25b48`. It rewrites
-the researcher entry guide and notebook explanations, collapses implementation
-source cells with standard Jupyter metadata, and moves setup/repair guidance to
-this page. Revert the documentation/notebook presentation commit to restore the
-previous reading order and wording; no runtime or saved-data migration is involved.
-
-Validation compares every code cell's ID, source, relative execution order,
-execution count and outputs with that commit, and preserves each notebook's
-`research_execution` record. All three notebooks pass nbformat schema validation.
-Local Markdown links are checked for this guide, the researcher's README, the
-roadmap and the narrative cells of all three notebooks. Executable code and
-original outputs are unchanged, so existing behavioral evidence is reused;
-no notebook execution, new live capture or archive download is claimed here.
-
-Commands used for this presentation check:
-
-```sh
-uv run --frozen --no-sync --with 'nbformat==5.10.4' \
-  python /private/tmp/researcher-guide-validation/check.py
-uv run --frozen --no-sync alpha-governance-architecture
-git diff --check
-```
-
-The first command used a local, temporary inspection script, not a new project
-command. It called `nbformat.validate`, compared code/evidence fields against
-`git show 1a25b48:examples/<notebook>.ipynb`, and used the existing
-`ArchitectureGovernanceService.validate_local_links` on both guides, the roadmap
-and extracted notebook Markdown. Results: three valid notebook schemas, all
-**41 code cells** and their outputs/order unchanged, all selected local links valid.
-The architecture command also passed for all 41 documents under `docs/`.
-
-| Notebook | Retained successful attempt | What the retained evidence covers |
-| --- | --- | --- |
-| Historical trade data | `ee11fc43-8a05-4515-bcf9-32519f84675e` (2026-09-16) | The MR 08 candidate's installed reader, selected-hour inspection and controlled failures. |
-| Offline reliability lab | `aa3cd64a-f768-4be5-adf2-973afcb9c5e9` (2026-09-15) | Its earlier installed implementation and synthetic foundation/acquisition checks; not a fresh run of the MR 08 candidate. |
-| Order-book observations | `e332e7de-a068-4a69-9e32-afe51a7e3c05` (2026-09-16) | The recorded collector implementation, bounded source attempts and historical prefix; not a new capture or current access check. |
-
-The execution records' source digests identify their original notebooks before
-this prose edit. Rerunning through the normal runner will create a new source
-identity and attempt. Review the network behavior before rerunning the capture
-notebook. Maintained example files remain tracked; run snapshots, raw data,
-checkpoints and temporary kernel files retain their existing ignore policy.
-
-## OKX and Bitfinex migration verification
-
-The 2026-09-16 source migration is based on commit `df2831e`. It replaces the
-primary Binance trade walkthrough with saved OKX/Bitfinex book exploration,
-removes the Coinbase credential route from the capture notebook and moves NB 08
-to the offline lab. It reuses existing package APIs and configurations. Runtime,
-dependencies, runner, ignore policy and the frozen P1 file are unchanged: **zero
-production code-bearing changed lines** under the roadmap's counting rule.
-Notebook code/output changes are cohesive teaching and execution evidence.
-Revert this migration's commit to restore the prior example route; no stored-data
-migration or deletion is needed.
-
-All three notebooks ran every cell in a fresh CPython 3.14.7 kernel against the
-installed candidate. The primary notebook passed both latest-matching selection
-and explicit saved directories. The capture notebook passed a new public download
-and a saved-archive run, with new live recordings on both executions.
-
-| Notebook / mode | Successful attempt | Executed code cells |
-| --- | --- | --- |
-| Saved books, latest matching inputs | `822d546a-d706-46bb-9463-94c244bb67f2` | 9 |
-| Saved books, explicit directories (maintained outputs) | `4549b993-5206-4cdf-84b0-9c29b2b73d92` | 9 |
-| Public capture and new OKX archive | `487d8f73-62af-4320-8621-5c248ef17841` | 9 |
-| Public capture and reused OKX archive (maintained outputs) | `ba7527ab-1309-4525-b44a-24f47130e4e2` | 9 |
-| Offline lab with NB 08 (maintained outputs) | `bfac2d07-4ac3-47c1-8878-4422cc191f05` | 21 |
-
-The first new acquisition recorded **376 Bitfinex messages / 50 final visible
-orders** and **154 OKX messages / 800 final price levels**. Both had no detected
-gaps and matched independent saved replay. The OKX archive contained **109,423,187
-compressed bytes**; the reader reconstructed **10,000 records / 800 final levels**
-from source time `2026-09-08T00:00:00.004Z` through `00:03:44.624Z`. Continuity
-remains unknown, and `entire_archive_replayed=False`. Counts belong to these
-identified inputs; they are not future acceptance thresholds.
-
-The primary notebook pins these first-acquisition directories:
-
-- `data/bitfinex/a5116c5a-b7d6-4e2b-9ee6-c79839c80f43/`
-- `data/okx/history/802967bb-05eb-4b7b-9c90-2c964f22e41f/`
-
-Their raw SHA-256 values are respectively
-`a57ddabc5b1283c702ee2c7fd104a2b9cd943e2b41661cfc1d66619b35930163` and
-`fef59b343d1972c32f67583edc538c5d2f7350e6f3a0059e6f87896d7e8bf676`.
-The first OKX live sample is in
-`data/okx/live/26d6c532-9948-47f1-b94c-29856630368c/`. Each attempt retains its
-own printed paths and identities; the second capture observes a different interval.
-
-Commands used, from the repository root unless stated otherwise:
-
-```sh
-uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations.ipynb
-uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/market-data-capture.ipynb
-ALPHA_OKX_ARCHIVE_DIRECTORY=data/okx/history/802967bb-05eb-4b7b-9c90-2c964f22e41f uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/market-data-capture.ipynb
-ALPHA_OKX_ARCHIVE_DIRECTORY=data/okx/history/802967bb-05eb-4b7b-9c90-2c964f22e41f ALPHA_BITFINEX_CAPTURE_DIRECTORY=data/bitfinex/a5116c5a-b7d6-4e2b-9ee6-c79839c80f43 uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations.ipynb
-uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/foundation-contract-checks.ipynb
-uv run --frozen --no-sync pytest -q tests/unit/data/live tests/unit/data/venues/okx tests/unit/data/providers/binance/test_rows.py
-uv run --frozen --no-sync ruff check examples/research-foundations.ipynb examples/market-data-capture.ipynb
-uv run --frozen --no-sync ruff format --check examples/research-foundations.ipynb examples/market-data-capture.ipynb
-uv run --frozen --no-sync --with 'nbformat==5.10.4' python /private/tmp/orderbook-notebook-migration/validate.py
-uv run --frozen --no-sync alpha-governance-architecture
-git diff --check
-```
-
-Focused tests: **64 passed**, no skips or deselections. The two migrated book
-notebooks pass Ruff lint/format. The temporary validation script checks notebook
-schemas, syntax, current source digests, all-cell execution and local Markdown
-links. It confirms the offline lab's original 19 code cells are unchanged and
-the moved/new cells introduce no lint findings. The full legacy lab retains
-pre-existing lint findings; this migration does not claim a clean full-lab Ruff
-check. The architecture check validates the repository's 41 documentation files.
-The full CI lane and a new wheel build were not run for this notebook/docs change.
-
-Installed-consumer verification ran from `/private/tmp/orderbook-notebook-migration`
-with this checkout's absolute `.venv/bin/python` path and the temporary
-`consumer.py` script, passing the absolute checkout as its argument. It verified
-all **59 installed runtime files**, reopened the three first-acquisition inputs
-above and matched their saved book and full trace identities without network
-requests or editable imports. Its command on this workstation was:
-
-```sh
-cd /private/tmp/orderbook-notebook-migration
-'/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/.venv/bin/python' /private/tmp/orderbook-notebook-migration/consumer.py '/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private'
-```
-
-These temporary scripts are verification aids, not new supported commands.
-The maintained notebooks retain the corresponding replay and identity checks.
-P1 remains byte-identical, SHA-256
-`7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`.
-This proves accessible bounded book acquisition and saved reconstruction, not
-trade history, simultaneous cross-venue liquidity, complete coverage, fills or a
-strategy result. MR 09 remains the next roadmap MR; no part of it is implemented here.
-
-## MR 09 occurrence checkpoint
-
-The later MR 09 change adds section 9 to `research-foundations.ipynb`; its synthetic
-Binance trade and Tardis-control examples need no provider access. The earlier
-saved OKX/Bitfinex exploration remains intact. Run the whole notebook with the
-existing runner and pinned saved directories shown in the
-[MR 09 evidence record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-09-implementation.md#fresh-kernel-nb-09).
-All 27 cells, including 12 code cells, passed in a fresh kernel against committed
-runtime `0969f01`. The notebook verified all 61 installed runtime files first.
-It displays distinct raw occurrences, exact source units, absent archive clocks,
-binding-scoped controls and explicit incompatible-input failures. MR 10 is next;
-no duplicate/correction or accepted-dataset workflow is implied.
-
-## MR 10 correction checkpoint
-
-Section 10 of `research-foundations.ipynb` now exercises economic duplicate admission
-and explicitly evidenced corrections. Use the existing runner and pinned saved
-OKX/Bitfinex directories; no source access or new acquisition is required. The
-[MR 10 evidence record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-10-implementation.md#fresh-kernel-nb-10)
-retains the exact command and candidate identity. All **34 cells / 15 code cells**
-passed in a fresh kernel at runtime commit `27d8a2f`, after matching all **62 installed
-runtime files**. Successful attempt: `8e11de2d-a1ef-40a8-a286-3ac31b8d6e4f`.
-
-The notebook shows two origins contributing one trade despite an inserted row,
-unknown original archive knowledge, a separately evidenced corrected version, and
-the earlier captured price before a late correction becomes available. It displays
-unevidenced-conflict, missing-reference, invalid-clock and non-trade failures.
-These assertions are synthetic and do not establish empirical revision history.
-MR 11 is next; quality, snapshots and shared as-of queries remain future work.
-
-
-## Connected dataset walkthrough verification
-
-On 2026-09-17 the primary notebook was condensed from **69 cells / 29 code cells**
-to **29 cells / 15 code cells** (1,647 to 604 code lines). It retains the saved book
-exploration and combines NB 09–17 into per-input evidence, publication, verified
-reading and cutoff selection. The other maintained notebooks and P1 are unchanged.
-
-The existing runner passed every cell in a fresh CPython 3.14.7 kernel, with the
-same explicit OKX and Bitfinex directories shown above. It verified all **72 installed
-runtime files** against the working candidate based on `3deb34b966adf1f66e4eb79551375283c45300f0`.
-No source access or new book acquisition occurred. Final attempt:
-`06e4bde5-aa91-41a7-bb38-1d94aadfe4fb`; notebook source SHA-256:
-`f6aee23f52ea2c243e340f6995aa86ef62f4db71486216bdf4f5d419d2a5d7bb`.
-The working notebook and ignored run snapshot retain the execution and runtime
-identities. Synthetic files are removed by the notebook's final cell.
-
-The earlier condensation attempt `f4a9c0e7-532c-4115-ab48-74cd4b32be4e` failed when
-the shortened disconnect example appended a record after capture end. The example
-now reconstructs up to that boundary before injecting the gap; the failed run is
-retained separately. Final checks passed notebook schema, syntax, sequential
-execution, source digest, saved-run equality, 56 local links, Ruff lint/format and
-the architecture link check. Detailed runtime regressions remain in the test suite;
-this walkthrough does not add LOB publication or empirical historical evidence.
-
-## MR 18 query workload
+## Query workload evidence
 
 Section 9 of `research-foundations.ipynb` recomputes the backend decision from the
 small retained measurement record. It checks installed runtime, lock and benchmark
@@ -404,20 +193,18 @@ driver fingerprints; it does not silently rerun the expensive representative
 benchmark. Sections 7–8 still execute the synthetic correction, scoped-control,
 cancellation, invalid-clock, byte-limit and mutable-ID examples in the fresh kernel.
 
-The [MR 18 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-18-implementation.md) owns the preregistered
-workload, accepted proposed budgets, observed results and limitations. The standalone
-[driver](query_workload.py) requires macOS (its process high-water RSS is in bytes),
+The standalone [driver](query_workload.py) requires macOS (its process high-water RSS is in bytes),
 an installed candidate, and a directory containing the retained `raw/` and
 `snapshots/` stores. It reads existing inputs only; it does not fetch data, rewrite
 availability, publish snapshots or introduce a backend. Use the recorded snapshot,
 not a latest alias. Missing bytes fail explicitly.
 
 To repeat against an isolated candidate, build/install with the frozen wheel-smoke
-procedure recorded in MR 18, copy `query_workload.py` outside the checkout, and run
+procedure in the [architecture guide](../docs/architecture/README.md#build-setup-and-ci-contract), copy `query_workload.py` outside the checkout, and run
 from that directory. Keep other tests/notebooks idle during timing:
 
 ```sh
-cd /private/tmp/mr18-validation
+cd /absolute/path/to/isolated-query-workload
 ./reuse-installed/venv/bin/python -I query_workload.py permitted timing > reuse-timing-1.jsonl
 ./reuse-installed/venv/bin/python -I query_workload.py permitted timing > reuse-timing-2.jsonl
 ./reuse-installed/venv/bin/python -I query_workload.py permitted timing > reuse-timing-3.jsonl
@@ -436,7 +223,7 @@ availability or membership.
 
 Local bulk inputs and generated run snapshots remain outside Git. Maintained
 Python, Markdown and notebook sources stay tracked; the small
-[measurement summary](evidence/mr-18-measurements.json) contains identities, counts
+[measurement summary](evidence/query-workload-measurements.json) contains identities, counts
 and timings, not raw market rows. It remains a historical result, not a new benchmark.
 
 The optional columnar experiment requires `duckdb==1.5.5` only in an isolated
@@ -449,171 +236,5 @@ payload with canonical source bytes and checks exact codec round trips. `io` sav
 DuckDB profiles separately from timings. The Parquet scan is a bounded experiment,
 not a supported backend: it does not implement cutoff, controls, membership or
 verified loading, and its metrics must not be presented as end-to-end query parity.
-The MR record retains the executed commands, failed attempts and admission decision.
-
-
-## MR 20 shared stepping checkpoint
-
-Section 10 of `research-foundations.ipynb` adds shared chronological trade/control
-stepping to the existing saved-input walkthrough. It needs the same saved OKX and
-Bitfinex directories, an installed candidate and the pinned separate notebook
-tooling. Run the complete notebook with the command in the
-[MR 20 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-20-implementation.md#fresh-kernel-nb-20).
-No additional source acquisition, runtime dependency or kernel path patch is needed.
-
-The final run passed **45 cells / 23 code cells**, including installed import/byte
-verification, the new phase trace and cursor failures. It shows the original
-capture at 0.004103 seconds, an explicit 1.5-second wakeup, gap at second 2 and
-correction at second 10. Batch sizes 1/8 and restored consumer-prefix/suffix traces
-agree. The first attempt confused a query cutoff with capture time; its separate
-failed snapshot and the corrected successful attempt are identified in the record.
-
-A cursor is valid only after every phase of its step completes. Save it with the
-consumer state and earliest outstanding schedule. On callback failure, discard
-the partial replay/consumer state and restore both from the last completed step.
-Changing selected input, query bounds, consumer configuration or ordering policy
-requires a fresh run; an incompatible cursor is refused. This is source replay,
-not a strategy ledger, fill implementation or durable account checkpoint.
-
-Section 9 continues to verify MR 18's measured files at their historical Git
-revision and against the installed candidate. The added replay module was not
-measured by MR 18. If a measured file changes, investigate and renew the relevant
-measurement instead of replacing its recorded hash. Generated attempt snapshots
-and transient kernel files remain ignored; maintained example sources stay tracked.
-
-
-## MR 21 configured EDA and clean-kernel acceptance
-
-Section 11 publishes six synthetic corrected observations across two instruments,
-calls the installed `inspect_eda` entry, plots the bounded event interval and reads
-standalone replay/extension evidence. The normal runner uses separate pinned
-Matplotlib tooling; no runtime dependency or lockfile change is required.
-
-For an external wheel kernel, install the locked runtime wheel as described in the
-[MR 21 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-21-implementation.md), add explicitly pinned kernel
-tooling to that temporary environment, and point the existing runner at it:
-
-```sh
-uv pip install --python /private/tmp/mr21-validation/installed/venv/bin/python --only-binary=:all: 'ipykernel==7.2.0' 'matplotlib==3.10.8'
-ALPHA_OKX_ARCHIVE_DIRECTORY=data/okx/history/802967bb-05eb-4b7b-9c90-2c964f22e41f ALPHA_BITFINEX_CAPTURE_DIRECTORY=data/bitfinex/a5116c5a-b7d6-4e2b-9ee6-c79839c80f43 uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations.ipynb --kernel-python /private/tmp/mr21-validation/installed/venv/bin/python
-```
-
-Those saved book paths are the actual acceptance inputs; select compatible retained
-paths explicitly on another machine. The external wheel and generated synthetic
-stores are local acceptance artifacts, not a release archive. The owning MR record
-retains the successful/failed attempts, hashes, observations and environment limits.
-
-
-## MR 22 saved source negotiation
-
-Section 12 reads the same pinned Bitfinex capture as section 2, exposing protocol
-version, configuration/subscription acknowledgement, original receipt nanoseconds
-and server sequences. It opens no live connection. Six synthetic examples reject
-unsupported negotiation and product/stream combinations using the installed APIs.
-
-The [MR 22 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-22-implementation.md#fresh-kernel-nb-22)
-contains the exact installed-wheel/kernel commands and the actual capture directory.
-All 55 cells / 28 code cells passed with candidate imports and bytes verified.
-Keep the saved capture or select another compatible retained recording explicitly;
-the notebook never substitutes a later archive download for live receipt.
-
-The first run detected changed live files in MR 18's historical whole-package
-comparison. Section 9 now preserves that historical digest, requires every other
-measured file to match, checks in a separate process that the two explicitly named
-live modules are not query imports, and displays their changed paths. The query
-measurements remain historical; no live/replay performance inference is made.
-Both failed and successful attempts remain separately retained under the generated
-runs policy. No runtime notebook dependency or ignore rule changed.
-
-
-## MR 23 durable append checkpoint
-
-Section 13 of `research-foundations.ipynb` uses synthetic Bitfinex messages and
-local temporary journals. It displays durable cursors, exact bytes and receipt
-nanoseconds, then injects a failed fsync and inspects complete/torn uncommitted
-suffixes. It rejects committed-prefix truncation and failed-writer reuse or
-publication, preserves a distinct restart and diagnoses an invalid zero-size order.
-It opens no network connection and requires the same pinned saved books as the
-preceding sections.
-
-The [MR 23 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-23-implementation.md#fresh-kernel-nb-23)
-contains the exact wheel/kernel commands and retained input locations. The final
-fresh-kernel run passed **61 cells / 31 code cells** with all 76 installed runtime
-files verified. Its attempt is `4d63af45-75da-4f85-a3f4-9b4465cdc777`; the earlier
-successful attempt is retained separately and does not establish the final wheel.
-Only generated snapshots, transient kernels and checkpoints remain ignored.
-
-On a real persistence failure, preserve the recording and inspect it using the
-existing `alpha-collect replay --capture <directory> --interrupted` command. A
-cursor mismatch or committed truncation fails; do not delete the cursor to force
-legacy inspection or label an uncertain prefix complete. Start a new recording
-for subsequent input. Neither the cursor nor a new UUID restores consumer state
-or reconciles the preceding source gap; those remain later roadmap work.
-
-## MR 16 follow-up: whole-acquisition handoff
-
-Section 14 invokes the retained installed integration consumer with copied synthetic
-inputs. It creates child processes for acquisition interruption/resume, incomplete
-publication refusal, abrupt publication interruption and recovery, then reopens the
-snapshot and calls EDA. Only source HTTP is injected; no live connection is made.
-The notebook displays two partitions, six history rows, zero cutoff rows, preserved
-raw clocks and required failure exits. Its temporary synthetic files are cleaned up
-with the other walkthrough inputs.
-
-Use the clean wheel/kernel command in the
-[follow-up acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md#fresh-kernel-notebook).
-The original 58-cell / 29-code-cell run passed before MR 23 integration; the
-[combined verification](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-16-implementation.md#integration-with-mr-23)
-records the later run with both checkpoints. The existing
-saved OKX/Bitfinex inputs, P1, notebook runner and ignore policy are unchanged.
-MR 18 evidence remains historical: the notebook verifies every pre-existing
-manifest operation and excludes the new publication-only method from that comparison.
-
-## MR 24 session recovery checkpoint
-
-Section 15 copies the maintained recovery consumer and synthetic Coinbase inputs
-to a temporary directory, then runs it under the installed kernel interpreter
-with `-I`. It displays exact duplicate accounting, conflicting/stale refusals,
-late snapshot receipt and bounded recovery after disconnect, bridge gaps and
-simulated HTTP 429. No network or credentials are used.
-
-The [MR 24 acceptance record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-24-implementation.md#fresh-kernel-notebook)
-contains the exact wheel/kernel commands. Attempt
-`036bb3a6-bd16-40a9-bafa-a3d2c96019d2` passed all 67 cells / 33 code cells and
-verified all 76 runtime files against the installed candidate. The kernel shut
-down; generated runs remain ignored and maintained examples remain tracked.
-A later snapshot or new connection cannot fill an earlier unknown interval.
-Shared reconstruction/quality/publication remains MR 25 work.
-
-## MR 25 publication checkpoint verification
-
-Section 16 of `research-foundations.ipynb` publishes bounded saved Bitfinex and OKX
-prefixes and exercises quality/publication refusals. The
-[MR 25 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-25-implementation.md#fresh-kernel-notebook) owns the
-exact commands, input identities, failed attempts and installed wheel evidence.
-The final fresh kernel completed all 71 cells (35 code cells) using the isolated
-candidate environment; raw input paths were pinned explicitly. It closed normally.
-The added notebook tooling is development-only and does not change `uv.lock`.
-
-MR 18's timings remain historical. MR 25 changes the snapshot reader's format
-selection and import graph, so the notebook no longer claims that its import path
-matches the measured candidate. It still verifies the retained measurement's source
-hash, known changed files, driver and lock identity. Current book publication has
-no performance qualification. Maintained notebook/runner/guide sources stay tracked;
-generated successful/failed run snapshots and temporary kernel files stay ignored.
-
-
-## Roadmap evidence relocation — 2026-09-19
-
-Closed roadmap records now link to their retained Git revision. The MR 18 summary
-moved unchanged from `docs/roadmap/` to
-[evidence/mr-18-measurements.json](evidence/mr-18-measurements.json), and the
-`mr18-measured-decision` cell reads that new path. Notebook cell order, outputs,
-execution counts and metadata remain unchanged; the retained execution records
-identify their original notebook sources, not this reference edit.
-
-Validation executes the affected measurement cell against the relocated bytes,
-including its historical runtime, driver and current lock checks. It compares
-all other executable cells and saved outputs/metadata with the pre-cleanup copies
-and validates the updated Markdown links. No full notebook rerun, acquisition,
-benchmark or new empirical result is claimed.
+Retain commands, candidate identities, failures and the admission decision beside
+each new benchmark attempt.

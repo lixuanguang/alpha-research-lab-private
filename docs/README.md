@@ -21,12 +21,10 @@ The permitted saved hour has passed dataset publication with exploratory degrade
 scope. Historical eligibility, coverage and revision-availability evidence remain
 unresolved; no empirical strategy result is claimed.
 
-The single [platform infrastructure roadmap](roadmap/README.md) owns reusable
-capability delivery, MR dependencies and acceptance. MRs through 27 provide
-bounded data capabilities; MR 28 stages 1–3 complete the functional source layout
-at `58bc99a`. Deferred feature work and future D1/MRs 29–62/R1 remain distinct
-from completed implementation and milestone acceptance. The roadmap indexes
-retained evidence; the QR guide owns usage, and the research program owns methodology.
+The [platform infrastructure roadmap](roadmap/README.md) begins with researcher
+dataset access. It owns future capability delivery, dependencies and acceptance.
+Current capabilities are documented by function; the QR guide owns usage and the
+research program owns methodology. Source ownership is documented in architecture.
 The [platform design](architecture/platform-design.md) preserves intended module
 boundaries, interfaces, runtime lanes and scaling choices. Technical correctness,
 reproducibility and trading safety accompany the features that need them. Team

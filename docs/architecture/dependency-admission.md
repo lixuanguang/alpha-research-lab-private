@@ -47,8 +47,8 @@ goldens remain behavioral checks, not provenance verification.
 
 ## First deployment dependency decision
 
-Status: planned R1 decision, 2026-09-14; the current release block is unchanged.
-Before the [first trusted deployment consumer](../roadmap/README.md#r1-trusted-artifact-before-first-deployment)
+Status: planned deployment dependency decision, 2026-09-14; the current release block is unchanged.
+Before the [first trusted deployment consumer](../roadmap/README.md#trusted-deployment-artifact)
 needs an artifact, choose the smallest enforceable path for its actual graph:
 
 - Admit the required QuantLib build/source provenance under an implemented,
@@ -64,7 +64,7 @@ A closure split is a future code/packaging change, not permission to exempt the
 current graph. Lazy imports, deleting an allowance or omitting a scan do not
 resolve admission. The present policy scans the whole graph; any selected-closure
 admission must be implemented and tested before it can permit release. Record
-the decision and affected installed/import proof in R1; do not redesign packaging
+the decision and affected installed/import proof in artifact verification; do not redesign packaging
 merely to run synthetic research. Review the existing 2026-10-04 allowance expiry
 on its actual deadline even if deployment is later.
 

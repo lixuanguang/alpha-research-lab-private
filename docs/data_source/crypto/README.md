@@ -21,11 +21,10 @@ BTC-USDT **L2** live books and historical order-book archives with actual bounde
 acquisition and replay evidence. Its [notebook](../../../examples/market-data-capture.ipynb)
 keeps aggregate levels, missing historical sequence IDs and prefix coverage explicit.
 
-The preserved historical [notebook](../../../examples/research-foundations.ipynb) acquires
-Binance **spot individual trades** through the
-[configured job](../../../configs/data-jobs/binance-archive.json).
-[MR 07 evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/mr-07-implementation.md) covers that consumer.
-The depth and metrics probes in this survey do not extend its supported streams.
+The installed [archive acquisition command](../../../src/market_data/README.md#binance-public-daily-archive-acquisition)
+reads Binance **spot individual trades** through the
+[configured job](../../../configs/data-jobs/binance-archive.json). The depth and metrics
+probes in this survey do not extend that adapter’s supported streams.
 
 ## Verification of the proposed signal list
 

@@ -1,7 +1,7 @@
 # Platform design: institutional destination
 
-**Status: destination design with current functional ownership.** MR 28 stages 1–3 implement
-the existing capabilities in the source tree below. Future capabilities remain planned.
+**Status: destination design with current functional ownership.** The source tree
+below distinguishes implemented capabilities from planned infrastructure.
 
 The long-term goal is an institutional-grade monorepo for multi-asset, multi-strategy research, productionization, and
 monitoring. It should approach the engineering depth expected at a strong proprietary trading or hedge-fund platform
@@ -31,20 +31,16 @@ sufficient.
 
 The current [architecture overview](README.md) owns active command and dependency boundaries. This page owns future
 platform shape, module seams, data and runtime contracts, and the triggers for adding infrastructure.
-The [P1 ownership map](../roadmap/README.md#p1-code-ownership-and-call-flow) specializes this design
-into the next working acquisition, dataset and research pipelines. Bare functions are reserved for workflow
-orchestration; reusable library behavior belongs to cohesive classes under the
+The [infrastructure roadmap](../roadmap/README.md) selects delivery work against
+these boundaries. Bare functions serve workflow orchestration; reusable library
+behavior belongs to cohesive classes under the
 [engineering rule](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
-Existing code migration is tracked in the [roadmap](../roadmap/README.md#oop-migration-status).
+Remaining ownership/enforcement work is tracked in the roadmap.
 
 ## Current and planned repository shape
 
 The current implementation uses functional packages directly under `src/`.
-MR 28 stages 1–3 removed the `alpha_research` umbrella and migrated its consumers.
-The [source refactoring plan](../roadmap/source-layout-refactor.md) maps the
-inspected files, dependency repairs, package cutover and validation stages.
-The [MR ownership assignments](../roadmap/README.md#functional-source-ownership-from-mr-28)
-bind every MR from 28 through 62 to this structure.
+Applications and libraries follow the public API and dependency rules below.
 
 Unannotated source capabilities in the following tree are **CURRENT**. Entries
 marked FUTURE, CONDITIONAL, PLANNED or OPTIONAL remain absent until their first
@@ -76,18 +72,18 @@ src/
     replay/                 Historical stepping, cursors and saved replay
     books/                  Shared book state and reconstruction contracts
   research/
-    exploration/            Existing EDA; PLANNED D1 saved-data selection/alignment
-    observations/           FUTURE MR 33: completed decision observations
-    features/               CONDITIONAL MR 28–30: research transforms/state
-    labels/                 CONDITIONAL MR 31: outcome generation and alignment
-    models/                 CONDITIONAL MR 31–32: training, inference and evaluation
-    experiments/            FUTURE MR 43/47 cores: attempts/splits; 35 candidates; 45 reports
-  strategies/               FUTURE MR 35–36: contexts and decision rules
-  simulation/               FUTURE MR 37–38: fills, costs and market mechanics
-  accounting/               FUTURE MR 39–41, 55: ledger, valuation, reconciliation
-  risk/                     FUTURE MR 42, 53: independent decisions and controls
-  portfolio/                CONDITIONAL MR 54: allocation and netting
-  execution/                FUTURE MR 51–52, 58: orders, journals and adapters
+    exploration/            Existing EDA; PLANNED: saved-data selection/alignment
+    observations/           FUTURE: completed decision observations
+    features/               CONDITIONAL: research transforms/state
+    labels/                 CONDITIONAL: outcome generation and alignment
+    models/                 CONDITIONAL: training, inference and evaluation
+    experiments/            FUTURE: attempts, splits, candidates and reports
+  strategies/               FUTURE: contexts and decision rules
+  simulation/               FUTURE: fills, costs and market mechanics
+  accounting/               FUTURE: ledger, valuation, reconciliation
+  risk/                     FUTURE: independent decisions and controls
+  portfolio/                CONDITIONAL: allocation and netting
+  execution/                FUTURE: orders, journals and adapters
   runtime/                  Identity and supervision; future deployment/recovery
   telemetry/                Health/alerts; future runtime and economic monitoring
   configuration/            Typed definitions and explicit selection
@@ -97,14 +93,14 @@ src/
     collect/                Existing capture/probe/replay command and workflow
     publish_dataset/        Existing dataset publish/inspect command
     inspect_fixture/        Existing configured fixture command
-    explore/                Existing EDA; PLANNED D1 research assembly consumer
-    features/               CONDITIONAL MR 28–32: feature/label research workflows
-    train_model/            CONDITIONAL MR 31: fit and retain a model attempt
-    evaluate_model/         CONDITIONAL MR 32: research/delayed-outcome evaluation
-    backtest/               FUTURE E1/MR 44–46: one configured economic runner
-    paper/                  FUTURE MR 50–57: paper/shadow composition
-    live/                   FUTURE MR 59–62: explicitly authorized operation
-    deploy/                 FUTURE R1: concrete artifact verification/installation
+    explore/                Existing EDA; PLANNED: research assembly consumer
+    features/               CONDITIONAL: feature/label research workflows
+    train_model/            CONDITIONAL: fit and retain a model attempt
+    evaluate_model/         CONDITIONAL: research/delayed-outcome evaluation
+    backtest/               FUTURE: one configured economic runner
+    paper/                  FUTURE: paper/shadow composition
+    live/                   FUTURE: explicitly authorized operation
+    deploy/                 FUTURE: concrete artifact verification/installation
 
 configs/                    CURRENT: authored reference data; PLANNED: implementations, bindings and active instances
 deploy/                     PLANNED: environment definitions and non-secret config
@@ -128,8 +124,7 @@ contains deployment definitions, while `applications/deploy/` owns executable
 installation composition. Market-data adapters and execution adapters stay with
 their respective capabilities; there is no mixed top-level `venues/` package.
 
-MR 28 stages 1–3 retire the `alpha_research` source umbrella. One
-`alpha-research-lab` distribution installs all nine functional roots using the
+One `alpha-research-lab` distribution installs all nine functional roots using the
 existing uv build path and frozen dependency set. Distribution names, deployable artifacts and Python
 package names are separate decisions. Neither preserving the old import prefix
 nor creating one distribution per folder is required. Supporting module filenames
@@ -170,10 +165,9 @@ engineering check validates owned imports, explicit APIs and command metadata.
   never imports the application it supervises. Strategy logic cannot construct
   executable venue clients or change independent risk/activation policy.
 
-MR 28 stages 1–3 add narrow import/entrypoint enforcement to the existing engineering
-checks. Its [migration acceptance](../roadmap/source-layout-refactor.md#mr-28-delivery-stages)
-covers packaging, callers, private boundaries and preserved behavior. Future
-capabilities follow the same rules without an empty-folder or framework mandate.
+The engineering checker enforces imports, public APIs and entrypoints for the
+current source tree. New capabilities follow these rules when they gain a working
+consumer; no empty-folder or framework mandate is implied.
 
 ## Dependency and interface graph
 
@@ -364,28 +358,24 @@ Quality states are explicit: informational records remain visible; degraded data
 limitation and stated scope; hard failures prevent publication; and an incident identifies affected products,
 experiments, candidates, and releases for replay.
 
-The [delivery plan](../roadmap/README.md) places basic normalization,
-coverage/identity/time checks and atomic publication in M1, before a dataset is
-advertised as valid. M2 supplies selective, versioned, bounded-memory EDA and replay
-without a live feed or hosted service dependency. Market-event access and feature
-serving are distinct contracts even if they share storage.
+Existing normalization, quality checks, atomic publication, bounded queries and
+replay support offline inspection without a live-feed dependency. Current source
+scope and limitations live in the [data contracts](../data/contracts.md).
+Market-event access and feature serving are distinct contracts even when they
+share storage.
 
-Historical ingestion and live capture converge on compatible canonical envelopes
-while retaining source/receipt/availability differences. M3 adds tested `valid`,
-`degraded`, `stale`, `recovering` and `unavailable` transitions with consumer actions,
-backpressure and synchronization. Replay the exact locally captured inputs and
-receipt order to establish parity; a later vendor archive cannot stand in for
-what the local system knew. A decoded depth update alone does not establish a
-valid book after a gap; enable that consumer only with its reconstruction contract.
-
-Delivery scope and acceptance live in the
-[roadmap](../roadmap/README.md#market-data-expansion-and-replay-lessons).
-The contracts below define the planned source, reconstruction and quality behavior;
-[scaling decisions](#storage-and-performance-decisions) own infrastructure selection.
+Historical ingestion and live capture converge on compatible envelopes while
+retaining source/receipt/availability differences. Each enabled book consumer
+requires tested quality transitions, backpressure and synchronization under its
+source contract. Replay exact locally captured inputs and receipt order; a later
+vendor archive cannot establish what the local system knew. A decoded depth update
+alone does not establish a valid book after a gap. The contracts below govern
+source extensions; [scaling decisions](#storage-and-performance-decisions) govern
+infrastructure selection.
 
 ### Collection scope and source contracts
 
-MR 22 records each enabled combination in the existing source/job configuration:
+Source configuration records each enabled combination in the existing source/job configuration:
 venue, product, canonical instrument, source/access mode, stream representation,
 timestamp units and meaning, sequence/reset guarantees, depth coverage, supported
 intervals, backfill limits and permitted use. Record unsupported and unknown
@@ -404,7 +394,7 @@ product, with its native order adapter. An aggregator remains useful for researc
 and historical backfill. Any alternative execution input needs explicit freshness,
 ordering and provenance acceptance; switching providers cannot silently preserve
 the old source identity or measured latency. Endpoint, heartbeat, connection
-lifetime and request limits are verified for the selected product during MR 22,
+lifetime and request limits are verified for the selected product during source negotiation,
 not copied from another venue or an old example.
 
 ### L2 synchronization and recovery
@@ -447,12 +437,17 @@ documented bridge rule and distinguish it from futures continuity fields.
 [Official spot procedure](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md#how-to-manage-a-local-order-book-correctly)
 (reviewed 2026-09-15; recheck during adapter implementation).
 
-The [MR 24/25 acceptance cases](../roadmap/README.md#l2-recovery-acceptance)
-verify these transitions with saved traces and the supported live boundary.
+For a newly supported live book, combine a hand-reconstructed saved trace with
+one permitted capture. Offline reconstruction can use verified saved inputs with
+declared quality; synthetic traces prove the algorithm only. Exercise a gap during
+snapshot fetch, stale-session response, duplicate/overlapping updates, deletion,
+malformed level, interrupted message, rate-limited recovery and buffer overflow.
+Resume must reproduce the same book and quality boundaries as uninterrupted replay.
+Select analogous cases for another venue only where its protocol differs.
 
 ### Ingestion quality
 
-MR 13's historical checks and MRs 23–26's continuous checks share schema/unit and
+Historical partition and continuous-capture checks share schema/unit and
 source policies. Reject nonfinite or nonpositive trade prices and invalid trade
 quantities under that representation's contract; zero L2 update quantity remains
 a deletion. Preserve rejected raw records, reasons and binding-scoped counts.
@@ -488,16 +483,13 @@ study, deterministic rule or model. A selected model is not required. This expan
 the earlier model-only trigger while retaining its ban on a mandatory starter
 catalog and unused abstractions. The QR owns the formula and research choices;
 the platform owns execution, alignment, lineage and applicable state contracts.
-MR 28's completed layout is separate from its conditional historical feature
-scope. MR 29 adds fitted preprocessing when needed; MR 30 adds incremental
-execution only when the candidate requires it.
-
-D1 assembles explicit research inputs over the existing query contracts. MR 31
-owns label generation/alignment and optional training/inference. MR 43's shared
-attempt core and MR 47's temporal split/selection core are introduced with the
-first formal comparison, without waiting for a backtest CLI. Label intervals and
-availability constrain fitting; they are not prediction inputs. These contracts
-serve model-free feature studies as well as learned candidates.
+Research dataset assembly supplies explicit inputs over the existing query
+contracts. Fitted preprocessing is added with its first learned consumer;
+incremental execution only with a candidate that needs it. Label generation and
+alignment remain separate from prediction inputs. Shared attempt and temporal
+split/selection records arrive with the first formal comparison, without waiting
+for a backtest command. These contracts serve model-free studies and learned
+candidates alike.
 
 Reusable transforms belong to `research/features/`; labels to `research/labels/`;
 trainers/inference to `research/models/`; split/attempt/candidate records to
@@ -515,20 +507,14 @@ agreement under a declared contract rather than assuming identical algorithms.
 A scheduled batch candidate need not acquire incremental machinery. Changed
 semantics require new versions and affected validation.
 
-### Model-driven feature lifecycle
-
-This retained heading preserves earlier links. Model-driven work is one case of
-the [research-driven feature lifecycle](#research-driven-feature-lifecycle), which
-also admits feature diagnostics and deterministic signals without selecting a model.
-
 ### Candidate promotion contract
 
-Status: **planned**. MR 35 introduces the candidate manifest in
-`research/experiments/candidates.py` with its first strategy consumer; learned
-fields are added with MR 31 artifacts and remain inapplicable for a rule-only
-candidate. MR 50 consumes this contract for deployment. Research can construct
-and validate a candidate without a paper runtime, venue connection or trading
-credentials. These are small versioned artifacts, not a registry service.
+Status: **planned**. A candidate manifest belongs in `research/experiments/` with
+its first strategy consumer. Learned fields are added with model artifacts and
+remain inapplicable for a rule-only candidate. Runtime binding consumes this same
+contract. Research can construct and validate a candidate without a paper runtime,
+venue connection or trading credentials. These are small versioned artifacts,
+not a registry service.
 
 | Candidate content | Meaning at research/runtime handoff |
 | --- | --- |
@@ -548,8 +534,8 @@ timing. Never use a final full-history fit for earlier decisions.
 
 Promotion loads the accepted components and verifies compatible inputs/state;
 matched inputs reproduce features, predictions and targets under their declared
-contracts. R1 verifies the deployment artifact; MR 50 binds candidate and runtime;
-MRs 57–61 qualify paper/live operation. Candidate evidence grants neither release
+contracts. Artifact verification precedes deployment; runtime binding and
+paper/live qualification preserve the accepted candidate. Candidate evidence grants neither release
 admission nor trading authority. Retraining produces a new version and repeats
 affected qualification. Rollback compatibility is explicit and cannot undo fills.
 
@@ -575,13 +561,13 @@ funding timing, auctions, disconnects, or other behavior. A result cannot silent
 paper compare decisions, target quantities, risk decisions, order intent, and state traces; differences are classified
 by data, timing, randomness, market mechanics, or implementation before advancement.
 
-Replay and research consume one [event-stepping contract](../data/point-in-time-semantics.md#planned-economic-ordering-and-event-stepping),
-owned by MR 20. Pipelines compose operations and retain state; the iterator and
+Replay and research consume one [event-stepping contract](../data/point-in-time-semantics.md#chronological-ordering-and-event-stepping),
+owned by chronological replay. Pipelines compose operations and retain state; the iterator and
 scheduled-step library enforce source admission, expiry, pending fill, decision
 and valuation order. Use fixed source/stream precedence and stable logical source
 order for meaningful ties. Hashes retain provenance without allowing future byte
-changes to reorder earlier economics. E1 first exercises this contract through
-observations, decisions and a reconciled synthetic ledger, then MR 44 extends the
+changes to reorder earlier economics. The planned synthetic economic slice first exercises this contract through
+observations, decisions and a reconciled synthetic ledger, then the configured backtest extends the
 same path with saved-input/trial composition.
 
 ### Replay clocks and fill fidelity
@@ -606,9 +592,9 @@ coverage and sensitivity checks. Archive download time cannot measure historical
 feed latency. Use recorded or paper/sandbox evidence first; the existing authority
 rules continue to govern executable activity.
 
-Extend MRs 20/35/37/38 and 51 for a selected quoting consumer only after its book,
-order lifecycle and product economics exist. Pull pure lifecycle contracts from
-MR 51 forward with an offline simulator when needed; MR 50 remains a prerequisite
+Extend replay, strategy, fill, cost and order contracts for a selected quoting consumer only after its book,
+order lifecycle and product economics exist. Introduce pure order-lifecycle contracts
+with an offline simulator when needed; runtime binding remains a prerequisite
 for the paper runtime, not for those pure contracts. Saved-book research does not
 require a deployed collector. Define queue assumptions, maker/taker
 fees, supported order types, post-only rejection, partial fills and cancel/replace
@@ -624,7 +610,7 @@ or visibly bound unsupported liquidity-taking/capacity claims. A partial-fill
 option alone does not remove this limitation. Keep P1's declared trade-price
 model intact; book-based research needs a separate versioned experiment.
 
-The roadmap owns [capture and paper comparison acceptance](../roadmap/README.md#replay-and-paper-comparison).
+The roadmap owns [capture and paper comparison acceptance](../roadmap/README.md#operations-and-paper-qualification).
 
 ## Portfolio, accounting, and position state
 
@@ -677,7 +663,7 @@ visible reason. Kill and cancel controls remain reachable when a strategy proces
 For the first dedicated single-instance paper account, qualify durable state,
 pending reservations, hard limits and base account reconciliation. Shared-account
 netting/allocation and its reconciliation become mandatory before a second
-instance shares the account (MRs 54–55), not before the first base reconciliation.
+instance shares the account, not before the first base reconciliation.
 
 Initial strategies are trusted founder-authored code. Logical separation,
 immutable limits, per-instance state and final risk enforcement outside strategy
@@ -749,8 +735,8 @@ venues, instruments, capital, limits, duration, credentials, and stop conditions
 An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
 references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained
 [artifact boundary](artifact-supply-chain.md) is the reference for this identity and verification contract.
-Its R1 consumer and admitted deployment graph precede the first actual deployment,
-including early capture and paper/shadow. MR 59 later binds executable authority
+Its artifact verification consumer and admitted deployment graph precede the first actual deployment,
+including early capture and paper/shadow. Bounded activation later binds executable authority
 to the verified artifact; it cannot be the first installer for an earlier milestone.
 
 Schema changes use explicit versions and compatibility windows. The normal migration is expand, dual-read/write where
@@ -773,9 +759,9 @@ limit breaches, position/cash mismatch, open-order mismatch, fill duplication, r
 exhaustion, and alert-delivery failure.
 
 Deliver the applicable signals with the first working capability: batch progress,
-invalid counts and persistence failures in M1; advancing ingestion, freshness,
-queues and recovery in M3; query resource/failure visibility in M2; execution,
-attribution and risk state in M6/M7. A live heartbeat with no advancing work must
+invalid counts and persistence failures for acquisition; advancing ingestion,
+freshness, queues and recovery for capture; resource/failure visibility for queries;
+execution, attribution and risk state for operating strategies. A live heartbeat with no advancing work must
 be distinguishable from a healthy service. Test process/collector loss and alert
 delivery; hard risk controls do not depend on telemetry availability. Instrumentation
 or model-tracking products supply adapters, not the domain checks or responses.
@@ -827,7 +813,7 @@ artifact is admitted and tested for every supported platform before a consumer d
 
 ### Storage and performance decisions
 
-MR 23 decouples receipt from downstream work through durable, replayable capture
+Durable capture decouples receipt from downstream work through replayable journals
 and bounded queues. A durable local segment log is the first candidate. Evaluate
 Kafka when independent consumers, retention/replay, cross-process recovery or
 burst isolation justify a service. Partition by a declared ordering scope and
@@ -836,7 +822,7 @@ must compose with durable sink writes. Broker guarantees do not by themselves
 make an external database sink exactly once.
 [Kafka delivery semantics](https://kafka.apache.org/design/).
 
-MR 18 compares the reference reader with a bounded columnar candidate; include
+Query workload evaluation compares the reference reader with a bounded columnar candidate; include
 ClickHouse when the depth-history or concurrent analytics workload warrants it.
 Decide sorting/partition keys, batching, retention and snapshot-plus-delta layout
 from the named query. Keep all economically relevant revisions and control events
@@ -846,7 +832,7 @@ engine alone is not acceptance.
 [ClickHouse MergeTree design](https://github.com/ClickHouse/ClickHouse/blob/master/docs/en/engines/table-engines/mergetree-family/mergetree.md).
 
 Use the proposed **7M+ source messages/day and sub-500ms historical depth query**
-as a candidate workload to scope in MR 18/P6, not an achieved result or a reason
+as a candidate workload to scope in a measured scaling study, not an achieved result or a reason
 to mandate both services. Define total versus per-venue volume, messages versus
 normalized rows, burst distribution, retention horizon, depth levels, query/result
 size, concurrency, hardware, warm/cold cache and latency percentile before a run.
@@ -866,14 +852,13 @@ its stack, sample numeric types, timestamp repairs or connector code wholesale.
 A reuse experiment names the revision and supported mechanics, checks exact
 unit/clock conversion, compares matched traces and reports disagreements before
 dependency admission. Optimize representation, prefetch or native loops only
-after the relevant P6 measurement, preserving the reference semantics.
-The [pinned implementation assessment](../roadmap/README.md#hftbacktest-implementation-review)
-records the inspected behavior and differences to preserve at our boundaries.
+after a representative workload measurement, preserving the reference semantics.
+
 
 ## Delivery sequence
 
 The single [implementation roadmap](../roadmap/README.md) owns maturity, status,
-MR delivery dependencies and demonstrated milestone exits.
+delivery dependencies and acceptance criteria.
 Validated historical data leads to EDA/replay and independent research/backtesting
 while reliable live capture advances alongside them. Features/models are added
 with their consumers; paper/shadow precedes controlled live operation. The people-triggered organizational workstream is last in

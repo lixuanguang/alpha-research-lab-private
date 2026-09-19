@@ -6,12 +6,9 @@ sources. Both maintained OKX examples select native **BTC-USDT spot**, with a
 shared canonical listing ID distinct from BTC/USD. USDT is not USD.
 
 Start with the [notebook](../../examples/market-data-capture.ipynb).
-The [implementation record](https://github.com/lixuanguang/alpha-research-lab-private/blob/db6579258b6a86df6ac0b3a568aa8b78bddd54ae/docs/roadmap/okx-market-data.md) maps ownership and
-verification. Binance history and the frozen P1 baseline remain unchanged.
-
-The planned [shared dataset and replay integration](../roadmap/README.md#collector-integration-with-shared-datasets-and-replay)
-assigns OKX live and historical inputs to the same MR 25/27 checkpoint as the
-L3 collectors, preserving their distinct L2 and historical coverage limits.
+Binance history and the frozen P1 baseline remain separate. Shared
+[publication and book replay](../../src/market_data/README.md#published-book-queries-and-shared-stepping)
+preserve OKX's distinct L2 and historical coverage limits.
 
 ## Verified source contracts
 
