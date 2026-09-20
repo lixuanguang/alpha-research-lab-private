@@ -126,3 +126,41 @@ uv run --frozen alpha-governance-artifacts release-check
 ```
 
 The last command currently fails with the unresolved native dependency blocker.
+
+## Economic research adapter admission
+
+The first vectorbt consumer pins vectorbt 1.1.0 on CPython 3.14.7, NumPy 2.4.6,
+pandas 3.0.5, Numba 0.67.0 and llvmlite 0.49.0. It explicitly selects Numba;
+vectorbt-rust and optional trading/provider extras are not installed. The full
+lock contains 131 external packages. Each added component has a digest-bound
+PyPI source distribution, supported wheels and an exact license entry in the
+existing policy. The native inventory includes the numerical, plotting and
+widget dependencies required by vectorbt's distribution.
+
+The initial installed import failed with Plotly 7.1.0 because vectorbt's template
+still names `scattermapbox`. The lock constrains Plotly to the exercised 6.3.1;
+this does not change the platform's Python or NumPy pin. The real installed
+Numba backend is exercised without a mock or pure-Python fallback. The reference
+ledger does not import that backend.
+
+License records were checked against installed metadata and license files:
+vectorbt's `licenses/LICENSE.md` is Apache 2.0 with Commons Clause 1.0, eligible
+under the founder's explicit roadmap selection. Numba retains its BSD-2-Clause,
+BSD-3-Clause and MIT notices; llvmlite and scikit-learn include LLVM runtime
+notices/exceptions. SciPy's wheel also identifies OpenBLAS, LAPACK, GCC runtime
+with its exception and libquadmath; the expression retains those bundled notices.
+FontTools retains its font and bundled notices. The policy adds these concrete
+expressions; source, wheel, vulnerability and release gates remain intact.
+
+`LicenseRef-Matplotlib-Bundled` identifies the exact Matplotlib 3.11.2 wheel
+`LICENSE` file (SHA-256 `822e8e528147569a41975592aee19c11992ab667ba50451cd929031d5fc74491`). It includes the Matplotlib agreement,
+OFL fonts, BaKoMa font notice, Apache-2.0, Bitstream-Charter, FreeType's offered
+FTL alternative, MIT variants, CC0-1.0, Qhull and the Yorick colormap notice.
+It is a complete-notice reference, not a wildcard approval or an assertion that
+every bundled component uses the main project license. Retain the exact locked
+artifacts and their notices when reproducing this environment.
+
+This admission serves the bounded development/research consumer. QuantLib's
+pre-existing unresolved source-to-wheel binding still blocks release use of the
+whole graph. No deployed service, executable venue dependency or trading
+permission is introduced by the adapter.

@@ -4,27 +4,37 @@ review_due_on = "2026-10-04"
 native_python_packages = [
   "ast-serialize",
   "charset-normalizer",
+  "contourpy",
   "coverage",
+  "fonttools",
   "hypothesis",
+  "kiwisolver",
   "librt",
+  "llvmlite",
+  "matplotlib",
   "msgpack",
   "msgspec",
   "mypy",
+  "numba",
   "numpy",
   "pandas",
   "pillow",
   "psutil",
+  "psygnal",
   "pydantic-core",
   "pyyaml",
   "quantlib",
+  "regex",
   "rpds-py",
   "ruff",
+  "scikit-learn",
+  "scipy",
   "tomli",
   "websockets",
 ]
 
 [lock_digests]
-"uv.lock" = "145b9cfc048dd798bdd00e5134817766bea06f3702a24772f53a97bd36c4615a"
+"uv.lock" = "c9bb7d9fe47e72a7abe74eb6a9df9d0dbd48b883c791289f038e529f697e3297"
 
 [pip_audit]
 version = "2.10.1"
@@ -36,6 +46,7 @@ failure_policy = "block_unresolved_findings_or_skips"
 license_expression = "Apache-2.0"
 disposition = "approved"
 packages = [
+  "asttokens==3.0.2",
   "bandit==1.9.4",
   "cachecontrol==0.14.4",
   "clearml==2.1.12",
@@ -66,6 +77,7 @@ license_expression = "BSD-2-Clause"
 disposition = "approved"
 packages = [
   "boolean-py==5.0",
+  "imageio==2.37.4",
   "pygments==2.21.0",
 ]
 
@@ -73,15 +85,33 @@ packages = [
 license_expression = "BSD-3-Clause"
 disposition = "approved"
 packages = [
+  "cloudpickle==3.1.2",
   "colorama==0.4.6",
+  "comm==0.2.3",
+  "contourpy==1.4.0",
+  "cycler==0.12.1",
+  "dateparser==1.4.3",
+  "dill==0.4.1",
   "idna==3.19",
+  "ipython-pygments-lexers==1.1.1",
+  "ipython==9.17.1",
+  "ipywidgets==8.1.9",
+  "joblib==1.6.0",
+  "jupyterlab-widgets==3.0.17",
+  "kiwisolver==1.5.1",
+  "matplotlib-inline==0.2.2",
   "msgspec==0.21.1",
   "nodeenv==1.10.0",
   "pandas==3.0.5",
+  "prompt-toolkit==3.0.53",
   "psutil==7.2.2",
+  "psygnal==0.16.1",
   "quantlib==1.43",
+  "threadpoolctl==3.7.0",
   "toolz==1.1.0",
+  "traitlets==5.16.1",
   "websockets==16.0",
+  "widgetsnbextension==4.0.16",
 ]
 
 [[license_groups]]
@@ -89,14 +119,17 @@ license_expression = "MIT"
 disposition = "approved"
 packages = [
   "annotated-types==0.8.0",
+  "anywidget==0.11.0",
   "ast-serialize==0.8.0",
   "attrs==26.1.0",
   "cfgv==3.5.0",
   "charset-normalizer==3.5.1",
+  "executing==2.2.1",
   "filelock==3.32.4",
   "hatchling==1.32.0",
   "identify==2.6.19",
   "iniconfig==2.3.0",
+  "jedi==0.20.0",
   "jsonschema-specifications==2025.9.1",
   "jsonschema==4.26.0",
   "korean-lunar-calendar==0.4.0",
@@ -105,15 +138,19 @@ packages = [
   "mdurl==0.1.2",
   "mypy-extensions==1.1.0",
   "mypy==2.3.1",
+  "narwhals==2.26.0",
   "packageurl-python==0.17.6",
   "pandera==0.33.1",
+  "parso==0.8.7",
   "pathlib2==2.3.7.post1",
   "pip-requirements-parser==32.0.1",
   "pip==26.2.1",
   "platformdirs==4.11.4",
+  "plotly==6.3.1",
   "pluggy==1.6.0",
   "pre-commit-hooks==6.0.0",
   "pre-commit==4.6.2",
+  "pure-eval==0.2.4",
   "pydantic-core==2.46.5",
   "pydantic==2.13.5",
   "pyjwt==2.14.0",
@@ -122,21 +159,26 @@ packages = [
   "pytest-cov==7.1.0",
   "pytest==9.1.1",
   "python-discovery==1.5.3",
+  "pytz==2026.3.post1",
   "pyyaml==6.0.3",
   "referencing==0.37.0",
   "rich==15.0.0",
   "rpds-py==2026.6.3",
   "ruamel-yaml==0.19.1",
   "ruff==0.16.5",
+  "schedule==1.2.2",
   "six==1.17.0",
+  "stack-data==0.6.3",
   "tomli-w==1.2.0",
   "tomli==2.4.1",
   "tomlkit==0.15.1",
   "typeguard==4.6.0",
   "typing-inspect==0.9.0",
   "typing-inspection==0.4.4",
+  "tzlocal==5.4.4",
   "urllib3==2.7.0",
   "virtualenv==21.7.4",
+  "wcwidth==0.8.4",
 ]
 
 [[license_groups]]
@@ -186,6 +228,67 @@ packages = [
   "pillow==12.3.0",
 ]
 
+[[license_groups]]
+license_expression = "BSD-2-Clause AND BSD-3-Clause AND MIT"
+disposition = "approved"
+packages = [
+  "numba==0.67.0",
+]
+[[license_groups]]
+license_expression = "BSD-2-Clause AND Apache-2.0 WITH LLVM-exception"
+disposition = "approved"
+packages = [
+  "llvmlite==0.49.0",
+]
+[[license_groups]]
+license_expression = "BSD-3-Clause AND Apache-2.0 WITH LLVM-exception"
+disposition = "approved"
+packages = [
+  "scikit-learn==1.9.1",
+]
+[[license_groups]]
+license_expression = "BSD-3-Clause AND BSD-3-Clause-Open-MPI AND GPL-3.0-or-later WITH GCC-exception-3.1 AND LGPL-2.1-or-later"
+disposition = "approved"
+packages = [
+  "scipy==1.18.1",
+]
+[[license_groups]]
+license_expression = "LicenseRef-Matplotlib-Bundled"
+disposition = "approved"
+packages = [
+  "matplotlib==3.11.2",
+]
+[[license_groups]]
+license_expression = "MIT AND OFL-1.1 AND Apache-2.0"
+disposition = "approved"
+packages = [
+  "fonttools==4.65.0",
+]
+[[license_groups]]
+license_expression = "ISC"
+disposition = "approved"
+packages = [
+  "pexpect==4.9.0",
+  "ptyprocess==0.7.0",
+]
+[[license_groups]]
+license_expression = "Apache-2.0 AND CNRI-Python"
+disposition = "approved"
+packages = [
+  "regex==2026.9.10",
+]
+[[license_groups]]
+license_expression = "MPL-2.0 AND MIT"
+disposition = "approved"
+packages = [
+  "tqdm==4.70.1",
+]
+[[license_groups]]
+license_expression = "Apache-2.0 AND LicenseRef-Commons-Clause-1.0"
+disposition = "approved"
+packages = [
+  "vectorbt==1.1.0",
+]
 [[source_archives]]
 name = "clearml"
 version = "2.1.12"

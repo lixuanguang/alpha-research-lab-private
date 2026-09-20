@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-20. **MRs 1–3 are implemented; MRs 4–21 are planned.**
+Owner: repository founder. Updated 2026-09-20. **MRs 1–5 are implemented; MRs 6–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -14,7 +14,8 @@ the [platform design](../architecture/platform-design.md) owns shared contracts.
 ## Current platform
 
 The working path is configured acquisition or capture → retained raw inputs →
-validation and versioned publication → explicit snapshot queries/replay → EDA.
+validation and versioned publication → explicit snapshot queries/replay → EDA,
+model studies or bounded spot economics.
 
 | Available capability | Researcher benefit | Current limit |
 | --- | --- | --- |
@@ -23,9 +24,10 @@ validation and versioned publication → explicit snapshot queries/replay → ED
 | Occurrences, revisions, eligibility and dataset publication | Trace observations and reopen a verified snapshot | Empirical historical eligibility, coverage and revision availability remain unresolved for the frozen sample |
 | Trade cutoff/history queries and chronological replay | Inspect what is knowable and retain corrections and scoped controls | Bounded reference implementation; replay alone does not simulate economic fills |
 | Book reconstruction, publication and replay | Inspect visible books, recovery and matching saved state | Exploratory degraded scope; no queue position or executable-fill claim |
-| Retained experiment attempts and temporal splits | Reproduce semantic inputs, inspect all attempts and enforce declared fit/holdout boundaries | Local single-writer store; current consumers are unfitted exploration and price diagnostics, with models still planned |
+| Retained experiment attempts and temporal splits | Reproduce semantic inputs, inspect all attempts and enforce declared fit/holdout boundaries | Local single-writer store; current consumers are unfitted exploration and price diagnostics, with bounded model and economic consumers |
 | Versioned observed-price features and separate forward labels | Inspect exact returns, causal windows, missingness and delayed outcome availability | Bounded unfitted trade-price diagnostic; no economic, book/macro, model or runtime claim |
-| Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; fitted model workflows and economic backtesting remain planned |
+| Exact spot economics and bounded vectorbt comparison | Reconcile delayed target execution, costs, cash, holdings and retained analytical output | Synthetic/offline spot scope; no liquidity, empirical or execution qualification |
+| Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; shared large-study orchestration and empirical acceptance remain planned |
 
 The [data command reference](../../src/market_data/README.md) owns current usage.
 The [frozen P1 experiment](../research/p1-baseline.md) retains its own identity,
@@ -90,7 +92,8 @@ the other's evidence. Conditional work stays dormant until its consumer exists.
 
 This revision starts at MR 4. MR 3's feature/label scope and acceptance remain
 unchanged by these plans; later adapters consume its delivered public outputs.
-These are planned integrations, not installed dependencies or accepted capabilities.
+MR 4's ClearML/Pandera and MR 5's bounded vectorbt consumers have concrete
+implementations and evidence below; the remaining entries are planned integrations.
 Deliver the named consumers in bounded slices within the existing MR numbers.
 
 Use **ClearML** for experiment tracking, model records and research orchestration.
@@ -498,7 +501,7 @@ with their owning MRs. No deployment or trading authority is granted.
 
 ### First economic backtest
 
-**MR 5.** Deliver a small integrated path: saved verified synthetic inputs → completed
+**MR 5 — implemented.** Deliver a small integrated path: saved verified synthetic inputs → completed
 observations → no-trade and fixed momentum rules → independent limits → positive-delay
 fills → exact cash, positions, costs and NAV. Reuse the existing chronological
 iterator. This proves economics without waiting for fitted features or live data.
@@ -537,6 +540,54 @@ do not present a vectorized bar result as queue/fill fidelity or exact accountin
 No default same-bar fill may bypass the declared positive delay. Unsupported product
 mechanics fail explicitly. ClearML integration uses MR 4; the reference economic
 path remains usable without fitted models or an available tracking service.
+
+Implementation, 2026-09-20, from main `ff4e1f4`:
+
+- [Spot economics](../../src/simulation/README.md) now composes completed observations,
+  fixed rules, independent limits, delayed fills and exact accounting under the named
+  functional owners. The existing replay iterator owns phase order. Complete economic
+  checkpoints retain schedules, reservations, applied fills, ledger and observations.
+- The independent hand ledger, distinct fee ties, nonterminating basis/returns,
+  no-trade, strict expiry, scoped controls, future isolation, batch/resume parity,
+  unaffordable rejection and terminal holding cases have focused coverage. Installed
+  acceptance publishes/reopens saved synthetic archive bytes and resumes a pending
+  intent in a fresh process. No synthetic result establishes frozen-source acceptance.
+- vectorbt 1.1.0 uses the pinned Numba backend and explicit positive-delay target orders.
+  Exact order assumptions and approximate output remain separate from the reference
+  ledger. Supported formal comparisons retain both artifacts through MR 4's attempt
+  store and recoverable ClearML publication. Reference economics has no model or
+  tracking-service prerequisite.
+- Prerequisite source inspection and focused checks: **50 passed, 1 integration
+  deselected**. Final focused command `.venv/bin/pytest -q tests/unit/accounting
+  tests/unit/simulation tests/unit/data/test_event_stepping.py
+  tests/engineering/test_source_layout.py`: **54 passed**, no skips/deselections.
+- `TMPDIR=/private/tmp make check`: **passed**; Ruff and formatting (295 files),
+  strict mypy (288 files), native stubtest (1,562 modules), ownership/clarity,
+  architecture links, Bandit, admission (**131 external locked packages**),
+  audit (**no unresolved vulnerabilities or coverage gaps**), secret scanning,
+  **1,146 tests passed / 3 performance cases deselected**, and clean wheel installation
+  outside the checkout. The installed economy publishes/reopens actual saved ZIP
+  inputs, repeats the exact result, resumes pending state in a fresh process and
+  runs the real vectorbt engine and failed-publication recovery consumer.
+- Actual loopback ClearML SDK acceptance passed with attempt
+  `56959ccc7305465f819d4cf4646e21c9`, task `fdd2f23bc12e4fcda16d3d607635d7d8`.
+  Repeated publication returned the same receipt; downloaded exact and vectorbt
+  artifacts matched retained SHA-256 values. Private local evidence is preserved
+  under `logs/economic-acceptance/2026-09-20/` in the founder's original checkout;
+  credentials are excluded. Hosted Linux/macOS and merged-result gates remain the
+  PR's required pre-merge checks; this record does not substitute for their outcome.
+- Earlier attempts remain disclosed: Plotly 7.1.0 failed vectorbt import, corrected
+  by the exercised 6.3.1 pin; initial fixture/probe construction errors and a
+  concurrent editable-environment mutation were corrected before final verification.
+  The first full run had **1,144 passed / 2 failed / 3 deselected**: the old admission
+  count and macOS's Unix socket temporary-path length. Updating the expected count
+  and selecting a short temporary root produced the successful complete run above.
+
+Remaining boundaries: MR 6 configured command, atomic reports and pipelines; MR 8
+actual source/eligibility/coverage and empirical baseline acceptance; MR 11 release
+qualification. vectorbt excludes gaps, missing observations, available revision
+changes and contingent reuse of sale proceeds. QuantLib's existing development-only
+release restriction remains. No deployment or trading authority is granted.
 
 ### Configured runs and durable reports
 

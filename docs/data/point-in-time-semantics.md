@@ -1,7 +1,7 @@
 # Point-in-time semantics for the market-data foundation
 
 Owner: repository founder. Status: implemented for the immutable provenance and
-Tardis decoder, saved datasets, queries and replay; economic consumers are planned.
+Tardis decoder, saved datasets, queries, replay and bounded spot economic consumers.
 The current boundary defines timestamp meaning without claiming a downloaded
 sample or historical venue truth.
 
@@ -83,8 +83,8 @@ candidate.
 
 [`AsOfSelector`](../../src/market_data/query/asof.py) supplies the reference cutoff
 order; the bounded [`Replay`](../../src/market_data/replay/events.py) iterator
-supplies the clock/cursor and scheduled-step operation. Economic composition through
-that operation remains planned. The [cutoff guide](../../src/market_data/README.md#select-point-events-at-a-cutoff)
+supplies the clock/cursor and scheduled-step operation. Economic composition through that operation is implemented in the
+[spot consumer](../../src/simulation/README.md). The [cutoff guide](../../src/market_data/README.md#select-point-events-at-a-cutoff)
 defines the implemented projection and its separate retained history.
 
 Order admitted events by effective knowledge time, then predefined source/stream
@@ -122,7 +122,7 @@ Complete source admission for that timestamp across batch boundaries before
 applying the remaining phases. Phase precedence applies within one timestamp,
 never across an entire batch or decision interval.
 
-The planned synthetic chronology case creates an intent at `00:02:00`, fills on an
+The tested synthetic chronology case creates an intent at `00:02:00`, fills on an
 eligible trade known at `00:02:01`, then admits a gap at `00:02:30`. The later
 gap cannot undo the accepted fill, although its coverage/valuation consequences
 remain visible. With identical saved inputs, config and ordering policy, batch
@@ -135,8 +135,8 @@ A cursor binds the input/configuration and ordering-policy versions and a stable
 logical source position. Resume at a completed step, with the clock, frozen
 observations, pending intent, outstanding scheduled times, applied-fill identities
 and ledger supplied by the consumer; otherwise reject the incomplete/incompatible
-checkpoint. Existing replay checks cover event/cursor parity; the planned
-economic runner must prove resumed economic state equals uninterrupted state.
+checkpoint. Existing replay checks cover event/cursor parity; the economic consumer additionally verifies that complete resumed economic state
+equals uninterrupted state, including fresh-process installed recovery.
 Offline replay state is separate from durable account recovery.
 
 Test future perturbations at the selector and economic consumer: changing only

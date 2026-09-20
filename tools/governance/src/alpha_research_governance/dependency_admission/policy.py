@@ -59,6 +59,16 @@ _ACTION_PINS = {
     "astral-sh/setup-uv": "c771a70e6277c0a99b617c7a806ffedaca235ff9",
 }
 _APPROVED_LICENSES = {
+    "BSD-2-Clause AND BSD-3-Clause AND MIT",
+    "BSD-2-Clause AND Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause AND Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause AND BSD-3-Clause-Open-MPI AND GPL-3.0-or-later "
+    "WITH GCC-exception-3.1 AND LGPL-2.1-or-later",
+    "LicenseRef-Matplotlib-Bundled",
+    "MIT AND OFL-1.1 AND Apache-2.0",
+    "Apache-2.0 AND CNRI-Python",
+    "MPL-2.0 AND MIT",
+    "Apache-2.0 AND LicenseRef-Commons-Clause-1.0",
     "Apache-2.0",
     "Apache-2.0 OR BSD-2-Clause",
     "Apache-2.0 OR BSD-3-Clause",

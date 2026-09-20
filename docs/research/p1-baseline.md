@@ -196,8 +196,12 @@ those modes; preserve the existing hand ledger alongside the new tie case.
 | Reference attribution | — | — | — | Gross `20.00` - slippage `2.00` - fees `0.42` = net `17.58` |
 
 Retained [foundation arithmetic golden](../../tests/unit/financial_units/test_p1_hand_ledger.py)
-checks these Money/Price operations. It does not implement or prove the future
-ledger's fill identity, duplicate rejection, state transitions or cost engine.
+checks these Money/Price operations. It does not establish ledger transitions by itself. The independent
+[accounting consumer tests](../../tests/unit/accounting/test_ledger.py) now exercise
+those exact values through identified fills, duplicate rejection, rational basis,
+explicit rounding and restart state. The [spot workflow](../../src/simulation/README.md)
+implements these economics on synthetic saved inputs; frozen empirical acceptance
+remains open.
 
 ## Acceptance and research discipline
 

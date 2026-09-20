@@ -138,6 +138,7 @@ def main() -> None:
     for script, run in (
         ("ingestion_workflow.py", "ingestion"),
         ("feature_study.py", "features"),
+        ("economic_workflow.py", "economics"),
         ("recovery_consumer.py", "recovery"),
     ):
         subprocess.run(

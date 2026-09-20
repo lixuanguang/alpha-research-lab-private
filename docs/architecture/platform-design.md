@@ -73,15 +73,15 @@ src/
     books/                  Shared book state and reconstruction contracts
   research/
     exploration/            EDA and pinned multi-input saved-data selections
-    observations/           FUTURE: completed decision observations
+    observations/           Frozen completed decision observations and scoped controls
     features/               Versioned trailing-price diagnostics; future fitted transforms
     labels/                 Separate forward-return outcomes and availability
     models/                 Exact linear construction, retained state and inference
     experiments/            Attempts, splits, evaluation and ClearML; FUTURE: candidates/economics
-  strategies/               FUTURE: contexts and decision rules
-  simulation/               FUTURE: fills, costs and market mechanics
-  accounting/               FUTURE: ledger, valuation, reconciliation
-  risk/                     FUTURE: independent decisions and controls
+  strategies/               Fixed completed-price momentum and no-trade target rules
+  simulation/               Delayed spot fills/costs/checkpoints and bounded vectorbt adapter
+  accounting/               Exact spot ledger, rational attribution and reconciliation
+  risk/                     Independent spot grids, holdings and affordability limits
   portfolio/                CONDITIONAL: allocation and netting
   execution/                FUTURE: orders, journals and adapters
   runtime/                  Identity and supervision; future deployment/recovery
@@ -96,7 +96,7 @@ src/
     explore/                EDA, feature/label/model studies and ClearML publication
     train_model/            CONDITIONAL: fit and retain a model attempt
     evaluate_model/         CONDITIONAL: research/delayed-outcome evaluation
-    backtest/               FUTURE: one configured economic runner
+    backtest/               Economic Python workflow and tracked vectorbt comparison
     paper/                  FUTURE: paper/shadow composition
     live/                   FUTURE: explicitly authorized operation
     deploy/                 FUTURE: concrete artifact verification/installation
@@ -123,7 +123,7 @@ contains deployment definitions, while `applications/deploy/` owns executable
 installation composition. Market-data adapters and execution adapters stay with
 their respective capabilities; there is no mixed top-level `venues/` package.
 
-One `alpha-research-lab` distribution installs all nine functional roots using the
+One `alpha-research-lab` distribution installs all thirteen functional roots using the
 existing uv build path and frozen dependency set. Distribution names, deployable artifacts and Python
 package names are separate decisions. Neither preserving the old import prefix
 nor creating one distribution per folder is required. Supporting module filenames
@@ -603,9 +603,10 @@ owned by chronological replay. Pipelines compose operations and retain state; th
 scheduled-step library enforce source admission, expiry, pending fill, decision
 and valuation order. Use fixed source/stream precedence and stable logical source
 order for meaningful ties. Hashes retain provenance without allowing future byte
-changes to reorder earlier economics. The planned synthetic economic slice first exercises this contract through
-observations, decisions and a reconciled synthetic ledger, then the configured backtest extends the
-same path with saved-input/trial composition.
+changes to reorder earlier economics. The [bounded spot economic consumer](../../src/simulation/README.md) now exercises
+this contract through frozen observations, rules, independent limits, delayed fills,
+exact accounting and complete checkpoints. Its installed workflow reopens saved
+synthetic archives. MR 6 extends the same path with a configured command and durable reports.
 
 ### Replay clocks and fill fidelity
 
@@ -659,7 +660,7 @@ The planned accounting boundary owns positions, lots or contract quantities, cas
 margin/collateral, financing, fees, dividends, coupons, funding, variation margin, exercise, assignment, delivery, and
 settlement events for supported asset classes. Money and quantities use the current exact financial-unit contract;
 weight-only state cannot replace an economic position.
-The planned P1 [arithmetic contract](financial-units.md#planned-research-and-accounting-arithmetic)
+The implemented bounded spot [arithmetic contract](financial-units.md#planned-research-and-accounting-arithmetic)
 keeps cash/notional/marks on the exact C03 grid and uses dimensioned rational
 basis/P&L attribution where proportional division is nonterminating. Exact
 returns use reduced fractions; display/model approximation has a separate

@@ -198,6 +198,10 @@ class SourceLayoutChecker:
             "runtime",
             "telemetry",
             "research",
+            "accounting",
+            "risk",
+            "simulation",
+            "strategies",
         }
         if owned and (
             any(name.startswith("_") or name == "*" for name in names)
