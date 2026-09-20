@@ -75,19 +75,22 @@ A stopped-volume backup was restored into the separate `alpha-clearml-reopen`
 project. The restored stack is the currently running local instance; the original
 `alpha-clearml-local` volumes are preserved. Fresh SDK/HTTP reads verified task
 outcomes, input/output model associations, exact artifacts and dashboard projections.
-The original attempts are in `/private/tmp/alpha-model-integration-06`; the four
-volume archives and verification record are in
-`/private/tmp/alpha-clearml-backup-20260920`. Preserve these local-only files before
-temporary-directory cleanup. The private credentials remain outside Git at
-`/private/tmp/alpha-clearml-local.env` (owner access only).
+The original attempts, four volume archives, verification records and private
+credentials were copied into the original checkout's ignored
+`logs/clearml-acceptance/2026-09-20/` directory. That persistent local directory
+has owner-only permissions; the credential file also has owner-only permissions.
+Historical records retain their original `/private/tmp` paths and creation
+identities. This is local retained evidence, not a shared backup service.
 
+Set `CLEARML_LOCAL_ENV_FILE` to the retained `alpha-clearml-local.env` file.
 To stop the current restored instance while retaining its data:
 
 ```sh
-docker compose --env-file /private/tmp/alpha-clearml-local.env \
+docker compose --env-file "$CLEARML_LOCAL_ENV_FILE" \
   -p alpha-clearml-reopen -f configs/development/clearml/compose.yaml down
 ```
 
-The SDK's missing PyPI source distribution still blocks repository dependency
-admission; successful Docker integration does not waive that gate. See the
+The SDK's missing PyPI source distribution is handled by the implemented,
+verified upstream source-archive admission rule. The native release restriction
+and shared-service qualification remain separate. See the
 [roadmap evidence and remaining work](../../../docs/roadmap/README.md#fitted-preprocessing-and-model-evaluation).

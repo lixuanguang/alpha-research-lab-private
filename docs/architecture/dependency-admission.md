@@ -6,7 +6,7 @@ summarizes its place in the system;
 [`dependency-admission.toml`](dependency-admission.toml) is the machine-readable
 policy consumed by the checker.
 
-Schema version 4 binds the frozen `uv.lock` to exact package versions, artifact
+Schema version 5 binds the frozen `uv.lock` to exact package versions, artifact
 hashes and URLs, the reviewed PyPI simple index, Darwin arm64 and Linux x86_64
 wheel coverage, dependency edges, licenses, and vulnerability coverage. The
 checker fixes the lock path and `src`/`tools` runtime scan roots directly.
@@ -45,25 +45,46 @@ or remove the dependency, imports, lock entries and affected tests together,
 before enabling release use. Native adapter conformance tests and exact domain
 goldens remain behavioral checks, not provenance verification.
 
-## ClearML development admission pending
+## Verified upstream source archives
 
-Status: **blocked**, 2026-09-20. The model/tracking implementation pins the
-ClearML SDK 2.1.12 and Pandera 0.33.1, with pandas 3.0.5 now a direct dependency.
-The frozen graph has 88 external packages. Exact licenses include the permissive
-Unlicense and MIT-CMU expressions; no source or vulnerability requirement changes.
-ClearML publishes a wheel but no PyPI source distribution, so ordinary admission
-fails with `clearml lacks a digest-bound source distribution`. It is not a native
-package and has no wheel-only allowance. The MR remains incomplete and cannot
-merge under the current gate.
+Status: **implemented**, 2026-09-20, following the founder's explicit approval.
+ClearML SDK 2.1.12 has no PyPI source distribution. Schema 5 adds an alternative
+for this pure Python package: `source_archives` binds its exact admitted version,
+locked wheel URL/SHA-256, upstream commit and source archive SHA-256. The only
+accepted upstream archive origin is `clearml/clearml` on GitHub, addressed by a
+40-character commit. It cannot replace an existing sdist, authorize a native
+package, change the locked wheel, or create an implicit wheel-only exception.
+An absent binding restores the ordinary source-distribution requirement.
 
-A local investigation compared all 283 installed ClearML runtime files against
-upstream commit `559467f550c0d23dc3506ee551386c3b59e6b091` (tag `v2.1.12`): every file
-matched. The downloaded upstream archive SHA-256 was
+`validate_repository` invokes the owned `SourceArchiveVerifier` before returning
+success, so the existing dependency command, audit and `make check` all enforce
+the comparison. On a cold cache it downloads the reviewed archives over HTTPS,
+with no redirects, a 32 MiB transfer limit, 15-second socket timeouts and a
+60-second elapsed transfer budget checked between reads. Network failures block
+admission. The ignored repository-local `.dependency-cache/` contains actual
+content-addressed archive bytes, never an authorization marker; each invocation
+rehashes and rechecks both archives. A valid cache permits offline verification.
+A corrupt entry fails visibly; remove that expendable entry to fetch it again.
+
+The verifier reads archives in memory without extracting or executing upstream
+code. It bounds expanded content to 64 MiB and 4,096 members, rejects unsafe or
+duplicate paths and special runtime files, and compares the complete `clearml/`
+file inventory and bytes, including `.conf` and typing resources. Unselected
+upstream documentation/examples are not executed or extracted; their symlinks are
+not followed. The wheel may contain only that runtime plus six known dist-info
+files. Checks cover name/version, pure-Python tags, the upstream license,
+top-level package, entry points parsed from source without execution, and the
+complete RECORD inventory/hashes/sizes. Unexpected installation hooks fail.
+
+The actual locked artifacts matched **283 runtime files**. Source commit:
+`559467f550c0d23dc3506ee551386c3b59e6b091` (release tag `v2.1.12`). Source SHA-256:
 `56fabf73b333d28c6bd6cf031215aa8ae387746b7088f08f5a54b89a4c98f7fa`.
-This one-time comparison is **not** an implemented admission contract or a
-publisher/build attestation. An explicit decision and enforced, tested alternative
-source-archive rule are still required; no alternate source record has been
-silently admitted. The existing QuantLib release restriction remains unchanged.
+The exact wheel identity remains in the policy and frozen lock. This establishes
+runtime byte correspondence to the reviewed source archive; it is not a signed
+publisher identity or reproducible-build attestation. New versions require fresh
+source/wheel pins, comparison and review. License, platform, lock, vulnerability
+and runtime-install checks remain enforced. QuantLib's separate release block
+and existing allowance expiry remain unchanged.
 
 ## First deployment dependency decision
 

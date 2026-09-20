@@ -505,8 +505,8 @@ identity, retention, concurrency, recovery and supported evaluation boundaries.
 The [bounded model consumer](../../src/research/models/README.md) now adds configured
 and train-only centered least-squares state, reload-only inference and exact
 predictive evaluation. ClearML publication is a separate recoverable outbox;
-terminal attempts and holdout history remain authoritative locally. Dependency
-acceptance is tracked in MR 4. Candidate/economic reports remain planned.
+terminal attempts and holdout history remain authoritative locally. ClearML source admission verifies
+the locked wheel against its pinned upstream archive. Candidate/economic reports remain planned.
 
 Research reports state the economic mechanism, falsifiable hypothesis, target, sign, horizon, universe, rebalance,
 benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.

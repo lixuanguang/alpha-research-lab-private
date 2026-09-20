@@ -52,6 +52,19 @@ class WheelOnlyAllowance(ImmutableModel):
     expires_on: date
 
 
+class SourceArchiveAdmission(ImmutableModel):
+    """Bind the pure ClearML wheel to one immutable archive from its upstream repository."""
+
+    name: Literal["clearml"]
+    version: Annotated[str, Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+$")]
+    commit: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+    source_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    wheel_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    wheel_url: Annotated[
+        str, Field(pattern=r"^https://files\.pythonhosted\.org/packages/[A-Za-z0-9/_.-]+\.whl$")
+    ]
+
+
 class DependencyAdmission(ImmutableModel):
     """Store policy dates, package facts, lock digests, and wheel-only limits."""
 
@@ -61,3 +74,4 @@ class DependencyAdmission(ImmutableModel):
     lock_digests: tuple[tuple[str, str], ...]
     packages: tuple[PythonPackageAdmission, ...]
     wheel_only_allowances: tuple[WheelOnlyAllowance, ...] = ()
+    source_archives: tuple[SourceArchiveAdmission, ...] = ()

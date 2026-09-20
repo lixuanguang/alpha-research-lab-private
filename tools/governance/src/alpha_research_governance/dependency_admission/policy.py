@@ -29,6 +29,7 @@ from alpha_research_governance.dependency_admission.models import (
     PythonPackageAdmission,
     WheelOnlyAllowance,
 )
+from alpha_research_governance.dependency_admission.source_archives import SourceArchiveVerifier
 
 _ROOT_KEYS = {
     "as_of_date",
@@ -38,6 +39,7 @@ _ROOT_KEYS = {
     "pip_audit",
     "review_due_on",
     "schema_version",
+    "source_archives",
     "license_groups",
 }
 _EXPECTED_LOCK_PATHS = ("uv.lock",)
@@ -169,8 +171,8 @@ def load_policy(path: Path) -> DependencyAdmission:
     document = _table(raw_document, context=str(path))
     if set(document) != _ROOT_KEYS:
         raise DependencyAdmissionError([f"{path}: root has missing or unknown fields"])
-    if document.get("schema_version") != 4:
-        raise DependencyAdmissionError(["dependency policy schema_version must be 4"])
+    if document.get("schema_version") != 5:
+        raise DependencyAdmissionError(["dependency policy schema_version must be 5"])
     as_of_date = _iso_date(document.get("as_of_date"), context="as_of_date")
     review_due_on = _iso_date(document.get("review_due_on"), context="review_due_on")
     if review_due_on <= as_of_date or review_due_on > as_of_date + timedelta(days=90):
@@ -242,12 +244,15 @@ def load_policy(path: Path) -> DependencyAdmission:
         review_due_on=review_due_on,
     )
     return DependencyAdmission(
-        schema_version=4,
+        schema_version=5,
         as_of_date=as_of_date,
         review_due_on=review_due_on,
         lock_digests=tuple((name, cast(str, lock_digests[name])) for name in _EXPECTED_LOCK_PATHS),
         packages=tuple(packages),
         wheel_only_allowances=allowances,
+        source_archives=SourceArchiveVerifier.parse_admissions(
+            document.get("source_archives"), tuple(packages)
+        ),
     )
 
 
@@ -417,6 +422,7 @@ def _python_lock_findings(
             f"missing={sorted(external - admitted)}, stale={sorted(admitted - external)}"
         )
     allowances = {item.name: item for item in policy.wheel_only_allowances}
+    source_archives = {item.name: item for item in policy.source_archives}
     observed_date = date.today() if validation_date is None else validation_date
     for package in policy.packages:
         item = locked.get(package.name)
@@ -436,6 +442,19 @@ def _python_lock_findings(
                 findings.append(
                     f"{package.name}: wheel-only allowance cannot replace an existing sdist"
                 )
+        elif package.name in source_archives:
+            binding = source_archives[package.name]
+            wheels = item.get("wheels")
+            wheel_items = cast(list[object], wheels) if isinstance(wheels, list) else []
+            first = wheel_items[0] if len(wheel_items) == 1 else None
+            wheel = cast(dict[str, object], first) if isinstance(first, dict) else {}
+            if "sdist" in item:
+                findings.append(f"{package.name}: source archive cannot replace an existing sdist")
+            if (
+                wheel.get("url") != binding.wheel_url
+                or wheel.get("hash") != "sha256:" + binding.wheel_sha256
+            ):
+                findings.append(f"{package.name}: source archive must bind the exact locked wheel")
         else:
             source = item.get("sdist")
             if (
@@ -531,6 +550,9 @@ def validate_repository(
             findings.append(f"{relative} differs from its admitted SHA-256 digest")
     if findings:
         raise DependencyAdmissionError(findings)
+    verifier = SourceArchiveVerifier(root / ".dependency-cache")
+    for binding in policy.source_archives:
+        verifier.verify(binding)
     return policy
 
 

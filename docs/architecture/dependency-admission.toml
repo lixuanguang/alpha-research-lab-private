@@ -1,4 +1,4 @@
-schema_version = 4
+schema_version = 5
 as_of_date = "2026-09-04"
 review_due_on = "2026-10-04"
 native_python_packages = [
@@ -185,6 +185,14 @@ disposition = "approved"
 packages = [
   "pillow==12.3.0",
 ]
+
+[[source_archives]]
+name = "clearml"
+version = "2.1.12"
+commit = "559467f550c0d23dc3506ee551386c3b59e6b091"
+source_sha256 = "56fabf73b333d28c6bd6cf031215aa8ae387746b7088f08f5a54b89a4c98f7fa"
+wheel_sha256 = "3387cd6af16950b735857bcd275d40dd5d59b4aa63684d9fdf763d978b038e04"
+wheel_url = "https://files.pythonhosted.org/packages/85/b2/97968fa5455ec7a5371aedd2e334927a0144248c932bf4515ac90f9a5696/clearml-2.1.12-py2.py3-none-any.whl"
 
 [[wheel_only_allowances]]
 name = "quantlib"

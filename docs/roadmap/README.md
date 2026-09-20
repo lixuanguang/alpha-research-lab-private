@@ -320,7 +320,7 @@ No empirical alpha, deployment or trading authority is claimed.
 
 ### Fitted preprocessing and model evaluation
 
-**MR 4 — implemented locally; dependency acceptance pending (not complete).**
+**MR 4 — implemented; final validation in progress.**
 Extend the retained attempt core with ClearML tracking and model records
 for configured analytical, calibrated statistical and learned models. Tracking is
 required for supported formal workflows; fitting remains conditional on the model.
@@ -428,14 +428,14 @@ based on main `7b2ee466`):
   prove fitted centering, exact prediction/error, future/held-out isolation and
   incompatible-state rejection. The final tracked holdout regression additionally
   covers no-fit rejection before data access.
-- `UV_CACHE_DIR=/private/tmp/alpha-mr04-uv-cache TMPDIR=/private/tmp make check`
+- Initial `UV_CACHE_DIR=/private/tmp/alpha-mr04-uv-cache TMPDIR=/private/tmp make check`
   passed locked resolution, Ruff, format, strict mypy (268 files), native stubtest
   (1,548 modules) and engineering rules, then **failed** dependency admission:
   `clearml lacks a digest-bound source distribution`. The remaining checks were
   run explicitly: final Ruff/format, mypy (268 files), native stubtest (1,548 modules),
   engineering rules, links (38 documents including component guides), Bandit and
   secret scans (371 governed paths after staging) passed.
-  Final `TMPDIR=/private/tmp make test`: **1,098 passed, 1 failed, 3 performance
+  Initial complete `TMPDIR=/private/tmp make test`: **1,098 passed, 1 failed, 3 performance
   deselected, no skips** in 77.14 seconds. The sole failure is the repository's
   dependency-admission test reporting the same missing ClearML source distribution. Isolated `make wheel-smoke` passed the installed runtime and existing
   four commands, including the model consumer with explicitly unavailable transport.
@@ -443,7 +443,7 @@ based on main `7b2ee466`):
 - The exact 88-package external lock graph was audited with
   `pip-audit --no-deps --disable-pip -r <exact-locked-requirements> --format json`:
   **88 covered, zero vulnerability findings**. This is independent vulnerability
-  evidence; the admission audit wrapper remains blocked by the missing source.
+  evidence; the admission audit wrapper was blocked by the missing source at that stage.
 
 Earlier live runs exposed SDK created-to-completed transitions, completed-task edit
 refusal, literal model-name matching and stale input-model associations; those were
@@ -456,11 +456,33 @@ measured service reliability. Final schema/holdout and immutable-state/evaluatio
 checks and renewed wheel smoke; the unchanged publication and Docker restore proof
 is reused.
 
-Remaining acceptance: resolve the ClearML source-distribution requirement through
-an explicitly agreed, enforced [dependency admission](../architecture/dependency-admission.md#clearml-development-admission-pending)
-contract, then pass the complete required lane and hosted merged-result checks.
-The current gate is not weakened and MR 4 is **not marked complete**. Source-archive
-comparison alone is not admission. QuantLib's pre-existing release block remains.
+The initial dependency blocker above was resolved with explicit founder approval:
+schema 5 now enforces [verified upstream source admission](../architecture/dependency-admission.md#verified-upstream-source-archives)
+for the exact ClearML wheel. Actual archives are checked on every admission,
+including cached runs; the complete 283-file runtime matches the pinned source.
+Final local verification after that change:
+
+- `uv run --frozen --no-editable pytest -q tests/engineering/test_dependency_admission.py
+  tests/engineering/test_source_archives.py`: **70 passed**, no skips/deselections.
+- `UV_CACHE_DIR=/private/tmp/alpha-mr04-uv-cache TMPDIR=/private/tmp make check`:
+  **passed** end to end. Strict mypy checked 270 source files, native stubtest
+  checked 1,548 modules, dependency admission/audit covered all 88 external
+  packages with no unresolved findings, and the correctness/integration suite
+  reported **1,131 passed, 3 performance deselected, no skips** in 75.80 seconds.
+  The clean installed-wheel smoke passed all existing consumers, including model
+  construction/reload and fresh-process attempt backup.
+- Expanded local-link verification: **38 documents passed**. The source verifier
+  separately reopened the cached actual archives and reported **283 matching
+  runtime files**, demonstrating that a cache hit still performs the comparison.
+
+The earlier live Docker/model proof remains valid: this completion changes only
+source admission and documentation, not the runtime model/tracking behavior or
+server topology. Hosted merged-result validation remains to be confirmed before
+completion is recorded.
+QuantLib's pre-existing release block remains. The original attempts, stopped-volume
+backup, credentials and validation logs have been preserved under the original
+checkout's ignored, owner-only `logs/clearml-acceptance/2026-09-20/` directory;
+temporary paths in the earlier evidence remain historical identities.
 Uncertain remote creation with no discoverable object deliberately stops for manual
 reconciliation; it does not guess that a retry is safe. Larger models, automated
 orchestration, shared-server qualification, economics and empirical research remain
