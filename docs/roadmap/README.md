@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-20. **MRs 1–2 are implemented; MR 3 is in progress; MRs 4–21 are planned.**
+Owner: repository founder. Updated 2026-09-20. **MRs 1–3 are implemented; MRs 4–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -23,8 +23,9 @@ validation and versioned publication → explicit snapshot queries/replay → ED
 | Occurrences, revisions, eligibility and dataset publication | Trace observations and reopen a verified snapshot | Empirical historical eligibility, coverage and revision availability remain unresolved for the frozen sample |
 | Trade cutoff/history queries and chronological replay | Inspect what is knowable and retain corrections and scoped controls | Bounded reference implementation; replay alone does not simulate economic fills |
 | Book reconstruction, publication and replay | Inspect visible books, recovery and matching saved state | Exploratory degraded scope; no queue position or executable-fill claim |
-| Retained experiment attempts and temporal splits | Reproduce semantic inputs, inspect all attempts and enforce declared fit/holdout boundaries | Local single-writer store; first consumer is unfitted exploration, with features/models still planned |
-| Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; formal feature/model workflows and economic backtesting remain planned |
+| Retained experiment attempts and temporal splits | Reproduce semantic inputs, inspect all attempts and enforce declared fit/holdout boundaries | Local single-writer store; current consumers are unfitted exploration and price diagnostics, with models still planned |
+| Versioned observed-price features and separate forward labels | Inspect exact returns, causal windows, missingness and delayed outcome availability | Bounded unfitted trade-price diagnostic; no economic, book/macro, model or runtime claim |
+| Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; fitted model workflows and economic backtesting remain planned |
 
 The [data command reference](../../src/market_data/README.md) owns current usage.
 The [frozen P1 experiment](../research/p1-baseline.md) retains its own identity,
@@ -59,7 +60,7 @@ source evidence and researcher access improve independently.
 | --- | --- | --- |
 | 1 | [Research dataset access and source onboarding](#research-dataset-access-and-source-onboarding) — implemented | Current query/publication APIs |
 | 2 | [Experiment attempts and temporal splits](#experiment-attempts-and-temporal-splits) — implemented | Existing saved inputs; integrates with MR 1 |
-| 3 | [Versioned features and labels](#versioned-features-and-labels) — in progress | MR 1; MR 2 for formal comparisons |
+| 3 | [Versioned features and labels](#versioned-features-and-labels) — implemented | MR 1; MR 2 for formal comparisons |
 | 4 | [Model records, evaluation and ClearML tracking](#fitted-preprocessing-and-model-evaluation) | MR 2 for tracking; MR 3 for feature-consuming models; fitting only where applicable |
 | 5 | [First economic backtest and vectorbt research adapter](#first-economic-backtest) | Existing replay and financial contracts; MR 4 for tracked vectorbt runs; no fitted-model dependency |
 | 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
@@ -88,7 +89,7 @@ the other's evidence. Conditional work stays dormant until its consumer exists.
 ## Selected research integrations
 
 This revision starts at MR 4. MR 3's feature/label scope and acceptance remain
-unchanged while that work is in progress; later adapters consume its public outputs.
+unchanged by these plans; later adapters consume its delivered public outputs.
 These are planned integrations, not installed dependencies or accepted capabilities.
 Deliver the named consumers in bounded slices within the existing MR numbers.
 
@@ -250,15 +251,15 @@ is unchanged and no new empirical or performance claim is made.
 The initial store is a trusted local POSIX single-writer boundary, not distributed
 coordination or a global holdout access service. Research consumers must supply
 truthful sample intervals and verify sample-byte digests; MR 1 verifies the actual
-saved inputs for this consumer. Models, fitted preprocessing, features/labels,
-economic reporting and candidate promotion remain their owning future MRs.
+saved inputs for this consumer. Models, fitted preprocessing, economic reporting and candidate promotion remain
+their owning future MRs; MR 3 now supplies retained feature/label diagnostics.
 Empirical source limitations remain unchanged; completion grants no deployment
 or trading authority. Existing exploratory `inspect_eda` calls remain compatible
 and are not automatically retained formal attempts.
 
 ### Versioned features and labels
 
-**MR 3.** Add a versioned feature interface for a concrete diagnostic, signal,
+**MR 3 — implemented (bounded software acceptance).** Add a versioned feature interface for a concrete diagnostic, signal,
 factor study, rule or model. Inputs, formula, units, windows, cadence, warm-up and
 missing/stale policy are explicit. Label generation is a separate capability with
 outcome horizon, information interval and time of availability. Forward outcomes
@@ -269,6 +270,53 @@ missingness and repeated-execution parity; retain dataset/definition identities.
 Notebook prototypes become shared operations when formal retained consumers need
 them. Own formulas in `research/features/` and `research/labels/`; applications
 compose them. Incremental execution is deferred unless a runtime consumer needs it.
+
+Delivered by `TrailingReturn` / `WindowPolicy`, separate `ForwardReturn` labels,
+and `FeatureStudy` through the existing `applications.explore.inspect_experiment`.
+The [owning contract](../../src/research/features/README.md) defines the exact
+last/first observed-price formula, units, schedule, warm-up and missing/stale
+rules. Each feature reads its own cutoff; forward outcomes use an independent
+fixed cutoff and frozen base. Both business-validity and exchange-event clocks
+remain visible. `ExactRatio` preserves canonical rational returns. Definitions,
+dataset/query identities, source/quality evidence, generated sample intervals,
+failed attempts and consumed holdouts are retained. Models and fitting are inapplicable.
+
+Prerequisites were verified on then-current main `2753efbb`: saved readers filter
+availability before revision selection and retain coverage/membership/control
+evidence; the attempt store retains incomplete outcomes and enforces family
+holdout consumption. Before implementation, the affected prerequisite command
+`uv run --frozen --no-editable pytest -q tests/unit/data/test_research_access.py tests/unit/research/test_experiments.py`
+passed **14 tests, 1 integration case deselected, no skips**. The affected
+development suite
+`uv run --frozen --no-editable pytest -q -m 'not performance' tests/unit/research/test_features.py tests/unit/research/test_experiments.py tests/unit/data/test_research_access.py tests/integration/test_ingestion_workflow.py`
+passed **25 tests, no skips or deselections**. Strict mypy passed all **10 selected
+files**. Independent examples include 100.03 → 100.04 = 1/10003 and a forward
+100.04 → 100.05 = 1/10004 under low Decimal precision. The installed two-instrument
+consumer publishes evidenced synthetic revisions and reproduces exact results
+in a fresh process. Final `TMPDIR=/private/tmp make check` passed **1,088
+correctness/integration tests, 3 performance tests deselected, no skips**; all
+required static/governance/security/dependency checks and isolated installed-wheel
+smoke passed. Strict typing covered **255 files** and stub validation **1,548
+modules**. The normal link check passed **32 docs**; explicit checks covered the
+**5 changed component/example/test READMEs** outside its discovery scope. After
+the final roadmap/status prose update, link and secret checks were renewed;
+source and installed-artifact evidence remains valid. Development failures and
+hosted CI status are retained in the PR. Integrating main `d639ee92` preserves
+the subsequent MR 4 onward plans and changes only three documentation files;
+source, tests, configuration and build inputs are unchanged. Local links and
+secret scanning are renewed for that integration; hosted checks must pass on
+the updated merged result before merge.
+
+The initial diagnostic is materialized and limited to 1,024 decision/binding
+rows. It conservatively marks scoped disconnects as missing, preserves unknown
+archive availability, and rejects unsupported book/macro inputs. Its query
+business clock is not an exchange-event resampling engine. Source coverage,
+historical eligibility and real revision-availability evidence remain unproven
+where already documented. Existing EDA/notebook and live-source paths are
+unchanged; their prior evidence is not replaced by these synthetic diagnostics.
+Fitted preprocessing/models, economic backtesting, runtime parity, large-study
+optimization and additional formulas remain with their owning future consumers.
+No empirical alpha, deployment or trading authority is claimed.
 
 ### Fitted preprocessing and model evaluation
 

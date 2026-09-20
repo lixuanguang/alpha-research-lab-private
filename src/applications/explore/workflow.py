@@ -22,6 +22,7 @@ from research.experiments import AttemptHistory, AttemptStore, ExperimentSpec
 from research.exploration import (
     EdaQuery,
     ExplorationStudy,
+    FeatureStudy,
     QuerySummary,
     ResearchReader,
     ResearchSelection,
@@ -157,7 +158,7 @@ def inspect_experiment(
     """Retain a pinned exploration study and its complete evidence through the attempt core.
 
     Args:
-        config: Strict ExplorationStudy JSON, limited to one MiB; no fitting is performed.
+        config: Strict ExplorationStudy or FeatureStudy JSON, limited to one MiB; no fitting.
         snapshots: Existing immutable snapshot root; missing inputs fail the retained attempt.
         raw: Retained originals required for snapshot admission.
         attempts: Local retained single-writer root containing the complete family history.
@@ -176,7 +177,13 @@ def inspect_experiment(
         payload = source.read(1_048_577)
     if len(payload) > 1_048_576:
         raise ValueError("study config exceeds one MiB")
-    study = codec.decode_json(payload, ExplorationStudy)
+    fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
+    version = codec.decode_json(fields.get("schema_version", b'"exploration-study-v1"'), str)
+    study: ExplorationStudy | FeatureStudy = (
+        codec.decode_json(payload, FeatureStudy)
+        if version == "feature-study-v1"
+        else codec.decode_json(payload, ExplorationStudy)
+    )
     spec = study.specification(
         implementation=ImplementationIdentity.sha256(),
         environment=ExperimentSpec.installed_environment(),
@@ -201,20 +208,24 @@ def inspect_experiment(
                         start.attempt_id, status="rejected", at=datetime.now(UTC), reason=str(error)
                     )
                     raise
-            dataset = ResearchReader(snapshots, raw, readers=SourceAdapters()).read(study.selection)
-            summaries = tuple(
-                (item.name, QuerySummary.collect(item.batches))
-                for item in dataset.inputs
-                if isinstance(item, TradeResearchInput)
-            )
-            result = codec.encode_json(
-                {
-                    "dataset": dataset,
-                    "trade_summaries": summaries,
-                    "fitting": "not applicable: exploration inspection has no fitted state",
-                    "split_identity": study.split.identity,
-                }
-            )
+            reader = ResearchReader(snapshots, raw, readers=SourceAdapters())
+            if isinstance(study, FeatureStudy):
+                result = study.evaluate(reader)
+            else:
+                dataset = reader.read(study.selection)
+                summaries = tuple(
+                    (item.name, QuerySummary.collect(item.batches))
+                    for item in dataset.inputs
+                    if isinstance(item, TradeResearchInput)
+                )
+                result = codec.encode_json(
+                    {
+                        "dataset": dataset,
+                        "trade_summaries": summaries,
+                        "fitting": "not applicable: exploration inspection has no fitted state",
+                        "split_identity": study.split.identity,
+                    }
+                )
             return store.finish(
                 start.attempt_id,
                 status="completed",

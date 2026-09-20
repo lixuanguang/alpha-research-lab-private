@@ -3,8 +3,8 @@
 This page describes the empirical work needed to grow the repository from its current domain libraries into an
 institutional, multi-asset, multi-strategy research-to-production platform. It is a human-maintained program,
 not an executable package catalog, registry service, or release gate. Acquisition,
-publication, bounded queries/replay, EDA and collector health are implemented.
-Reusable feature/model workflows, strategy simulation, broker integration and
+publication, bounded queries/replay, EDA, retained price feature/label diagnostics
+and collector health are implemented. Fitted model workflows, strategy simulation, broker integration and
 strategy monitoring remain planned; the roadmap records exact supported scope.
 
 The immediate operating model is a single founder implementing the
@@ -368,7 +368,7 @@ their initial bounded consumers do not depend on a throughput bottleneck. Add la
 or distributed infrastructure when measured workload or actual sharing requires it.
 Keep numerical search in Optuna, execution/tracking in ClearML, dataset versions in
 lakeFS and feature retrieval in Feast where those consumers are implemented. These
-choices do not expand the in-progress MR 3 scope or authorize deployment.
+choices do not expand the delivered MR 3 scope or authorize deployment.
 
 There is no research runner command today. Until one exists, use the existing `uv run --frozen` environment and
 affected pytest/static checks for iteration. `make check` remains the complete local entrypoint when full

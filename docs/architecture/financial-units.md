@@ -91,6 +91,13 @@ rounded. No netting, spread, fee or cashflow convention is inferred.
 
 ## Planned research and accounting arithmetic
 
+`ExactRatio` is now the public dimensionless rational record used by retained
+[feature/label diagnostics](../../src/research/features/README.md). Its
+`from_fraction` factory preserves an exact calculation; constructors and the
+existing domain codec reject noncanonical or unreduced integer strings and
+nonpositive denominators. No other accounting value or financial-unit convention
+changes in this delivery.
+
 Decision date: 2026-09-14. This resolves the P1 consumer contract before
 observations and ledger implementation; it does not add APIs or widen C03's
 implemented decimal grid. The [P1 plan](../roadmap/README.md#first-economic-backtest)

@@ -1,0 +1,132 @@
+# Versioned observed-price diagnostics
+
+Owner: repository founder. Implemented bounded research contract, 2026-09-20.
+`research.features` owns `TrailingReturn` and its shared `WindowPolicy`;
+[`research.labels`](../labels/README.md) owns separate forward outcomes.
+`research.exploration.FeatureStudy` aligns them with saved inputs and temporal
+partitions. The existing `applications.explore.inspect_experiment` orchestrates
+admission, installed identities, retained attempts and holdout consumption.
+There is no new command, model, strategy, fit, incremental engine or deployment.
+
+## Formula and clocks
+
+For decision `t`, feature processing delay `d` and lookback `w`, the feature
+queries **[t − d − w, t − d)** with inclusive knowledge cutoff **t − d**.
+It computes `last_price / first_price − 1` over the selected observed trades.
+The feature is declared available at `t`; `d=0` explicitly assumes no additional
+processing delay for this offline diagnostic, not measured production latency.
+
+`WindowPolicy.clock="query-business"` preserves `QueryReader` semantics:
+captured trades use `provenance.valid_from` (the capture-validity clock in the
+current Tardis adapter); archive trades use `ts_event`. These clocks are not
+silently interchangeable. `PricePoint` retains business time, original exchange
+event time where present, effective revision availability, revision identity and
+exact price. Staleness is measured on the business clock, not exchange latency.
+An exchange-event-window feature needs its own supported query/clock contract.
+
+Points are ordered by business time, then the admitted query's stable
+knowledge/precedence/raw-position order. Windows never combine bindings or
+currencies. `WindowPolicy` requires an explicit lookback, minimum trade count
+(at least two for a trailing return) and maximum final-price age. Age equality
+is admitted. The following produce a missing value, never zero or forward fill:
+
+- The full lookback lies outside the union of declared saved request coverage.
+- A binding-scoped disconnect survives the query, including earlier boundary
+  controls. Recovery is conservatively unproven for this diagnostic.
+- Too few then-available trades, including unknown availability or membership.
+- A stale final trade, or nonpositive prices unsupported by this return formula.
+
+Retain and inspect the accompanying source, membership and quality evidence even
+when a value exists. Request coverage and observed prices do not prove empirical
+completeness. These are observed-price diagnostics, not fixed-interval bar returns,
+executable returns, fills or P&L. No price adjustment or currency conversion occurs.
+
+Both features and labels use `financial_units.ExactRatio`, computed with `Fraction`
+directly from exact Decimal prices. Its wire representation is reduced integer
+strings: `{"numerator":"1","denominator":"10003"}` for 100.03 → 100.04.
+No Decimal-context rounding or numerical tolerance applies. Formula/schema version,
+units, cadence, delay and window policy determine the feature definition identity.
+
+## Configure and retain a study
+
+Supply a `FeatureStudy` with family/question, pinned `ResearchSelection`, no-fit
+`TemporalSplit`, selected validation/holdout partition, half-open `decisions`,
+`TrailingReturn`, and an optional `ForwardReturn`. Decisions start at
+`decisions.start` and advance by the explicit feature cadence while before the end.
+The selection's window is an input envelope containing all lookback/outcome
+windows; its shared `known_at` is the observation cutoff for pending labels.
+Every trade input must project `revision`. Book and macro inputs fail explicitly;
+their first working formulas/adapters remain future work.
+
+For example, after constructing those records from the intended pinned inputs:
+
+```python
+from pathlib import Path
+
+from applications.explore import inspect_experiment
+from market_data.storage import RawStore
+from serialization import DomainCodec
+
+# study is a validated research.exploration.FeatureStudy supplied by the researcher.
+root = Path("/absolute/path/to/retained/study")
+config = root / "study.json"
+config.write_bytes(DomainCodec().encode_json(study))
+history = inspect_experiment(
+    config, root / "snapshots", RawStore(root / "raw"), attempts=root / "attempts"
+)
+print(history.start.run_identity, history.start.attempt_id, history.status)
+```
+
+The [installed consumer](../../../tests/integration/consumers/research/feature_study.py)
+is the complete executable example: it publishes two configured instruments with
+explicit synthetic correction availability, authors the study, calculates
+nonmissing features/labels and reproduces the exact result in a new process.
+Its copied inputs and invocation are documented in the [tests guide](../../../tests/README.md).
+It runs through the integration test and isolated wheel smoke, without network
+or live-source evidence. The ordinary unknown-availability archive path remains
+missing; correction fixtures do not establish historical source knowability.
+
+The result uses `feature-study-result-v1`, with separate ordered `features` and
+`labels` arrays sharing stable row IDs, full definitions, selection/split identities
+and generated `SampleInterval` records. In-process `NamedTuple` values serialize
+as arrays in their declared field order; the exported types own those layouts.
+Features contain no label values or label definition identities. A sample digest
+binds both feature and optional label bytes for future consumers. Information
+intervals include lookback, horizon and label publication delay. Missing labels
+have unknown availability and cannot enter supervised fitting. Time admission
+alone is not value admission; any future fitter must apply its missing-value policy.
+
+The declared split has no authored samples; this consumer produces truthful
+intervals from actual windows. It performs no fitting. Validation outcomes whose
+closed information interval reaches the frozen holdout are rejected before data
+access. Holdout studies record consumption before reading values, and changed
+studies cannot reuse consumed final evidence under the existing
+[attempt-store contract](../experiments/README.md#holdout-consumption-and-atomic-outcomes).
+
+Semantic run identity includes the selection, decision window, feature/optional
+label definitions, split, question, installed implementation and environment.
+Paths, batch sizes, byte caps and attempt clocks are excluded. A changed source
+snapshot changes identity even if an earlier value is unaffected. The start event
+retains exact configuration bytes; completion atomically retains full result bytes.
+Failures and rejected holdout reuse remain inspectable.
+
+## Bounds, verification and reversal
+
+This is a materialized reference implementation with at most 1,024
+decision/binding rows. Windows, cadence and delays are bounded integer microseconds;
+source byte ceilings remain explicit. Each cutoff reopens/verifies its pinned
+selection. Batch size changes query delivery shape only; it does not reduce total
+result memory. Large studies, caching and incremental execution need their own
+measured consumer and are not claimed here.
+
+The [domain examples](../../../tests/unit/research/test_features.py) independently
+check exact ratios, future perturbations, late corrections, clock distinctions,
+tie ordering, warm-up, stale/missing data, configuration identities, schedules,
+pending labels and retained failures. The owning roadmap/PR records exact command
+results, initial failures and installed verification.
+
+Revert the implementation to remove the new interfaces; preserve retained stores
+and matching wheels/environments for reproduction. Older code cannot read the
+new study schema. Existing EDA, `ExplorationStudy`, raw/snapshot and attempt schemas
+remain compatible. Source evidence limitations and the separate deployment/trading
+authority boundary remain unchanged.

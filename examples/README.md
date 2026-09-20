@@ -9,8 +9,10 @@ owns experimental methodology. This guide explains what a QR supplies, what the
 platform does and what to retain. It is not a second implementation backlog.
 
 **Available now:** bounded acquisition, saved-input publication, trade queries,
-book reconstruction/replay, pinned multi-input selection, EDA, retained experiment attempts and temporal splits. **Planned:** reusable feature/label and model
-workflows, economic backtesting, candidate packaging and paper/live operation.
+book reconstruction/replay, pinned multi-input selection, EDA, retained experiment
+attempts, temporal splits and versioned observed-price feature/label studies.
+**Planned:** fitted model workflows, economic backtesting, candidate packaging and
+paper/live operation.
 Exploratory notebook calculations are possible today; they do not establish that
 the corresponding maintained platform workflow exists. Current empirical data
 retains source-specific exploratory/degraded qualifications.
@@ -49,7 +51,7 @@ different questions and should retain separate conclusions.
 | [Frame the question](#frame-a-research-question) | Mechanism, universe, horizon and comparison intent | Research note and applicable evaluation boundaries | Methodology available; maintain records manually |
 | [Select and inspect data](#select-and-inspect-research-data) | Explicit sample, fields, clocks and quality needs | Saved-input/snapshot/query identities and coverage limitations | Pinned trade/book selections and bounded discovery available |
 | [Onboard missing inputs](#onboard-a-missing-source-or-dataset) | Source/data requirements and intended use | Qualified dataset plus source limitations | Existing source configurations supported; new capabilities require implementation |
-| [Explore features and labels](#research-features-and-labels) | Formula, window, target and missingness policy | Versioned definitions, diagnostics and information intervals | Notebook exploration possible; reusable workflow planned |
+| [Explore features and labels](#research-features-and-labels) | Formula, window, target and missingness policy | Versioned definitions, diagnostics and information intervals | Retained trailing-price diagnostics and separate forward-return labels available |
 | [Compare models or rules](#compare-models-or-deterministic-rules) | Splits, transforms, trainer/rule and selection criteria | Complete attempts, out-of-sample predictions and applicable fitted state | Maintained fit/evaluation workflow planned |
 | [Backtest](#build-and-backtest-a-strategy) | Signal-to-target policy and execution/cost assumptions | Reconciled economic trace and net report | Planned; current replay is not a backtest |
 | [Promote and monitor](#freeze-and-qualify-a-candidate) | Frozen candidate and operating requirements | Qualification evidence and authorized deployment identity | Planned; no production workflow exists today |
@@ -159,7 +161,14 @@ and source limitations. A successful download alone does not complete onboarding
 
 ### Research features and labels
 
-**Notebook exploration is possible; the maintained workflow is planned.** Define
+**Versioned observed-price diagnostics are available.** The maintained
+[`FeatureStudy` workflow](../src/research/features/README.md) runs through the
+existing `inspect_experiment` application with `TrailingReturn` and an optional
+`ForwardReturn`. It retains independent cutoff windows, missingness, definitions,
+input identities and generated information/availability intervals. The
+[installed example](../tests/integration/consumers/research/feature_study.py)
+exercises two instruments and exact fresh-process reproduction. Existing notebook
+cells remain EDA; formal diagnostics call this shared interface. Define
 a feature by its input bindings, formula, units, window, decision cadence,
 availability, warm-up and missing/stale policy. Define a label separately by its
 outcome, horizon, price convention, information interval and time of availability.
@@ -183,7 +192,7 @@ when a retained consumer needs reproducible execution: put its logic behind the
 supported feature interface, add decisive causal/window examples and let formal
 notebook results call that implementation. Retain feature/label versions and
 input identities. The [promotion methodology](../docs/roadmap/research-program.md#notebook-research-and-package-promotion)
-and [planned interfaces](../docs/roadmap/README.md#versioned-features-and-labels)
+and [delivered interface](../docs/roadmap/README.md#versioned-features-and-labels)
 define the boundary; no feature registry service is required.
 
 ### Compare models or deterministic rules

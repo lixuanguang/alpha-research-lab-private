@@ -137,6 +137,7 @@ def main() -> None:
     assert "fixture_sha256" in fixture.stdout
     for script, run in (
         ("ingestion_workflow.py", "ingestion"),
+        ("feature_study.py", "features"),
         ("recovery_consumer.py", "recovery"),
     ):
         subprocess.run(

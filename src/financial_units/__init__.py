@@ -32,6 +32,7 @@ from financial_units.models import (
     Volatility,
     Yield,
 )
+from financial_units.ratios import ExactRatio
 
 __all__ = [
     "QUANTLIB_VERSION",
@@ -45,6 +46,7 @@ __all__ = [
     "Dimension",
     "Duration",
     "EvaluationContext",
+    "ExactRatio",
     "FXRate",
     "Lot",
     "Money",
