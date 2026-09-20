@@ -701,13 +701,13 @@ Validation on CPython 3.14.7 / Darwin arm64:
   **12 passed**. Independent `+10%, -20%, +25%` returns give `+10%` compounded
   return and `-20%` drawdown; a first-period loss includes initial capital in the peak.
   Missing valuation periods and explicit benchmark alignment are checked.
-- The complete source lane through `TMPDIR=/private/tmp
-  PYTEST_ADDOPTS=--basetemp=/private/tmp/alpha-mr06-pytest make check` passed
+- The complete local lane through `TMPDIR=/private/tmp
+  PYTEST_ADDOPTS=--basetemp=/private/tmp/alpha-mr06-final-pytest make check` passed
   **1,148 tests, three performance cases deselected**, with no test skips.
   Type checking, native/pandas stub conformance, admission of 146 dependencies,
   vulnerability coverage, architecture, security and secret checks passed.
-  `TMPDIR=/private/tmp make wheel-smoke` then passed the isolated, governance-free,
-  hash-locked installed wheel. Its 102 installed distributions were compatible.
+  Its wheel smoke also passed the isolated, governance-free, hash-locked installed
+  wheel. Its 102 installed distributions were compatible.
   The first lane caught stale dependency expectations and a macOS temporary socket
   path limit; the first wheel run caught an incorrect test expectation for the
   existing reader's validation exit code. All were corrected without relaxing gates.
@@ -739,9 +739,12 @@ Validation on CPython 3.14.7 / Darwin arm64:
 
 Retained local acceptance output, logs, wheel, locks, manifests and private service
 backups are under ignored `logs/configured-research/2026-09-20/` in the founder's
-primary checkout. Credentials remain separate and private. Hosted required CI must
-pass on the PR's merge result before merge. Local service containers are removed
-after acceptance; named volumes and evidence remain available for reproduction.
+primary checkout. Credentials remain separate and private. For
+[PR 68](https://github.com/lixuanguang/alpha-research-lab-private/pull/68), the founder
+explicitly authorized merge on the complete local validation because GitHub CI
+credits were exhausted; hosted Linux/macOS execution remains unproven for this MR.
+Local service containers were removed after acceptance; named volumes and evidence
+remain available for reproduction.
 
 Remaining boundaries: empirical frozen-source acceptance is MR 8; extension/
 comparison and learned backtest consumers remain conditional future work. Reports
