@@ -819,8 +819,13 @@ block an ordinary local calculation by pretending unavailable roles are present.
 
 ## Scaling triggers and technology choices
 
-Keep the current Python/uv path while it is reproducible and within the workload budget. Measure before adding a second
-build system, remote execution, large database, feature store, distributed event bus, or HPC scheduler.
+Keep the current Python/uv path while it is reproducible and within the workload budget.
+The roadmap's [selected research integrations](../roadmap/README.md#selected-research-integrations)
+address concrete tracking, orchestration and data/feature-reuse consumers from MR 4 onward;
+their initial bounded integrations do not require a throughput bottleneck. Preserve
+existing source, temporal and numerical contracts through their adapters. Measure before
+expanding to distributed execution, large/shared databases, a distributed event bus,
+another build system or HPC scheduling.
 
 Useful triggers include a dataset build that misses research cadence, concurrent readers that contend on local storage,
 replay throughput that blocks iteration, recovery time beyond the operating target, or measured native latency/jitter
