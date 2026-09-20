@@ -2,7 +2,8 @@
 
 Owner: repository founder. Updated 2026-09-20. **Local development only.**
 [compose.yaml](compose.yaml) is a bounded self-hosted tracking/artifact consumer
-for [model studies](../../../src/research/models/README.md). It exposes API,
+for [model studies](../../../src/research/models/README.md) and
+[bounded economic comparisons](../../../src/simulation/README.md). It exposes API,
 web UI and files only on `127.0.0.1:18008`, `127.0.0.1:18080` and
 `127.0.0.1:18081`. Databases have no host ports. It creates no workers/agents,
 mounts no Docker socket, and has no automatic restart policy. MR 11 still owns

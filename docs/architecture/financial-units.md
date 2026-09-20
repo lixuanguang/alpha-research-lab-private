@@ -49,8 +49,8 @@ certify that instrument or grant its use in trading.
 
 The authored reference catalog carries a complete USDT `Currency` object as a
 distinct token unit. Its eight-decimal accounting quantum is an accounting
-convention for the bounded foundation metadata; the P1 quote-currency spot ledger
-and any baseline strategy remain planned. This does not identify USDT with USD,
+convention for the bounded foundation metadata; the bounded quote-currency spot ledger now consumes it under the frozen baseline's
+explicit assumptions. This does not identify USDT with USD,
 define blockchain transfer precision, or certify historical venue fee/settlement
 rules. New authored settings belong in the catalog and do not require changing
 packaged compatibility definitions.
@@ -95,12 +95,12 @@ rounded. No netting, spread, fee or cashflow convention is inferred.
 [feature/label diagnostics](../../src/research/features/README.md). Its
 `from_fraction` factory preserves an exact calculation; constructors and the
 existing domain codec reject noncanonical or unreduced integer strings and
-nonpositive denominators. No other accounting value or financial-unit convention
-changes in this delivery.
+nonpositive denominators. The [accounting consumer](../../src/simulation/README.md#exact-accounting-and-recovery)
+now supplies currency-bearing rational basis/P&L and exact spot postings. C03
+financial-unit conventions and grids remain unchanged.
 
-Decision date: 2026-09-14. This resolves the P1 consumer contract before
-observations and ledger implementation; it does not add APIs or widen C03's
-implemented decimal grid. The [P1 plan](../roadmap/README.md#first-economic-backtest)
+Decision date: 2026-09-14. This originally resolved the P1 consumer contract before observations and ledger
+implementation. The consumer now implements it without widening C03's decimal grid. The [P1 plan](../roadmap/README.md#first-economic-backtest)
 owns delivery with the first consuming operations.
 
 | Quantity | Representation and boundary |
@@ -130,9 +130,10 @@ sale releasing basis `302/3` and retaining `604/3`. Round-trip and resumed state
 must preserve these fractions under changed Decimal contexts. For fees, a true
 tie of `0.205` at quantum `0.01` yields `0.21` under the independent oracle's
 half-up and `0.20` under P1's half-even. Existing oracle amounts remain unchanged;
-cost accounting must add the explicit half-up operation needed by that oracle, since C03
-does not currently expose it. These are planned consumer tests, not new claims
-about the existing foundation test suite.
+`simulation.SpotCosts` now supplies the explicit half-up fee operation alongside
+the baseline half-even policy without changing C03. These cases are covered by the
+[accounting consumer tests](../../tests/unit/accounting/test_ledger.py); foundation
+unit tests alone do not establish economic transitions.
 
 ## Convention adapter
 

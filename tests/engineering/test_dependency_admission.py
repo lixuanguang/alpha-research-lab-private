@@ -67,7 +67,7 @@ def test_repository_validation_checks_lock_and_development_limits() -> None:
     with patch.object(SourceArchiveVerifier, "verify", return_value=283) as verify:
         policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 9, 20))
     verify.assert_called_once_with(policy.source_archives[0])
-    assert len(policy.packages) == 88
+    assert len(policy.packages) == 131
     assert any(
         package.name == "websockets" and package.version == "16.0" for package in policy.packages
     )

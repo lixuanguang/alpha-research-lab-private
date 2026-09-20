@@ -110,6 +110,8 @@ class _InstalledWheelCheck:
             "tests/fixtures/eligibility/membership-corrections.json",
             "tests/integration/consumers/datasets/ingestion_workflow.py",
             "tests/integration/consumers/research/feature_study.py",
+            "tests/integration/consumers/backtest/economic_workflow.py",
+            "tests/fixtures/economics/spec.json",
             "tests/support/subprocesses/interrupt_command.py",
             "configs/live/coinbase-btc-usd.json",
             "tests/fixtures/market_data/coinbase/coinbase-schema.json",

@@ -99,6 +99,15 @@ class QueryReader:
         self._identity = hashlib.sha256(self._codec.encode_json(canonical)).hexdigest()
         self._precedence = precedence
 
+    @property
+    def identity(self) -> str:
+        """Identify admitted immutable input bytes before a consumer starts execution.
+
+        Returns:
+            Saved snapshot SHA-256, or the complete in-memory canonical input digest.
+        """
+        return self._identity
+
     @classmethod
     def read(
         cls,

@@ -10,9 +10,12 @@ Bitfinex and OKX order-book acquisition/replay, point-in-time trade queries and
 configured EDA, retained experiment attempts, temporal split admission and versioned
 observed-price feature/label studies are also available. Exact model construction,
 evaluation and local ClearML integration are implemented with verified upstream
-source admission; see the [model contract](../src/research/models/README.md). Empirical causal
-dataset acceptance, simulation, accounting, risk enforcement, execution and
-deployment remain future work. Start with the [QR implementation guide](../examples/README.md)
+source admission; see the [model contract](../src/research/models/README.md).
+[Bounded spot economics](../src/simulation/README.md) composes saved synthetic inputs,
+completed observations, fixed rules, independent limits, delayed fills and exact
+accounting, with a separate vectorbt comparison and retained ClearML artifacts.
+Empirical causal dataset acceptance, configured economic reports, production
+execution and deployment remain future work. Start with the [QR implementation guide](../examples/README.md)
 for current notebooks and the full research-to-production journey, with planned
 activities clearly distinguished from implemented workflows.
 One reproducible strategy baseline is the first delivery target; shared research,

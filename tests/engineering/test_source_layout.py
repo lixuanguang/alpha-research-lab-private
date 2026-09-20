@@ -55,6 +55,13 @@ class TestFunctionalOwnership:
                 "injected source",
             ),
             ("configuration.capture", "from runtime import InstalledIdentity", "configuration"),
+            ("simulation.economics", "from accounting.ledger import Ledger", "public API"),
+            (
+                "risk.spot",
+                "from applications.backtest import run_backtest",
+                "application workflows",
+            ),
+            ("strategies.rules", "from simulation import _Internal", "private import"),
             (
                 "financial_units.models",
                 "from reference_data.instruments.models import InstrumentId",

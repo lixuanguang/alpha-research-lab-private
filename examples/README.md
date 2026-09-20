@@ -10,9 +10,9 @@ platform does and what to retain. It is not a second implementation backlog.
 
 **Available now:** bounded acquisition, saved-input publication, trade queries,
 book reconstruction/replay, pinned multi-input selection, EDA, retained experiment
-attempts, temporal splits and versioned observed-price feature/label studies.
-**Planned:** fitted model workflows, economic backtesting, candidate packaging and
-paper/live operation.
+attempts, temporal splits, versioned observed-price feature/label studies, exact
+model construction/evaluation and bounded synthetic spot economics.
+**Planned:** configured economic reports, candidate packaging and paper/live operation.
 Exploratory notebook calculations are possible today; they do not establish that
 the corresponding maintained platform workflow exists. Current empirical data
 retains source-specific exploratory/degraded qualifications.
@@ -52,8 +52,8 @@ different questions and should retain separate conclusions.
 | [Select and inspect data](#select-and-inspect-research-data) | Explicit sample, fields, clocks and quality needs | Saved-input/snapshot/query identities and coverage limitations | Pinned trade/book selections and bounded discovery available |
 | [Onboard missing inputs](#onboard-a-missing-source-or-dataset) | Source/data requirements and intended use | Qualified dataset plus source limitations | Existing source configurations supported; new capabilities require implementation |
 | [Explore features and labels](#research-features-and-labels) | Formula, window, target and missingness policy | Versioned definitions, diagnostics and information intervals | Retained trailing-price diagnostics and separate forward-return labels available |
-| [Compare models or rules](#compare-models-or-deterministic-rules) | Splits, transforms, trainer/rule and selection criteria | Complete attempts, out-of-sample predictions and applicable fitted state | Maintained fit/evaluation workflow planned |
-| [Backtest](#build-and-backtest-a-strategy) | Signal-to-target policy and execution/cost assumptions | Reconciled economic trace and net report | Planned; current replay is not a backtest |
+| [Compare models or rules](#compare-models-or-deterministic-rules) | Splits, transforms, trainer/rule and selection criteria | Complete attempts, out-of-sample predictions and applicable fitted state | Exact no-fit and train-only least-squares study available; see the model contract below |
+| [Backtest](#build-and-backtest-a-strategy) | Signal-to-target policy and execution/cost assumptions | Reconciled economic trace | Synthetic spot rules, independent limits, delayed fills, exact accounting and bounded vectorbt comparison available; configured reports remain planned |
 | [Promote and monitor](#freeze-and-qualify-a-candidate) | Frozen candidate and operating requirements | Qualification evidence and authorized deployment identity | Planned; no production workflow exists today |
 
 ### Frame a research question
@@ -219,11 +219,13 @@ overwriting the previous result. Predictive accuracy alone is not economic value
 
 ### Build and backtest a strategy
 
-**Planned.** A model produces predictions; the QR supplies a separate policy that
-turns available predictions or a deterministic signal into targets. Declare the
-supported instrument/output contract, decision cadence, position/capital policy,
-fees, delay and execution assumptions. The platform runner will compose that
-policy with shared replay, independent limits, fills, accounting and reports.
+**Available for bounded synthetic/offline spot research.** The
+[economic workflow](../src/simulation/README.md) consumes verified saved inputs and
+an explicit `BacktestSpec`. Select the no-trade or fixed completed-price momentum
+rule, instrument binding, cadence, capital, quantity, independent limits, fees and
+positive delay. `applications.backtest.run_backtest` composes shared replay,
+observations, limits, fills and exact accounting. General prediction-to-target
+policies, walk-forward model transitions and configured reports remain planned.
 
 Inspect inputs, prediction/signal, target, risk rejection, fill, costs and NAV in
 one trace. Reconcile a small economic example before interpreting aggregate
@@ -237,8 +239,10 @@ preprocessing state that could have been fitted by then, including label
 availability and declared fit/deployment timing. Never apply a final full-history
 fit to earlier decisions. Record model transitions and warm-up/reset behavior.
 
-The [planned shared backtest](../docs/roadmap/README.md#first-economic-backtest)
-will produce a reproducible gross-to-net report and trace. The existing
+The [shared backtest](../docs/roadmap/README.md#first-economic-backtest)
+retains a reconciled gross-to-net trace and complete resumable state. Its
+[installed consumer](../tests/integration/consumers/backtest/economic_workflow.py)
+demonstrates saved-input reopening, fresh-process resume and tracked vectorbt comparison. The existing
 [frozen P1](../docs/research/p1-baseline.md) remains its own fixed engineering
 baseline; new QR experiments have separate identities and assumptions. There is
 no supported backtest command today. A negative economic result can still be a
@@ -382,7 +386,7 @@ Its seven sections replace the accumulated infrastructure milestone walkthrough.
 | 3. Inspect values, missingness and clocks | Read through `inspect_eda`, retain input evidence and move the cutoff earlier without changing saved facts | Implemented; unknown availability and coverage remain visible |
 | 4. Prototype a feature and specify its label | Calculate one exact synthetic L2 imbalance and declare why a forward label requires separate evidence | Notebook exploration available; reusable versioned feature/label workflow planned |
 | 5. Compare models or deterministic rules | Identify applicable split, fitting and selection records; skip fitting for a rule when appropriate | Bounded exact model API and local ClearML consumer available; notebook integration pending |
-| 6. Backtest and evaluate economics | Specify target policy, limits, execution, costs and accounting required next | Economic backtest planned; replay is not a fill simulation |
+| 6. Backtest and evaluate economics | Select explicit spot rule, limits, delay and costs | Bounded synthetic economic workflow available; empirical baseline acceptance and configured reports remain planned |
 | 7. Freeze, qualify and monitor | Prepare a small current handoff and identify missing research and operating evidence | Candidate packaging and strategy operation planned |
 
 The [engineer notebook](infrastructure-diagnostics.ipynb) owns infrastructure
@@ -475,5 +479,5 @@ ClearML wheel against pinned upstream source; no empirical model quality is clai
 Use the installed [saved-input consumer](../tests/integration/consumers/research/feature_study.py)
 as the executable construction/reload example. The existing QR notebooks keep
 their current exploratory scope; they do not silently start a Docker service or
-train a model. SHAP, economics, pipeline execution and runtime binding remain
+train a model. SHAP, pipeline execution and runtime binding remain
 with their conditional or later consumers.

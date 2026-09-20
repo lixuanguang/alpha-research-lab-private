@@ -18,6 +18,10 @@ class RuntimeFiles:
     """Bound installed identity to declared package files, excluding neighboring installations."""
 
     roots: ClassVar[tuple[str, ...]] = (
+        "accounting",
+        "risk",
+        "simulation",
+        "strategies",
         "applications",
         "configuration",
         "financial_units",
