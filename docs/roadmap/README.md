@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-20. **MRs 1–4 are implemented; MR 5 is implemented locally with hosted verification blocked; MRs 6–21 are planned.**
+Owner: repository founder. Updated 2026-09-20. **MRs 1–5 are implemented; MRs 6–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -501,7 +501,7 @@ with their owning MRs. No deployment or trading authority is granted.
 
 ### First economic backtest
 
-**MR 5 — implemented locally; hosted verification blocked.** Deliver a small integrated path: saved verified synthetic inputs → completed
+**MR 5 — implemented; accepted with complete local validation.** Deliver a small integrated path: saved verified synthetic inputs → completed
 observations → no-trade and fixed momentum rules → independent limits → positive-delay
 fills → exact cash, positions, costs and NAV. Reuse the existing chronological
 iterator. This proves economics without waiting for fitted features or live data.
@@ -579,9 +579,10 @@ Implementation, 2026-09-20, from main `ff4e1f4`:
   did not allocate a runner or execute any source steps. GitHub's failure annotation
   reports failed recent account payments or an insufficient spending limit.
   Source validation and the authoritative gate failed at scheduling; macOS smoke
-  was skipped. Hosted Linux/macOS and merged-result verification remain unproven
-  and required before merge. Restore account runner eligibility and rerun the
-  current PR checks; local success does not replace those gates.
+  was skipped. The founder explicitly authorized merge after successful complete
+  local validation when GitHub CI is unavailable. This exception applies to this
+  PR; hosted Linux/macOS and merged-result execution remain unproven, and the
+  repository's workflow/protection configuration is unchanged.
 - Final staged secret scan: **397 governed paths passed**; final documentation
   links: **32 documents passed**. The original checkout remains unchanged apart
   from ignored private evidence; all implementation is isolated on
