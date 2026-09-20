@@ -121,8 +121,9 @@ its question, family, pinned selection and a `TemporalSplit`, then call
 `applications.explore.inspect_experiment`. The [attempt contract and example](../src/research/experiments/README.md#inspect-a-retained-saved-data-study)
 explain retained results, the explicit no-fit policy and failure recovery. The
 installed handoff now exercises this path and repeats it in a fresh process.
-Existing notebook cells continue to use exploratory `inspect_eda`; they do not
-automatically journal every researcher choice. A final holdout is recorded as
+Initial notebook inspection uses `inspect_eda`. The connected trade study then calls
+`inspect_experiment`, `evaluate_model` and `compare_vectorbt`, retaining configurations,
+attempts and artifacts; this still does not automatically journal every researcher choice. A final holdout is recorded as
 consumed before access, including when its read later fails; changed studies
 cannot reuse that consumed family holdout.
 
@@ -167,8 +168,8 @@ existing `inspect_experiment` application with `TrailingReturn` and an optional
 `ForwardReturn`. It retains independent cutoff windows, missingness, definitions,
 input identities and generated information/availability intervals. The
 [installed example](../tests/integration/consumers/research/feature_study.py)
-exercises two instruments and exact fresh-process reproduction. Existing notebook
-cells remain EDA; formal diagnostics call this shared interface. Define
+exercises two instruments and exact fresh-process reproduction. The offline QR
+notebook now calls this interface over one explicitly synthetic, saved trade study. Define
 a feature by its input bindings, formula, units, window, decision cadence,
 availability, warm-up and missing/stale policy. Define a label separately by its
 outcome, horizon, price convention, information interval and time of availability.
@@ -197,17 +198,18 @@ define the boundary; no feature registry service is required.
 
 ### Compare models or deterministic rules
 
-**Attempt/split core available; fitted/model/rule comparison workflows planned.** Supply the selected feature/label definitions,
+**Exact configured and train-only model studies are available.** Supply the selected feature/label definitions,
 temporal split specification, trainer or rule, transform choices, comparison
 space, seeds, metrics and stopping/selection rule. Use a transparent comparator.
 A model-free signal study can stop at diagnostics or proceed directly to a target
 policy; it does not need a fitted model artifact.
 
 The current split API admits explicit train-only sample IDs with information
-interval, availability, purge and embargo checks. The future fitted consumers
-will execute the declared folds, fit transforms/models only on
-permitted then-available rows and labels, save predictions and record complete
-attempts. Follow the research program's information-interval rules for purging
+interval, availability, purge and embargo checks. The current model consumer
+constructs exact least-squares state from admitted training rows, evaluates the
+declared validation interval, and retains predictions and complete attempts.
+The offline QR notebook also runs the configured zero-predictor comparator and
+reopens both model states. Follow the research program's information-interval rules for purging
 and embargo; a generic row split is insufficient where outcomes overlap. A final
 holdout is consumed evidence after evaluation, not another exploratory dataset.
 
@@ -307,8 +309,8 @@ remain the offline entry points so saved commands and links continue to work.
 
 | Reader | Offline version | Live version |
 | --- | --- | --- |
-| QR: question → data → quality → prototype → planned comparison/backtest/handoff | [Research workflow — offline](research-foundations.ipynb): synthetic trade/book lesson or an explicitly saved selection | [Research workflow — live](research-foundations-live.ipynb): one public Bitfinex capture, bounded book publication, pinned EDA and exact visible-size diagnostic |
-| Engineer: inspect infrastructure and diagnose failures | [Infrastructure diagnostics — offline](infrastructure-diagnostics.ipynb): installed contracts, synthetic recovery/health failures or an explicit saved recording | [Infrastructure diagnostics — live](infrastructure-diagnostics-live.ipynb): one public Bitfinex capture, durable/native/canonical replay parity and observed quality |
+| QR: question → data → quality → features/models → costed rules → handoff | [Research workflow — offline](research-foundations.ipynb): saved-input inspection plus a connected retained trade study through exact economics | [Research workflow — live](research-foundations-live.ipynb): one public Bitfinex capture, bounded book publication, pinned EDA and exact visible-size diagnostic |
+| Engineer: inspect infrastructure and diagnose failures | [Infrastructure diagnostics — offline](infrastructure-diagnostics.ipynb): installed data/feature/model/economic consumers, fresh-process recovery and health diagnostics | [Infrastructure diagnostics — live](infrastructure-diagnostics-live.ipynb): one public Bitfinex capture, durable/native/canonical replay parity and observed quality |
 
 Restart the kernel and **Run All in order**. Each version runs independently.
 The live versions create new retained recordings on each run; the offline versions never
@@ -331,6 +333,16 @@ workflow creates and publishes them without connecting to either venue. Six
 historical trade observations yield zero decision-eligible trade rows because
 original availability is unknown. One received book state supports a tiny exact
 visible-size calculation, with degraded quality and unproven coverage/eligibility.
+
+The subsequent **separate synthetic price study** authors 18 trade prints over six
+minutes, explicit correction-availability evidence and fixture membership. Those
+same saved bytes drive versioned trailing returns, separate forward labels, retained
+train-only and configured models, and no-trade/momentum economics. This explicit
+fixture does not repair the earlier archives or supply an empirical result for a
+user-selected dataset. Training uses minute-one and minute-two decisions; validation
+uses minute five, clear of the complete training information intervals. The reserved
+minute-eight holdout is never opened. The exact expected momentum terminal NAV is
+999.99354400 USDT; the negative result is a successful software reconciliation.
 
 An explicit `ALPHA_RESEARCH_DATASET_DIRECTORY` selects an existing study containing
 `raw/`, `snapshots/` and `selection.json`. The notebook prints the selection and
@@ -377,20 +389,29 @@ Synthetic archive failure checks run offline in the engineer notebook.
 ## Follow the connected dataset walkthrough
 
 The QR notebook follows research activities, with current support explicit at each stage.
-Its seven sections replace the accumulated infrastructure milestone walkthrough.
+Its sections follow the implemented research/development pipeline through MR 5.
 
 | Section | QR action and result | Platform status |
 | --- | --- | --- |
 | 1. Frame the research question | Declare observable, universe, horizon, comparator and stop conditions; identify the installed execution | Manual research note and installed identity available |
 | 2. Select or onboard the required data | Start with a synthetic or explicitly saved study; discover manifest metadata and pin named inputs, fields, windows and cutoff | Implemented dataset access; actual onboarding uses the existing acquisition/publication APIs |
 | 3. Inspect values, missingness and clocks | Read through `inspect_eda`, retain input evidence and move the cutoff earlier without changing saved facts | Implemented; unknown availability and coverage remain visible |
-| 4. Prototype a feature and specify its label | Calculate one exact synthetic L2 imbalance and declare why a forward label requires separate evidence | Notebook exploration available; reusable versioned feature/label workflow planned |
-| 5. Compare models or deterministic rules | Identify applicable split, fitting and selection records; skip fitting for a rule when appropriate | Bounded exact model API and local ClearML consumer available; notebook integration pending |
-| 6. Backtest and evaluate economics | Select explicit spot rule, limits, delay and costs | Bounded synthetic economic workflow available; empirical baseline acceptance and configured reports remain planned |
-| 7. Freeze, qualify and monitor | Prepare a small current handoff and identify missing research and operating evidence | Candidate packaging and strategy operation planned |
+| 4. Prototype a book feature | Inspect one exact synthetic L2 imbalance; identify why a trade label requires separate evidence | Exploratory book prototype only |
+| 5. Publish a controlled trade study | Author known synthetic availability and pin saved native ZIP inputs | Existing publication/query APIs; independent of the earlier supplied selection |
+| 6. Retain features and labels | Execute exact trailing/forward diagnostics, compare repeat run identity and distinct attempts | `inspect_experiment`, `FeatureStudy`, `AttemptStore` |
+| 7. Compare models and reopen state | Train-only least squares versus configured zero, exact MSE, reload and publication outbox | `evaluate_model`; offline publication failure fixture or explicitly configured SDK transport |
+| 8. Evaluate fixed-rule economics | No-trade/momentum, independent risk, positive-delay fills, exact ledger, full resume and vectorbt | MR 5's supported workflows; fitted predictions are not wired into targets |
+| 9. Hand off to quant development | Retain input/configuration/model/attempt/checkpoint identities and limitations | Installed reproduction and recovery; MR 6 reports/pipelines and MR 8 empirical acceptance remain future |
 
 The [engineer notebook](infrastructure-diagnostics.ipynb) owns infrastructure
-failure interpretation and links the actual canonical consumers. Focused regression
+failure interpretation and runs the actual installed data, feature/model and economic
+consumers, including fresh-process model reload and pending-intent resume. It retains
+child logs and artifacts and deliberately disables optional real-server test transport.
+Set `ALPHA_RESEARCH_STUDY_DIRECTORY` to the QR notebook's printed `price-study`
+directory to reproduce that actual handoff in the developer's fresh kernel. It
+checks pinned models, exact validation and whole/resumed economic results against
+retained bytes; no implicit refit, source call or latest-file selection occurs.
+Focused regression
 coverage stays in [tests](../tests/README.md), with no copied notebook test framework.
 The [historical workload record](evidence/query-workload-measurements.json) and
 [reproduction procedure](notebook-operations.md#query-workload-evidence) retain their
@@ -477,7 +498,8 @@ provides the explicit tracking consumer. Dependency admission verifies the locke
 ClearML wheel against pinned upstream source; no empirical model quality is claimed.
 
 Use the installed [saved-input consumer](../tests/integration/consumers/research/feature_study.py)
-as the executable construction/reload example. The existing QR notebooks keep
-their current exploratory scope; they do not silently start a Docker service or
-train a model. SHAP, pipeline execution and runtime binding remain
+as the executable construction/reload example. The offline QR notebook now constructs, evaluates and reloads exact models through
+that public workflow. Its default explicitly injects unavailable publication after
+local retention; the optional real transport requires authored configuration. The live
+notebooks keep their book-only scope. No notebook starts a Docker service. SHAP, pipeline execution and runtime binding remain
 with their conditional or later consumers.
