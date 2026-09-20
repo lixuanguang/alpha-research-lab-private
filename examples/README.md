@@ -9,7 +9,7 @@ owns experimental methodology. This guide explains what a QR supplies, what the
 platform does and what to retain. It is not a second implementation backlog.
 
 **Available now:** bounded acquisition, saved-input publication, trade queries,
-book reconstruction/replay, pinned multi-input selection and EDA. **Planned:** reusable feature/label and model
+book reconstruction/replay, pinned multi-input selection, EDA, retained experiment attempts and temporal splits. **Planned:** reusable feature/label and model
 workflows, economic backtesting, candidate packaging and paper/live operation.
 Exploratory notebook calculations are possible today; they do not establish that
 the corresponding maintained platform workflow exists. Current empirical data
@@ -64,8 +64,10 @@ from the [research program](../docs/roadmap/research-program.md#rules-for-every-
 
 Exploration can begin with a small permitted sample. Before formal comparison,
 record selection criteria and evaluation boundaries. Retain failed, rejected and
-abandoned attempts that influence the next choice. Until the shared trial journal
-exists, use an append-only text record beside protected research outputs with the
+abandoned attempts that influence the next choice. The
+[experiment attempt core](../src/research/experiments/README.md) retains semantic
+inputs, temporal splits and execution outcomes. Its first consumer is a pinned
+unfitted inspection; other notebook research still needs the applicable
 [trial fields](../docs/roadmap/research-program.md#small-records-and-artifacts).
 Ignored notebook run snapshots alone are not a durable research journal.
 
@@ -111,6 +113,16 @@ schemas. The sum of input byte ceilings is bounded; it is not a total RSS bound.
 Finish this activity with a pinned sample and a statement of what it can support.
 If missing evidence prevents causal research, retain an exploratory conclusion
 or obtain appropriate evidence; do not silently relabel the dataset.
+
+For an inspection that influences comparison, author an `ExplorationStudy` with
+its question, family, pinned selection and a `TemporalSplit`, then call
+`applications.explore.inspect_experiment`. The [attempt contract and example](../src/research/experiments/README.md#inspect-a-retained-saved-data-study)
+explain retained results, the explicit no-fit policy and failure recovery. The
+installed handoff now exercises this path and repeats it in a fresh process.
+Existing notebook cells continue to use exploratory `inspect_eda`; they do not
+automatically journal every researcher choice. A final holdout is recorded as
+consumed before access, including when its read later fails; changed studies
+cannot reuse that consumed family holdout.
 
 ### Onboard a missing source or dataset
 
@@ -176,13 +188,15 @@ define the boundary; no feature registry service is required.
 
 ### Compare models or deterministic rules
 
-**Maintained workflow planned.** Supply the selected feature/label definitions,
+**Attempt/split core available; fitted/model/rule comparison workflows planned.** Supply the selected feature/label definitions,
 temporal split specification, trainer or rule, transform choices, comparison
 space, seeds, metrics and stopping/selection rule. Use a transparent comparator.
 A model-free signal study can stop at diagnostics or proceed directly to a target
 policy; it does not need a fitted model artifact.
 
-The platform will execute the declared folds, fit transforms/models only on
+The current split API admits explicit train-only sample IDs with information
+interval, availability, purge and embargo checks. The future fitted consumers
+will execute the declared folds, fit transforms/models only on
 permitted then-available rows and labels, save predictions and record complete
 attempts. Follow the research program's information-interval rules for purging
 and embargo; a generic row split is insufficient where outcomes overlap. A final
@@ -358,7 +372,7 @@ Its seven sections replace the accumulated infrastructure milestone walkthrough.
 | 2. Select or onboard the required data | Start with a synthetic or explicitly saved study; discover manifest metadata and pin named inputs, fields, windows and cutoff | Implemented dataset access; actual onboarding uses the existing acquisition/publication APIs |
 | 3. Inspect values, missingness and clocks | Read through `inspect_eda`, retain input evidence and move the cutoff earlier without changing saved facts | Implemented; unknown availability and coverage remain visible |
 | 4. Prototype a feature and specify its label | Calculate one exact synthetic L2 imbalance and declare why a forward label requires separate evidence | Notebook exploration available; reusable versioned feature/label workflow planned |
-| 5. Compare models or deterministic rules | Identify applicable split, fitting and selection records; skip fitting for a rule when appropriate | Shared attempt/split/model workflow planned |
+| 5. Compare models or deterministic rules | Identify applicable split, fitting and selection records; skip fitting for a rule when appropriate | Attempt/split API available; model workflow and notebook integration planned |
 | 6. Backtest and evaluate economics | Specify target policy, limits, execution, costs and accounting required next | Economic backtest planned; replay is not a fill simulation |
 | 7. Freeze, qualify and monitor | Prepare a small current handoff and identify missing research and operating evidence | Candidate packaging and strategy operation planned |
 

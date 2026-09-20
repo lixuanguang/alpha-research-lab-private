@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-20. **MR 1 is implemented; MRs 2–21 are planned.**
+Owner: repository founder. Updated 2026-09-20. **MRs 1–2 are implemented; MRs 3–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -23,6 +23,7 @@ validation and versioned publication → explicit snapshot queries/replay → ED
 | Occurrences, revisions, eligibility and dataset publication | Trace observations and reopen a verified snapshot | Empirical historical eligibility, coverage and revision availability remain unresolved for the frozen sample |
 | Trade cutoff/history queries and chronological replay | Inspect what is knowable and retain corrections and scoped controls | Bounded reference implementation; replay alone does not simulate economic fills |
 | Book reconstruction, publication and replay | Inspect visible books, recovery and matching saved state | Exploratory degraded scope; no queue position or executable-fill claim |
+| Retained experiment attempts and temporal splits | Reproduce semantic inputs, inspect all attempts and enforce declared fit/holdout boundaries | Local single-writer store; first consumer is unfitted exploration, with features/models still planned |
 | Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; formal feature/model workflows and economic backtesting remain planned |
 
 The [data command reference](../../src/market_data/README.md) owns current usage.
@@ -57,7 +58,7 @@ source evidence and researcher access improve independently.
 | MR | Delivery outcome | Prerequisites |
 | --- | --- | --- |
 | 1 | [Research dataset access and source onboarding](#research-dataset-access-and-source-onboarding) — implemented | Current query/publication APIs |
-| 2 | [Experiment attempts and temporal splits](#experiment-attempts-and-temporal-splits) | Existing saved inputs; integrates with MR 1 |
+| 2 | [Experiment attempts and temporal splits](#experiment-attempts-and-temporal-splits) — implemented | Existing saved inputs; integrates with MR 1 |
 | 3 | [Versioned features and labels](#versioned-features-and-labels) | MR 1; MR 2 for formal comparisons |
 | 4 | [Fitted preprocessing and model evaluation](#fitted-preprocessing-and-model-evaluation) | MRs 2–3; only for a selected learned consumer |
 | 5 | [First economic backtest](#first-economic-backtest) | Existing replay and financial contracts; no model dependency |
@@ -134,7 +135,7 @@ P1 acceptance, deployment or execution capability is claimed.
 
 ### Experiment attempts and temporal splits
 
-**MR 2.** Introduce shared attempt and split records before formal feature/model
+**MR 2 — implemented (bounded software acceptance).** Introduce shared attempt and split records before formal feature/model
 comparison. Separate reproducible semantic run identity from execution attempt
 identity. Hash inputs, components, configuration and seeds; exclude output paths,
 wall-clock attempt times and generated results from the semantic input identity.
@@ -149,6 +150,41 @@ single-writer/concurrency boundary; incomplete attempts remain inspectable.
 Acceptance: reload the same inputs/splits deterministically; future/holdout rows and
 late labels cannot enter fitting; changed inputs produce a new identity; interrupted
 attempts cannot appear completed. `research/experiments/` owns the reusable core.
+
+Delivered by the [experiment core](../../src/research/experiments/README.md) and
+`applications.explore.inspect_experiment`, composing existing pinned MR 1 inputs.
+`ExperimentSpec` separates semantic inputs/components/configuration/seeds from
+UUID execution identity; `TemporalSplit` retains information/availability clocks,
+purge/embargo and enforceable admitted fit IDs. The first `ExplorationStudy`
+consumer explicitly has no fit. `AttemptStore` retains all committed attempts,
+freezes family holdout windows, records consumption before reads and atomically
+publishes completion with result bytes. An interrupted attempt remains incomplete.
+
+Verification on 2026-09-20: the prerequisite research-access suite passed **6 tests**
+before implementation. During development, the affected suite
+`uv run --frozen --no-editable pytest -q -m 'not performance' tests/unit/research/test_experiments.py tests/unit/data/test_research_access.py tests/integration/test_ingestion_workflow.py`
+passed **15 tests**, with no skips or deselections. It includes independent fitting
+examples, real process death before completion, failed holdout consumption and
+installed fresh-process identity/result reproduction. Focused strict mypy passed
+all **12 selected source/test files**. Final `TMPDIR=/private/tmp make check`
+passed: **1,079 correctness/integration tests, 3 performance tests deselected,
+no skips**, all required static/governance/security/dependency checks and the
+isolated installed-wheel smoke. This final suite also includes the subsequent
+interrupted-rejection regression. Strict typing covered **247 source files** and
+native stub validation **1,548 modules**. The standard link check passed **32 docs**;
+explicit checks also passed the component, example and test READMEs outside its
+discovery scope. The implementation PR retains development failures and hosted
+CI status. No notebook cells or live-source paths changed; earlier live evidence
+is unchanged and no new empirical or performance claim is made.
+
+The initial store is a trusted local POSIX single-writer boundary, not distributed
+coordination or a global holdout access service. Research consumers must supply
+truthful sample intervals and verify sample-byte digests; MR 1 verifies the actual
+saved inputs for this consumer. Models, fitted preprocessing, features/labels,
+economic reporting and candidate promotion remain their owning future MRs.
+Empirical source limitations remain unchanged; completion grants no deployment
+or trading authority. Existing exploratory `inspect_eda` calls remain compatible
+and are not automatically retained formal attempts.
 
 ### Versioned features and labels
 

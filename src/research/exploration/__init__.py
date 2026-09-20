@@ -12,11 +12,13 @@ from research.exploration.selection import (
     TradeResearchInput,
     TradeSelection,
 )
+from research.exploration.study import ExplorationStudy
 
 __all__ = [
     "BookResearchInput",
     "BookSelection",
     "EdaQuery",
+    "ExplorationStudy",
     "QuerySummary",
     "ResearchDataset",
     "ResearchReader",

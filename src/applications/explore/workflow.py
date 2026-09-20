@@ -7,6 +7,7 @@ import hashlib
 import resource
 import sys
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
 
@@ -17,8 +18,10 @@ import msgspec
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryBatch, QueryReader
 from market_data.storage import RawStore
+from research.experiments import AttemptHistory, AttemptStore, ExperimentSpec
 from research.exploration import (
     EdaQuery,
+    ExplorationStudy,
     QuerySummary,
     ResearchReader,
     ResearchSelection,
@@ -142,3 +145,91 @@ def inspect_eda(
         )
         report(dict(record))
         raise
+
+
+def inspect_experiment(
+    config: Path,
+    snapshots: Path,
+    raw: RawStore,
+    *,
+    attempts: Path,
+) -> AttemptHistory:
+    """Retain a pinned exploration study and its complete evidence through the attempt core.
+
+    Args:
+        config: Strict ExplorationStudy JSON, limited to one MiB; no fitting is performed.
+        snapshots: Existing immutable snapshot root; missing inputs fail the retained attempt.
+        raw: Retained originals required for snapshot admission.
+        attempts: Local retained single-writer root containing the complete family history.
+
+    Returns:
+        Completed history containing encoded dataset, summaries and explicit no-fit status.
+        Final holdout access is recorded before reading values, including failed reads.
+
+    Raises:
+        ValueError: Invalid configuration, changed frozen holdout or incompatible data.
+        OSError: Missing inputs, unavailable store or writer contention.
+        Exception: Workflow failures propagate after retaining an unsuccessful outcome.
+    """
+    codec = DomainCodec()
+    with config.open("rb") as source:
+        payload = source.read(1_048_577)
+    if len(payload) > 1_048_576:
+        raise ValueError("study config exceeds one MiB")
+    study = codec.decode_json(payload, ExplorationStudy)
+    spec = study.specification(
+        implementation=ImplementationIdentity.sha256(),
+        environment=ExperimentSpec.installed_environment(),
+    )
+    with AttemptStore(attempts) as store:
+        start = store.start(
+            spec,
+            at=datetime.now(UTC),
+            invocation=f"inspect_experiment(config={config!s}, snapshots={snapshots!s})",
+            request=payload,
+        )
+        try:
+            if study.partition == "holdout":
+                try:
+                    store.consume_holdout(
+                        start.attempt_id,
+                        at=datetime.now(UTC),
+                        reason="declared final inspection or unchanged reproduction",
+                    )
+                except ValueError as error:
+                    store.finish(
+                        start.attempt_id, status="rejected", at=datetime.now(UTC), reason=str(error)
+                    )
+                    raise
+            dataset = ResearchReader(snapshots, raw, readers=SourceAdapters()).read(study.selection)
+            summaries = tuple(
+                (item.name, QuerySummary.collect(item.batches))
+                for item in dataset.inputs
+                if isinstance(item, TradeResearchInput)
+            )
+            result = codec.encode_json(
+                {
+                    "dataset": dataset,
+                    "trade_summaries": summaries,
+                    "fitting": "not applicable: exploration inspection has no fitted state",
+                    "split_identity": study.split.identity,
+                }
+            )
+            return store.finish(
+                start.attempt_id,
+                status="completed",
+                at=datetime.now(UTC),
+                reason="verified pinned exploration completed",
+                result=result,
+            )
+        except (Exception, KeyboardInterrupt) as error:
+            # A failure after atomic publication can have an uncertain outcome.
+            # Reload before deciding whether a failure event is still permissible.
+            if store.read(start.attempt_id).status == "incomplete":
+                store.finish(
+                    start.attempt_id,
+                    status="failed",
+                    at=datetime.now(UTC),
+                    reason=f"{type(error).__name__}: {error}",
+                )
+            raise
