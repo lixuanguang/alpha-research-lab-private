@@ -320,7 +320,7 @@ No empirical alpha, deployment or trading authority is claimed.
 
 ### Fitted preprocessing and model evaluation
 
-**MR 4 — implemented; final validation in progress.**
+**MR 4 — complete (bounded software and local ClearML acceptance).**
 Extend the retained attempt core with ClearML tracking and model records
 for configured analytical, calibrated statistical and learned models. Tracking is
 required for supported formal workflows; fitting remains conditional on the model.
@@ -477,10 +477,16 @@ Final local verification after that change:
 
 The earlier live Docker/model proof remains valid: this completion changes only
 source admission and documentation, not the runtime model/tracking behavior or
-server topology. Hosted merged-result validation remains to be confirmed before
-completion is recorded.
+server topology. On implementation commit `9c949f08ab598abdd1f6e3871771d45be909f1da`,
+[hosted CI run 35491535898](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35491535898)
+passed **Source validation**, **macOS wheel smoke**, and the **Authoritative
+merged-result full lane**. MR 4 acceptance is met in
+[PR 65](https://github.com/lixuanguang/alpha-research-lab-private/pull/65); subsequent
+completion-document edits preserve this implementation evidence. Final staged
+secret scanning covered **373 governed paths** with no findings.
 QuantLib's pre-existing release block remains. The original attempts, stopped-volume
-backup, credentials and validation logs have been preserved under the original
+backup, matching installed runtime snapshot, credentials and validation logs have
+been preserved under the original
 checkout's ignored, owner-only `logs/clearml-acceptance/2026-09-20/` directory;
 temporary paths in the earlier evidence remain historical identities.
 Uncertain remote creation with no discoverable object deliberately stops for manual

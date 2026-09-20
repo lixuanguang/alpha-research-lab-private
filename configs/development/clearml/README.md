@@ -80,7 +80,11 @@ credentials were copied into the original checkout's ignored
 `logs/clearml-acceptance/2026-09-20/` directory. That persistent local directory
 has owner-only permissions; the credential file also has owner-only permissions.
 Historical records retain their original `/private/tmp` paths and creation
-identities. This is local retained evidence, not a shared backup service.
+identities. `live-runtime-installation.tar.gz` preserves the owned installed
+runtime files and package metadata; its implementation digest was checked against
+all six original attempts, and its archive digest/environment are recorded beside
+it. It is an installation snapshot, not a newly built or qualified release wheel.
+This is local retained evidence, not a shared backup service.
 
 Set `CLEARML_LOCAL_ENV_FILE` to the retained `alpha-clearml-local.env` file.
 To stop the current restored instance while retaining its data:
