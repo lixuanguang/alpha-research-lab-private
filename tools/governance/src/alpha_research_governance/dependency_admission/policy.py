@@ -77,6 +77,8 @@ _APPROVED_LICENSES = {
     "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
     "ISC",
     "MIT",
+    "MIT-0",
+    "LicenseRef-Lxml-Bundled",
     "MIT-CMU",
     "Unlicense",
     "MPL-2.0",

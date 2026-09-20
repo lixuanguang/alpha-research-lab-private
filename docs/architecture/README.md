@@ -12,8 +12,10 @@ quality validation and atomic dataset publication/reopening are implemented.
 Native Bitfinex/OKX acquisition, dataset queries as of a cutoff and bounded book
 replay, bounded saved-snapshot discovery and pinned multi-input research selections
 are also available. Retained experiment attempts, temporal split admission and
-unfitted exploration studies are implemented. Simulation, portfolio and risk enforcement, order
-execution, deployment and live trading monitoring remain planned. See the
+unfitted exploration studies, train-only models, bounded spot simulation/accounting
+and independent spot risk limits are implemented. Configured economic reports,
+serial local ClearML pipelines and pinned lakeFS dataset versions are also available.
+Portfolio allocation, order execution, deployment and live trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.
 
@@ -100,12 +102,13 @@ Current dependency direction is organized by functional owner:
   validation, datasets, query and replay implement their respective capabilities
   through explicit public APIs and injected reader/verifier operations.
 - `research/experiments/` owns semantic identities, temporal split admission and
-  atomic attempt history. [Its contract](../../src/research/experiments/README.md)
+  atomic attempt history, economic reports and local pipeline metadata. [Its contract](../../src/research/experiments/README.md)
   defines the local writer and holdout boundaries.
 - `research/exploration/` consumes admitted data for EDA and retained unfitted studies.
   `research/features/` owns versioned trailing-price diagnostics; `research/labels/`
-  owns separate forward outcomes. Future model, strategy, simulation and accounting
-  owners are marked in the platform design.
+  owns separate forward outcomes. `research/models/`, `strategies/`, `simulation/`,
+  `accounting/` and `risk/` provide the bounded spot research path. The sole
+  `alpha-backtest` command composes its configured and pipeline actions.
 - `configuration/` resolves definitions and selections. `runtime/` and `telemetry/`
   supply identity, supervision and observations without importing applications.
 - `applications/` composes these libraries and exposes the installed commands.

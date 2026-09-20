@@ -11,8 +11,9 @@ platform does and what to retain. It is not a second implementation backlog.
 **Available now:** bounded acquisition, saved-input publication, trade queries,
 book reconstruction/replay, pinned multi-input selection, EDA, retained experiment
 attempts, temporal splits, versioned observed-price feature/label studies, exact
-model construction/evaluation and bounded synthetic spot economics.
-**Planned:** configured economic reports, candidate packaging and paper/live operation.
+model construction/evaluation, bounded synthetic spot economics, configured
+costed reports, local serial pipelines and pinned lakeFS dataset versions.
+**Planned:** candidate packaging and paper/live operation.
 Exploratory notebook calculations are possible today; they do not establish that
 the corresponding maintained platform workflow exists. Current empirical data
 retains source-specific exploratory/degraded qualifications.
@@ -53,7 +54,7 @@ different questions and should retain separate conclusions.
 | [Onboard missing inputs](#onboard-a-missing-source-or-dataset) | Source/data requirements and intended use | Qualified dataset plus source limitations | Existing source configurations supported; new capabilities require implementation |
 | [Explore features and labels](#research-features-and-labels) | Formula, window, target and missingness policy | Versioned definitions, diagnostics and information intervals | Retained trailing-price diagnostics and separate forward-return labels available |
 | [Compare models or rules](#compare-models-or-deterministic-rules) | Splits, transforms, trainer/rule and selection criteria | Complete attempts, out-of-sample predictions and applicable fitted state | Exact no-fit and train-only least-squares study available; see the model contract below |
-| [Backtest](#build-and-backtest-a-strategy) | Signal-to-target policy and execution/cost assumptions | Reconciled economic trace | Synthetic spot rules, independent limits, delayed fills, exact accounting and bounded vectorbt comparison available; configured reports remain planned |
+| [Backtest](#build-and-backtest-a-strategy) | Signal-to-target policy and execution/cost assumptions | Reconciled economic trace | Synthetic spot rules, independent limits, delayed fills, exact accounting and bounded vectorbt comparison and configured costed reports available |
 | [Promote and monitor](#freeze-and-qualify-a-candidate) | Frozen candidate and operating requirements | Qualification evidence and authorized deployment identity | Planned; no production workflow exists today |
 
 ### Frame a research question
@@ -227,7 +228,11 @@ an explicit `BacktestSpec`. Select the no-trade or fixed completed-price momentu
 rule, instrument binding, cadence, capital, quantity, independent limits, fees and
 positive delay. `applications.backtest.run_backtest` composes shared replay,
 observations, limits, fills and exact accounting. General prediction-to-target
-policies, walk-forward model transitions and configured reports remain planned.
+policies and walk-forward model transitions remain planned.
+The installed `alpha-backtest` command now accepts an explicit `BacktestRun`
+configuration and aligned benchmark, retains exact results and readable reports,
+and supports checkpoints, publication retry and serial local pipelines. Follow the
+[configured run guide](../src/research/experiments/README.md#configured-economics-reports-and-serial-pipelines).
 
 Inspect inputs, prediction/signal, target, risk rejection, fill, costs and NAV in
 one trace. Reconcile a small economic example before interpreting aggregate
@@ -401,7 +406,7 @@ Its sections follow the implemented research/development pipeline through MR 5.
 | 6. Retain features and labels | Execute exact trailing/forward diagnostics, compare repeat run identity and distinct attempts | `inspect_experiment`, `FeatureStudy`, `AttemptStore` |
 | 7. Compare models and reopen state | Train-only least squares versus configured zero, exact MSE, reload and publication outbox | `evaluate_model`; offline publication failure fixture or explicitly configured SDK transport |
 | 8. Evaluate fixed-rule economics | No-trade/momentum, independent risk, positive-delay fills, exact ledger, full resume and vectorbt | MR 5's supported workflows; fitted predictions are not wired into targets |
-| 9. Hand off to quant development | Retain input/configuration/model/attempt/checkpoint identities and limitations | Installed reproduction and recovery; MR 6 reports/pipelines and MR 8 empirical acceptance remain future |
+| 9. Hand off to quant development | Retain input/configuration/model/attempt/checkpoint identities and limitations | Installed reproduction and recovery; Configured reports/pipelines available; MR 8 empirical acceptance remains future |
 
 The [engineer notebook](infrastructure-diagnostics.ipynb) owns infrastructure
 failure interpretation and runs the actual installed data, feature/model and economic

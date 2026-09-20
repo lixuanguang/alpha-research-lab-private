@@ -1,0 +1,11 @@
+[project]
+name = "alpha-local-clearml-agent"
+version = "0.1.0"
+requires-python = "==3.14.*"
+dependencies = ["clearml-agent==3.0.3"]
+
+[tool.uv]
+required-version = "==0.12.7"
+# The stable agent's upper bounds select vulnerable releases. The local serial
+# installed-environment path is verified with these patched versions; see ../README.md.
+override-dependencies = ["requests==2.34.2", "setuptools==83.0.0"]

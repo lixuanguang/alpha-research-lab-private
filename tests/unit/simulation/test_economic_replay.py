@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, localcontext
+from fractions import Fraction
 from pathlib import Path
 
 # third party library imports
@@ -14,7 +15,7 @@ from msgspec.structs import replace
 # project library imports
 from applications.backtest import run_backtest
 from configuration import Configuration
-from financial_units import Dimension, Money, Price, Quantity, QuantityKind
+from financial_units import Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from market_data.adapters.providers.tardis import TardisDecoder
 from market_data.adapters.sources import SourceAdapters
 from market_data.adapters.venues.binance import BinancePayloadDecoder
@@ -23,6 +24,7 @@ from market_data.query import QueryReader
 from market_data.validation import QualityPolicy
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import EligibilityAssertions
+from research.experiments import BenchmarkPeriod, QuantStatsReport, ReportPolicy
 from risk import SpotLimits
 from serialization import DomainCodec
 from simulation import (
@@ -352,3 +354,43 @@ class TestEconomicReplay:
         assert decision.observation is not None and decision.observation.reason == "valid"
         assert decision.reason == "known_gap"
         assert not result.checkpoint.state.ledger.fills
+
+    def test_report_matches_independent_return_and_drawdown_example(self) -> None:
+        """Reconcile 100→110→88→110 wealth without mistaking periods for trades."""
+        total, drawdown = QuantStatsReport.project(
+            (Fraction(1, 10), Fraction(-1, 5), Fraction(1, 4))
+        )
+        assert total == pytest.approx(0.1, abs=1e-12)
+        assert drawdown == pytest.approx(-0.2, abs=1e-12)
+        total, drawdown = QuantStatsReport.project((Fraction(-1, 10), Fraction(0)))
+        assert total == pytest.approx(-0.1, abs=1e-12)
+        assert drawdown == pytest.approx(-0.1, abs=1e-12)
+
+    def test_report_preserves_exact_economics_and_benchmark_alignment(self) -> None:
+        """Keep NAV reconciliation exact while rejecting an implicitly shifted benchmark."""
+        result = self._run()
+        policy = ReportPolicy(
+            benchmark_name="explicit-flat-synthetic-control",
+            benchmark=tuple(
+                BenchmarkPeriod(
+                    end=_START + timedelta(minutes=i), value=ExactRatio.from_fraction(Fraction(0))
+                )
+                for i in range(1, 5)
+            ),
+            cadence_seconds=60,
+            periods_per_year=525600,
+            annual_risk_free=ExactRatio.from_fraction(Fraction(0)),
+        )
+        report = QuantStatsReport.build(result, policy)
+        expected = Fraction(result.terminal.nav.value) / 1000 - 1
+        assert report.net_return == ExactRatio.from_fraction(expected)
+        assert report.quantstats_return == pytest.approx(float(expected), abs=1e-12)
+        assert report.benchmark_return == 0
+        assert b"not trade statistics" in QuantStatsReport.render(report)
+        with pytest.raises(ValueError, match="align"):
+            QuantStatsReport.build(result, replace(policy, benchmark=policy.benchmark[1:]))
+        missing = self._run((*self.rows[:3], *self.rows[4:]))
+        incomplete = QuantStatsReport.build(missing, policy)
+        assert any(period.net_return is None for period in incomplete.periods)
+        assert incomplete.quantstats_drawdown is None
+        assert incomplete.sampled_max_exposure is None

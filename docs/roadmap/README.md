@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-20. **MRs 1–5 are implemented; MRs 6–21 are planned.**
+Owner: repository founder. Updated 2026-09-20. **MRs 1–6 are implemented; MRs 7–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -15,7 +15,7 @@ the [platform design](../architecture/platform-design.md) owns shared contracts.
 
 The working path is configured acquisition or capture → retained raw inputs →
 validation and versioned publication → explicit snapshot queries/replay → EDA,
-model studies or bounded spot economics.
+model studies or configured bounded spot economics → retained costed reports.
 
 | Available capability | Researcher benefit | Current limit |
 | --- | --- | --- |
@@ -27,6 +27,7 @@ model studies or bounded spot economics.
 | Retained experiment attempts and temporal splits | Reproduce semantic inputs, inspect all attempts and enforce declared fit/holdout boundaries | Local single-writer store; current consumers are unfitted exploration and price diagnostics, with bounded model and economic consumers |
 | Versioned observed-price features and separate forward labels | Inspect exact returns, causal windows, missingness and delayed outcome availability | Bounded unfitted trade-price diagnostic; no economic, book/macro, model or runtime claim |
 | Exact spot economics and bounded vectorbt comparison | Reconcile delayed target execution, costs, cash, holdings and retained analytical output | Synthetic/offline spot scope; no liquidity, empirical or execution qualification |
+| Configured economics, QuantStats reports, local ClearML pipelines and lakeFS input pins | Run, repeat, resume and inspect exact costed output with retained failures and immutable storage versions | No-fit validation studies, one serial local worker and synthetic retention/restore qualification |
 | Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; shared large-study orchestration and empirical acceptance remain planned |
 
 The [data command reference](../../src/market_data/README.md) owns current usage.
@@ -92,8 +93,8 @@ the other's evidence. Conditional work stays dormant until its consumer exists.
 
 This revision starts at MR 4. MR 3's feature/label scope and acceptance remain
 unchanged by these plans; later adapters consume its delivered public outputs.
-MR 4's ClearML/Pandera and MR 5's bounded vectorbt consumers have concrete
-implementations and evidence below; the remaining entries are planned integrations.
+MR 4's ClearML/Pandera, MR 5's bounded vectorbt, and MR 6's report/pipeline/storage
+consumers have concrete implementations and evidence below; later entries remain planned.
 Deliver the named consumers in bounded slices within the existing MR numbers.
 
 Use **ClearML** for experiment tracking, model records and research orchestration.
@@ -674,6 +675,83 @@ Deliver the report, orchestration and data-storage integrations as separate slic
   remain retrievable after backup/restore and configured retention/garbage collection.
   Keep model/report artifact storage separate where simpler; no automatic second
   dataset catalog is required in ClearML Data.
+
+**Status: complete for the bounded local research scope, 2026-09-20.**
+Prerequisite verification reopened actual MR 1 dataset readers, MR 2 attempts/splits,
+MR 3 features, MR 4 model/publication boundaries and MR 5 economics/accounting;
+37 focused tests passed, one deselected. The selected economic rule is explicitly
+no-fit validation, so neither model construction nor final holdout access is
+applicable. Source acquisition remains explicit upstream work; this pipeline
+selects a previously published dataset instead of silently downloading data.
+
+`applications.backtest` owns the single installed `alpha-backtest` command with
+run/prepare, checkpoint/export, publication retry and pipeline/worker actions.
+`research.experiments` owns `BacktestRun`, reporting assumptions, durable result
+manifests and ClearML pipeline metadata. `market_data.storage` owns immutable
+lakeFS resolution and bounded materialization. Existing simulation, accounting,
+observation, risk and source-clock contracts remain unchanged. Library APIs remain
+curated, libraries have no command and applications do not import sibling workflows.
+See the [configured behavior and invocation contract](../../src/research/experiments/README.md#configured-economics-reports-and-serial-pipelines),
+[local worker](../../configs/development/clearml/README.md#serial-installed-research-worker)
+and [storage/restore contract](../../configs/development/lakefs/README.md).
+
+Validation on CPython 3.14.7 / Darwin arm64:
+
+- `uv run --frozen --no-editable pytest -q tests/unit/simulation/test_economic_replay.py`:
+  **12 passed**. Independent `+10%, -20%, +25%` returns give `+10%` compounded
+  return and `-20%` drawdown; a first-period loss includes initial capital in the peak.
+  Missing valuation periods and explicit benchmark alignment are checked.
+- The complete source lane through `TMPDIR=/private/tmp
+  PYTEST_ADDOPTS=--basetemp=/private/tmp/alpha-mr06-pytest make check` passed
+  **1,148 tests, three performance cases deselected**, with no test skips.
+  Type checking, native/pandas stub conformance, admission of 146 dependencies,
+  vulnerability coverage, architecture, security and secret checks passed.
+  `TMPDIR=/private/tmp make wheel-smoke` then passed the isolated, governance-free,
+  hash-locked installed wheel. Its 102 installed distributions were compatible.
+  The first lane caught stale dependency expectations and a macOS temporary socket
+  path limit; the first wheel run caught an incorrect test expectation for the
+  existing reader's validation exit code. All were corrected without relaxing gates.
+- The installed `economic_workflow.py` consumer, run outside the checkout, passed
+  full/repeat/checkpoint/fresh-process resume parity, malformed configuration,
+  missing bytes, incompatible checkpoint and interruption at the actual HTML atomic
+  rename. Partial artifacts never became a successful result. Actual ClearML task
+  `4945108a43554f4b8e5b18f0394be0d2` returned identical HTML, report inputs and ledger bytes.
+- The actual `pipeline_workflow.py` consumer passed CLI/agent result-manifest parity,
+  failed selection with no dependent completion, fresh recovery preserving failure
+  `42d0ac329d2941b08803ec7e9693555b`, and a server-resolved rule override producing new
+  identity/economics in task `56bcaaf8c4894bee994121eff496a48f`. Six distinct attempts
+  were retained. One dedicated local agent ran steps serially; caching/retries were off.
+  The independently audited 12-package worker graph has no unresolved findings;
+  patched Requests/Setuptools overrides and their upstream metadata limitation are
+  documented in its guide.
+- Combined versioned CLI/pipeline execution passed exact result parity and downloaded
+  identical `dataset-version` artifacts from three ClearML attempt tasks. Controller
+  `c554d2e576084102aa613d68ad1faea7` consumed the restored pinned local version
+  `d7f4bed16b1c68fe9cd350b3439fbddcf772a8ba5780ef36237f42660b5b7695`.
+- The actual lakeFS/S3 consumer resolved branch/tag identities and rejected corrected
+  feature bytes against the original inventory. Separate metadata/object volume backups
+  restored version `7c30643adad6827d90b2afabb56ac129e36b9c17e030abc8a3998dc059dd8c52`.
+  Spark mark/sweep `fufg7npn6p5c73cha9tg` completed successfully, deleted one expired
+  disposable object (subsequent HTTP 410), and every pinned source/snapshot/feature
+  object reopened unchanged afterward. Test policy: default retention zero days,
+  retained branch 365 days, positive one-second synthetic GC age. Both SDK families
+  required by actual deletion are pinned in the fixture; no no-op sweep is substituted.
+
+Retained local acceptance output, logs, wheel, locks, manifests and private service
+backups are under ignored `logs/configured-research/2026-09-20/` in the founder's
+primary checkout. Credentials remain separate and private. Hosted required CI must
+pass on the PR's merge result before merge. Local service containers are removed
+after acceptance; named volumes and evidence remain available for reproduction.
+
+Remaining boundaries: empirical frozen-source acceptance is MR 8; extension/
+comparison and learned backtest consumers remain conditional future work. Reports
+measure sampled closes, not intraperiod extrema, capacity or real execution.
+The local worker overrides need requalification on agent upgrades. Shared services,
+long-lived storage/deletion operation and container security qualification remain
+MR 11/20 work. QuantLib's existing development-only release restriction remains.
+Implementation adds no deployment or trading authority. Revert owners, command,
+package/lock/admission and tests together; preserve attempts, storage versions,
+matching wheels and backups rather than rewriting historical outcomes.
 
 ### Research comparison and extension
 

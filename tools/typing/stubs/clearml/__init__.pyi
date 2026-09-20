@@ -27,6 +27,86 @@ class Logger:
 class Task:
     """Describe manually created, non-reused tasks."""
 
+    @classmethod
+    def init(
+        cls,
+        *,
+        project_name: str,
+        task_name: str,
+        task_type: str,
+        reuse_last_task_id: bool,
+        auto_connect_frameworks: dict[str, bool],
+        auto_connect_arg_parser: bool,
+        auto_connect_streams: bool,
+        auto_resource_monitoring: bool,
+    ) -> Task:
+        """Create a fresh controller with automatic capture disabled.
+
+        Args:
+            project_name: Selected local project.
+            task_name: Distinct execution name.
+            task_type: Controller task category.
+            reuse_last_task_id: False for fresh executions.
+            auto_connect_frameworks: Explicit disabled instrumentation switches.
+            auto_connect_arg_parser: Disable argument hooks.
+            auto_connect_streams: Disable stream hooks.
+            auto_resource_monitoring: Disable resource hooks.
+
+        Returns:
+            Fresh controller task.
+        """
+        ...
+    @classmethod
+    def get_task(cls, *, task_id: str) -> Task:
+        """Read the task supplied by the local agent.
+
+        Args:
+            task_id: Explicit server task identity.
+
+        Returns:
+            Existing server task.
+        """
+        ...
+    @classmethod
+    def clone(cls, *, source_task: str, name: str) -> Task:
+        """Create a fresh editable task without resetting the original execution.
+
+        Args:
+            source_task: Original task ID.
+            name: Distinct manual execution name.
+
+        Returns:
+            Fresh draft task.
+        """
+        ...
+    @classmethod
+    def enqueue(cls, *, task: Task, queue_name: str) -> object:
+        """Submit an explicit task to the selected serial local queue.
+
+        Args:
+            task: Fresh draft execution.
+            queue_name: Dedicated worker queue.
+
+        Returns:
+            Server acknowledgement.
+        """
+        ...
+    def set_script(
+        self, *, repository: str, working_dir: str, entry_point: str, binary: str, diff: str
+    ) -> None:
+        """Bind a minimal handoff to the verified installed environment.
+
+        Args:
+            repository: Empty; do not clone mutable source.
+            working_dir: Explicit local launch directory.
+            entry_point: SDK handoff filename.
+            binary: Pinned installed Python interpreter.
+            diff: Minimal process handoff to the installed application command.
+        """
+        ...
+    def close(self) -> None:
+        """Flush and close the controller task."""
+        ...
     id: str
     status: str
     output_uri: str

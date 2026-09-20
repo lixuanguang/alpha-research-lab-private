@@ -5,6 +5,27 @@ from datetime import datetime
 
 NaT: datetime
 
+class Series:
+    """Describe the bounded numerical report projection."""
+    def __init__(
+        self,
+        data: object = ...,
+        index: object = ...,
+        dtype: object = ...,
+        name: object = ...,
+        copy: bool | None = ...,
+    ) -> None:
+        """Construct an explicitly typed reporting series.
+
+        Args:
+            data: Complete analytical projections.
+            index: Explicit reporting clocks.
+            dtype: Declared numerical representation.
+            name: Optional series name.
+            copy: Optional copy policy.
+        """
+        ...
+
 class DataFrame:
     """Describe the explicit object-frame construction used by model admission."""
     def __init__(

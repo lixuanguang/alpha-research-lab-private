@@ -65,7 +65,7 @@ src/
       transport/            Shared native feed transport
       providers/            Binance archives, Tardis framing and transport
       venues/               Binance, Bitfinex, Coinbase and OKX feed semantics
-    storage/                Verified raw bytes and durable capture journals
+    storage/                Verified raw bytes, capture journals and pinned lakeFS dataset versions
     validation/             Quality, lineage, revisions and freshness gates
     datasets/               Assembly, manifests, publication and reopening
     query/                  Point-in-time selection and projections
@@ -77,7 +77,7 @@ src/
     features/               Versioned trailing-price diagnostics; future fitted transforms
     labels/                 Separate forward-return outcomes and availability
     models/                 Exact linear construction, retained state and inference
-    experiments/            Attempts, splits, evaluation and ClearML; FUTURE: candidates/economics
+    experiments/            Attempts, splits, evaluation, reports and local ClearML pipelines; FUTURE: candidates
   strategies/               Fixed completed-price momentum and no-trade target rules
   simulation/               Delayed spot fills/costs/checkpoints and bounded vectorbt adapter
   accounting/               Exact spot ledger, rational attribution and reconciliation
@@ -506,7 +506,8 @@ The [bounded model consumer](../../src/research/models/README.md) now adds confi
 and train-only centered least-squares state, reload-only inference and exact
 predictive evaluation. ClearML publication is a separate recoverable outbox;
 terminal attempts and holdout history remain authoritative locally. ClearML source admission verifies
-the locked wheel against its pinned upstream archive. Candidate/economic reports remain planned.
+the locked wheel against its pinned upstream archive. Configured economic reports and local serial installed pipelines are now implemented;
+candidate promotion remains planned.
 
 Research reports state the economic mechanism, falsifiable hypothesis, target, sign, horizon, universe, rebalance,
 benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.
@@ -606,7 +607,9 @@ order for meaningful ties. Hashes retain provenance without allowing future byte
 changes to reorder earlier economics. The [bounded spot economic consumer](../../src/simulation/README.md) now exercises
 this contract through frozen observations, rules, independent limits, delayed fills,
 exact accounting and complete checkpoints. Its installed workflow reopens saved
-synthetic archives. MR 6 extends the same path with a configured command and durable reports.
+synthetic archives. The installed `alpha-backtest` command extends the same path with validated configuration,
+durable QuantStats reports and local serial ClearML steps. `market_data.storage`
+pins lakeFS dataset/feature versions without changing the existing reader clocks.
 
 ### Replay clocks and fill fidelity
 
