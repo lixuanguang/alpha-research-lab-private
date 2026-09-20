@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-20. **MRs 1–2 are implemented; MRs 3–21 are planned.**
+Owner: repository founder. Updated 2026-09-20. **MRs 1–2 are implemented; MR 3 is in progress; MRs 4–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -59,13 +59,13 @@ source evidence and researcher access improve independently.
 | --- | --- | --- |
 | 1 | [Research dataset access and source onboarding](#research-dataset-access-and-source-onboarding) — implemented | Current query/publication APIs |
 | 2 | [Experiment attempts and temporal splits](#experiment-attempts-and-temporal-splits) — implemented | Existing saved inputs; integrates with MR 1 |
-| 3 | [Versioned features and labels](#versioned-features-and-labels) | MR 1; MR 2 for formal comparisons |
-| 4 | [Fitted preprocessing and model evaluation](#fitted-preprocessing-and-model-evaluation) | MRs 2–3; only for a selected learned consumer |
-| 5 | [First economic backtest](#first-economic-backtest) | Existing replay and financial contracts; no model dependency |
-| 6 | [Configured runs and durable reports](#configured-runs-and-durable-reports) | MRs 1–2 and 5 |
-| 7 | [Research comparison and extension](#research-comparison-and-extension) | MRs 1–3, 5–6; MR 4 where applicable |
+| 3 | [Versioned features and labels](#versioned-features-and-labels) — in progress | MR 1; MR 2 for formal comparisons |
+| 4 | [Model records, evaluation and ClearML tracking](#fitted-preprocessing-and-model-evaluation) | MR 2 for tracking; MR 3 for feature-consuming models; fitting only where applicable |
+| 5 | [First economic backtest and vectorbt research adapter](#first-economic-backtest) | Existing replay and financial contracts; MR 4 for tracked vectorbt runs; no fitted-model dependency |
+| 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
+| 7 | [Research comparison, Alphalens and Feast offline retrieval](#research-comparison-and-extension) | MRs 1–6; fitted-state requirements only where applicable |
 | 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) | MRs 5–6 plus required actual source evidence |
-| 9 | [Runtime feature parity](#runtime-feature-parity) | MR 3 and applicable MR 4; qualified runtime input, only if required |
+| 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable |
 | 11 | [Trusted deployment artifact](#trusted-deployment-artifact) | Dependency admission and a concrete deployable consumer |
 | 12 | [Paper order lifecycle and recovery](#paper-order-lifecycle-and-recovery) | MR 10; MR 11 before deployment |
@@ -84,6 +84,76 @@ number. MR 11 must move forward before any actual deployment, including a collec
 MR 21 can proceed independently. MR 8 accepts the specific frozen experiment;
 MR 7 separately accepts the reusable research workflow. Neither substitutes for
 the other's evidence. Conditional work stays dormant until its consumer exists.
+
+## Selected research integrations
+
+This revision starts at MR 4. MR 3's feature/label scope and acceptance remain
+unchanged while that work is in progress; later adapters consume its public outputs.
+These are planned integrations, not installed dependencies or accepted capabilities.
+Deliver the named consumers in bounded slices within the existing MR numbers.
+
+Use **ClearML** for experiment tracking, model records and research orchestration.
+This supersedes the earlier MLflow-plus-Aim proposal and removes Dagster from the
+selected stack. Do not add aimlflow or a second experiment/orchestration backend.
+The comparison below is an architectural assessment for this repository, based on
+upstream documentation checked on 2026-09-20, not a measured performance ranking.
+
+| Candidate | Relevant strengths | Fit for the selected workflow |
+| --- | --- | --- |
+| [MLflow](https://mlflow.org/docs/latest/ml/tracking/) | Parameters, metrics, artifacts, dataset-linked evaluations and a [versioned model registry](https://mlflow.org/docs/latest/ml/model-registry/) | Strong choice for tracking and model packaging alone; a separate workflow execution solution would still need selection |
+| [Aim](https://github.com/aimhubio/aim) | Interactive metric histories, context-aware queries, grouping and run comparisons | Useful experiment exploration; not selected as the model-lifecycle and orchestration foundation |
+| [ClearML](https://clear.ml/docs/latest/docs/fundamentals/task/) | Experiment tasks, explicit artifacts, [input/output model records](https://clear.ml/docs/latest/docs/fundamentals/models/), [agents](https://clear.ml/docs/latest/docs/clearml_agent/) and [pipelines](https://clear.ml/docs/latest/docs/pipelines/pipelines_sdk_tasks/) | Selected: one researcher-facing system covers tracking and queued workflow execution; its self-hosted server has more infrastructure than a local tracking library |
+
+All three can record numerical experiments without ML training. Custom analytical
+and statistical models still need explicit state serialization, provenance and
+evaluation definitions; framework autologging does not supply these contracts.
+ClearML's model IDs are not a substitute for immutable model-version manifests.
+
+| Selected tool | Researcher outcome | First integration and later extension |
+| --- | --- | --- |
+| ClearML | Find attempts, models, diagnostics and reports; repeat declared workflows | MR 4 tracking/model records; MR 6 pipelines/agents; MRs 10–11 frozen artifacts and service qualification |
+| [vectorbt](https://vectorbt.dev/) | Rapid supported strategy/parameter exploration | MR 5 bounded adapter against the reference ledger; MR 7 tracked parameter comparisons |
+| [Alphalens Reloaded](https://github.com/stefan-jansen/alphalens-reloaded) | Factor information coefficients, quantile returns, turnover and grouped diagnostics | MR 7 consumes MR 3 outputs and publishes retained reports to ClearML |
+| [lakeFS](https://docs.lakefs.io/) | Reopen the exact data/feature snapshot used by an experiment | MR 6 versioned dataset storage adapter; MR 10 pins commits and retention; MR 20 scales storage |
+| [Feast](https://docs.feast.dev/getting-started/concepts/point-in-time-joins) | Reuse feature definitions and retrieve aligned historical feature values | MR 7 offline consumer; MR 9 online retrieval only for a candidate that needs it |
+| [Pandera](https://pandera.readthedocs.io/en/stable/) | Validate dataframe schemas, nullability and declared constraints at research boundaries | MR 4 model/evaluation input adapters; later reporting/feature-store adapters consume the same contracts without reopening MR 3 |
+| [SHAP](https://shap.readthedocs.io/en/latest/) | Inspect feature contributions to a selected model's predictions | MR 4 conditional explanation consumer; MR 7 comparisons use the same retained explanation specification |
+| [QuantStats](https://github.com/ranaroussi/quantstats) | Portfolio statistics and HTML performance reports | MR 6 consumes retained costed returns from MR 5 |
+| [Optuna](https://optuna.readthedocs.io/en/stable/) | Search declared model, calibration or strategy parameter spaces | MR 7 after retained evaluations; ClearML owns execution/tracking and Optuna owns sampling/pruning |
+| [marimo](https://docs.marimo.io/) | Reactive Python notebooks and interactive research controls | MR 7 optional interface alongside maintained notebooks, calling the same installed research APIs |
+| [DuckDB](https://duckdb.org/docs/current/data/overview) / [Polars](https://docs.pola.rs/user-guide/lazy/using/) | SQL exploration of research files and dataframe transformations | MR 7 bounded analysis adapters over verified inputs; MR 20 for replacement of performance-sensitive internals |
+| [Evidently](https://docs.evidentlyai.com/introduction) | Data quality, distribution drift and applicable predictive-performance reports | MR 7 offline reference/current-window reports; MRs 15/17 scheduled evaluation |
+| [skfolio](https://skfolio.org/) | Portfolio allocation research under declared objectives and constraints | MR 7 conditional multi-asset portfolio consumer; MR 14 retains independent account allocation/risk authority |
+
+Feast and lakeFS are complementary. lakeFS versions stored bytes; Feast describes
+and retrieves features. Neither replaces the existing knowledge-time, revision,
+historical-universe or holdout contracts. Keep one dataset versioning authority:
+ClearML tasks reference lakeFS commits and repository manifests rather than adding
+a parallel ClearML Data version hierarchy for the same datasets. Model/report
+artifacts remain accessible through explicit retained locations and content digests.
+
+At each tool's first consumer, pin SDK/server versions and verify the actual install,
+serialization and reopen path on the supported environment. Preserve Python 3.14,
+strict typing, the dependency-admission rules and numerical contracts. Check native
+dependencies, including vectorbt's chosen computation backend. If an integration
+requires another interpreter, use a separately locked worker with versioned input/
+output records and prove the boundary rather than silently changing the core runtime.
+Confirm required capabilities in the selected self-hosted edition. Use ClearML's
+[Python scheduling interface](https://clear.ml/docs/latest/docs/getting_started/task_trigger_schedule/);
+its no-code scheduling application is an Enterprise feature.
+
+SSPL and Commons Clause components are eligible under the founder's stated
+infrastructure preference: [ClearML Server uses SSPL](https://github.com/clearml/clearml-server#license-and-legal-information)
+and [vectorbt uses Apache 2.0 with Commons Clause](https://vectorbt.dev/terms/license/).
+Record the exact admitted component's license; eligibility does not imply that
+commercial-only features or vectorbt PRO are included. Shared/operated services
+still need MR 11 before deployment; local integration evidence does not qualify them.
+
+The earlier tool shortlist's version numbers are research observations, not a
+compatible dependency lock. Admit the versions actually exercised by each slice.
+Analytical libraries do not each require a service: start with local adapters and
+retained artifacts. Conditional explanation, drift and allocation tools need the
+specific model/data/portfolio consumer described below, not every experiment.
 
 ## Research infrastructure
 
@@ -202,18 +272,67 @@ compose them. Incremental execution is deferred unless a runtime consumer needs 
 
 ### Fitted preprocessing and model evaluation
 
-**MR 4, conditional.** Support one selected trainer and its necessary preprocessing.
-Fit only on permitted rows and then-available labels; serialize transform/model
-state with input signature, fit window/cutoff, parameters, seed and environment.
-Inference loads accepted state without implicitly fitting. Evaluation records
-predictions, delayed outcomes, metrics and split identity separately from training.
+**MR 4.** Extend the retained attempt core with ClearML tracking and model records
+for configured analytical, calibrated statistical and learned models. Tracking is
+required for supported formal workflows; fitting remains conditional on the model.
+Keep the existing no-fit path usable. Own retained identities/evaluation records in
+`research/experiments/`, model lifecycle in `research/models/`, and compose the
+ClearML adapter in research applications. Retain the MR 2 store and its single-writer
+contract; external task state cannot rewrite terminal evidence or holdout history.
 
-Acceptance: fixed-input inference after reload agrees under a declared numerical
-contract; held-out/future perturbations do not change the fit; incompatible feature
-order, units or state fails explicitly. Walk-forward decisions select only artifacts
-that could have been fitted and made available by that decision. A final full-history
-fit cannot be used for earlier decisions. Own behavior in `research/models/` and
-feature preprocessing; training/evaluation applications remain composition roots.
+Deliver tracking, model serialization and evaluation as separate bounded steps:
+
+- Record each supported invocation automatically, including failed, aborted and
+  rejected attempts. Map its attempt ID to a ClearML Task ID and keep semantic run
+  identity distinct from execution identity. Retain resolved non-secret configuration,
+  input/split/feature identities, code and environment, seeds and outcome. Configure
+  automatic capture explicitly so it cannot replace the resolved manifest or upload
+  secrets. Dashboard numeric values are projections of retained typed results.
+- Distinguish model definition, configured/calibrated/fitted state, creation attempt
+  and evaluation. Retain each newly created state, including usable rejected variants,
+  with retrievable bytes, digest, signature, assumptions and numerical conventions.
+  Link ClearML input/output model IDs to that version manifest. Failed calibration
+  retains diagnostics without inventing a usable model. No-fit models have no invented
+  training window; rule-only strategies need no model artifact.
+- Fit preprocessing/models only on permitted rows and then-available labels. Retain
+  fit/calibration window and availability cutoff where applicable. Inference loads
+  accepted state without implicitly fitting. A calibration/refit or changed configured
+  state creates a new recorded version; evaluations reference the exact version.
+- Record evaluation dataset, window, fold/split, metric definition, units and outcome
+  availability separately from construction. Distinguish calibration diagnostics,
+  predictive/pricing metrics and later strategy economics. Evaluation failures and
+  selection/rejection reasons remain searchable alongside successful results.
+
+Keep local retained completion separate from ClearML publication completion. Persist
+publication identity/receipts so a transport retry reconciles the existing task/model
+before creating another. A publication failure is visible and recoverable without
+refitting or repeating a holdout read. New executions create new attempts/tasks;
+do not reset historical tasks or rely on SDK task reuse to represent a rerun.
+ClearML defaults and mutable model records do not establish append-only history.
+
+Use Pandera at the dataframe boundary of the selected model/evaluation consumer.
+Validate column order/types, nullability and declared value constraints against the
+MR 3 output contract; do not infer a new feature schema or replace domain validation.
+Acceptance includes a valid frame and decisive malformed/missing-value cases without
+silent coercion of financial precision or timestamps.
+
+Add SHAP only for a selected prediction explanation question. Retain model version,
+explainer/options, feature order, output scale and background/explained sample IDs.
+Background selection respects the permitted fit/selection window. Verify a small
+known model's contributions on the chosen output scale; record approximation limits.
+Explanations do not establish causality or profitable tradability. Analytical models
+can retain their native sensitivity/residual diagnostics without an unnecessary SHAP
+wrapper.
+
+Acceptance: a no-fit invocation and one selected mathematical/statistical model
+construction/evaluation are traceable in ClearML from verified inputs to artifacts
+and metrics. Fixed-input inference after reload agrees under a declared numerical
+contract. Held-out/future perturbations cannot change fitted state; incompatible
+feature order, units or state fails explicitly. Walk-forward decisions use only
+artifacts available by that decision, never a final full-history fit. Exercise a
+failed attempt and interrupted publication/reconciliation without duplicate retained
+versions or erased outcomes. Verify backup/reopen of metadata and actual artifact
+bytes. These checks establish the integration, not empirical model quality.
 
 ## Economic research
 
@@ -249,6 +368,16 @@ Acceptance follows the [frozen economics](../research/p1-baseline.md) and
   consumer state, schedules, applied-fill identities and ledger alongside the source
   cursor. A cursor alone is not an economic checkpoint.
 
+Add vectorbt as a separate, bounded research adapter after the reference economics
+work. Supply verified observations, explicit signal timing, costs, sizing and capital
+sharing assumptions; retain engine/version and supported execution scope with each
+result. Compare one supported simple strategy to independently reconciled ledger
+cases under matched assumptions. Expose timing, rounding and execution differences;
+do not present a vectorized bar result as queue/fill fidelity or exact accounting.
+No default same-bar fill may bypass the declared positive delay. Unsupported product
+mechanics fail explicitly. ClearML integration uses MR 4; the reference economic
+path remains usable without fitted models or an available tracking service.
+
 ### Configured runs and durable reports
 
 **MR 6.** Expose the economic path through validated configuration and one installed
@@ -263,6 +392,37 @@ interrupted report publication and incompatible checkpoints fail visibly. Compar
 net return, turnover, drawdown and exposure only where the selected experiment's
 observations support them. Reports must expose invalid/missing periods and limitations.
 
+Deliver the report, orchestration and data-storage integrations as separate slices:
+
+- **QuantStats reports.** Feed the platform's retained net return series and an
+  explicitly aligned benchmark to the reporting adapter. Retain return convention,
+  cadence, annualization, risk-free assumption, timezone and missing-period policy.
+  Period win/loss statistics must not be labeled trade statistics. Check selected
+  return/drawdown results against a small independent example, and retain the HTML
+  report and inputs as ClearML artifacts. Reporting cannot recalculate or replace
+  the exact economic ledger; do not fetch an unpinned benchmark implicitly.
+- **ClearML pipelines and agents.** Compose installed acquisition/selection,
+  features, applicable model construction, evaluation/backtest and report entrypoints.
+  Pipeline/step IDs reference retained attempt IDs and exact upstream outputs.
+  Use a local worker first and serialize workflows sharing MR 2's single-writer store.
+  Retain the actual resolved configuration after any UI override; changed parameters
+  produce a new semantic identity. Launch the pinned environment/artifact rather than
+  treating auto-detected requirements as a reproducible dependency lock. Initially
+  disable step caching. A later cache must include immutable data/model/split/config/
+  code identities and preserve holdout access records even on a cache hit. A fresh
+  execution gets a fresh attempt/task; retrying a publication resumes its existing
+  mapping. Exercise failed-step recovery without erasing the first failure or falsely
+  completing dependent work. Local CLI and pipeline runs must agree on results.
+- **lakeFS dataset versions.** Wrap storage access for one existing published dataset
+  and its derived feature snapshot, retaining repository commit ID, object paths and
+  the current manifests/digests in ClearML. Resolve mutable branch/tag names before
+  execution. Preserve existing reader validation and availability semantics; a storage
+  commit time is not a market observation's knowledge time. Prove that a correction
+  on a new data branch cannot alter a pinned historical run, and that retained bytes
+  remain retrievable after backup/restore and configured retention/garbage collection.
+  Keep model/report artifact storage separate where simpler; no automatic second
+  dataset catalog is required in ClearML Data.
+
 ### Research comparison and extension
 
 **MR 7.** Let QRs register compatible features, estimators and rules through narrow
@@ -276,6 +436,60 @@ share immutable inputs while their mutable state, random streams, pending intent
 and outputs remain isolated. Retain selection/rejection reasons and holdout use.
 The maintained QR guide and activity notebook demonstrate this path with applicable
 features/models; a rule-only example must remain possible.
+
+Extend that comparison workflow in independently reviewable slices, with the existing
+CLI/report path remaining the reference consumer:
+
+- **Factor diagnostics with Alphalens Reloaded.** Adapt MR 3 factor/label outputs
+  for one declared cross-sectional study. Retain eligible universe, factor direction,
+  forward horizon, price convention, groups, quantile rules and dropped observations.
+  Publish IC, quantile-return and turnover diagnostics plus report artifacts to ClearML.
+  Verify a small independently calculated factor/forward-return example and a boundary
+  case with unavailable or missing observations. Future labels are evaluation inputs,
+  never contemporaneous features. Factor tear sheets do not substitute for costed
+  executable strategy results. Mark cross-sectional statistics inapplicable when the
+  sample lacks the required cross-section.
+- **Parameter comparisons with vectorbt and Optuna.** Track each evaluated parameter
+  combination/trial, including pruned, failed and rejected outcomes. Optuna supplies
+  sampling/pruning for a declared objective; ClearML supplies task execution and the
+  experiment UI. Avoid two independent search controllers for one study. Persist
+  study/sampler state and map trial IDs to retained attempts/tasks. Fix the search
+  space, budget, objective, splits and seed policy; do not optimize on the final
+  holdout. Verify resume retains trial history and that an interrupted/pruned trial
+  cannot appear as a successful full evaluation. Re-evaluate selected vectorbt
+  candidates through the qualified economic path before promotion.
+- **Feast offline retrieval.** Register a versioned view of MR 3 features for a second
+  consumer, with explicit entity keys, types, source snapshot, timestamps and TTL.
+  Pin feature definitions/registry state and resolved source versions in each run.
+  Compare retrieved values with the existing causal reader on a fixture containing
+  late corrections, missing entities and TTL expiry. Feast's default event-time join
+  is insufficient for delayed availability: use the pinned backend's supported
+  created-time filtering with truthful, non-null availability timestamps, or an
+  explicitly eligibility-filtered immutable source. Prove the chosen path handles
+  revisions; do not silently fall back when a backend cannot enforce the contract.
+- **Research access and interface.** Add DuckDB SQL and Polars transformations over
+  verified, permitted snapshots/results for a bounded comparison. Preserve identities,
+  units, timestamps, null semantics and declared precision across dataframe conversion;
+  compare results to the reference path. Add a marimo example using these same public
+  APIs alongside the maintained notebook. An explicit run action creates a retained
+  formal attempt; reactive display updates must not silently refit or consume a
+  holdout. Fresh-process script execution reproduces the example's retained result.
+- **Evidently offline diagnostics.** Compare one declared reference/current window
+  using retained feature/prediction data, and delayed labels only when available.
+  Pin the reference, schema, metrics/tests and thresholds; save the report to ClearML.
+  Exercise a known shift and missing-label case. Drift is a diagnostic finding, not
+  evidence of strategy failure or an automatic retraining/activation instruction.
+- **skfolio allocation research, conditional.** For a selected multi-asset portfolio,
+  fit estimators on permitted history and retain objectives, constraints, asset order,
+  covariance/return assumptions and solver settings/status. Use the repository's
+  temporal split rules. Check feasibility and a simple known allocation, retain
+  infeasible outcomes, and evaluate turnover/costs in the shared economic runner.
+  Proposed weights cannot bypass independent risk or MR 14's account allocation.
+
+All comparison artifacts resolve model versions, dataset/feature snapshots, metric
+definitions, windows and attempt IDs through ClearML and the retained manifests.
+Large trial grids may be stored as indexed artifacts, but every evaluated variant
+must remain individually attributable; retaining only the winning curve is insufficient.
 
 ### Frozen baseline acceptance
 
@@ -305,6 +519,14 @@ the declared contract, including ordering, gaps, corrections and restart. Never
 infer live readiness from the existence of a historical adapter. Keep one versioned
 formula and explicit state compatibility; investigate the first divergence.
 
+For a candidate that needs online feature retrieval, extend the MR 7 Feast adapter
+with an explicit online store/materialization consumer. Qualify historical/online
+parity, freshness, TTL, correction handling and restart at the decision boundary.
+Retain which feature version and materialization supplied each decision. A latest-value
+online store cannot answer arbitrary historical as-of queries. A qualified batch
+candidate does not need an online store, and Feast does not move feature formulas
+out of their existing owner.
+
 ### Candidate packaging and runtime binding
 
 **MR 10.** Freeze the [candidate contract](../architecture/platform-design.md#candidate-promotion-contract):
@@ -319,6 +541,13 @@ compatible runtime input and reproduce matched decisions. Deployment configurati
 selects candidate instances and resources separately from research selection and
 trading authority. Retraining creates a new candidate and renews affected evidence.
 
+Pin the ClearML model/task IDs, immutable model manifest and bytes/digests, relevant
+lakeFS commits, feature definitions and accepted evaluation/report IDs. ClearML model
+publication can protect model contents, but tags/metadata are not an immutable
+candidate identity. Reconstruct from retained bytes when the UI is unavailable;
+verify content rather than resolving a mutable "latest" name. Catalog publication,
+research selection, deployment and trading activation remain separate actions.
+
 ### Trusted deployment artifact
 
 **MR 11, before any deployment.** Supply a concrete build/install/verify consumer
@@ -331,6 +560,14 @@ currently blocks release. Clearing that restriction alone does not implement thi
 consumer. Exercise the actual isolated installed artifact and failure boundary.
 A collector pulled forward for a data need must meet the same applicable deployment
 requirement; it need not wait for a strategy or executable venue adapter.
+
+Apply the same concrete deployment boundary to operated ClearML server/agent,
+lakeFS and applicable Feast services. Pin their images/configuration, admit the
+actual edition and dependencies, and verify access boundaries, artifact retrieval,
+backup/restore and upgrades for the selected topology. ClearML is one selected
+product, not one process; include its backing services and retained artifact storage.
+Workers execute trusted research entrypoints in the declared environment. A service
+deployment or queued research task does not confer trading authority.
 
 ### Paper order lifecycle and recovery
 
@@ -380,6 +617,12 @@ first divergence and every material failed attempt. Simulated fills qualify only
 their declared model. Stop, cancel and flatten remain distinct operations. Actual
 paper/shadow deployment also requires MR 11.
 
+Schedule retained evaluation/report tasks through the qualified ClearML worker path.
+Reuse MR 7 Evidently reports for feature quality, distributions and model performance
+where labels exist, keeping reference windows and thresholds versioned. Record stale,
+missing-label and failed-report outcomes. These jobs may lag or fail independently;
+they do not replace the health/alert path or sit in the order/decision hot path.
+
 ### Executable venue adapter
 
 **MR 16.** Implement one selected venue/product/account boundary with supported
@@ -402,6 +645,11 @@ Acceptance: fault scenarios demonstrate independent detection, alert delivery an
 the configured stop/cancel response, including alive-but-stalled processing.
 Delayed-label/model monitoring is applicable only to candidates that use it.
 Keep controls effective through disconnects and operator/restart transitions.
+
+Link realized performance and applicable Evidently findings to the exact deployed
+candidate/model version and observation window in ClearML. Distinguish delayed
+outcomes from missing data. A drift finding can request research investigation;
+automatic retraining, candidate replacement or live activation is not implied.
 
 ### Bounded activation and recovery
 
@@ -440,8 +688,15 @@ Use [query workload evidence](../../examples/notebook-operations.md#query-worklo
 for its original measured scope; it does not benchmark current code. A Parquet scan
 alone is not a replacement for the reader. Columnar/distributed/native/GPU paths
 must preserve relevant exact arithmetic, timing, identity and recovery contracts.
-Introduce durable stores, services or process isolation for measured consumers;
-trusted research-code isolation is not a malicious-code sandbox.
+The selected integrations above address concrete traceability and research consumers;
+they do not need to wait for a scale bottleneck. This MR owns their measured growth:
+DuckDB/Polars replacements for expensive reader/transformation paths, larger lakeFS
+storage, shared Feast stores and additional ClearML workers. Benchmark the full
+validated path and conversion costs against the retained reference. Preserve original
+data/model identities and numerical/temporal behavior when moving storage or engines.
+Qualify writer coordination and restart before multiple workers write shared attempt
+state; MR 2's local single-writer store is not a distributed trial database. Process
+isolation for trusted research is not a malicious-code sandbox.
 
 ### Python ownership and enforcement
 
