@@ -7,7 +7,9 @@ earlier-only temporal folds and append-only execution history. It has no command
 `research.exploration.ExplorationStudy` and the existing pinned research reader.
 The [research program](../../../docs/roadmap/research-program.md) owns methodology;
 [MR 2](../../../docs/roadmap/README.md#experiment-attempts-and-temporal-splits) owns
-delivery acceptance. Feature/label generation, fitted transforms, model training,
+delivery acceptance. The same application now retains
+[versioned feature/label diagnostics](../features/README.md) through `FeatureStudy`.
+Fitted transforms, model training,
 economic reports, candidate promotion and deployment remain separate future work.
 
 ## Reproducible inputs and execution attempts

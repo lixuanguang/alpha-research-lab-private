@@ -19,6 +19,33 @@ class TestIngestionWorkflow:
     """Use installed commands outside the checkout; only source HTTP is synthetic."""
 
     @pytest.mark.integration
+    def test_saved_feature_label_study(self, tmp_path: Path) -> None:
+        """Reopen evidenced synthetic revisions through the installed retained diagnostic."""
+        for source in (
+            "configs/data-jobs/binance-archive.json",
+            "configs/reference/binance-archive-spot.json",
+            "tests/fixtures/eligibility/membership-corrections.json",
+            "tests/integration/consumers/research/feature_study.py",
+        ):
+            shutil.copyfile(_ROOT / source, tmp_path / Path(source).name)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                str(tmp_path / "feature_study.py"),
+                str(tmp_path),
+                str(tmp_path / "run"),
+            ],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        assert (tmp_path / "run/result.json").is_file()
+
+    @pytest.mark.integration
     def test_acquire_resume_publish_reopen_and_eda(self, tmp_path: Path) -> None:
         """Reject partial acquisition, preserve resume lineage and consume the published ID."""
         for source in (

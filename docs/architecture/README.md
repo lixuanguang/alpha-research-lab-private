@@ -103,8 +103,9 @@ Current dependency direction is organized by functional owner:
   atomic attempt history. [Its contract](../../src/research/experiments/README.md)
   defines the local writer and holdout boundaries.
 - `research/exploration/` consumes admitted data for EDA and retained unfitted studies.
-  Future feature, model,
-  strategy, simulation and accounting owners are marked in the platform design.
+  `research/features/` owns versioned trailing-price diagnostics; `research/labels/`
+  owns separate forward outcomes. Future model, strategy, simulation and accounting
+  owners are marked in the platform design.
 - `configuration/` resolves definitions and selections. `runtime/` and `telemetry/`
   supply identity, supervision and observations without importing applications.
 - `applications/` composes these libraries and exposes the installed commands.

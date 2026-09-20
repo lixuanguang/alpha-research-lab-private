@@ -149,7 +149,9 @@ at or before `t` a future-only perturbation.
 
 Storage, dataset publication, order-book and replay consumers preserve original
 capture text, source sequence, provenance identity, exact values and proxy reasons.
-Planned feature and economic consumers must preserve those semantics end to end.
+The current price diagnostic preserves the query's business clock and separate
+exchange-event and availability clocks; its [contract](../../src/research/features/README.md#formula-and-clocks)
+explains this distinction. Economic consumers must preserve these semantics end to end.
 
 A selected input must satisfy `available_at <= decision_time` under its declared knowledge model;
 derived features also include their processing/availability assumptions. Dataset

@@ -1,6 +1,7 @@
 """Expose the research exploration public contract."""
 
 # project library imports
+from research.exploration.feature_study import FeatureStudy
 from research.exploration.query import EdaQuery, QuerySummary
 from research.exploration.selection import (
     BookResearchInput,
@@ -19,6 +20,7 @@ __all__ = [
     "BookSelection",
     "EdaQuery",
     "ExplorationStudy",
+    "FeatureStudy",
     "QuerySummary",
     "ResearchDataset",
     "ResearchReader",

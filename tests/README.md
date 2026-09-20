@@ -15,7 +15,7 @@ owns validation and merge requirements.
 | `fixtures/` | Static input bytes organized by domain and scenario; no executable Python |
 | `support/subprocesses/` | Child-process acquisition fakes and deliberate publication interruptions |
 | `integration/test_*.py` | Discovered workflow tests, including acquisition through saved EDA |
-| `integration/consumers/` | Standalone installed-package scenarios grouped into datasets, eligibility, query, replay and capture |
+| `integration/consumers/` | Standalone installed-package scenarios grouped into datasets, eligibility, query, replay, research and capture |
 
 The static inputs include Tardis-framed trades and Coinbase book messages under
 `fixtures/market_data/`, eligibility histories under `fixtures/eligibility/`, a
@@ -36,7 +36,7 @@ Run from the repository root:
 # All correctness tests, including integration cases; excludes performance cases.
 make test
 
-# Only the installed acquisition/resume/publication/EDA workflow.
+# Installed acquisition/resume/publication/EDA and feature/label workflows.
 uv run --frozen --no-editable pytest -q -m integration tests/integration/test_ingestion_workflow.py
 
 # Existing component integration cases as well as workflow integration tests.
@@ -45,7 +45,7 @@ make integration-test
 
 Plain pytest uses the configured marker filter, which excludes integration and
 performance cases. A file under `consumers/` is not automatically a pytest test.
-The ingestion, capture recovery, saved-book, health and parity consumers have
+The ingestion, feature-study, capture recovery, saved-book, health and parity consumers have
 pytest callers. Other consumers remain manual acceptance programs; moving them
 does not add CI coverage. The recovery probe needs an explicitly selected saved
 Bitfinex capture; the synthetic acceptance consumers need only copied inputs.
@@ -61,7 +61,8 @@ consumers compose it with synthetic transports, failure injection and assertions
 For manual installed checks, copy the selected consumer and its inputs into a
 fresh external directory, preserving basenames. Use the installed interpreter
 to run `python -I <copied-consumer> <inputs>`; `eda_consumer.py` and
-`ingestion_workflow.py` additionally require a fresh output-directory argument.
+`ingestion_workflow.py` and `feature_study.py` additionally require a fresh
+output-directory argument.
 
 | Consumers | Copied inputs |
 | --- | --- |
@@ -72,6 +73,7 @@ to run `python -I <copied-consumer> <inputs>`; `eda_consumer.py` and
 | `publish_snapshot.py` | Dataset inputs plus `support/subprocesses/interrupt_snapshot.py` |
 | `dataset_command.py` | Dataset inputs plus `support/subprocesses/interrupt_command.py` |
 | `ingestion_workflow.py` | Dataset inputs, `support/subprocesses/interrupt_command.py`, and `configs/live/okx-btc-usdt.json` |
+| `research/feature_study.py` | Archive dataset inputs plus `fixtures/eligibility/membership-corrections.json`; no network |
 | `eda_consumer.py` | Query inputs plus `fixtures/instruments/contract.json` |
 | `replay_consumer.py` | `fixtures/replay/canonical.json`, `configs/data-jobs/fixture-inspection.json`, `configs/reference/binance-spot.json` |
 
@@ -93,14 +95,15 @@ notebook cells.
 private/module API bypasses, duplicate commands, installed inventory faults and
 pre-refactor snapshot reopening. Existing behavioral test groups keep their names;
 their imports use functional APIs, with internal imports reserved for focused tests
-and fault injection. No `research/features` or `applications/features` exists yet.
+and fault injection. Feature/label libraries compose through the existing
+`applications/explore` workflow; no additional application runner is introduced.
 
 `make wheel-smoke` installs the frozen runtime into a clean environment outside
 the checkout. It imports every shipped API, checks package resources and identity
 scope, and runs the four existing commands with copied synthetic/saved inputs.
 It reuses ingestion/recovery consumers for acquisition resume, dataset admission,
 EDA, pinned mixed trade/book selection, retained unfitted studies, fresh-process
-identity/result reproduction and book replay;
+identity/result reproduction, two-instrument exact feature/label diagnostics and book replay;
 governance is absent from this installation. On macOS,
 `TMPDIR=/private/tmp make check` keeps Unix-domain socket paths within OS limits.
 

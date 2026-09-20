@@ -109,6 +109,7 @@ class _InstalledWheelCheck:
             "configs/reference/binance-archive-spot.json",
             "tests/fixtures/eligibility/membership-corrections.json",
             "tests/integration/consumers/datasets/ingestion_workflow.py",
+            "tests/integration/consumers/research/feature_study.py",
             "tests/support/subprocesses/interrupt_command.py",
             "configs/live/coinbase-btc-usd.json",
             "tests/fixtures/market_data/coinbase/coinbase-schema.json",

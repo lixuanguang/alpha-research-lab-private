@@ -3,8 +3,8 @@
 This page describes the empirical work needed to grow the repository from its current domain libraries into an
 institutional, multi-asset, multi-strategy research-to-production platform. It is a human-maintained program,
 not an executable package catalog, registry service, or release gate. Acquisition,
-publication, bounded queries/replay, EDA and collector health are implemented.
-Reusable feature/model workflows, strategy simulation, broker integration and
+publication, bounded queries/replay, EDA, retained price feature/label diagnostics
+and collector health are implemented. Fitted model workflows, strategy simulation, broker integration and
 strategy monitoring remain planned; the roadmap records exact supported scope.
 
 The immediate operating model is a single founder implementing the

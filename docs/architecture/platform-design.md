@@ -74,8 +74,8 @@ src/
   research/
     exploration/            EDA and pinned multi-input saved-data selections
     observations/           FUTURE: completed decision observations
-    features/               CONDITIONAL: research transforms/state
-    labels/                 CONDITIONAL: outcome generation and alignment
+    features/               Versioned trailing-price diagnostics; future fitted transforms
+    labels/                 Separate forward-return outcomes and availability
     models/                 CONDITIONAL: training, inference and evaluation
     experiments/            Attempts/splits; FUTURE: candidates and economic reports
   strategies/               FUTURE: contexts and decision rules
@@ -93,8 +93,7 @@ src/
     collect/                Existing capture/probe/replay command and workflow
     publish_dataset/        Existing dataset publish/inspect command
     inspect_fixture/        Existing configured fixture command
-    explore/                EDA and research assembly composition
-    features/               CONDITIONAL: feature/label research workflows
+    explore/                EDA, research assembly and retained feature/label studies
     train_model/            CONDITIONAL: fit and retain a model attempt
     evaluate_model/         CONDITIONAL: research/delayed-outcome evaluation
     backtest/               FUTURE: one configured economic runner
@@ -479,6 +478,16 @@ units, missing policy, range, and training fit interval. Labels name observation
 convention, overlap, and missing policy. Scaling, neutralization, imputation, selection, and hyperparameters fit only on
 data available in the applicable training interval.
 
+**Current versioned diagnostic:** `research.features.TrailingReturn` computes exact
+observed-price window returns; `research.labels.ForwardReturn` separately computes
+delayed outcomes against frozen earlier endpoints. `FeatureStudy` reuses pinned
+trade selection and the existing retained exploration application. Every decision
+has its own knowledge cutoff; labels cannot enter earlier feature values. The
+[public contract](../../src/research/features/README.md) defines the query business
+clock, cadence, warm-up, missing/stale policy, exact rational units, input lineage
+and bounded execution. This does not implement the economic baseline's completed
+observations, runtime features, fitted models or a book/macro formula.
+
 An experiment identity includes source and dataset manifests, code/artifact revision, resolved non-secret configuration,
 environment/toolchain identity, component versions, split rules, and random seeds. Wall-clock creation time is metadata,
 not identity. Failed or rejected trials that influence selection remain append-only, and the final holdout is frozen
@@ -516,7 +525,7 @@ These contracts serve model-free studies and future learned candidates alike.
 Reusable transforms belong to `research/features/`; labels to `research/labels/`;
 trainers/inference to `research/models/`; split/attempt/candidate records to
 `research/experiments/`. The attempt/split owner now serves exploration; the
-remaining future owners appear only with working consumers.
+model and other future owners appear only with working consumers.
 Notebooks may explore local variants; formal retained and promoted results call
 the accepted versioned implementations. A candidate binds its inputs, definitions,
 parameters, split/fit identity and fitted state where applicable. Rejected
