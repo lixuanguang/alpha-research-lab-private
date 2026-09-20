@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-20. **MRs 1–5 are implemented; MRs 6–21 are planned.**
+Owner: repository founder. Updated 2026-09-20. **MRs 1–4 are implemented; MR 5 is implemented locally with hosted verification blocked; MRs 6–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -501,7 +501,7 @@ with their owning MRs. No deployment or trading authority is granted.
 
 ### First economic backtest
 
-**MR 5 — implemented.** Deliver a small integrated path: saved verified synthetic inputs → completed
+**MR 5 — implemented locally; hosted verification blocked.** Deliver a small integrated path: saved verified synthetic inputs → completed
 observations → no-trade and fixed momentum rules → independent limits → positive-delay
 fills → exact cash, positions, costs and NAV. Reuse the existing chronological
 iterator. This proves economics without waiting for fitted features or live data.
@@ -574,8 +574,18 @@ Implementation, 2026-09-20, from main `ff4e1f4`:
   Repeated publication returned the same receipt; downloaded exact and vectorbt
   artifacts matched retained SHA-256 values. Private local evidence is preserved
   under `logs/economic-acceptance/2026-09-20/` in the founder's original checkout;
-  credentials are excluded. Hosted Linux/macOS and merged-result gates remain the
-  PR's required pre-merge checks; this record does not substitute for their outcome.
+  credentials are excluded.
+- [PR 66's initial hosted run](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35510740477)
+  did not allocate a runner or execute any source steps. GitHub's failure annotation
+  reports failed recent account payments or an insufficient spending limit.
+  Source validation and the authoritative gate failed at scheduling; macOS smoke
+  was skipped. Hosted Linux/macOS and merged-result verification remain unproven
+  and required before merge. Restore account runner eligibility and rerun the
+  current PR checks; local success does not replace those gates.
+- Final staged secret scan: **397 governed paths passed**; final documentation
+  links: **32 documents passed**. The original checkout remains unchanged apart
+  from ignored private evidence; all implementation is isolated on
+  `codex/mr-05-economic-backtest`.
 - Earlier attempts remain disclosed: Plotly 7.1.0 failed vectorbt import, corrected
   by the exercised 6.3.1 pin; initial fixture/probe construction errors and a
   concurrent editable-environment mutation were corrected before final verification.
