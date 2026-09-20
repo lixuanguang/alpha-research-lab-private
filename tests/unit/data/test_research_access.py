@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
 
 # third party library imports
@@ -16,7 +17,7 @@ from test_asof import TestAsOfSelector as _Trades
 from test_book_datasets import TestBookDatasets as _Books
 
 # project library imports
-from applications.explore import inspect_eda
+from applications.explore import inspect_eda, inspect_experiment
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.sources import SourceAdapters
 from market_data.contracts import BookObservation, CaptureRequest
@@ -24,10 +25,12 @@ from market_data.datasets import BookInput, DatasetPublication, SnapshotCatalog
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader, QueryMarketRow
 from market_data.storage import CaptureJournal, RawFiles, RawStore
 from market_data.validation import QualityPolicy
+from research.experiments import AttemptStore, TemporalSplit, TimeWindow
 from research.exploration import (
     BookResearchInput,
     BookSelection,
     EdaQuery,
+    ExplorationStudy,
     ResearchDataset,
     ResearchReader,
     ResearchSelection,
@@ -388,3 +391,58 @@ class TestResearchAccess:
                 (destination,), raw, tmp_path / "snapshots", max_records=16, max_bytes=_LIMIT
             )
         assert self._reader(tmp_path).read(selection).identity == selection.identity
+
+    def test_retained_study_failure_consumes_holdout_before_read(self, tmp_path: Path) -> None:
+        """Persist failed reads and refuse changed final evaluation before exposing any values."""
+        selection = self._selection(tmp_path)
+        window = TimeWindow(start=_START, end=_START + timedelta(days=2))
+        inputs: list[TradeSelection | BookSelection] = []
+        for item in selection.inputs:
+            if isinstance(item, TradeSelection):
+                inputs.append(
+                    replace(item, query=replace(item.query, start=window.start, end=window.end))
+                )
+            else:
+                inputs.append(
+                    replace(item, query=replace(item.query, start=window.start, end=window.end))
+                )
+        selected_inputs = tuple(inputs)
+        selection = replace(selection, inputs=selected_inputs)
+        study = ExplorationStudy(
+            family="retained-inspection",
+            question="Inspect declared final saved inputs",
+            selection=selection,
+            partition="holdout",
+            split=TemporalSplit(
+                training=None,
+                fit_cutoff=None,
+                fit_mode="none",
+                samples=(),
+                embargo_us=0,
+                validation=TimeWindow(start=_START - timedelta(days=2), end=_START),
+                holdout=window,
+                rationale="No fitted transform or learned consumer is present.",
+            ),
+        )
+        path = tmp_path / "study.json"
+        path.write_bytes(_CODEC.encode_json(study))
+        attempts = tmp_path / "attempts"
+        raw = RawStore(tmp_path / "raw")
+        with pytest.raises(OSError):
+            inspect_experiment(path, tmp_path / "missing", raw, attempts=attempts)
+        history = AttemptStore(attempts).histories()[0]
+        assert history.status == "failed" and history.events[0].status == "holdout_consumed"
+        repeated = inspect_experiment(path, tmp_path / "snapshots", raw, attempts=attempts)
+        assert repeated.status == "completed"
+        assert repeated.start.run_identity == history.start.run_identity
+        path.write_bytes(_CODEC.encode_json(replace(study, question="A tuned question")))
+        with patch.object(ResearchReader, "read", side_effect=AssertionError("must not read")):
+            with pytest.raises(ValueError, match="already consumed"):
+                inspect_experiment(path, tmp_path / "snapshots", raw, attempts=attempts)
+        assert {item.status for item in AttemptStore(attempts).histories()} == {
+            "failed",
+            "completed",
+            "rejected",
+        }
+        with pytest.raises(ValueError, match="match"):
+            replace(study, partition="validation")

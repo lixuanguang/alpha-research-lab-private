@@ -99,7 +99,8 @@ and fault injection. No `research/features` or `applications/features` exists ye
 the checkout. It imports every shipped API, checks package resources and identity
 scope, and runs the four existing commands with copied synthetic/saved inputs.
 It reuses ingestion/recovery consumers for acquisition resume, dataset admission,
-EDA, pinned mixed trade/book selection, fresh-process reopening and book replay;
+EDA, pinned mixed trade/book selection, retained unfitted studies, fresh-process
+identity/result reproduction and book replay;
 governance is absent from this installation. On macOS,
 `TMPDIR=/private/tmp make check` keeps Unix-domain socket paths within OS limits.
 
@@ -113,3 +114,12 @@ exact receipt cutoffs, controls, coverage, field/unit incompatibility and missin
 raw bytes. The installed handoff selects the configured `spot-comparison` job;
 synthetic HTTP and book messages establish software behavior only. No source access,
 empirical completeness or deployment qualification is asserted.
+
+The [experiment regressions](unit/research/test_experiments.py) use independent
+information/availability clocks for fitting admission, identity changes and
+holdout boundaries. The integration-marked process-death case calls
+[support/subprocesses/interrupt_attempt.py](support/subprocesses/interrupt_attempt.py)
+through a copied installed script; do not run that interruption inside pytest.
+The research-access tests also exercise a failed holdout read and refusal of a
+changed study before data access. The existing ingestion workflow now retains two
+completed executions of the same semantic study with identical result bytes.

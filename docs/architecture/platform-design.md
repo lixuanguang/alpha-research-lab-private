@@ -77,7 +77,7 @@ src/
     features/               CONDITIONAL: research transforms/state
     labels/                 CONDITIONAL: outcome generation and alignment
     models/                 CONDITIONAL: training, inference and evaluation
-    experiments/            FUTURE: attempts, splits, candidates and reports
+    experiments/            Attempts/splits; FUTURE: candidates and economic reports
   strategies/               FUTURE: contexts and decision rules
   simulation/               FUTURE: fills, costs and market mechanics
   accounting/               FUTURE: ledger, valuation, reconciliation
@@ -484,6 +484,17 @@ environment/toolchain identity, component versions, split rules, and random seed
 not identity. Failed or rejected trials that influence selection remain append-only, and the final holdout is frozen
 before evaluation.
 
+**Current attempt/split core:** `research.experiments` separates deterministic
+input identities from execution IDs, admits only then-available training rows,
+and retains explicit purge/embargo and no-fit policies. A local single-writer
+store preserves incomplete, failed, rejected and abandoned attempts; atomic
+completion contains the result bytes. Family holdouts are frozen and consumption
+is retained before access. `applications.explore.inspect_experiment` composes
+this core with the existing pinned selection reader for unfitted inspections.
+The [public contract](../../src/research/experiments/README.md) owns clocks,
+identity, retention, concurrency, recovery and supported evaluation boundaries.
+Fitted preprocessing/model consumers and candidate/economic reports remain planned.
+
 Research reports state the economic mechanism, falsifiable hypothesis, target, sign, horizon, universe, rebalance,
 benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.
 Once an exploratory result influences a candidate decision, it receives durable identity and provenance.
@@ -499,13 +510,13 @@ Research dataset assembly supplies explicit inputs over the existing query
 contracts. Fitted preprocessing is added with its first learned consumer;
 incremental execution only with a candidate that needs it. Label generation and
 alignment remain separate from prediction inputs. Shared attempt and temporal
-split/selection records arrive with the first formal comparison, without waiting
-for a backtest command. These contracts serve model-free studies and learned
-candidates alike.
+split records now support retained exploration before a backtest or model exists.
+These contracts serve model-free studies and future learned candidates alike.
 
 Reusable transforms belong to `research/features/`; labels to `research/labels/`;
 trainers/inference to `research/models/`; split/attempt/candidate records to
-`research/experiments/`. These future owners appear only with working consumers.
+`research/experiments/`. The attempt/split owner now serves exploration; the
+remaining future owners appear only with working consumers.
 Notebooks may explore local variants; formal retained and promoted results call
 the accepted versioned implementations. A candidate binds its inputs, definitions,
 parameters, split/fit identity and fitted state where applicable. Rejected

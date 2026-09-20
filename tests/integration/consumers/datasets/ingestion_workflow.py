@@ -22,7 +22,7 @@ from msgspec.structs import replace
 
 # project library imports
 import market_data
-from applications.explore import inspect_eda
+from applications.explore import inspect_eda, inspect_experiment
 from configuration import CaptureConfig, Configuration
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.sources import SourceAdapters
@@ -33,10 +33,12 @@ from market_data.storage import CaptureJournal, RawStore
 from market_data.validation import QualityPolicy
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import EligibilityAssertions
+from research.experiments import AttemptStore, TemporalSplit, TimeWindow
 from research.exploration import (
     BookResearchInput,
     BookSelection,
     EdaQuery,
+    ExplorationStudy,
     ResearchDataset,
     ResearchSelection,
     TradeResearchInput,
@@ -177,9 +179,29 @@ def main() -> None:
         )
         dataset = reopened["dataset"]
         assert isinstance(dataset, ResearchDataset)
+        attempt_history = inspect_experiment(
+            output / "study.json",
+            output / "snapshots",
+            RawStore(output / "raw"),
+            attempts=output / "attempts",
+        )
+        assert (
+            attempt_history.status == "completed"
+            and attempt_history.start.spec.split.fitting_rows() == ()
+        )
+        retained = AttemptStore(output / "attempts").histories()
+        assert len(retained) == 2
+        assert {item.start.run_identity for item in retained} == {
+            attempt_history.start.run_identity
+        }
+        assert retained[0].events[-1].result == retained[1].events[-1].result
         print(
             _CODEC.encode_json(
-                {"selection_identity": dataset.identity, "inputs": len(dataset.inputs)}
+                {
+                    "selection_identity": dataset.identity,
+                    "inputs": len(dataset.inputs),
+                    "run_identity": attempt_history.start.run_identity,
+                }
             ).decode()
         )
         return
@@ -401,11 +423,40 @@ def main() -> None:
     assert (
         sum(isinstance(row, BookMarketRow) for batch in native.batches for row in batch.rows) == 1
     )
+    study = ExplorationStudy(
+        family="saved-input-diagnostic",
+        question="Which saved values and coverage are available?",
+        selection=selection,
+        partition="validation",
+        split=TemporalSplit(
+            training=None,
+            fit_cutoff=None,
+            fit_mode="none",
+            samples=(),
+            validation=TimeWindow(start=query.start, end=query.end),
+            holdout=TimeWindow(start=query.end, end=query.end + (query.end - query.start)),
+            embargo_us=0,
+            rationale="Pure inspection has no fit, label or cross-window transform.",
+        ),
+    )
+    (output / "study.json").write_bytes(_CODEC.encode_json(study))
+    attempt = inspect_experiment(
+        output / "study.json", output / "snapshots", raw, attempts=output / "attempts"
+    )
+    assert attempt.status == "completed" and attempt.start.spec.split.fitting_rows() == ()
     reopened_records = fixture.command(
         [sys.executable, "-I", str(Path(__file__).resolve()), str(inputs), str(output), "--reopen"]
     )
-    assert reopened_records == [{"selection_identity": selection.identity, "inputs": 3}]
+    assert reopened_records == [
+        {
+            "selection_identity": selection.identity,
+            "inputs": 3,
+            "run_identity": attempt.start.run_identity,
+        }
+    ]
     result = {
+        "experiment_run_identity": attempt.start.run_identity,
+        "experiment_attempts": len(AttemptStore(output / "attempts").histories()),
         "selection_identity": selection.identity,
         "research_inputs": 3,
         "book_market_rows": 1,

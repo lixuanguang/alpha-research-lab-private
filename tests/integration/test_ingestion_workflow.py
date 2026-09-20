@@ -48,6 +48,7 @@ class TestIngestionWorkflow:
         summary = msgspec.json.decode(
             (tmp_path / "run/result.json").read_bytes(), type=dict[str, object]
         )
+        assert summary["experiment_attempts"] == 2 and summary["experiment_run_identity"]
         assert summary["research_inputs"] == 3 and summary["book_market_rows"] == 1
         assert summary["configured_job"] == "spot-comparison" and summary["selection_identity"]
         assert summary["partitions"] == 2 and summary["history_rows"] == 6

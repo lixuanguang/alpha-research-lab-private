@@ -11,7 +11,8 @@ acquisition, occurrence/revision admission, bitemporal eligibility selection,
 quality validation and atomic dataset publication/reopening are implemented.
 Native Bitfinex/OKX acquisition, dataset queries as of a cutoff and bounded book
 replay, bounded saved-snapshot discovery and pinned multi-input research selections
-are also available. Simulation, portfolio and risk enforcement, order
+are also available. Retained experiment attempts, temporal split admission and
+unfitted exploration studies are implemented. Simulation, portfolio and risk enforcement, order
 execution, deployment and live trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.
@@ -98,7 +99,11 @@ Current dependency direction is organized by functional owner:
 - `market_data/contracts/` owns neutral event/source records. Adapters, storage,
   validation, datasets, query and replay implement their respective capabilities
   through explicit public APIs and injected reader/verifier operations.
-- `research/exploration/` consumes admitted data for EDA. Future feature, model,
+- `research/experiments/` owns semantic identities, temporal split admission and
+  atomic attempt history. [Its contract](../../src/research/experiments/README.md)
+  defines the local writer and holdout boundaries.
+- `research/exploration/` consumes admitted data for EDA and retained unfitted studies.
+  Future feature, model,
   strategy, simulation and accounting owners are marked in the platform design.
 - `configuration/` resolves definitions and selections. `runtime/` and `telemetry/`
   supply identity, supervision and observations without importing applications.

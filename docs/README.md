@@ -7,7 +7,7 @@ event provenance, an authored reference catalog, bounded Tardis/Binance
 decoding, historical acquisition, saved-row reading, eligibility selection and
 validated dataset publication/reopening with explicit quality scope. Native
 Bitfinex and OKX order-book acquisition/replay, point-in-time trade queries and
-configured EDA are also available. Empirical causal dataset acceptance, reusable
+configured EDA, retained experiment attempts and temporal split admission are also available. Empirical causal dataset acceptance, reusable
 feature/model research, simulation, accounting, risk enforcement, execution and
 deployment remain future work. Start with the [QR implementation guide](../examples/README.md)
 for current notebooks and the full research-to-production journey, with planned
