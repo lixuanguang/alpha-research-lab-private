@@ -99,3 +99,67 @@ The SDK's missing PyPI source distribution is handled by the implemented,
 verified upstream source-archive admission rule. The native release restriction
 and shared-service qualification remain separate. See the
 [roadmap evidence and remaining work](../../../docs/roadmap/README.md#fitted-preprocessing-and-model-evaluation).
+
+## Serial installed research worker
+
+MR 6 adds the first explicit local worker consumer for
+[configured economics](../../../src/research/experiments/README.md#configured-economics-reports-and-serial-pipelines).
+The Compose stack still starts no workers. The separate
+[worker lock](worker/uv.lock) pins ClearML Agent 3.0.3 and its 12 macOS dependencies;
+`uv sync --frozen --project configs/development/clearml/worker` installs it outside
+the research environment. The agent and runtime both use CPython 3.14.7.
+
+The stable agent's upstream requirements cap Requests below 2.33 and Setuptools
+below 82. Those versions failed the local audit with CVE-2026-25645 and
+CVE-2026-59890. The worker's explicit uv overrides instead pin Requests 2.34.2 and
+Setuptools 83.0.0. This is an intentionally qualified local compatibility choice,
+not an upstream-supported constraint claim: `uv pip check` reports the original
+metadata bounds. The agent has its own vendored `pkg_resources` fallback. The
+patched lock passes `pip-audit`, and actual serial installed tasks exercise it.
+No audit finding is waived, and no unpinned install occurs during a task.
+
+The local agent uses Apache-2.0; Requests, virtualenv and distlib are Apache-2.0;
+certifi is MPL-2.0; psutil is BSD-3-Clause; idna is BSD-3-Clause;
+charset-normalizer, filelock, platformdirs, Setuptools and urllib3 are MIT.
+Its wheel includes upstream vendored notices. This service-tool lock is outside
+the runtime dependency admission graph, like the Compose server images; it is not
+an admitted release artifact. Keep its independent audit and actual execution
+record with the runtime evidence. Export/audit it explicitly with `uv export
+--frozen --project configs/development/clearml/worker --no-emit-project
+--output-file ...` then `pip-audit --requirement ... --disable-pip --no-deps`.
+
+Run exactly one foreground worker on a dedicated `alpha-research-local` queue
+with `--cpu-only`; do not enable Docker mode, dynamic workers or parallel services.
+Set the existing private SDK endpoints/credentials and
+`CLEARML_AGENT_SKIP_PYTHON_ENV_INSTALL=1`. Use a private `CLEARML_CONFIG_FILE` with
+explicit writable agent code/cache directories and a distinct `agent.worker_id`.
+The agent executes the handoff in its workspace, then the sole installed
+`alpha-backtest` command verifies the pinned runtime implementation/environment.
+It neither discovers dependencies nor installs the SDK into the research wheel.
+
+```sh
+configs/development/clearml/worker/.venv/bin/clearml-agent daemon \
+  --queue alpha-research-local --create-queue --foreground --cpu-only
+alpha-backtest pipeline --config "$RUN/configured.json" \
+  --tracking "$RUN/tracking.json" --inputs "$RUN" \
+  --attempts "$RUN/configured-attempts" --output "$RUN/pipelines" \
+  --wheel "$WHEEL" --max-bytes 2000000 --queue alpha-research-local
+```
+
+Retain the exact installed wheel supplied by `--wheel`; changed installed bytes
+or environment fail before a worker reads data. Caching and automatic retries
+are disabled. Selection/features precede economics/report with exact upstream
+attempt verification. Shared-store workflows serialize through MR 2's writer
+lock. Do not reset failed tasks to reuse IDs: start a fresh pipeline, preserving
+failed attempts and dependent non-completion. Publication recovery uses the
+existing attempt/task mapping through `alpha-backtest publish`.
+
+The [actual-agent acceptance consumer](../../../tests/integration/consumers/backtest/pipeline_workflow.py)
+runs three pipelines, compares CLI output manifests, removes one raw input to
+force a failed selection step, restores it for a fresh recovery, and edits a fresh
+server task's `Run/configuration` to exercise the same resolved-parameter path as
+UI overrides. A changed rule must produce both a changed run identity and changed
+economics. Pass retained configured output, a fresh acceptance output, and the
+exact wheel as its three arguments, with `ALPHA_CLEARML_LOCAL_ENV` pointing to the
+private local credentials. Stop the foreground agent with Ctrl-C when acceptance
+ends. This does not authorize unattended jobs, shared service or trading.

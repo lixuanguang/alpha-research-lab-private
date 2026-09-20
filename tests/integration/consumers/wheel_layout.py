@@ -1,4 +1,4 @@
-"""Exercise installed functional APIs, four commands and historical snapshots in isolation."""
+"""Exercise installed functional APIs, installed commands and historical snapshots in isolation."""
 
 from __future__ import annotations
 
@@ -160,7 +160,7 @@ def main() -> None:
         SavedCapture.read(capture, book_factory=BookAdapters.create).summary()
     )
     assert InstalledIdentity.sha256() != ImplementationIdentity.sha256()
-    print("Functional APIs, resources, four commands, recovery and historical snapshot verified.")
+    print("Installed APIs, commands, recovery and historical snapshot verified.")
 
 
 if __name__ == "__main__":

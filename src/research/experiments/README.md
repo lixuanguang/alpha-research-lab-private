@@ -10,7 +10,8 @@ The [research program](../../../docs/roadmap/research-program.md) owns methodolo
 delivery acceptance. The same application now retains
 [versioned feature/label diagnostics](../features/README.md) through `FeatureStudy`.
 The [model workflow](../models/README.md) now consumes these retained boundaries.
-Economic reports, candidate promotion and deployment remain separate future work.
+Configured economic reports and local serial pipelines are implemented below. Candidate
+promotion and deployment remain separate future work.
 
 ## Reproducible inputs and execution attempts
 
@@ -150,7 +151,7 @@ trade summaries, split identity and explicit fitting inapplicability. Native boo
 values, source/quality evidence and missingness are retained; no implicit join,
 forward fill, currency conversion or numerical approximation is introduced.
 Complete output is materialized in memory; input byte ceilings are not an RSS
-limit. Large artifact/report storage remains later work.
+limit. Large-study scaling remains later work.
 
 The consumer starts a retained attempt after strict configuration/identity
 validation and before snapshot reads. Malformed or oversized configuration, an
@@ -191,7 +192,7 @@ append-only `clearml-failure-*` metadata, while successful local state survives.
 consumes another holdout. An incomplete attempt requires explicit abandonment.
 
 The adapter uses pinned ClearML 2.1.12 `Task.create` with repository discovery,
-requirements discovery and instrumentation injection disabled. It never calls
+requirements discovery and instrumentation injection disabled. The publication adapter never calls
 `Task.init`, enables framework/argument/stream/resource capture, scans credentials,
 or treats SDK task reuse as a new execution. Only the explicit non-secret retained
 manifest, typed artifacts and searchable outcome/selection parameters are sent.
@@ -218,5 +219,86 @@ store and no concurrent external writer creating the same execution names.
 
 The [local Docker setup](../../../configs/development/clearml/README.md) owns
 server start/stop and backup instructions. Local integration proves the selected
-self-hosted SDK boundary; it does not qualify a shared service, add ClearML agents
-or pipelines, or clear the repository's artifact-release restriction.
+self-hosted SDK boundary; it does not qualify a shared service or clear the repository's artifact-release
+restriction. The separately pinned local agent below executes configured research.
+
+## Configured economics, reports and serial pipelines
+
+`BacktestRun` is the strict, bounded JSON contract for the installed
+`alpha-backtest` command in `applications.backtest`. It selects an existing
+snapshot, `BacktestSpec`, explicit benchmark and `ReportPolicy`, optional existing
+`TrailingReturn` diagnostic, and a no-fit validation split. Unknown fields, rules,
+unaligned benchmark periods and holdout/fitting configurations fail before work.
+This first economic rule needs no model construction, labels or learned state.
+The feature snapshot is a causal diagnostic; it does not substitute a different
+formula into the reviewed completed-price rule.
+
+The [installed acceptance consumer](../../../tests/integration/consumers/backtest/economic_workflow.py)
+creates `configured.json`, `tracking.json`, `raw/`, `snapshots/`, and attempt
+stores from explicit synthetic fixtures. With those files retained at `$RUN`:
+
+```sh
+alpha-backtest run --config "$RUN/configured.json" \
+  --snapshots "$RUN/snapshots" --raw "$RUN/raw" \
+  --attempts "$RUN/configured-attempts" --tracking "$RUN/tracking.json" \
+  --max-bytes 2000000
+alpha-backtest export --attempts "$RUN/configured-attempts" \
+  --attempt-id "$ATTEMPT" --output "$RUN/report.html"
+alpha-backtest publish --attempts "$RUN/configured-attempts" \
+  --attempt-id "$ATTEMPT" --tracking "$RUN/tracking.json"
+```
+
+The tracking destination is mandatory; credentials remain in private SDK
+configuration. Exit codes are 0 for acknowledged success, 2 for invalid inputs,
+4 for execution/publication failure, and 130 for interruption. Local terminal
+history is authoritative even when external publication fails. `publish` retries
+that attempt's existing mapping without rerunning economics. The command never
+implicitly downloads a source or benchmark.
+
+Add `--stop-at 2024-06-01T00:02:00Z` to retain a full checkpoint in an abandoned
+attempt. `alpha-backtest checkpoint --attempts ... --attempt-id ... --output ...`
+exports it; `run --resume ...` starts a new attempt. Full configuration, installed
+code and environment identities must agree. A changed rule, report assumption,
+split or data version invalidates resumption. Output locations do not affect
+semantic identity. Retain the exact wheel and lock alongside attempts.
+
+Every successful run commits the resolved configuration, verified research
+inputs, derived features, exact economic reference/trace, report inputs, typed
+report and self-contained HTML before writing its completed result manifest.
+`ResultManifest.read` rechecks every referenced digest. Atomic exports refuse
+replacement with different bytes. Interrupted publication may leave staged or
+partial artifacts, but no completed result. Original failed attempts stay failed.
+
+QuantStats 0.0.81 receives only retained net simple returns and the explicitly
+aligned benchmark. Initial wealth is anchored at one, including before the first
+loss. Independent `+10%, -20%, +25%` periods compound to `+10%` with a `-20%`
+peak-to-trough drawdown. Exact terminal return, turnover divided by initial cash,
+fees, adverse slippage, NAV and P&L remain ledger-derived. Approximate QuantStats
+return must match exact return within `1e-12` absolute/relative tolerance.
+Drawdown and maximum exposure use scheduled valuation closes; they cannot claim
+intraperiod extrema. Counts describe winning/losing/flat **periods**, never trades.
+Missing valuations and quality reasons stay visible; missing adjacent returns
+withhold aggregate sampled return, benchmark, drawdown and maximum exposure.
+Cadence, annualization, risk-free assumption, UTC timezone and missing policy are
+retained. This slice does not estimate Sharpe or annualized performance.
+
+`prepare` selects and verifies the existing dataset and optional features.
+`pipeline` composes that step followed by the same complete economics/report
+workflow, using a dedicated serial local ClearML agent. It captures the actual
+installed implementation/environment and verifies owned bytes against an explicit
+wheel. Agent scripts only hand off to this installed command; requirements
+inference, caches and automatic retries are disabled. Each execution has fresh
+controller/step task IDs and attempt IDs. Steps retain their controller/task links,
+actual server-resolved `Run/configuration`, exact upstream attempt result and
+configuration/feature bytes. A downstream configuration mismatch fails visibly.
+To override a shared input in the UI, change both step configurations consistently
+before dispatch; the resulting semantic identities change. A failed step prevents
+dependent completion. A fresh pipeline is recovery, preserving the first failure.
+
+See the [local agent guide](../../../configs/development/clearml/README.md#serial-installed-research-worker)
+and [lakeFS guide](../../../configs/development/lakefs/README.md) for the explicitly
+bounded service fixtures. Model/report artifacts remain in ClearML; lakeFS pins
+only dataset/source and derived feature bytes. New storage commits never replace
+market availability clocks. No shared-service, deployment or trading authority is
+added. Revert command/owners, lock/admission, stubs and tests together; retain old
+attempts, matching wheels, data versions and private service backups for replay.

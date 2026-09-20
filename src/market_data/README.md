@@ -1428,3 +1428,16 @@ saved input available for diagnosis and never reports canonical success. Canonic
 prefix retention shares the configured byte cap and fails explicitly if exceeded.
 
 No source/format gains complete coverage, executable use or derivative mechanics.
+
+
+## Pinned external dataset versions
+
+The `market_data.storage` API now resolves lakeFS branch/tag references to immutable
+`DatasetVersion` records covering saved raw, dataset and derived feature bytes.
+`LakeFSStorage` verifies lengths/digests and materializes an explicit bounded cache
+for the existing readers. It does not translate storage commit clocks into market
+knowledge time, relax source admission, or change snapshot identities. The first
+installed consumer is `alpha-backtest`; see the [local versioning, retention and
+restore guide](../../configs/development/lakefs/README.md). Model/report artifacts
+remain separate in ClearML. This is synthetic local integration, not shared storage
+or deployment qualification.

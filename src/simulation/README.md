@@ -33,8 +33,10 @@ The same path is exercised for BTC and ETH without asset-specific code.
 | `accounting` | Post identified fills exactly once; retain cash, position, rational basis/P&L and both gross-to-net reconciliations |
 | `applications.backtest` | Resolve reviewed rules and compose collaborators; retain/publish formal comparisons through existing experiment APIs |
 
-These owners expose one curated `__init__.py` API each. There is no new command;
-MR 6 owns configured command execution, atomic report publication and pipelines.
+These owners expose one curated `__init__.py` API each. The sole installed
+`alpha-backtest` application command now exposes configured execution, atomic
+report publication and local serial pipelines through the
+[experiment owner](../research/experiments/README.md#configured-economics-reports-and-serial-pipelines).
 The current installed Python workflow is the application consumer, not a library
 runner or a second implementation of chronological replay.
 
@@ -141,5 +143,5 @@ pending checkpoint in a fresh process.
 Revert the owners, application, package inventory, lock/admission records and
 consumer tests together. Preserve retained results/checkpoints and ClearML tasks
 as historical evidence. An older wheel must not resume the new checkpoint schema.
-Existing query APIs, snapshots and four commands retain their contracts. There is
+Existing query APIs, snapshots and previously installed commands retain their contracts. There is
 no deployment, account state or trading activity to reverse.

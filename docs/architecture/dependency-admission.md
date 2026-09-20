@@ -164,3 +164,22 @@ This admission serves the bounded development/research consumer. QuantLib's
 pre-existing unresolved source-to-wheel binding still blocks release use of the
 whole graph. No deployed service, executable venue dependency or trading
 permission is introduced by the adapter.
+
+
+## Configured-report dependency admission
+
+The frozen runtime adds QuantStats 0.0.81 (Apache-2.0) and lakefs-sdk 1.86.0
+(Apache-2.0) with 15 newly admitted transitive packages. QuantStats receives only
+explicit retained returns and benchmark bytes; its transitive yfinance installation
+is not a source-selection or automatic-download capability of this platform.
+
+`MIT-0` identifies cffi 2.1.1. `LicenseRef-Lxml-Bundled` identifies the exact notices
+in lxml 6.1.3's wheel `licenses/LICENSES.txt`, SHA-256
+`388fa99f3bde4447cd5a4cbb114037be026854db6cfe89e112691c1d8abdcf3c`.
+Those notices cover BSD/PSF/ElementTree and ISO/XSL resources, bundled zlib,
+LGPL-2.1 iconv, and MIT libxml2/libxslt/libexslt; retain them with the wheel.
+This names a concrete bundle rather than treating all its files as BSD.
+The existing source, artifact hash, platform-wheel and vulnerability checks apply;
+no new native wheel-only allowance is added. Peewee is a pure-Python wheel in
+this lock. The independently locked local worker and synthetic service images are
+recorded in their development guides, outside the runtime release graph.

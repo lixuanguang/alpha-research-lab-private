@@ -105,6 +105,7 @@ class TestPackageDefinitionContracts:
         assert "alpha-research-governance==0.1.0" in development_dependencies
         runtime_scripts = _require_table(runtime_project, "scripts")
         assert runtime_scripts == {
+            "alpha-backtest": "applications.backtest:main",
             "alpha-acquire": "applications.acquire:main",
             "alpha-collect": "applications.collect:main",
             "alpha-dataset": "applications.publish_dataset:main",
@@ -115,6 +116,7 @@ class TestPackageDefinitionContracts:
             for entry in importlib.metadata.distribution("alpha-research-lab").entry_points
         }
         assert installed_commands == {
+            "alpha-backtest",
             "alpha-acquire",
             "alpha-collect",
             "alpha-dataset",

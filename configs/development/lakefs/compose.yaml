@@ -1,0 +1,28 @@
+name: alpha-lakefs-local
+services:
+  initialize:
+    image: treeverse/lakefs:1.86.0@sha256:fb7a0d90f77e3f893e8b8c6f3be131c090f6f0160c2d6c7784c4378cf7e66ea1
+    user: "0:0"
+    entrypoint: ["chown", "100:101", "/data"]
+    volumes:
+      - retained:/data
+  lakefs:
+    image: treeverse/lakefs:1.86.0@sha256:fb7a0d90f77e3f893e8b8c6f3be131c090f6f0160c2d6c7784c4378cf7e66ea1
+    command: ["run"]
+    depends_on:
+      initialize:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:18000:8000"
+    environment:
+      LAKEFS_DATABASE_TYPE: local
+      LAKEFS_DATABASE_LOCAL_PATH: /data/metadata
+      LAKEFS_BLOCKSTORE_TYPE: local
+      LAKEFS_BLOCKSTORE_LOCAL_PATH: /data/objects
+      LAKEFS_AUTH_ENCRYPT_SECRET_KEY: ${LAKEFS_LOCAL_ENCRYPTION_KEY:?private local encryption key required}
+      LAKEFS_STATS_ENABLED: "false"
+      LAKEFS_LOGGING_LEVEL: WARN
+    volumes:
+      - retained:/data
+volumes:
+  retained:

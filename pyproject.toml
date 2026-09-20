@@ -12,16 +12,19 @@ classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "clearml==2.1.12",
     "exchange-calendars==4.13.2",
+    "lakefs-sdk==1.86.0",
     "msgspec==0.21.1",
     "pandas==3.0.5",
     "pandera[pandas]==0.33.1",
     "pydantic==2.13.5",
     "QuantLib==1.43",
+    "quantstats==0.0.81",
     "vectorbt==1.1.0",
     "websockets==16.0",
 ]
 
 [project.scripts]
+alpha-backtest = "applications.backtest:main"
 alpha-collect = "applications.collect:main"
 alpha-acquire = "applications.acquire:main"
 alpha-dataset = "applications.publish_dataset:main"
