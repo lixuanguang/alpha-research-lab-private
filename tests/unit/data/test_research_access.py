@@ -25,7 +25,13 @@ from market_data.datasets import BookInput, DatasetPublication, SnapshotCatalog
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader, QueryMarketRow
 from market_data.storage import CaptureJournal, RawFiles, RawStore
 from market_data.validation import QualityPolicy
-from research.experiments import AttemptStore, TemporalSplit, TimeWindow
+from research.experiments import (
+    AttemptStore,
+    ClearMLDestination,
+    ClearMLPublication,
+    TemporalSplit,
+    TimeWindow,
+)
 from research.exploration import (
     BookResearchInput,
     BookSelection,
@@ -392,7 +398,10 @@ class TestResearchAccess:
             )
         assert self._reader(tmp_path).read(selection).identity == selection.identity
 
-    def test_retained_study_failure_consumes_holdout_before_read(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("is_tracked", [False, True])
+    def test_retained_study_failure_consumes_holdout_before_read(
+        self, tmp_path: Path, is_tracked: bool
+    ) -> None:
         """Persist failed reads and refuse changed final evaluation before exposing any values."""
         selection = self._selection(tmp_path)
         window = TimeWindow(start=_START, end=_START + timedelta(days=2))
@@ -428,17 +437,35 @@ class TestResearchAccess:
         path.write_bytes(_CODEC.encode_json(study))
         attempts = tmp_path / "attempts"
         raw = RawStore(tmp_path / "raw")
-        with pytest.raises(OSError):
-            inspect_experiment(path, tmp_path / "missing", raw, attempts=attempts)
-        history = AttemptStore(attempts).histories()[0]
-        assert history.status == "failed" and history.events[0].status == "holdout_consumed"
-        repeated = inspect_experiment(path, tmp_path / "snapshots", raw, attempts=attempts)
-        assert repeated.status == "completed"
-        assert repeated.start.run_identity == history.start.run_identity
-        path.write_bytes(_CODEC.encode_json(replace(study, question="A tuned question")))
-        with patch.object(ResearchReader, "read", side_effect=AssertionError("must not read")):
-            with pytest.raises(ValueError, match="already consumed"):
-                inspect_experiment(path, tmp_path / "snapshots", raw, attempts=attempts)
+        tracking = (
+            ClearMLDestination(
+                project="unit", api_uri="http://127.0.0.1:18008", files_uri="http://127.0.0.1:18081"
+            )
+            if is_tracked
+            else None
+        )
+        with patch.object(ClearMLPublication, "publish") as publish:
+            with pytest.raises(OSError):
+                inspect_experiment(
+                    path, tmp_path / "missing", raw, attempts=attempts, tracking=tracking
+                )
+            history = AttemptStore(attempts).histories()[0]
+            assert history.status == "failed" and history.events[0].status == "holdout_consumed"
+            repeated = inspect_experiment(
+                path, tmp_path / "snapshots", raw, attempts=attempts, tracking=tracking
+            )
+            assert repeated.status == "completed"
+            assert repeated.start.run_identity == history.start.run_identity
+            path.write_bytes(_CODEC.encode_json(replace(study, question="A tuned question")))
+            with patch.object(ResearchReader, "read", side_effect=AssertionError("must not read")):
+                with pytest.raises(ValueError, match="already consumed"):
+                    inspect_experiment(
+                        path, tmp_path / "snapshots", raw, attempts=attempts, tracking=tracking
+                    )
+            assert publish.call_count == (3 if is_tracked else 0)
+        store = AttemptStore(attempts)
+        for record in store.histories():
+            assert ("clearml-destination" in store.artifacts(record.start.attempt_id)) == is_tracked
         assert {item.status for item in AttemptStore(attempts).histories()} == {
             "failed",
             "completed",

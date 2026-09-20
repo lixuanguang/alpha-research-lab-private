@@ -18,7 +18,13 @@ import msgspec
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryBatch, QueryReader
 from market_data.storage import RawStore
-from research.experiments import AttemptHistory, AttemptStore, ExperimentSpec
+from research.experiments import (
+    AttemptHistory,
+    AttemptStore,
+    ClearMLDestination,
+    ClearMLPublication,
+    ExperimentSpec,
+)
 from research.exploration import (
     EdaQuery,
     ExplorationStudy,
@@ -154,6 +160,7 @@ def inspect_experiment(
     raw: RawStore,
     *,
     attempts: Path,
+    tracking: ClearMLDestination | None = None,
 ) -> AttemptHistory:
     """Retain a pinned exploration study and its complete evidence through the attempt core.
 
@@ -162,6 +169,8 @@ def inspect_experiment(
         snapshots: Existing immutable snapshot root; missing inputs fail the retained attempt.
         raw: Retained originals required for snapshot admission.
         attempts: Local retained single-writer root containing the complete family history.
+        tracking: Explicit ClearML destination for formal tracked invocations; omitted for
+            compatibility with existing local exploratory consumers.
 
     Returns:
         Completed history containing encoded dataset, summaries and explicit no-fit status.
@@ -189,12 +198,25 @@ def inspect_experiment(
         environment=ExperimentSpec.installed_environment(),
     )
     with AttemptStore(attempts) as store:
-        start = store.start(
-            spec,
-            at=datetime.now(UTC),
-            invocation=f"inspect_experiment(config={config!s}, snapshots={snapshots!s})",
-            request=payload,
-        )
+        publication = None if tracking is None else ClearMLPublication(store, tracking)
+        before = {history.start.attempt_id for history in store.histories()}
+        try:
+            start = store.start(
+                spec,
+                at=datetime.now(UTC),
+                invocation=f"inspect_experiment(config={config!s}, snapshots={snapshots!s})",
+                request=payload,
+            )
+        except ValueError:
+            # The store retains a changed-holdout rejection before raising.
+            if publication is not None:
+                for history in store.histories():
+                    if history.start.attempt_id not in before:
+                        publication.enqueue(history.start.attempt_id)
+                        publication.publish(history.start.attempt_id)
+            raise
+        if publication is not None:
+            publication.enqueue(start.attempt_id)
         try:
             if study.partition == "holdout":
                 try:
@@ -226,7 +248,7 @@ def inspect_experiment(
                         "split_identity": study.split.identity,
                     }
                 )
-            return store.finish(
+            completed = store.finish(
                 start.attempt_id,
                 status="completed",
                 at=datetime.now(UTC),
@@ -239,8 +261,13 @@ def inspect_experiment(
             if store.read(start.attempt_id).status == "incomplete":
                 store.finish(
                     start.attempt_id,
-                    status="failed",
+                    status="abandoned" if isinstance(error, KeyboardInterrupt) else "failed",
                     at=datetime.now(UTC),
                     reason=f"{type(error).__name__}: {error}",
                 )
+            if publication is not None:
+                publication.publish(start.attempt_id)
             raise
+        if publication is not None:
+            publication.publish(start.attempt_id)
+        return completed

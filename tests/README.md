@@ -36,7 +36,7 @@ Run from the repository root:
 # All correctness tests, including integration cases; excludes performance cases.
 make test
 
-# Installed acquisition/resume/publication/EDA and feature/label workflows.
+# Installed acquisition/resume/publication/EDA and feature/label/model workflows.
 uv run --frozen --no-editable pytest -q -m integration tests/integration/test_ingestion_workflow.py
 
 # Existing component integration cases as well as workflow integration tests.
@@ -73,7 +73,7 @@ output-directory argument.
 | `publish_snapshot.py` | Dataset inputs plus `support/subprocesses/interrupt_snapshot.py` |
 | `dataset_command.py` | Dataset inputs plus `support/subprocesses/interrupt_command.py` |
 | `ingestion_workflow.py` | Dataset inputs, `support/subprocesses/interrupt_command.py`, and `configs/live/okx-btc-usdt.json` |
-| `research/feature_study.py` | Archive dataset inputs plus `fixtures/eligibility/membership-corrections.json`; no network |
+| `research/feature_study.py` | Archive dataset inputs plus `fixtures/eligibility/membership-corrections.json`; network only with explicit local ClearML selection |
 | `eda_consumer.py` | Query inputs plus `fixtures/instruments/contract.json` |
 | `replay_consumer.py` | `fixtures/replay/canonical.json`, `configs/data-jobs/fixture-inspection.json`, `configs/reference/binance-spot.json` |
 
@@ -126,3 +126,16 @@ through a copied installed script; do not run that interruption inside pytest.
 The research-access tests also exercise a failed holdout read and refusal of a
 changed study before data access. The existing ingestion workflow now retains two
 completed executions of the same semantic study with identical result bytes.
+
+The [model tests](unit/research/test_models.py) independently specify `y=2x+1`,
+exact reload/prediction and squared error, held-out/future perturbations, late and
+missing labels, singular designs, invalid state/signatures, walk-forward version
+availability, failed holdout retention and Pandera rejection without coercion.
+The existing feature-study installed consumer additionally constructs/reloads models,
+retains usable rejected states and reopens an attempt backup in a fresh process.
+Without `ALPHA_CLEARML_LOCAL_ENV` it injects an unavailable transport and proves
+only the retained local behavior. Setting that variable to the private local env
+file enables actual task/artifact/model uploads, failure/abandonment, a lost-receipt
+retry and server receipt assertions. See the [local server runbook](../configs/development/clearml/README.md).
+Docker server volumes and credentials are external to CI; no live-server pass is
+inferred from the ordinary synthetic wheel smoke.

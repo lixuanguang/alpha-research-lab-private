@@ -10,8 +10,11 @@ readme = "docs/README.md"
 requires-python = "==3.14.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
+    "clearml==2.1.12",
     "exchange-calendars==4.13.2",
     "msgspec==0.21.1",
+    "pandas==3.0.5",
+    "pandera[pandas]==0.33.1",
     "pydantic==2.13.5",
     "QuantLib==1.43",
     "websockets==16.0",

@@ -45,6 +45,26 @@ or remove the dependency, imports, lock entries and affected tests together,
 before enabling release use. Native adapter conformance tests and exact domain
 goldens remain behavioral checks, not provenance verification.
 
+## ClearML development admission pending
+
+Status: **blocked**, 2026-09-20. The model/tracking implementation pins the
+ClearML SDK 2.1.12 and Pandera 0.33.1, with pandas 3.0.5 now a direct dependency.
+The frozen graph has 88 external packages. Exact licenses include the permissive
+Unlicense and MIT-CMU expressions; no source or vulnerability requirement changes.
+ClearML publishes a wheel but no PyPI source distribution, so ordinary admission
+fails with `clearml lacks a digest-bound source distribution`. It is not a native
+package and has no wheel-only allowance. The MR remains incomplete and cannot
+merge under the current gate.
+
+A local investigation compared all 283 installed ClearML runtime files against
+upstream commit `559467f550c0d23dc3506ee551386c3b59e6b091` (tag `v2.1.12`): every file
+matched. The downloaded upstream archive SHA-256 was
+`56fabf73b333d28c6bd6cf031215aa8ae387746b7088f08f5a54b89a4c98f7fa`.
+This one-time comparison is **not** an implemented admission contract or a
+publisher/build attestation. An explicit decision and enforced, tested alternative
+source-archive rule are still required; no alternate source record has been
+silently admitted. The existing QuantLib release restriction remains unchanged.
+
 ## First deployment dependency decision
 
 Status: planned deployment dependency decision, 2026-09-14; the current release block is unchanged.

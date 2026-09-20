@@ -307,6 +307,67 @@ class AttemptStore:
             self.read(path.parent.name) for path in sorted(self._root.glob("*/start.json"))
         )
 
+    def retain(self, attempt_id: str, name: str, payload: bytes) -> str:
+        """Retain immutable supplemental bytes, including usable rejected model states.
+
+        Args:
+            attempt_id: Existing execution, including a terminal execution during publication.
+            name: Lowercase artifact name containing only letters, digits and hyphens.
+            payload: Complete artifact bytes; identical retries are idempotent.
+
+        Returns:
+            SHA-256 of the retained bytes, verified on an identical retry.
+
+        Raises:
+            ValueError: Name/payload is invalid or an existing artifact differs.
+            RuntimeError: This process does not own the writer.
+        """
+        self._require_writer()
+        self.read(attempt_id)
+        path = self._artifact_path(attempt_id, name)
+        if type(payload) is not bytes or not payload:
+            raise ValueError("artifact requires nonempty bytes")
+        if path.exists():
+            if path.read_bytes() != payload:
+                raise ValueError("retained artifact cannot be replaced")
+        else:
+            self._publish(path, payload)
+        return hashlib.sha256(payload).hexdigest()
+
+    def artifact(self, attempt_id: str, name: str) -> bytes:
+        """Read supplemental bytes without changing execution or holdout history.
+
+        Args:
+            attempt_id: Existing execution identity.
+            name: Retained artifact name.
+
+        Returns:
+            Original bytes; the consuming manifest verifies their digest and schema.
+        """
+        self.read(attempt_id)
+        return self._artifact_path(attempt_id, name).read_bytes()
+
+    def artifacts(self, attempt_id: str) -> tuple[str, ...]:
+        """List committed supplemental artifacts, excluding incomplete staging files.
+
+        Args:
+            attempt_id: Existing execution identity.
+
+        Returns:
+            Sorted artifact names.
+        """
+        self.read(attempt_id)
+        return tuple(
+            path.name.removeprefix("artifact-").removesuffix(".bin")
+            for path in sorted((self._root / attempt_id).glob("artifact-*.bin"))
+        )
+
+    def _artifact_path(self, attempt_id: str, name: str) -> Path:
+        """Keep supplemental records within the already validated attempt directory."""
+        if type(name) is not str or re.fullmatch(r"[a-z][a-z0-9-]{0,127}", name) is None:
+            raise ValueError("invalid retained artifact name")
+        return self._root / attempt_id / f"artifact-{name}.bin"
+
     def _family_path(self, family: str) -> Path:
         """Use a path-independent digest for the immutable final holdout declaration."""
         return self._root / f"family-{hashlib.sha256(family.encode()).hexdigest()}.json"
