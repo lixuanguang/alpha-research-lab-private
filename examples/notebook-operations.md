@@ -56,8 +56,8 @@ protected research outputs. Keep retrievable permitted raw/output references.
 ## Before executing
 
 Use the pinned project interpreter and installed candidate, from the repository
-root or `examples/`. The two offline versions default to synthetic local fixtures and
-installed subprocess consumers. No venue connection, archive download, account
+root or `examples/`. The two offline versions default to synthetic local fixtures, installed research/economic
+APIs and installed subprocess consumers through MR 5. No venue connection, archive download, account
 or credential is needed. The engineer's health exercise uses a temporary local
 syslog socket and intentionally stops its own synthetic child collectors.
 
@@ -73,7 +73,7 @@ export ALPHA_RESEARCH_DATASET_DIRECTORY='/absolute/path/to/retained-study'
 
 Unset that variable for the default synthetic lesson. A supplied missing, invalid
 or corrupt selection fails without fallback. Reports are written only to the
-notebook's separate temporary workspace; the supplied study is read. The default
+notebook's separate ignored artifact directory; the supplied study is read. The default
 small entry/byte bounds must be reviewed for a larger intended study. Batch size
 limits delivered rows, not total memory.
 
@@ -221,6 +221,67 @@ the checkout before interpreting any result.
 
 No new project runtime dependencies or `sys.path` changes are needed.
 
+## Retained research and economic studies
+
+Offline notebooks now create an exclusive directory under
+`examples/runs/<notebook-name>/<attempt-id>-artifacts/`. Rerunning setup in the same
+runner attempt refuses to overwrite it. Inputs, configs, attempt roots, model bytes,
+economic results/checkpoints and diagnostic child logs remain available after kernel
+shutdown, including failed attempts. The runner's separate executed `.ipynb` records
+source/runtime identities and failure/success. Neither location is a backed-up journal;
+copy the whole relevant directory before using it as durable research evidence.
+
+For the QR-to-QD handoff, copy the exact `price-study` path printed by the researcher
+notebook and select it explicitly before running the developer notebook:
+
+```sh
+export ALPHA_RESEARCH_STUDY_DIRECTORY='/absolute/path/to/printed/price-study'
+uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/infrastructure-diagnostics.ipynb
+```
+
+The developer reads the complete retained study without writing to it. It verifies
+selected raw/snapshot bytes, pinned model manifests and feature results, reproduces
+exact validation without fitting, and compares whole/resumed economics to saved
+results. Missing or incompatible inputs fail without fallback. With the variable
+unset, this user-artifact section reports `SKIPPED`; the installed synthetic
+feature/model and economic consumers still execute.
+
+The QR notebook first inspects the original synthetic mixed input or your explicitly
+selected saved study. Its subsequent six-minute trade tutorial always creates a
+**separate synthetic study**, with authored availability and the same saved snapshot
+feeding features, models and fixed-rule economics. It never silently runs the synthetic
+result against your supplied data or repairs missing real availability. Live book
+notebooks retain their source behavior and direct readers to this boundary; a book
+selection cannot feed the current trade-only feature/backtest APIs.
+
+Model fitting and validation are disjoint by complete information interval, not just
+decision timestamp. The model comparison uses a fixed software threshold, and the
+backtest uses MR 5's supported no-trade/momentum policies; no model-to-order adapter
+is invented. The synthetic momentum loss is an expected reconciled result.
+
+### Optional actual ClearML publication
+
+Default offline QR execution injects a specifically named unavailable-publication
+exception at `ClearMLPublication.publish` after the real application retains its
+model/economic outcome. It inspects terminal status and preserves the recoverable
+outbox. This is explicit software failure evidence, **not** successful SDK publication.
+The developer notebook similarly clears `ALPHA_CLEARML_LOCAL_ENV` from its consumer
+subprocesses so shell test credentials cannot silently turn diagnostics into service calls.
+
+For deliberate real QR publication, configure the SDK externally and set
+`ALPHA_NOTEBOOK_TRACKING_CONFIG` to a non-secret `ClearMLDestination` JSON, for example:
+
+```json
+{"project":"notebook-research","api_uri":"http://127.0.0.1:18008","files_uri":"http://127.0.0.1:18081"}
+```
+
+Use the [local tracking guide](../configs/development/clearml/README.md) for credentials
+and service setup; the notebook never starts a server. A supplied invalid config or
+publication failure propagates without offline fallback. Retry an interrupted outbox
+with `applications.explore.publish_experiments(attempts)` using the saved complete
+attempt root, rather than refitting or rerunning the economy. Do not put SDK secrets
+in configuration cells, maintained outputs or manifests.
+
 ## Interactive kernel and import repair
 
 The kernel requires `ipykernel` and the installed runtime package. The notebooks
@@ -250,10 +311,13 @@ session recovery and independent health supervision using the existing consumers
 Its final interpretation maps failures to functional owners and focused commands;
 it is not a replacement for the hosted validation lane.
 
-A replay cursor binds source identity and progress. Stateful consumers must also
-retain their own state and pending schedules. Collector recovery preserves unknown
-gaps and requires fresh source synchronization. None of those checks qualifies
-strategy accounting, external source coverage or deployed incident response.
+A replay cursor binds source identity and progress. The separate economic consumer
+retains observations, pending intent/reservation, schedules, applied fills and ledger
+in `EconomicCheckpoint`; its fresh-process result must equal uninterrupted execution.
+The feature/model consumer verifies exact state reload and an intact attempt-store
+backup. Collector recovery still preserves unknown gaps and requires fresh source
+synchronization. Synthetic economics does not qualify external source coverage,
+executable liquidity, production account recovery or deployed incident response.
 
 ## Query workload evidence
 

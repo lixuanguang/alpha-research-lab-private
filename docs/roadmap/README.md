@@ -594,6 +594,36 @@ Implementation, 2026-09-20, from main `ff4e1f4`:
   count and macOS's Unix socket temporary-path length. Updating the expected count
   and selecting a short temporary root produced the successful complete run above.
 
+Notebook integration, 2026-09-20: the existing [QR workflow](../../examples/research-foundations.ipynb)
+now executes one saved synthetic trade study through retained feature/label attempts,
+train-only and configured model comparison, exact model reload, no-trade/momentum
+economics, complete checkpoint resume and bounded vectorbt comparison. Fitted models
+and fixed trading rules remain separate consumers of that input. The
+[developer workflow](../../examples/infrastructure-diagnostics.ipynb) runs the installed
+feature/model and economic consumers and can reopen the QR's actual retained directory
+for exact model evaluation and whole/resumed economic reproduction. Both use existing
+public libraries and applications; no runtime, runner or dependency changes were needed.
+
+Fresh-kernel QR execution passed **17 code cells**; developer execution with the saved
+QR handoff passed **15 code cells**. Four notebooks passed Ruff/format checks; local
+links passed for both guides and all four notebook narratives. Real tracking was
+explicitly skipped in favor of a named offline publication-failure fixture, with
+completed local results and pending outboxes retained. The optional saved-capture
+diagnostic was skipped. Live executable cells are unchanged and were not rerun;
+their updated prose identifies the trade-input prerequisite without upgrading book
+data to economic evidence. Historical live outputs were cleared instead of claiming
+a new live run. Failed notebook attempts (overlapping sample information intervals,
+then an unsupported generic decoder call in the handoff) remain retained alongside
+the corrected successful runs under ignored `examples/runs/`. The
+[operations guide](../../examples/notebook-operations.md#retained-research-and-economic-studies)
+owns exact commands, saved artifacts, optional tracking and the QR-to-QD selector.
+`TMPDIR=/private/tmp make check` also passed: **1,146 tests / 3 performance cases
+deselected**, strict source/dependency/security checks and isolated installed-wheel
+verification. Final source matches the executed notebook code; the QR notebook's
+execution metadata discloses a subsequent retention-wording clarification only.
+The successful and failed artifacts were preserved in the original checkout's
+ignored `examples/runs/`, with logs under `logs/notebook-acceptance/2026-09-20/`.
+
 Remaining boundaries: MR 6 configured command, atomic reports and pipelines; MR 8
 actual source/eligibility/coverage and empirical baseline acceptance; MR 11 release
 qualification. vectorbt excludes gaps, missing observations, available revision
