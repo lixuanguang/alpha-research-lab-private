@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 # third party library imports
 import pytest
@@ -26,8 +27,10 @@ from alpha_research_governance.dependency_admission.policy import (
     _python_lock_findings,
     _runtime_install_findings,
 )
+from alpha_research_governance.dependency_admission.source_archives import SourceArchiveVerifier
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
+
 POLICY_PATH = REPOSITORY_ROOT / "docs/architecture/dependency-admission.toml"
 
 
@@ -52,7 +55,7 @@ def test_policy_contains_only_retained_dependency_facts() -> None:
     """Load the compact policy and retain the unresolved native exception."""
     policy = load_policy(POLICY_PATH)
 
-    assert policy.schema_version == 4
+    assert policy.schema_version == 5
     assert policy.wheel_only_allowances[0].name == "quantlib"
     assert policy.wheel_only_allowances[0].version == "1.43"
     assert policy.wheel_only_allowances[0].source_to_wheel_binding == "unverified"
@@ -61,8 +64,10 @@ def test_policy_contains_only_retained_dependency_facts() -> None:
 
 def test_repository_validation_checks_lock_and_development_limits() -> None:
     """Accept frozen bytes during the allowance window without archived reports."""
-    policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 9, 7))
-    assert len(policy.packages) == 73
+    with patch.object(SourceArchiveVerifier, "verify", return_value=283) as verify:
+        policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 9, 20))
+    verify.assert_called_once_with(policy.source_archives[0])
+    assert len(policy.packages) == 88
     assert any(
         package.name == "websockets" and package.version == "16.0" for package in policy.packages
     )
@@ -325,19 +330,19 @@ def test_pip_audit_malformed_or_unknown_shape_is_rejected(tmp_path: Path, report
 @pytest.mark.parametrize(
     ("replacement", "message"),
     [
-        ("schema_version = 2", "schema_version must be 4"),
+        ("schema_version = 2", "schema_version must be 5"),
         ("vulnerability_decisions = []", "root has missing or unknown fields"),
     ],
 )
 def test_policy_rejects_unsupported_schema_and_unknown_keys(
     tmp_path: Path, replacement: str, message: str
 ) -> None:
-    """Keep schema 4 explicit and reject unknown policy keys."""
+    """Keep schema 5 explicit and reject unknown policy keys."""
     source = POLICY_PATH.read_text(encoding="utf-8")
     if replacement.startswith("schema"):
-        source = source.replace("schema_version = 4", replacement, 1)
+        source = source.replace("schema_version = 5", replacement, 1)
     else:
-        source = source.replace("schema_version = 4", f"schema_version = 4\n{replacement}", 1)
+        source = source.replace("schema_version = 5", f"schema_version = 5\n{replacement}", 1)
     path = tmp_path / "dependency-admission.toml"
     path.write_text(source, encoding="utf-8")
     with pytest.raises(DependencyAdmissionError, match=message):

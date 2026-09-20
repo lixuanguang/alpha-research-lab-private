@@ -381,7 +381,7 @@ Its seven sections replace the accumulated infrastructure milestone walkthrough.
 | 2. Select or onboard the required data | Start with a synthetic or explicitly saved study; discover manifest metadata and pin named inputs, fields, windows and cutoff | Implemented dataset access; actual onboarding uses the existing acquisition/publication APIs |
 | 3. Inspect values, missingness and clocks | Read through `inspect_eda`, retain input evidence and move the cutoff earlier without changing saved facts | Implemented; unknown availability and coverage remain visible |
 | 4. Prototype a feature and specify its label | Calculate one exact synthetic L2 imbalance and declare why a forward label requires separate evidence | Notebook exploration available; reusable versioned feature/label workflow planned |
-| 5. Compare models or deterministic rules | Identify applicable split, fitting and selection records; skip fitting for a rule when appropriate | Attempt/split API available; model workflow and notebook integration planned |
+| 5. Compare models or deterministic rules | Identify applicable split, fitting and selection records; skip fitting for a rule when appropriate | Bounded exact model API and local ClearML consumer available; notebook integration pending |
 | 6. Backtest and evaluate economics | Specify target policy, limits, execution, costs and accounting required next | Economic backtest planned; replay is not a fill simulation |
 | 7. Freeze, qualify and monitor | Prepare a small current handoff and identify missing research and operating evidence | Candidate packaging and strategy operation planned |
 
@@ -461,3 +461,19 @@ Use a consistent notebook pattern: **question → sample and assumptions → act
 observed output → interpretation and limits → next question**. Use capability
 names for sections and links. Put execution/repair detail in the operations guide and
 shared calculations in the package once they become maintained behavior.
+
+## Construct and evaluate a retained model
+
+The [model study contract](../src/research/models/README.md) shows the supported
+`applications.explore.evaluate_model` interface over pinned feature results. It
+supports configured no-fit coefficients and train-only exact least squares,
+reopens immutable state for inference, and retains predictive errors separately
+from strategy economics. The [local ClearML setup](../configs/development/clearml/README.md)
+provides the explicit tracking consumer. Dependency admission verifies the locked
+ClearML wheel against pinned upstream source; no empirical model quality is claimed.
+
+Use the installed [saved-input consumer](../tests/integration/consumers/research/feature_study.py)
+as the executable construction/reload example. The existing QR notebooks keep
+their current exploratory scope; they do not silently start a Docker service or
+train a model. SHAP, economics, pipeline execution and runtime binding remain
+with their conditional or later consumers.

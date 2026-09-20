@@ -43,6 +43,17 @@ allowlist. The native conformance tests additionally check actual return types,
 day-count constants, calendar timestamps, break sentinels and both XNYS/XHKG
 schedules. Existing financial and calendar goldens verify the owned results.
 
+## Research SDK and dataframe stubs
+
+The consumed ClearML 2.1.12 and Pandera 0.33.1 surfaces have narrow declarations
+under `stubs/clearml` and `stubs/pandera`. They keep SDK objects at the publication
+boundary and describe the actual schema/check API. They are checked by strict
+mypy; they are not included in the native-library stubtest command. Real Pandera
+valid/invalid dataframe tests and the installed Docker ClearML acceptance exercise
+the consumed runtime signatures. The pandas declaration now includes construction
+of object-dtype frames, still checked by native stubtest. No stub changes runtime
+behavior, permits unchecked dynamic values or claims the complete upstream API.
+
 ## Boundary changes
 
 Annotate sorting and substitution callbacks with their consumed argument and

@@ -9,8 +9,8 @@ The [research program](../../../docs/roadmap/research-program.md) owns methodolo
 [MR 2](../../../docs/roadmap/README.md#experiment-attempts-and-temporal-splits) owns
 delivery acceptance. The same application now retains
 [versioned feature/label diagnostics](../features/README.md) through `FeatureStudy`.
-Fitted transforms, model training,
-economic reports, candidate promotion and deployment remain separate future work.
+The [model workflow](../models/README.md) now consumes these retained boundaries.
+Economic reports, candidate promotion and deployment remain separate future work.
 
 ## Reproducible inputs and execution attempts
 
@@ -67,7 +67,7 @@ Consumers select actual values by admitted identities and call
 `require_fit_rows(ids)` immediately before fitting. It rejects empty, duplicate
 or forbidden IDs. The API cannot police arbitrary code reading unrelated files.
 It does not infer information intervals or verify that a caller told the truth
-about label availability. No model training consumer is claimed by this delivery.
+about label availability. The model consumer verifies real result digests and sample records before fitting.
 
 `fit_mode="features"` supports train-only fitting without labels; it still
 checks feature and information clocks. `fit_mode="none"` requires both training
@@ -168,3 +168,55 @@ multi-input study repeated in a fresh process. Exact commands/results live in th
 roadmap and implementation PR. Reverting the implementation leaves retained v1
 records intact; the prior wheel cannot consume these new records. Keep the matching
 wheel/environment for reproduction. No deployment or trading authority is added.
+
+## Model evaluations and ClearML publication
+
+The [model consumer](../models/README.md) adds exact predictive evaluations and
+usable model artifacts to this same single-writer root. `retain` atomically adds
+supplemental bytes, including artifacts belonging to failed/rejected executions;
+an identical retry succeeds and different replacement bytes fail. `artifact` and
+`artifacts` reopen only committed records. Terminal attempt events and holdout
+history retain their original schemas and immutability.
+
+Formal model workflows require `ClearMLDestination`. Existing unfitted
+`inspect_experiment` callers retain compatibility; passing `tracking` opts that
+invocation into the same tracked workflow. Legacy local exploration with no
+tracking argument remains explicitly local. No-fit workflows need no model
+artifact or invented training window.
+
+Publication intent is saved before computation. Local completion and external
+publication are distinct: a transport failure propagates and remains visible in
+append-only `clearml-failure-*` metadata, while successful local state survives.
+`publish_experiments` uses saved artifacts only; it never refits, reruns a study or
+consumes another holdout. An incomplete attempt requires explicit abandonment.
+
+The adapter uses pinned ClearML 2.1.12 `Task.create` with repository discovery,
+requirements discovery and instrumentation injection disabled. It never calls
+`Task.init`, enables framework/argument/stream/resource capture, scans credentials,
+or treats SDK task reuse as a new execution. Only the explicit non-secret retained
+manifest, typed artifacts and searchable outcome/selection parameters are sent.
+Dashboard MSE is a finite binary-float projection of the retained exact ratio.
+Credentials stay in SDK configuration; endpoint/project identities are retained
+and the resolved SDK API host must match the recorded destination.
+
+Task names bind attempt IDs, while model names bind immutable version-manifest
+hashes. Each new execution gets a new task. Creation intent precedes the remote
+request; retries first query the existing task/model, verify uploaded bytes and
+model associations, and save a receipt. Completed server tasks are reconciled
+without reset or edits. The immutable manifest remains authoritative even though
+ClearML model metadata is mutable. Input-model records link evaluations to the
+same published state; output-model records identify construction. A receipt binds
+server IDs to the exact terminal history. Existing receipts make replay a local
+no-op; they are not a claim of ongoing server availability or integrity.
+
+If a creation response is lost and reconciliation finds no object, publication
+fails closed instead of guessing that creation never happened. Preserve the intent
+and investigate the server; restore the missing object/history before retrying.
+The adapter provides no automatic reset or recreate operation. Multiple matches or changed
+remote bytes also fail. The initial adapter assumes the existing single-writer
+store and no concurrent external writer creating the same execution names.
+
+The [local Docker setup](../../../configs/development/clearml/README.md) owns
+server start/stop and backup instructions. Local integration proves the selected
+self-hosted SDK boundary; it does not qualify a shared service, add ClearML agents
+or pipelines, or clear the repository's artifact-release restriction.

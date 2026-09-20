@@ -76,8 +76,8 @@ src/
     observations/           FUTURE: completed decision observations
     features/               Versioned trailing-price diagnostics; future fitted transforms
     labels/                 Separate forward-return outcomes and availability
-    models/                 CONDITIONAL: training, inference and evaluation
-    experiments/            Attempts/splits; FUTURE: candidates and economic reports
+    models/                 Exact linear construction, retained state and inference
+    experiments/            Attempts, splits, evaluation and ClearML; FUTURE: candidates/economics
   strategies/               FUTURE: contexts and decision rules
   simulation/               FUTURE: fills, costs and market mechanics
   accounting/               FUTURE: ledger, valuation, reconciliation
@@ -93,7 +93,7 @@ src/
     collect/                Existing capture/probe/replay command and workflow
     publish_dataset/        Existing dataset publish/inspect command
     inspect_fixture/        Existing configured fixture command
-    explore/                EDA, research assembly and retained feature/label studies
+    explore/                EDA, feature/label/model studies and ClearML publication
     train_model/            CONDITIONAL: fit and retain a model attempt
     evaluate_model/         CONDITIONAL: research/delayed-outcome evaluation
     backtest/               FUTURE: one configured economic runner
@@ -502,7 +502,11 @@ is retained before access. `applications.explore.inspect_experiment` composes
 this core with the existing pinned selection reader for unfitted inspections.
 The [public contract](../../src/research/experiments/README.md) owns clocks,
 identity, retention, concurrency, recovery and supported evaluation boundaries.
-Fitted preprocessing/model consumers and candidate/economic reports remain planned.
+The [bounded model consumer](../../src/research/models/README.md) now adds configured
+and train-only centered least-squares state, reload-only inference and exact
+predictive evaluation. ClearML publication is a separate recoverable outbox;
+terminal attempts and holdout history remain authoritative locally. ClearML source admission verifies
+the locked wheel against its pinned upstream archive. Candidate/economic reports remain planned.
 
 Research reports state the economic mechanism, falsifiable hypothesis, target, sign, horizon, universe, rebalance,
 benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.
@@ -525,7 +529,8 @@ These contracts serve model-free studies and future learned candidates alike.
 Reusable transforms belong to `research/features/`; labels to `research/labels/`;
 trainers/inference to `research/models/`; split/attempt/candidate records to
 `research/experiments/`. The attempt/split owner now serves exploration; the
-model and other future owners appear only with working consumers.
+model owner now serves the same application; other future owners appear only
+with working consumers.
 Notebooks may explore local variants; formal retained and promoted results call
 the accepted versioned implementations. A candidate binds its inputs, definitions,
 parameters, split/fit identity and fitted state where applicable. Rejected

@@ -1,0 +1,55 @@
+# Local integration only; no agents, shared credentials, or public listeners.
+# Based on clearml/clearml-server v2.4.0 docker/docker-compose.yml.
+name: alpha-clearml-local
+services:
+  mongo:
+    image: mongo:8.0.15@sha256:f4d54619262ae3bc6a0a8efbebcef970b87b8ad70697479a75ce308a6f400158
+    volumes: [mongo:/data/db]
+  redis:
+    image: redis:8.2.3@sha256:0908d9af26bf9b985e984a40a5eb82eed229b07a3317eee6843832c3cc3a9619
+    volumes: [redis:/data]
+  elasticsearch:
+    image: elasticsearch:8.19.9@sha256:dee84085936b5b5fc3a6d322ff7545c939f99269b2d94bf19ea4af968893bbc4
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+    volumes: [elastic:/usr/share/elasticsearch/data]
+  fileserver:
+    image: clearml/server:2.4.0@sha256:5ec4aed2e40c619da63198c22e765a00b4e3e5c06081a9c0a4ae237df66fb7bb
+    platform: linux/amd64
+    command: [fileserver]
+    environment:
+      CLEARML__fileserver__auth__enabled: "false"
+    ports: ["127.0.0.1:18081:8081"]
+    volumes: [files:/mnt/fileserver]
+  apiserver:
+    image: clearml/server:2.4.0@sha256:5ec4aed2e40c619da63198c22e765a00b4e3e5c06081a9c0a4ae237df66fb7bb
+    platform: linux/amd64
+    command: [apiserver]
+    depends_on: [mongo, redis, elasticsearch, fileserver]
+    environment:
+      CLEARML_ELASTIC_SERVICE_HOST: elasticsearch
+      CLEARML_ELASTIC_SERVICE_PORT: "9200"
+      CLEARML_MONGODB_SERVICE_HOST: mongo
+      CLEARML_MONGODB_SERVICE_PORT: "27017"
+      CLEARML_REDIS_SERVICE_HOST: redis
+      CLEARML_REDIS_SERVICE_PORT: "6379"
+      CLEARML_SERVER_DEPLOYMENT_TYPE: linux
+      CLEARML__apiserver__pre_populate__enabled: "false"
+      CLEARML__secure__credentials__tests__user_key: ${CLEARML_LOCAL_ACCESS_KEY:?set local key}
+      CLEARML__secure__credentials__tests__user_secret: ${CLEARML_LOCAL_SECRET_KEY:?set local secret}
+    ports: ["127.0.0.1:18008:8008"]
+    volumes: [files:/mnt/fileserver]
+  webserver:
+    image: clearml/server:2.4.0@sha256:5ec4aed2e40c619da63198c22e765a00b4e3e5c06081a9c0a4ae237df66fb7bb
+    platform: linux/amd64
+    command: [webserver]
+    depends_on: [apiserver]
+    ports: ["127.0.0.1:18080:80"]
+volumes:
+  mongo:
+  redis:
+  elastic:
+  files:

@@ -320,7 +320,8 @@ No empirical alpha, deployment or trading authority is claimed.
 
 ### Fitted preprocessing and model evaluation
 
-**MR 4.** Extend the retained attempt core with ClearML tracking and model records
+**MR 4 — complete (bounded software and local ClearML acceptance).**
+Extend the retained attempt core with ClearML tracking and model records
 for configured analytical, calibrated statistical and learned models. Tracking is
 required for supported formal workflows; fitting remains conditional on the model.
 Keep the existing no-fit path usable. Own retained identities/evaluation records in
@@ -381,6 +382,117 @@ artifacts available by that decision, never a final full-history fit. Exercise a
 failed attempt and interrupted publication/reconciliation without duplicate retained
 versions or erased outcomes. Verify backup/reopen of metadata and actual artifact
 bytes. These checks establish the integration, not empirical model quality.
+
+Implementation and evidence, 2026-09-20 (branch `codex/mr-04-model-evaluation`,
+based on main `7b2ee466`):
+
+- MR 2 retained attempts/splits and MR 3 feature/label consumers were inspected
+  and exercised before implementation: **22 passed, 1 integration deselected**.
+  Existing local no-fit calls and MR 28 ownership/command boundaries remain intact.
+- [Model lifecycle](../../src/research/models/README.md) now owns bounded exact
+  centered least squares and configured coefficients, explicit signatures, fitted
+  cutoffs/rows, immutable state/version manifests, reload-only inference and
+  walk-forward availability. Pandera validates the real MR 3 result adapter,
+  including column order/dtypes, UTC clocks and explicit missingness without
+  float conversion or imputation. Native residuals answer the selected engineering
+  question; no SHAP explanation question was selected.
+- [Experiments](../../src/research/experiments/README.md) owns separate predictive
+  evaluations, immutable attachments, publication intent/failure/receipts and the
+  explicit ClearML adapter. Existing `applications.explore` composes construction,
+  reload and publication without another command. Tracked no-fit/model invocations
+  retain completed, rejected, failed and abandoned outcomes; holdout consumption
+  survives failed reads and publication retries. Historical tasks are never reset.
+- The [local Docker server](../../configs/development/clearml/README.md) uses pinned
+  ClearML Server 2.4.0, MongoDB, Redis and Elasticsearch images, loopback listeners,
+  private local credentials and retained named volumes. There is no agent or shared
+  service activation. SDK 2.1.12 and Pandera 0.33.1 were exercised on CPython 3.14.7
+  / Darwin arm64; the server image uses Linux amd64 emulation.
+- The installed `research/feature_study.py` consumer passed the actual server
+  scenario: six attempts (no-fit, fitted, reload, rejected, failed calibration,
+  abandonment), two usable model records, exact fresh-process prediction reload,
+  and a lost local receipt after remote completion reconciled without another
+  task/model or fit. The rejected model remains downloadable. Stopped volumes were
+  backed up and restored into the separate `alpha-clearml-reopen` project;
+  fresh SDK/HTTP reads verified all six outcomes, model associations, dashboard
+  projections and actual artifact/model SHA-256 values. Fitted creation task
+  `ac93bea587274e399cc44bfcd9177b95` and reload task
+  `f637e64ee8034c7cb593b43c865efc58` share model
+  `dab08e9e532e4900a43c0c136c0c51c4`. Local-only evidence is retained under
+  `/private/tmp/alpha-model-integration-06` and
+  `/private/tmp/alpha-clearml-backup-20260920`; it is not a durable shared evidence
+  service and must be preserved before temporary-file cleanup.
+- Focused final command `uv run --frozen --no-editable pytest -q
+  tests/unit/research/test_models.py tests/unit/research/test_experiments.py
+  tests/unit/research/test_features.py tests/unit/data/test_research_access.py`:
+  **33 passed, 1 integration deselected, no skips**. Independent `y=2x+1` examples
+  prove fitted centering, exact prediction/error, future/held-out isolation and
+  incompatible-state rejection. The final tracked holdout regression additionally
+  covers no-fit rejection before data access.
+- Initial `UV_CACHE_DIR=/private/tmp/alpha-mr04-uv-cache TMPDIR=/private/tmp make check`
+  passed locked resolution, Ruff, format, strict mypy (268 files), native stubtest
+  (1,548 modules) and engineering rules, then **failed** dependency admission:
+  `clearml lacks a digest-bound source distribution`. The remaining checks were
+  run explicitly: final Ruff/format, mypy (268 files), native stubtest (1,548 modules),
+  engineering rules, links (38 documents including component guides), Bandit and
+  secret scans (371 governed paths after staging) passed.
+  Initial complete `TMPDIR=/private/tmp make test`: **1,098 passed, 1 failed, 3 performance
+  deselected, no skips** in 77.14 seconds. The sole failure is the repository's
+  dependency-admission test reporting the same missing ClearML source distribution. Isolated `make wheel-smoke` passed the installed runtime and existing
+  four commands, including the model consumer with explicitly unavailable transport.
+  That mock does not stand in for the separate actual-server proof above.
+- The exact 88-package external lock graph was audited with
+  `pip-audit --no-deps --disable-pip -r <exact-locked-requirements> --format json`:
+  **88 covered, zero vulnerability findings**. This is independent vulnerability
+  evidence; the admission audit wrapper was blocked by the missing source at that stage.
+
+Earlier live runs exposed SDK created-to-completed transitions, completed-task edit
+refusal, literal model-name matching and stale input-model associations; those were
+corrected and the retained uncertain outcomes reconciled before the successful full
+scenario. One concurrent editable-install harness run was invalidated; the live
+acceptance now uses a separate installed environment. A focused run accidentally
+using an editable install failed the required wheel-inventory boundary and was
+rerun with `--no-editable`. These are corrected integration/harness failures, not
+measured service reliability. Final schema/holdout and immutable-state/evaluation-integrity guards are covered by focused
+checks and renewed wheel smoke; the unchanged publication and Docker restore proof
+is reused.
+
+The initial dependency blocker above was resolved with explicit founder approval:
+schema 5 now enforces [verified upstream source admission](../architecture/dependency-admission.md#verified-upstream-source-archives)
+for the exact ClearML wheel. Actual archives are checked on every admission,
+including cached runs; the complete 283-file runtime matches the pinned source.
+Final local verification after that change:
+
+- `uv run --frozen --no-editable pytest -q tests/engineering/test_dependency_admission.py
+  tests/engineering/test_source_archives.py`: **70 passed**, no skips/deselections.
+- `UV_CACHE_DIR=/private/tmp/alpha-mr04-uv-cache TMPDIR=/private/tmp make check`:
+  **passed** end to end. Strict mypy checked 270 source files, native stubtest
+  checked 1,548 modules, dependency admission/audit covered all 88 external
+  packages with no unresolved findings, and the correctness/integration suite
+  reported **1,131 passed, 3 performance deselected, no skips** in 75.80 seconds.
+  The clean installed-wheel smoke passed all existing consumers, including model
+  construction/reload and fresh-process attempt backup.
+- Expanded local-link verification: **38 documents passed**. The source verifier
+  separately reopened the cached actual archives and reported **283 matching
+  runtime files**, demonstrating that a cache hit still performs the comparison.
+
+The earlier live Docker/model proof remains valid: this completion changes only
+source admission and documentation, not the runtime model/tracking behavior or
+server topology. On implementation commit `9c949f08ab598abdd1f6e3871771d45be909f1da`,
+[hosted CI run 35491535898](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35491535898)
+passed **Source validation**, **macOS wheel smoke**, and the **Authoritative
+merged-result full lane**. MR 4 acceptance is met in
+[PR 65](https://github.com/lixuanguang/alpha-research-lab-private/pull/65); subsequent
+completion-document edits preserve this implementation evidence. Final staged
+secret scanning covered **373 governed paths** with no findings.
+QuantLib's pre-existing release block remains. The original attempts, stopped-volume
+backup, matching installed runtime snapshot, credentials and validation logs have
+been preserved under the original
+checkout's ignored, owner-only `logs/clearml-acceptance/2026-09-20/` directory;
+temporary paths in the earlier evidence remain historical identities.
+Uncertain remote creation with no discoverable object deliberately stops for manual
+reconciliation; it does not guess that a retry is safe. Larger models, automated
+orchestration, shared-server qualification, economics and empirical research remain
+with their owning MRs. No deployment or trading authority is granted.
 
 ## Economic research
 
