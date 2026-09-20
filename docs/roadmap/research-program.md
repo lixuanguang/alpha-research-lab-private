@@ -123,7 +123,11 @@ or activation. Existing release and operating boundaries remain applicable.
 
 ## Small records and artifacts
 
-Start with small versioned records, not a registry platform. Assign a stable `strategy_id` from the first formal
+Keep small versioned records as durable research evidence. The
+[selected integrations](README.md#selected-research-integrations) add ClearML tracking,
+model records and workflow execution from MR 4 onward, followed by versioned dataset
+and feature access. These tools index and consume the retained contracts; mutable
+dashboard metadata does not replace them. Assign a stable `strategy_id` from the first formal
 run. Add a `family_id` when variants or shared selection rules make grouping useful. Keep each record
 human-readable and append changes rather than silently renaming history. A strategy record identifies its
 implementation, input/parameter contracts, supported capabilities, lifecycle state, version and optional family.
@@ -145,7 +149,8 @@ the [implementation roadmap](README.md#delivery-order-and-dependencies) owns the
 | Dataset manifest | Source and rights, raw identity, availability and knowledge times, revisions, universe rule, units, timezone, adjustments, quality policy | Rebuild the point-in-time sample and limitations |
 | Split/transform manifest | Train/validation/test intervals, label horizon, purge/embargo, fit rows, feature and imputation versions, seed | Prove selection used permitted information |
 | Trial record | Strategy/family/instance IDs, run/attempt identity, state namespace, hypothesis, exact command, commit/lock, resolved universe/config/data/model identities, choices, resources, metrics, uncertainty, outcome | Account for every result influencing a decision without sharing instance state |
-| Model/rule artifact | Version, inputs, parameters, transforms, precision, representation, serialization identity, expected errors | Reuse decision logic in replay and operation |
+| Model/rule artifact | Definition and configured/calibrated/fitted state version, creation attempt, inputs, parameters, transforms, precision, representation, serialization identity, retrievable bytes/digest, expected errors | Reuse decision logic in replay and operation; analytical models require no invented training history |
+| Model evaluation record | Exact model version, evaluation attempt, dataset/feature identities, split/window, label availability, metric definition/units, diagnostics and outcome | Keep model performance history separate from model construction and costed strategy performance |
 | Portfolio/replay trace | Signals, targets, orders, fills, costs, financing, cash, positions, exposures, risk, timestamps, reconciliation | Compare decisions with executable behavior |
 | Selection/OOS manifest | Closed family, selection rule, freeze identity, access record, final result, failures and deviations | Protect and interpret final evidence |
 | Handoff/monitoring record | Artifact digest, limits, state compatibility, rollback reference, alerts, stop/reconcile procedure, unresolved assumptions | Carry a result into controlled operation |
@@ -356,9 +361,14 @@ Run locally while data volume, working set, elapsed time, and trial count fit th
 Consider a larger or parallel path only after measuring a reproducible bottleneck: local memory no longer
 fits, rolling/nested trials exceed a documented time budget, replay needs more throughput, or cross-asset
 comparison needs controlled parallelism. Record hardware, environment, seed, input identities, resource
-limits, and failure/retry behavior; keep a small reference run and compare scaled results against it. Do not
-add a scheduler, experiment registry, model-serving layer, or other platform component before a measured
-workload requires it.
+limits, and failure/retry behavior; keep a small reference run and compare scaled results against it.
+The roadmap's selected ClearML, data/feature and analytical integrations address
+concrete traceability, repeatability and researcher-usability needs from MR 4 onward;
+their initial bounded consumers do not depend on a throughput bottleneck. Add larger
+or distributed infrastructure when measured workload or actual sharing requires it.
+Keep numerical search in Optuna, execution/tracking in ClearML, dataset versions in
+lakeFS and feature retrieval in Feast where those consumers are implemented. These
+choices do not expand the delivered MR 3 scope or authorize deployment.
 
 There is no research runner command today. Until one exists, use the existing `uv run --frozen` environment and
 affected pytest/static checks for iteration. `make check` remains the complete local entrypoint when full
