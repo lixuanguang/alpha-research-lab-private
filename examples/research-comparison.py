@@ -18,8 +18,13 @@ def imports():
     import marimo as mo
 
     # project library imports
-    from applications.explore import compare_factors
-    from research.experiments import AlphalensStudy, AttemptStore, ClearMLDestination
+    from applications.explore import compare_factors, compare_windows
+    from research.experiments import (
+        AlphalensStudy,
+        AttemptStore,
+        ClearMLDestination,
+        WindowDiagnosticStudy,
+    )
     from research.exploration import (
         AnalysisQuery,
         BoundedFeatureAnalysis,
@@ -33,6 +38,8 @@ def imports():
         Path,
         mo,
         compare_factors,
+        compare_windows,
+        WindowDiagnosticStudy,
         AlphalensStudy,
         AttemptStore,
         ClearMLDestination,
@@ -157,6 +164,50 @@ def formal(
     )
     mo.md(f"Retained attempt `{formal_attempt.start.attempt_id}`: {formal_attempt.status}.")
     return (formal_attempt,)
+
+
+@app.cell
+def window_controls(mo, os, Path, DomainCodec, WindowDiagnosticStudy, ClearMLDestination):
+    """Preview a frozen window request without calculating or creating an attempt."""
+    window_directory = os.environ.get("ALPHA_WINDOW_DIRECTORY")
+    mo.stop(
+        not window_directory,
+        mo.md("Select saved window diagnostics with `ALPHA_WINDOW_DIRECTORY`."),
+    )
+    window_root = Path(window_directory).resolve()
+    window_codec = DomainCodec()
+    window_study = window_codec.decode_json(
+        (window_root / "window-study.json").read_bytes(), WindowDiagnosticStudy
+    )
+    window_tracking = window_codec.decode_json(
+        (window_root / "tracking.json").read_bytes(), ClearMLDestination
+    )
+    run_windows = mo.ui.run_button(label="Run and retain window diagnostics")
+    mo.vstack(
+        [
+            mo.md(
+                "## Reference/current diagnostics\n"
+                f"Reference: `{window_study.reference}`\n\nCurrent: `{window_study.current}`\n\n"
+                f"Label cutoff: `{window_study.evaluated_as_of}`. "
+                "The saved request freezes sources, split, applicability and thresholds. "
+                "Running creates a retained report and publishes it to ClearML. "
+                "Drift never triggers retraining or promotion."
+            ),
+            run_windows,
+        ]
+    )
+    return window_root, window_study, window_tracking, run_windows
+
+
+@app.cell
+def window_report(mo, os, window_root, window_study, window_tracking, run_windows, compare_windows):
+    """Run saved-window diagnostics only after an explicit user or fresh-process action."""
+    mo.stop(not (run_windows.value or os.environ.get("ALPHA_WINDOW_RUN") == "1"))
+    window_attempt = compare_windows(
+        window_study, attempts=window_root / "attempts", tracking=window_tracking
+    )
+    mo.md(f"Window report attempt `{window_attempt.start.attempt_id}`: {window_attempt.status}.")
+    return (window_attempt,)
 
 
 if __name__ == "__main__":

@@ -287,6 +287,62 @@ server start/stop and backup instructions. Local integration proves the selected
 self-hosted SDK boundary; it does not qualify a shared service or clear the repository's artifact-release
 restriction. The separately pinned local agent below executes configured research.
 
+## Offline window diagnostics
+
+`WindowDiagnosticStudy` freezes source `DiagnosticSource` attempt IDs/SHA-256s,
+reference/current windows, the original feature split, inclusive label-evaluation
+cutoff, minimum observations, KS statistic/p-value thresholds and exact MSE limit.
+Windows are ordered half-open UTC decision intervals wholly inside validation;
+the cutoff and every observation information interval must precede the holdout.
+There is no fit, search, candidate-selection or automatic operational transition.
+
+`WindowDiagnosticRun` verifies completed `feature-study-result-v1` bytes and
+retained `model-evaluation-v1` artifacts (including scientifically rejected
+evaluations), their original splits/sample records, source references and exact
+model manifests/state. Failed/incomplete or holdout-consuming sources are refused.
+Feature sources must share the declared split and feature/label definitions;
+prediction sources must preserve its validation/holdout windows and reference the
+same feature bytes. This bounded consumer supports 1,024 rows and at most 16
+sources per role, per-instrument dimensionless return diagnostics. It does not
+invent predictions absent from retained evaluations, new labels, source queries,
+fitted state, cross-sectional pooling or arbitrary dataframe schemas.
+
+`WindowDiagnostics` calls admitted SciPy 1.18.1
+[`ks_2samp`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.ks_2samp.html)
+with `alternative="two-sided", method="exact"`. A numerical warning/fallback
+fails computation instead of changing the frozen test. Finite binary-float
+projections of exact retained ratios produce descriptive CDF distance/p-values;
+drift is true only when both `D >= ks_statistic_threshold` and
+`p <= ks_pvalue_threshold`. Insufficient samples remain explicitly inapplicable.
+Temporal dependence, ties and unadjusted multiple tests prevent an inferential
+significance or empirical strategy claim. Thresholds must be authored before
+running and are not fitted to the observed result.
+
+Predictive MSE uses exact rational `mean((prediction-forward_return)**2)` and
+dimensionless-squared units. Only complete retained predictions whose labels have
+known availability `<= evaluated_as_of` enter error metrics. Missing/unknown/late
+labels, missing predictions/features and observations outside the two windows
+remain individually inspectable. Source bytes retain the full original outcomes;
+excluded values do not enter calculations. `predictive_metric="inapplicable"`
+requires a reason and no MSE threshold; it does not disable feature diagnostics.
+
+The existing `applications.explore.compare_windows` composes these owners with
+`AttemptStore`, `ResultManifest` and `ClearMLPublication`. Inputs and complete
+upstream histories, including selections/snapshots, model versions, source
+attempts, schema/units, split and availability policy, are retained before
+computation. The repository-generated JSON and self-contained HTML retain exact
+inputs, computation versions, metric/test definitions, thresholds, counts,
+exclusions and numerical results. They are never described as Evidently output.
+HTML is available as `window-report-html`, JSON as `window-report-json`.
+
+Computation failure remains failed with saved inputs; reproduction creates a new
+attempt. Publication failure preserves successful local bytes and append-only
+outbox failure evidence. The existing `publish_experiments` reconciles/upload-retries
+those bytes without redoing research or consuming a holdout, including a lost
+receipt after actual remote completion. See the [QR guide](../../../examples/README.md#compare-reference-and-current-windows)
+and its maintained marimo action. Actual-service evidence and complete acceptance
+status live in the roadmap; local mocks alone do not establish publication.
+
 ## Configured economics, reports and serial pipelines
 
 `BacktestRun` is the strict, bounded JSON contract for the installed

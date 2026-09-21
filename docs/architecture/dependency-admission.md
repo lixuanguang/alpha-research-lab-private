@@ -217,6 +217,30 @@ renew the full closure and installed-boundary proofs for any affected packaging.
 The rejected candidates, advisory finding and historical attempts above remain
 retained. No dependency is installed, removed, upgraded or exempted by this decision.
 
+## Direct SciPy diagnostic consumer
+
+The offline window consumer declares **SciPy 1.18.1** directly in project
+metadata. It uses `scipy.stats.ks_2samp` for bounded two-sample CDF diagnostics;
+exact financial ratios and predictive squared errors remain repository-owned
+rational arithmetic. The 1,024-row bound is within the upstream exact method's
+intended small-sample regime. Numerical warnings, including fallback to an
+asymptotic calculation, fail the declared exact computation. Dependent temporal
+observations and unadjusted p-values are explicitly descriptive, not inferential
+or empirical acceptance.
+
+The lock change adds only the direct project edge and requirement: **no external
+package version or artifact changes**. CPython 3.14.7, pandas 3.0.5, NumPy 2.4.6
+and Plotly 6.3.1 remain pinned. SciPy's existing source/wheel/native inventory and
+bundled license notices above continue to apply. The complete updated 179-package
+external lock graph passes the admission/audit wrapper with no vulnerability or
+coverage gap. The updated lock digest is in the owning TOML policy; installed
+boundary and report-consumer verification are recorded with MR 7 in the roadmap.
+
+Evidently and NLTK remain absent from the admitted graph. Their rejected
+candidate locks, advisories and failed evidence remain historical records.
+No admission rule, dependency requirement, vulnerability finding or QuantLib
+release restriction is weakened by the numerical consumer.
+
 ## Commands
 
 ```sh

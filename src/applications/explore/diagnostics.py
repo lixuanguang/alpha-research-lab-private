@@ -1,4 +1,4 @@
-"""Publish a retained factor comparison through the existing exploration application."""
+"""Compose retained factor and window comparisons through the exploration application."""
 
 from __future__ import annotations
 
@@ -20,9 +20,45 @@ from research.experiments import (
     Fingerprint,
     ResultManifest,
     TemporalSplit,
+    WindowDiagnosticRun,
+    WindowDiagnosticStudy,
 )
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
+
+
+def compare_windows(
+    study: WindowDiagnosticStudy, *, attempts: Path, tracking: ClearMLDestination
+) -> AttemptHistory:
+    """Compose retained window diagnostics and the existing recoverable ClearML outbox.
+
+    Args:
+        study: Frozen sources, windows, cutoff, applicability and thresholds.
+        attempts: Existing retained single-writer root containing every upstream source.
+        tracking: Required non-secret publication destination; credentials stay in SDK config.
+
+    Returns:
+        Completed local diagnostics after acknowledged report publication.
+
+    Raises:
+        Exception: Computation or publication fails with its saved inputs and history preserved.
+    """
+    spec = study.specification(
+        implementation=ImplementationIdentity.sha256(),
+        environment=ExperimentSpec.installed_environment(),
+    )
+    with AttemptStore(attempts) as store:
+        start = store.start(
+            spec,
+            at=datetime.now(UTC),
+            invocation="applications.explore.compare_windows",
+            request=DomainCodec().encode_json(study),
+        )
+        publication = ClearMLPublication(store, tracking)
+        publication.enqueue(start.attempt_id)
+        history = WindowDiagnosticRun(store, study).execute(start.attempt_id)
+        publication.publish(start.attempt_id)
+        return history
 
 
 def compare_factors(

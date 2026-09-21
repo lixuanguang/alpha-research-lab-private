@@ -13,17 +13,16 @@ book reconstruction/replay, pinned multi-input selection, EDA, retained experime
 attempts, temporal splits, versioned observed-price feature/label studies, exact
 model construction/evaluation, bounded synthetic spot economics, configured
 costed reports, local serial pipelines and pinned lakeFS dataset versions.
-The partial MR 7 delivery adds compatible implementation registration, a distinct
+The research comparison workflow adds compatible implementation registration, a distinct
 reversal rule, retained Alphalens diagnostics and fixed-budget Optuna comparisons.
 The [offline activity notebook](research-foundations.ipynb) includes a rule-only
 comparison; the [marimo example](research-comparison.py) separates verified
 DuckDB/Polars previews from an explicit formal factor run. The
 [accepted tool amendment](../docs/roadmap/README.md#diagnostic-tool-requirement-amendment)
 requires offline reference/current diagnostics using admitted computation
-dependencies; Evidently is optional. That consumer and its guide/notebook action
-remain unimplemented, so MR 7 acceptance remains incomplete. Existing Alphalens
-reports do not cover the missing window comparison, delayed-label/predictive
-applicability and report-publication acceptance. The
+dependencies; Evidently is optional. The [window diagnostic consumer](#compare-reference-and-current-windows)
+compares retained features/predictions with separate label-availability and
+predictive-applicability rules, and publishes its own report through ClearML. The
 [dependency review](../docs/architecture/dependency-admission.md#evidently-prerequisite-recheck)
 preserves the rejected Evidently closure; it no longer makes Evidently a
 prerequisite for delivering these diagnostic capabilities.
@@ -63,6 +62,50 @@ workflow. The feature and estimator seams preserve their existing typed definiti
 contracts; arbitrary new schemas are not accepted implicitly. The built-in reversal
 rule buys only on a strict completed-price fall, unlike momentum. Each run receives
 a fresh rule instance and retains its own state, pending intents and result.
+
+### Compare reference and current windows
+
+Use `WindowDiagnosticStudy` to freeze explicit half-open reference/current decision
+windows inside the source's validation split, an evaluation cutoff before the
+holdout, exact retained source attempt/digest pairs, minimum counts, KS thresholds,
+and predictive applicability. The [experiment contract](../src/research/experiments/README.md#offline-window-diagnostics)
+owns schema, restrictions and numerical interpretation. This is an offline
+investigation, with no automatic retraining, promotion or trading.
+
+The installed feature consumer creates `models/window-study.json` and
+`models/tracking.json` beside its retained attempt store. Reopen that explicit
+request from the installed environment:
+
+```python
+from pathlib import Path
+from applications.explore import compare_windows, publish_experiments
+from research.experiments import ClearMLDestination, WindowDiagnosticStudy
+from serialization import DomainCodec
+
+root = Path("/absolute/path/to/feature-consumer/models")
+codec = DomainCodec()
+study = codec.decode_json((root / "window-study.json").read_bytes(), WindowDiagnosticStudy)
+tracking = codec.decode_json((root / "tracking.json").read_bytes(), ClearMLDestination)
+attempt = compare_windows(study, attempts=root / "attempts", tracking=tracking)
+print(attempt.start.attempt_id, attempt.status)
+# After a transport failure, retry already saved artifacts without another diagnostic run:
+receipts = publish_experiments(root / "attempts")
+```
+
+For the maintained marimo interface, set `ALPHA_WINDOW_DIRECTORY` to that `models`
+directory and open [research-comparison.py](research-comparison.py). The displayed
+windows/cutoff and **Run and retain window diagnostics** action are independent of
+factor preview controls. Display updates create no attempt. An explicit
+`ALPHA_WINDOW_RUN=1 python examples/research-comparison.py` runs the frozen request
+in a fresh process. Credentials remain in the existing private SDK configuration.
+
+Review per-instrument feature and prediction KS distance/p-value, sample counts,
+missing/excluded row reasons, and exact MSE for labels actually available at cutoff.
+Missing labels do not disable applicable feature diagnostics. An explicitly
+inapplicable predictive metric retains its reason rather than reporting zero error.
+Rerunning a saved request reproduces report bytes; a later label cutoff is a new
+declared diagnostic request. Retain both attempts. These dependent temporal samples
+and unadjusted p-values support investigation, not empirical alpha acceptance.
 
 ```mermaid
 flowchart LR

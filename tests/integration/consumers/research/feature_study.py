@@ -21,6 +21,7 @@ from msgspec.structs import replace
 import research.features
 from applications.explore import (
     compare_factors,
+    compare_windows,
     evaluate_model,
     inspect_experiment,
     publish_experiments,
@@ -42,11 +43,16 @@ from research.experiments import (
     AttemptStore,
     ClearMLDestination,
     ClearMLPublication,
+    DiagnosticSource,
     EvaluationRecord,
+    FeatureLabelPayload,
     ResultManifest,
     SampleInterval,
     TemporalSplit,
     TimeWindow,
+    WindowDiagnosticReport,
+    WindowDiagnostics,
+    WindowDiagnosticStudy,
 )
 from research.exploration import EdaQuery, FeatureStudy, ResearchSelection, TradeSelection
 from research.features import TrailingReturn, WindowPolicy
@@ -533,6 +539,248 @@ class _FactorAcceptance:
         print("Installed Alphalens IC and retained report bytes verified; holdout untouched.")
 
 
+class _WindowAcceptance:
+    """Exercise installed diagnostics using the saved archive, features and actual model owner."""
+
+    @classmethod
+    def run(cls, output: Path) -> None:
+        """Verify labels, failures, reproducible reports and optional actual publication."""
+        original = _CODEC.decode_json((output / "features.json").read_bytes(), FeatureStudy)
+        assert original.label is not None
+        feature_study = replace(
+            original,
+            family="window-feature-inputs",
+            decisions=TimeWindow(
+                start=_START + timedelta(seconds=20), end=_START + timedelta(seconds=51)
+            ),
+            feature=replace(
+                original.feature,
+                cadence_us=5_000_000,
+                policy=WindowPolicy(
+                    lookback_us=20_000_000, min_trades=2, max_staleness_us=10_000_000
+                ),
+            ),
+            label=replace(
+                original.label,
+                policy=WindowPolicy(
+                    lookback_us=20_000_000, min_trades=1, max_staleness_us=10_000_000
+                ),
+            ),
+        )
+        request = output / "window-features.json"
+        request.write_bytes(_CODEC.encode_json(feature_study))
+        attempts = output / "attempts"
+        source = inspect_experiment(
+            request, output / "snapshots", RawStore(output / "raw"), attempts=attempts
+        )
+        payload = source.events[-1].result
+        assert payload is not None
+        dataset = ModelDataset.from_results((payload,))
+        reference = DiagnosticSource(
+            attempt_id=source.start.attempt_id, sha256=hashlib.sha256(payload).hexdigest()
+        )
+        destination = ClearMLDestination(
+            project="alpha-local-integration",
+            api_uri="http://127.0.0.1:18008",
+            files_uri="http://127.0.0.1:18081",
+        )
+        model_samples: tuple[SampleInterval, ...] = tuple(row.sample for row in dataset.rows)
+        model_study = ModelStudy(
+            family="window-predictions",
+            question="Retain configured predictions",
+            sources=(RetainedResult(attempt_id=reference.attempt_id, sha256=reference.sha256),),
+            split=replace(feature_study.split, samples=model_samples),
+            partition="validation",
+            known_at=_START + timedelta(seconds=60),
+            max_mse=ExactRatio(numerator="100", denominator="1"),
+            selection_reason="Frozen software example; no empirical selection",
+            definition=LinearDefinition(
+                mode="configured",
+                assumptions="Fixed return identity",
+                intercept=ExactRatio(numerator="0", denominator="1"),
+                slope=ExactRatio(numerator="1", denominator="1"),
+            ),
+            available_at=_START,
+        )
+        model_config = output / "window-model.json"
+        model_config.write_bytes(_CODEC.encode_json(model_study))
+        with patch.object(
+            ClearMLPublication, "_publish", side_effect=ConnectionError("offline setup")
+        ):
+            try:
+                evaluate_model(model_config, attempts=attempts, tracking=destination)
+            except ConnectionError:
+                pass
+        store = AttemptStore(attempts)
+        prediction = next(
+            h for h in store.histories() if h.start.spec.family == "window-predictions"
+        )
+        evaluation_bytes = store.artifact(prediction.start.attempt_id, "evaluation")
+        study = WindowDiagnosticStudy(
+            family=feature_study.family,
+            features=(reference,),
+            predictions=(
+                DiagnosticSource(
+                    attempt_id=prediction.start.attempt_id,
+                    sha256=hashlib.sha256(evaluation_bytes).hexdigest(),
+                ),
+            ),
+            split=feature_study.split,
+            reference=TimeWindow(
+                start=_START + timedelta(seconds=20), end=_START + timedelta(seconds=26)
+            ),
+            current=TimeWindow(
+                start=_START + timedelta(seconds=40), end=_START + timedelta(seconds=51)
+            ),
+            evaluated_as_of=_START + timedelta(seconds=51),
+            min_observations=2,
+            ks_statistic_threshold=0.5,
+            ks_pvalue_threshold=0.01,
+            predictive_metric="mse",
+            predictive_reason="Configured retained return predictions",
+            max_mse=ExactRatio(numerator="1", denominator="100"),
+            threshold_reason="Frozen software example; descriptive unadjusted tests",
+        )
+        (output / "window-study.json").write_bytes(_CODEC.encode_json(study))
+        (output / "tracking.json").write_bytes(_CODEC.encode_json(destination))
+        before = store.histories()
+        with patch.object(
+            WindowDiagnostics, "evaluate", side_effect=ArithmeticError("injected computation")
+        ):
+            try:
+                compare_windows(study, attempts=attempts, tracking=destination)
+            except ArithmeticError:
+                pass
+            else:
+                raise AssertionError("computation failure was hidden")
+        failed = next(
+            h
+            for h in store.histories()
+            if h.start.invocation.endswith("compare_windows") and h.status == "failed"
+        )
+        assert store.artifact(failed.start.attempt_id, "feature-source-0") == payload
+        for requested in (
+            study,
+            replace(study, evaluated_as_of=_START + timedelta(seconds=56)),
+            replace(
+                study,
+                predictive_metric="inapplicable",
+                max_mse=None,
+                predictive_reason="Rule analysis: predictive error not selected",
+            ),
+        ):
+            with patch.object(
+                ClearMLPublication, "_publish", side_effect=ConnectionError("report transport")
+            ):
+                try:
+                    compare_windows(requested, attempts=attempts, tracking=destination)
+                except ConnectionError:
+                    pass
+                else:
+                    raise AssertionError("publication failure was hidden")
+        completed = tuple(
+            h
+            for h in store.histories()
+            if h.start.invocation.endswith("compare_windows") and h.status == "completed"
+        )
+        assert len(completed) == 3
+        reports = tuple(
+            _CODEC.decode_json(
+                store.artifact(h.start.attempt_id, "window-report-json"), WindowDiagnosticReport
+            )
+            for h in completed
+        )
+        earlier = next(r for r in reports if r.study == study)
+        later = next(
+            r for r in reports if r.study.evaluated_as_of == _START + timedelta(seconds=56)
+        )
+        assert earlier.distributions == later.distributions
+        assert any(row.statistic is not None for row in earlier.distributions)
+        assert sum(row.count for row in later.predictive) > sum(
+            row.count for row in earlier.predictive
+        )
+        assert any(row.label_reason is not None for row in later.observations)
+        assert all(store.read(h.start.attempt_id) == h for h in before)
+        assert store.read(failed.start.attempt_id) == failed
+        assert all(
+            not any(event.status == "holdout_consumed" for event in h.events)
+            for h in store.histories()
+        )
+        for history, report in zip(completed, reports, strict=True):
+            ResultManifest.read(store, history.start.attempt_id)
+            reproduced = WindowDiagnostics().evaluate(
+                report.study,
+                (FeatureLabelPayload.decode(payload),),
+                (_CODEC.decode_json(evaluation_bytes, EvaluationRecord),),
+            )
+            assert _CODEC.encode_json(reproduced) == store.artifact(
+                history.start.attempt_id, "window-report-json"
+            )
+            assert reproduced.html_bytes() == store.artifact(
+                history.start.attempt_id, "window-report-html"
+            )
+        (output / "window-attempts.json").write_bytes(
+            _CODEC.encode_json(tuple(h.start.attempt_id for h in completed))
+        )
+        if _ModelAcceptance._configure_server():
+            with patch.object(
+                WindowDiagnostics,
+                "evaluate",
+                side_effect=AssertionError("publication reran diagnostics"),
+            ):
+                with AttemptStore(attempts) as retained:
+                    with patch.object(
+                        AttemptStore, "retain", new=_ModelAcceptance._interrupt_receipt
+                    ):
+                        try:
+                            ClearMLPublication(retained, destination).publish(
+                                completed[0].start.attempt_id
+                            )
+                        except ConnectionError:
+                            pass
+                        else:
+                            raise AssertionError("lost publication receipt was not exercised")
+                    for history in (*completed, failed):
+                        receipt = ClearMLPublication(retained, destination).publish(
+                            history.start.attempt_id
+                        )
+                        assert (
+                            ClearMLPublication(retained, destination).publish(
+                                history.start.attempt_id
+                            )
+                            == receipt
+                        )
+                        cls._download(retained, history, receipt.task_id)
+        print("Installed SciPy windows, delayed labels, inapplicability and recovery verified.")
+
+    @staticmethod
+    def _download(store: AttemptStore, history: AttemptHistory, task_id: str) -> None:
+        """Download actual ClearML artifacts and verify their retained SHA-256 identities."""
+        # third party library imports
+        from clearml import Task
+
+        tasks = Task.get_tasks(
+            project_name="alpha-local-integration",
+            task_name=f"^attempt-{history.start.attempt_id}$",
+            allow_archived=True,
+        )
+        assert len(tasks) == 1 and tasks[0].id == task_id
+        names = (
+            tuple(
+                item.name for item in ResultManifest.read(store, history.start.attempt_id).artifacts
+            )
+            if history.status == "completed"
+            else ("feature-source-0", "window-study")
+        )
+        for name in names:
+            downloaded = tasks[0].artifacts[name].get_local_copy()
+            assert downloaded is not None
+            assert (
+                hashlib.sha256(Path(downloaded).read_bytes()).hexdigest()
+                == hashlib.sha256(store.artifact(history.start.attempt_id, name)).hexdigest()
+            )
+
+
 def main() -> None:
     """Publish real saved fixtures or reproduce the completed study in a fresh installed process.
 
@@ -604,6 +852,7 @@ def main() -> None:
     if len(sys.argv) == 3:
         _FactorAcceptance.run(output, history, payload)
         _ModelAcceptance.run(inputs, output / "models")
+        _WindowAcceptance.run(output / "models")
 
 
 if __name__ == "__main__":
