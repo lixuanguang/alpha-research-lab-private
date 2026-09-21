@@ -518,9 +518,15 @@ journals, complete unsuccessful-trial history and Alphalens report contracts;
 The existing exploration/backtest applications compose these libraries; no library
 imports an application or exposes a runnable command. Feast's incompatible pandas
 constraint is isolated in a separately locked local SDK worker, while core pandas
-remains 3.0.5. Evidently remains unimplemented because its required dependency
-closure fails admission. MR 7 is partial, and no comparison grants candidate,
-deployment or trading authority.
+remains 3.0.5. The
+[accepted diagnostic tool amendment](../roadmap/README.md#diagnostic-tool-requirement-amendment)
+makes offline reference/current reports mandatory and Evidently optional. The
+missing consumer belongs in `research.experiments`, composed by the existing
+exploration application and published through the existing ClearML outbox.
+It may use admitted computation dependencies; Evidently's reviewed closure still
+fails admission. MR 7 remains partial until this consumer and its installed/report
+verification are delivered. No comparison grants candidate, deployment or trading
+authority.
 
 Research reports state the economic mechanism, falsifiable hypothesis, target, sign, horizon, universe, rebalance,
 benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.

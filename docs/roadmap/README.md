@@ -28,7 +28,7 @@ model studies or configured bounded spot economics → retained costed reports.
 | Versioned observed-price features and separate forward labels | Inspect exact returns, causal windows, missingness and delayed outcome availability | Bounded unfitted trade-price diagnostic; no economic, book/macro, model or runtime claim |
 | Exact spot economics and bounded vectorbt comparison | Reconcile delayed target execution, costs, cash, holdings and retained analytical output | Synthetic/offline spot scope; no liquidity, empirical or execution qualification |
 | Configured economics, QuantStats reports, local ClearML pipelines and lakeFS input pins | Run, repeat, resume and inspect exact costed output with retained failures and immutable storage versions | No-fit validation studies, one serial local worker and synthetic retention/restore qualification |
-| Retained rule comparisons, factor reports and offline feature parity | Reproduce bounded Optuna trials, Alphalens diagnostics and causal Feast retrieval through installed research APIs | Local synthetic scope; Evidently acceptance remains blocked by dependency admission |
+| Retained rule comparisons, factor reports and offline feature parity | Reproduce bounded Optuna trials, Alphalens diagnostics and causal Feast retrieval through installed research APIs | Local synthetic scope; reference/current diagnostics remain unimplemented under the amended tool requirement |
 | Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; shared large-study orchestration and empirical acceptance remain planned |
 
 The [data command reference](../../src/market_data/README.md) owns current usage.
@@ -116,7 +116,7 @@ and statistical models still need explicit state serialization, provenance and
 evaluation definitions; framework autologging does not supply these contracts.
 ClearML's model IDs are not a substitute for immutable model-version manifests.
 
-| Selected tool | Researcher outcome | First integration and later extension |
+| Selected tool or capability | Researcher outcome | First integration and later extension |
 | --- | --- | --- |
 | ClearML | Find attempts, models, diagnostics and reports; repeat declared workflows | MR 4 tracking/model records; MR 6 pipelines/agents; MRs 10–11 frozen artifacts and service qualification |
 | [vectorbt](https://vectorbt.dev/) | Rapid supported strategy/parameter exploration | MR 5 bounded adapter against the reference ledger; MR 7 tracked parameter comparisons |
@@ -129,7 +129,7 @@ ClearML's model IDs are not a substitute for immutable model-version manifests.
 | [Optuna](https://optuna.readthedocs.io/en/stable/) | Search declared model, calibration or strategy parameter spaces | MR 7 after retained evaluations; ClearML owns execution/tracking and Optuna owns sampling/pruning |
 | [marimo](https://docs.marimo.io/) | Reactive Python notebooks and interactive research controls | MR 7 optional interface alongside maintained notebooks, calling the same installed research APIs |
 | [DuckDB](https://duckdb.org/docs/current/data/overview) / [Polars](https://docs.pola.rs/user-guide/lazy/using/) | SQL exploration of research files and dataframe transformations | MR 7 bounded analysis adapters over verified inputs; MR 20 for replacement of performance-sensitive internals |
-| [Evidently](https://docs.evidentlyai.com/introduction) | Data quality, distribution drift and applicable predictive-performance reports | MR 7 offline reference/current-window reports; MRs 15/17 scheduled evaluation |
+| [Offline window diagnostics](#diagnostic-tool-requirement-amendment), using admitted computation dependencies | Data quality, distribution drift and applicable predictive-performance reports | MR 7 retained reference/current-window reports; MRs 15/17 scheduled evaluation. Evidently is optional and remains unadmitted |
 | [skfolio](https://skfolio.org/) | Portfolio allocation research under declared objectives and constraints | MR 7 conditional multi-asset portfolio consumer; MR 14 retains independent account allocation/risk authority |
 
 Feast and lakeFS are complementary. lakeFS versions stored bytes; Feast describes
@@ -809,11 +809,16 @@ CLI/report path remaining the reference consumer:
   APIs alongside the maintained notebook. An explicit run action creates a retained
   formal attempt; reactive display updates must not silently refit or consume a
   holdout. Fresh-process script execution reproduces the example's retained result.
-- **Evidently offline diagnostics.** Compare one declared reference/current window
-  using retained feature/prediction data, and delayed labels only when available.
-  Pin the reference, schema, metrics/tests and thresholds; save the report to ClearML.
-  Exercise a known shift and missing-label case. Drift is a diagnostic finding, not
-  evidence of strategy failure or an automatic retraining/activation instruction.
+- **Offline reference/current diagnostics.** Compare explicitly declared windows
+  using retained features/predictions and labels available by the declared evaluation
+  cutoff. Retain schema, units, lineage, exclusions, metric/test definitions, frozen
+  thresholds, computation versions and reports. Publish through the existing ClearML
+  outbox and artifact reconciliation. Verify shift/control, delayed labels,
+  predictive inapplicability, untouched holdouts and failure/recovery with an
+  installed consumer and downloaded report hashes. The
+  [accepted tool amendment](#diagnostic-tool-requirement-amendment) makes Evidently
+  optional; the diagnostic outcome and verification remain mandatory. Drift grants
+  no automatic retraining, promotion, deployment or trading authority.
 - **skfolio allocation research, conditional.** For a selected multi-asset portfolio,
   fit estimators on permitted history and retain objectives, constraints, asset order,
   covariance/return assumptions and solver settings/status. Use the repository's
@@ -825,6 +830,61 @@ All comparison artifacts resolve model versions, dataset/feature snapshots, metr
 definitions, windows and attempt IDs through ClearML and the retained manifests.
 Large trial grids may be stored as indexed artifacts, but every evaluated variant
 must remain individually attributable; retaining only the winning curve is insufficient.
+
+#### Diagnostic tool requirement amendment
+
+Accepted by explicit founder instruction on **2026-09-21**: replace the mandatory
+Evidently SDK integration with **offline reference/current diagnostics implemented
+by the existing research owners using admitted computation dependencies**. This
+supersedes the named-tool requirement in the original MR 7 acceptance and its
+completion request. Evidently may be added only after its full dependency closure
+passes admission; it is no longer a prerequisite for completing MR 7. The
+[rejected dependency evidence](../architecture/dependency-admission.md#evidently-prerequisite-recheck)
+remains valid for the reviewed candidates.
+
+The following outcomes remain binding:
+
+- Compare explicit reference/current windows from verified retained feature and
+  prediction results. Retain source snapshots, upstream attempts, applicable model
+  versions, windows, schema, units and availability policy. Admit delayed labels
+  only when available at the declared evaluation cutoff; preserve missing and
+  excluded observations and reasons.
+- Retain the actual computation package versions, metric/test definitions, frozen
+  thresholds and applicability rules, numerical results and reproducible report
+  inputs. Use an honestly named repository report; do not claim Evidently output
+  when Evidently did not generate it. Missing labels or an inapplicable predictive
+  metric must remain explicit, without suppressing applicable feature diagnostics.
+- Publish the generated report through existing ClearML publication and artifact
+  reconciliation. Preserve failed attempts and publication retries; retry saved
+  report bytes without rerunning research or consuming a holdout. Drift remains
+  diagnostic and cannot trigger retraining, promotion, deployment or trading.
+- Keep reusable validation, calculations and state transitions in cohesive
+  `research.experiments` classes, composed by existing application workflows.
+  Preserve MR 28 public APIs and entrypoint boundaries. Add a useful consumer to
+  the QR guide and an existing maintained notebook/interface.
+- Verify a known distribution shift and unchanged control, missing labels and
+  later availability, explicit predictive inapplicability, preserved temporal
+  splits and untouched holdouts, retained failure/recovery, and reproducible
+  inputs/results. Exercise the selected computation library from an installed
+  artifact outside the checkout, publish to actual local ClearML, and download
+  the report artifacts to verify retained hashes. Renew affected proofs, run
+  `make check` and applicable installed consumers, and inspect hosted CI.
+
+The first implementation should reuse the admitted numerical stack where suitable;
+SciPy **1.18.1** is already in the reviewed core lock. This amendment is not SDK
+verification or admission of a new graph: any direct dependency use must be
+declared in owning metadata and its complete closure verified under current policy.
+CPython **3.14.7**, pandas **3.0.5**, vulnerability rules and QuantLib's release
+restriction remain unchanged. SHAP/skfolio remain conditional; MR 8 empirical
+acceptance, online serving, account allocation and shared-service qualification
+remain outside MR 7.
+
+**Amendment recorded; diagnostic implementation and acceptance remain open.**
+The next implementation step is the owned consumer above, followed by its installed
+and ClearML proofs. The retained wheel-smoke timeout and hosted CI scheduling
+failure also remain unresolved validation boundaries. Changing the tool choice
+does not satisfy these requirements or authorize a merge. Reversal restores the
+Evidently-specific requirement while retaining this decision and historical evidence.
 
 Delivery status (2026-09-21): **partial; acceptance is not complete.** The owning
 libraries now expose compatible feature/estimator/rule registration and the
@@ -840,16 +900,18 @@ prerequisite lane. The deselected performance case is not behavioral evidence.
 No merged-PR count was used as a substitute for that audit. The core interpreter
 and dataframe pins remain CPython **3.14.7** and pandas **3.0.5**.
 
-The Evidently acceptance slice is blocked by dependency admission. The compatible
-resolver candidate, Evidently 0.4.36, requires NLTK; the latest 0.7.23 release also
+Under the original tool requirement, the Evidently slice was blocked by dependency
+admission. The compatible resolver candidate, Evidently 0.4.36, requires NLTK;
+the latest 0.7.23 release also
 requires it unconditionally. NLTK 3.10.3 is the latest published release and has
 the unresolved [GHSA-8mgp-746c-j5xp / CVE-2026-81726](https://github.com/advisories/GHSA-8mgp-746c-j5xp)
 finding (also PYSEC-2026-3740), with no patched release listed on this date.
 The repository blocks unresolved vulnerabilities and has no waiver mechanism.
 Evidently and its unused transitive graph were removed; no substitute adapter or
-unexecuted diagnostic scaffold is claimed. Revisit the exact dependency closure
-when a patched release exists, then implement and verify known shift, delayed
-labels and actual ClearML report publication before completing MR 7.
+unexecuted diagnostic scaffold is claimed. The
+[subsequent tool amendment](#diagnostic-tool-requirement-amendment) permits an
+admitted implementation without Evidently; the missing diagnostic consumer and
+its verification are still required before completing MR 7.
 
 Feast 0.66.0 requires pandas below 3 and therefore uses an explicitly separate
 local research-worker lock. It cannot downgrade the runtime's dataframe pin.
@@ -922,7 +984,8 @@ The complete local lane above passed, but hosted Linux/macOS and merged-result
 execution remain unproven. On 2026-09-21, after the complete local validation
 and these limitations were reported, the founder explicitly instructed merging
 this partial delivery to main. This authorization applies to PR 69; MR 7 remains
-incomplete until the Evidently acceptance slice is delivered. The repository's
+incomplete until the diagnostic acceptance slice is delivered under the
+[current tool requirement](#diagnostic-tool-requirement-amendment). The repository's
 workflow/protection configuration is unchanged, and no deployment or trading
 authority is granted.
 
@@ -950,6 +1013,94 @@ grants no deployment or trading authority; the existing QuantLib release restric
 remains. Revert the owners, consumers, examples and dependency/admission changes
 together. Preserve attempt stores, Optuna journals, source/registry versions,
 matching installed wheels and service evidence to reproduce historical results.
+
+#### Completion attempt and acceptance reconciliation
+
+Historical prerequisite attempt, 2026-09-21, before the tool amendment: rechecked
+from latest main
+`3ebd6a4bdb5722117e66dca830af28ee140b9f52` in isolated branch
+`codex/mr-07-completion`. **MR 7 remains incomplete.** The
+[dependency prerequisite review](../architecture/dependency-admission.md#evidently-prerequisite-recheck)
+retains fresh wheel metadata, upstream advisories and resolver/audit evidence:
+Evidently 0.4.36 resolves with all existing pins but its complete 216-package
+external graph fails the NLTK advisory; 0.7.23 additionally conflicts with the
+core Plotly pin. Neither candidate is admitted. A separate worker cannot resolve
+the vulnerability. No replacement diagnostic or unexecuted consumer was added.
+
+The existing source, application composition, tests and retained service results
+were inspected directly. All **930** files in the prior acceptance inventory
+still match their hashes. All **196** runtime files in the retained final wheel
+match this checkout's source; wheel SHA-256 is
+`c24bbdd67b4b893c89752d2f3d974b6d383374d2fd8ecddf666ae0fe212f14d1`.
+These checks justify reusing the unchanged implementation's prior service and
+notebook evidence summarized below; they do not claim a fresh ClearML or Feast
+service run or override the fresh smoke failure recorded after the table.
+The table reflects the [amended acceptance](#diagnostic-tool-requirement-amendment);
+the historical verification results below retain their original scope.
+
+| Mandatory outcome | Implementation and inspected evidence | Acceptance status |
+| --- | --- | --- |
+| Shared selection, distinct consumer and isolated instances | `EconomicComparison`, `RuleRegistry`, completed-price reversal; [comparison tests](../../tests/unit/simulation/test_comparison.py) and [extension tests](../../tests/unit/simulation/test_extensions.py) preserve selection, separate checkpoints/pending state and exact results. Rules are deterministic; the Optuna sampler has a declared retained seed/journal. | Delivered in the bounded synthetic scope |
+| Compatible extension without runner edits; guide and rule-only notebook | Feature/estimator registries and injected rule factories retain public owner boundaries; [QR guide](../../examples/README.md), [activity notebook](../../examples/research-foundations.ipynb) and the retained 18/18-cell run exercise the path. | Delivered; no arbitrary new schema or empirical model claim |
+| Full parameter trial history, frozen choices, resume and holdout discipline | `ParameterComparison` and `EconomicComparison` retain accepted/pruned/rejected/failed/interrupted trials, fixed budget/split and exact ledger evaluation; installed comparison and serial pipeline histories remain in the prior archive. | Delivered; validation only, no promotion |
+| Alphalens factor diagnostics and ClearML reports | `AlphalensDiagnostics` and `compare_factors`; [independent numerical tests](../../tests/unit/research/test_diagnostics.py) cover IC, quantile returns, turnover, unavailable labels and inapplicability. Installed feature-consumer evidence includes actual artifact-download hashes. | Delivered; intraday turnover limitation retained |
+| Feast offline availability, revision, missing-entity and TTL parity | `OfflineFeatureAccess`, `OfflineFeatureBridge` and `compare_offline_features`; retained final SDK report pins registry/source and five ClearML artifacts for task `1c58dfe1bf194ad4b5322a384000af3b`. | Delivered; separate audited worker, offline only |
+| DuckDB/Polars precision and marimo explicit execution | `BoundedFeatureAnalysis` and [analysis tests](../../tests/unit/research/test_analysis.py); marimo's verified validation preview is separate from its formal run action. Prior fresh-process equal-report evidence is retained. | Delivered; no reactive fit or holdout read |
+| Offline reference/current diagnostics and actual report publication | The founder-authorized amendment permits an admitted computation library instead of Evidently. The consumer, declared windows/schema/units/availability, feature/prediction/model lineage, frozen metric/test thresholds, exclusions, shift/control, delayed-label and predictive-inapplicability cases, failure/recovery and downloaded ClearML report hashes remain unimplemented/unproven. | **Open; mandatory capability and acceptance unmet** |
+| Conditional SHAP and skfolio | No selected explanation-dependent model or multi-asset allocation consumer. | Inapplicable under the existing conditional criteria |
+
+Historical local verification before the tool amendment:
+
+- `UV_CACHE_DIR=/private/tmp/alpha-completion-uv-cache TMPDIR=/private/tmp
+  PYTEST_ADDOPTS=--basetemp=/private/tmp/alpha-completion-pytest make check`:
+  **failed, exit 2**, at installed-wheel smoke. All preceding checks passed:
+  locked resolution, Ruff/format (336 files), strict mypy (329 files), native
+  stubtest (1,562 modules), engineering rules, 179-package admission/audit with
+  no findings or coverage gaps, links, Bandit, secrets (447 paths), and
+  **1,190 tests passed / 3 performance deselected / no skips** in 176.96 seconds.
+- The clean wheel installed 135 runtime packages and passed `uv pip check`.
+  Its bytes equal the retained final wheel above. The existing installed
+  `feature_study.py` consumer exceeded its 60-second timeout; later economic
+  and recovery consumers in that smoke sequence were not reached.
+- A copied diagnostic consumer in a separate installed environment completed
+  feature/factor/model and fresh-process assertions. Added stack dumps showed
+  time in dependency compilation/native imports; the sandboxed diagnostic also
+  used a temporary Matplotlib cache. This is diagnosis, not standard smoke
+  acceptance. The focused retry, `UV_CACHE_DIR=/private/tmp/alpha-completion-uv-cache
+  UV_COMPILE_BYTECODE=1 TMPDIR=/private/tmp make wheel-smoke`, also **failed,
+  exit 2**, at the same 60-second boundary. Install-time compilation did not
+  resolve it. The cause of the remaining timeout is unproven; assertions and
+  timeouts were not weakened, and the complete lane is not reported as passing.
+- Final local-link checks explicitly include the QR guide: **33 documents
+  passed**. New source tests and live service/notebook runs are unnecessary for
+  these documentation-only edits; the required Evidently SDK, shift/control,
+  delayed-label, failure/recovery and real ClearML report checks remain blocked,
+  not skipped tests or substituted Alphalens results.
+
+Both smoke failures, diagnostic output, the matching wheel and dependency
+evidence are preserved under the primary checkout's ignored, owner-only
+`logs/research-completion-prerequisite/2026-09-21/` directory. The original
+acceptance archive and unrelated running notebook environments are preserved.
+
+The reusable attempt/split and ClearML outbox implementations retain failures and
+reconcile saved artifacts without rerunning research. That existing behavior is
+not evidence of the missing reference/current diagnostic integration. This
+prerequisite and requirement-amendment change affects only
+documentation/evidence; source, dependency locks/admission rules, commands,
+notebook cells and QuantLib's release restriction are unchanged. The next work
+is the owned consumer and installed computation/local ClearML acceptance defined
+in the amendment, with the existing validation failures still unresolved. MR 8,
+online serving, allocation, shared-service qualification and trading remain out
+of scope. Reversal is to revert these documentation updates while preserving
+both historical evidence archives.
+
+The tool amendment was checked with the existing local-link validator over
+**33 documents**, including the QR guide, and
+`uv run --frozen --no-sync alpha-governance-ci scan-secrets --all` over
+**447 governed paths**; both passed. `git diff --check` passed. Source, tests,
+notebook code, package metadata and locks are unchanged, so this documentation
+amendment does not rerun research or the full suite. The earlier failed smoke
+and hosted scheduling evidence remain applicable validation limitations.
 
 ### Frozen baseline acceptance
 
@@ -1078,8 +1229,8 @@ their declared model. Stop, cancel and flatten remain distinct operations. Actua
 paper/shadow deployment also requires MR 11.
 
 Schedule retained evaluation/report tasks through the qualified ClearML worker path.
-Reuse MR 7 Evidently reports for feature quality, distributions and model performance
-where labels exist, keeping reference windows and thresholds versioned. Record stale,
+Reuse MR 7 reference/current diagnostic reports for feature quality, distributions
+and model performance where labels exist, keeping reference windows and thresholds versioned. Record stale,
 missing-label and failed-report outcomes. These jobs may lag or fail independently;
 they do not replace the health/alert path or sit in the order/decision hot path.
 
@@ -1106,8 +1257,8 @@ the configured stop/cancel response, including alive-but-stalled processing.
 Delayed-label/model monitoring is applicable only to candidates that use it.
 Keep controls effective through disconnects and operator/restart transitions.
 
-Link realized performance and applicable Evidently findings to the exact deployed
-candidate/model version and observation window in ClearML. Distinguish delayed
+Link realized performance and applicable reference/current diagnostic findings
+to the exact deployed candidate/model version and observation window in ClearML. Distinguish delayed
 outcomes from missing data. A drift finding can request research investigation;
 automatic retraining, candidate replacement or live activation is not implied.
 
