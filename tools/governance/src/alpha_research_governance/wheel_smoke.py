@@ -79,6 +79,7 @@ class _InstalledWheelCheck:
                 str(requirements),
                 "--only-binary=:all:",
                 "--require-hashes",
+                "--compile-bytecode",
             ],
             cwd=smoke_root,
         )
@@ -90,6 +91,7 @@ class _InstalledWheelCheck:
                 "--python",
                 str(python),
                 "--no-deps",
+                "--compile-bytecode",
                 str(runtime_wheel),
             ],
             cwd=smoke_root,
@@ -98,6 +100,10 @@ class _InstalledWheelCheck:
         environment = os.environ.copy()
         environment.pop("PYTHONPATH", None)
         environment["PYTHONNOUSERSITE"] = "1"
+        # A sandbox may deny the user cache. Matplotlib otherwise creates a new
+        # temporary cache per process and repeatedly scans every macOS font.
+        # Share only this disposable run's cache across its installed consumers.
+        environment["MPLCONFIGDIR"] = str(smoke_root / "matplotlib-cache")
         inputs = smoke_root / "inputs"
         inputs.mkdir()
         for relative in (
@@ -145,8 +151,13 @@ def main(repository_root: Path | None = None) -> int:
         subprocess.CalledProcessError: A build, dependency install, or import smoke fails.
     """
     root = (Path.cwd() if repository_root is None else repository_root).resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix="alpha-research-wheel-smoke-") as temporary:
+    # Preserve installed artifacts and attempts on failure as well as success;
+    # callers can archive this printed directory before explicit later cleanup.
+    with tempfile.TemporaryDirectory(
+        prefix="alpha-research-wheel-smoke-", delete=False
+    ) as temporary:
         smoke_root = Path(temporary)
+        print(f"Retained installed-wheel evidence: {smoke_root}", flush=True)
         wheel_directory = smoke_root / "wheels"
         wheel_directory.mkdir()
         _InstalledWheelCheck._run(

@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-21. **MRs 1–6 are implemented; MR 7 is partially implemented; MRs 8–21 are planned.**
+Owner: repository founder. Updated 2026-09-21. **MRs 1–7 are implemented; MRs 8–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -28,7 +28,7 @@ model studies or configured bounded spot economics → retained costed reports.
 | Versioned observed-price features and separate forward labels | Inspect exact returns, causal windows, missingness and delayed outcome availability | Bounded unfitted trade-price diagnostic; no economic, book/macro, model or runtime claim |
 | Exact spot economics and bounded vectorbt comparison | Reconcile delayed target execution, costs, cash, holdings and retained analytical output | Synthetic/offline spot scope; no liquidity, empirical or execution qualification |
 | Configured economics, QuantStats reports, local ClearML pipelines and lakeFS input pins | Run, repeat, resume and inspect exact costed output with retained failures and immutable storage versions | No-fit validation studies, one serial local worker and synthetic retention/restore qualification |
-| Retained rule comparisons, factor reports and offline feature parity | Reproduce bounded Optuna trials, Alphalens diagnostics and causal Feast retrieval through installed research APIs | Local synthetic scope; reference/current diagnostics remain unimplemented under the amended tool requirement |
+| Retained comparisons, factor/window reports and offline feature parity | Reproduce Optuna trials, Alphalens and SciPy diagnostics, and causal Feast retrieval through installed research APIs | Bounded local synthetic scope; diagnostic thresholds confer no promotion authority |
 | Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; shared large-study orchestration and empirical acceptance remain planned |
 
 The [data command reference](../../src/market_data/README.md) owns current usage.
@@ -68,7 +68,7 @@ source evidence and researcher access improve independently.
 | 4 | [Model records, evaluation and ClearML tracking](#fitted-preprocessing-and-model-evaluation) | MR 2 for tracking; MR 3 for feature-consuming models; fitting only where applicable |
 | 5 | [First economic backtest and vectorbt research adapter](#first-economic-backtest) | Existing replay and financial contracts; MR 4 for tracked vectorbt runs; no fitted-model dependency |
 | 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
-| 7 | [Research comparison, Alphalens and Feast offline retrieval](#research-comparison-and-extension) | MRs 1–6; fitted-state requirements only where applicable |
+| 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
 | 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) | MRs 5–6 plus required actual source evidence |
 | 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable |
@@ -95,7 +95,7 @@ the other's evidence. Conditional work stays dormant until its consumer exists.
 This revision starts at MR 4. MR 3's feature/label scope and acceptance remain
 unchanged by these plans; later adapters consume its delivered public outputs.
 MR 4's ClearML/Pandera, MR 5's bounded vectorbt, and MR 6's report/pipeline/storage
-consumers have concrete implementations and evidence below; MR 7 is partially delivered,
+consumers have concrete implementations and evidence below; MR 7 is delivered in its bounded scope,
 and later entries remain planned.
 Deliver the named consumers in bounded slices within the existing MR numbers.
 
@@ -879,14 +879,15 @@ restriction remain unchanged. SHAP/skfolio remain conditional; MR 8 empirical
 acceptance, online serving, account allocation and shared-service qualification
 remain outside MR 7.
 
-**Amendment recorded; diagnostic implementation and acceptance remain open.**
-The next implementation step is the owned consumer above, followed by its installed
-and ClearML proofs. The retained wheel-smoke timeout and hosted CI scheduling
-failure also remain unresolved validation boundaries. Changing the tool choice
-does not satisfy these requirements or authorize a merge. Reversal restores the
-Evidently-specific requirement while retaining this decision and historical evidence.
+At amendment time, diagnostic implementation and acceptance remained open; changing
+the tool choice did not satisfy the requirements or authorize a merge. The
+[completed implementation and acceptance](#offline-diagnostic-completion-and-final-reconciliation)
+below supplies the owned consumer, installed computation and ClearML proofs and
+resolves the local smoke timeout. Hosted scheduling remains an external merge
+boundary. Reversing this amendment restores the Evidently-specific requirement
+while retaining this decision and historical evidence.
 
-Delivery status (2026-09-21): **partial; acceptance is not complete.** The owning
+Historical PR 69 delivery status (2026-09-21): **partial; acceptance was not complete.** The owning
 libraries now expose compatible feature/estimator/rule registration and the
 existing backtest application consumes a distinct completed-price reversal rule.
 `research.experiments` owns retained Alphalens reports and bounded Optuna grid
@@ -1101,6 +1102,115 @@ The tool amendment was checked with the existing local-link validator over
 notebook code, package metadata and locks are unchanged, so this documentation
 amendment does not rerun research or the full suite. The earlier failed smoke
 and hosted scheduling evidence remain applicable validation limitations.
+
+#### Offline diagnostic completion and final reconciliation
+
+Final local acceptance, 2026-09-21, from main
+`507b1c4de00ef9ac51a39412185c88ecaab564f7` in isolated branch
+`codex/mr-07-diagnostics`: **MR 7 acceptance is complete under the amended tool
+requirement, within the declared local synthetic scope.** This does not complete
+MR 8, qualify shared services, authorize a merge, or establish hosted CI success.
+The historical partial deliveries and failed checks above retain their original
+meaning; this record supersedes their outstanding local implementation boundaries.
+
+`WindowDiagnosticStudy`, `WindowDiagnostics` and `WindowDiagnosticRun` own frozen
+policy, calculations, lineage checks and terminal state transitions in
+`research.experiments`. The existing `applications.explore.compare_windows`
+workflow composes them with the existing attempt store, ClearML publication and
+artifact reconciliation. There is no new command or runner. The
+[QR consumer](../../examples/README.md#compare-reference-and-current-windows),
+[component contract](../../src/research/experiments/README.md#offline-window-diagnostics)
+and existing [marimo interface](../../examples/research-comparison.py) explain the
+explicit saved request and run action.
+
+The report retains pinned source bytes and histories, snapshot/query identities,
+feature/label definitions, model manifests and state, original splits, windows,
+cutoff, units, availability and applicability rules, thresholds, exact inputs,
+exclusions, actual computation versions and numerical results. SciPy **1.18.1**
+performs the two-sided exact KS calculation per instrument; predictive MSE uses
+exact rational arithmetic only for labels available at the declared cutoff.
+These descriptive diagnostics neither establish statistical independence nor
+correct multiple comparisons. Insufficient samples and inapplicable metrics stay
+explicit. No result can retrain, promote, deploy or trade.
+
+| Mandatory outcome | Final implementation and evidence | Acceptance |
+| --- | --- | --- |
+| Shared selection, distinct consumer, isolated state and compatible extensions | Existing registry/comparison owners inspected directly; full source suite and final installed economics/pipeline exercise both rules, exact costed results, independent histories and resume. | Complete in supported synthetic scope |
+| Retained trials, frozen configuration, temporal boundaries and untouched holdouts | Comparison tests retain accepted/pruned/rejected/failed/interrupted outcomes; actual installed pipeline proves original failure/downstream suppression, recovery and real server override. Repeated comparison preserves trial histories. New diagnostic source/history assertions reject holdout use and preserve source splits. | Complete; no empirical or promotion claim |
+| Useful guide, rule-only path and maintained interface | QR guide and existing feature consumer extended; marimo preview creates zero attempts, and two explicit fresh processes produce distinct completed attempts with equal manifests. The unchanged QR notebook's earlier 18/18-cell evidence is reused only for its existing path. | Complete; live notebooks unchanged and not rerun |
+| Alphalens factor diagnostics and actual publication | Existing independent IC, quantile-return, turnover and missingness cases pass; renewed final installed feature consumer publishes and checks downloaded artifacts. | Complete; daily-resample turnover limitation unchanged |
+| Feast offline availability, revision, missing entity and TTL | Renewed installed Feast 0.66.0 worker passes actual registry/Parquet retrieval, native parity, delayed correction, missing entity and TTL checks, with ClearML artifact verification. | Complete; separate worker, no online serving |
+| DuckDB/Polars precision and explicit marimo execution | Existing numerical conversion tests pass; final installed feature consumer and copied maintained marimo interface run outside the checkout. Display controls create no formal attempt. | Complete; no reactive fit or holdout read |
+| Reference/current diagnostics, availability and applicability | Independent disjoint supports give KS D=1 and p=2/binomial(20,10); identical control gives D=0, p=1. Delayed-label case admits 36 then 38 labels, retaining two permanently missing labels; exact MSE=1. Installed artifact repeats these results. Missing labels and predictive inapplicability leave applicable feature diagnostics active. | Complete |
+| Retained diagnostic inputs, actual reports, failure and recovery | Final wheel computes repository JSON/HTML, publishes to actual local ClearML, downloads every declared artifact and checks its hash. Retained computation failure and publication/lost-receipt failures recover saved artifacts while recomputation is patched to fail. A separate installed process reproduces JSON and HTML byte for byte from retained inputs. | Complete; no Evidently-output claim |
+| Dependency admission and installed boundary | SciPy is now direct metadata; no external locked version/artifact changed. Full all-marker audits cover core 179, Feast 64 and agent 13 packages, with zero findings or skipped packages. Final installed runtime checks 135 packages and actual SciPy, CPython 3.14.7 and pandas 3.0.5. | Complete; rejected Evidently evidence and QuantLib restriction preserved |
+| Full validation and hosted CI inspection | Complete `make check` and applicable final installed/service consumers pass. GitHub is inspected and reports the account billing blocker before executing jobs. | Local acceptance complete; hosted Linux/macOS and merged-result execution unproven |
+| Conditional SHAP/skfolio | No selected explanation-dependent model or multi-asset allocation consumer. | Inapplicable under unchanged conditional criteria |
+
+The old 60-second feature-consumer failure was isolated to cold dependency imports
+and Matplotlib font-cache construction. Retained import timing measured 16.614
+seconds in `matplotlib.font_manager`; a writable cache measured 17.644 seconds
+first use and 0.120 seconds on reuse. The unchanged earlier consumer then completed
+in 9.469 seconds. The smoke owner now compiles **all** installed dependency and
+runtime bytecode during installation and supplies one writable, retained
+`MPLCONFIGDIR` per smoke. Existing 60-second subprocess limits and assertions are
+unchanged. The complete fresh smoke passed the feature, model, diagnostic, economic
+and recovery consumers. The older bytecode-only retry remains a failure; it did
+not establish that font-cache setup was resolved.
+
+Final commands and observable results:
+
+- `TMPDIR=/private/tmp MPLCONFIGDIR=/private/tmp/alpha-diagnostics-evidence/full-check-fonts
+  make check`: **passed**, **1,196 tests passed, 3 performance cases deselected,
+  no skips**, 145.85 seconds for pytest. Ruff/format covered 339 files, strict mypy
+  332 files, stubtest 1,562 modules; source, ownership, admission, vulnerability,
+  security and installed-wheel checks passed. Performance acceptance is not claimed.
+- Final wheel SHA-256:
+  `2f448a87f6bd73eb6609329609ae02f968d7b891690cf3534e35285d9d6ad0fe`.
+  Core lock SHA-256:
+  `67f115cf2763eaec492defa8b2245b20ea282876d235a45c2ecb28044cd58d37`.
+  All 198 runtime files in this wheel match final source. Final local links pass
+  for 37 documents, including five additional owning guides; the staged secret
+  scan passes for 450 governed paths.
+  The wheel's isolated Python ran the copied `feature_study.py`,
+  `economic_workflow.py`, `offline_features.py` and `pipeline_workflow.py` against
+  actual local ClearML. Exact NAV, vectorbt, both comparison trials, fresh-process
+  resume, model/report uploads, offline retrieval and failure/recovery passed.
+- Window attempt `71fa54be917641a486ec165b6cec7a7b` published to task
+  `103732f96bfd4299acec5b8495f3fe92`; the downloaded JSON SHA-256 is
+  `591d1f1d66d3bd1bf953b264e11f25134ae07b380fd73866bd803afadf88aa99`.
+  Later-cutoff attempt `7e46c0f172584258aa19fa01ea422ff1` published to task
+  `9db9139d4a4043308dd5faff9cda16ae`; its JSON SHA-256 is
+  `45600ea7f541722435e548332c2c31e208137a45ca0b6e03555fd60040cbc6a6`.
+  Explicitly inapplicable attempt `4d573df66d4747be8100bb91f35fab94` and failed
+  computation `1b5292727db14973b722d60b5ea32b3c` retain separate tasks and histories.
+- All **930** earlier inventory files still match their hashes. Their unchanged
+  notebook/source-specific evidence is reused only within the recorded scope;
+  affected installed and service proofs above are fresh. No active environment
+  was reinstalled. New development failures, including the initial saved-model
+  decoder and verification-helper selector mistakes, are preserved with corrections.
+- `alpha-governance-artifacts release-check` still fails closed on QuantLib's
+  existing development-only admission, as required.
+
+Evidence, exact inputs, both failed and successful smoke artifacts, matching wheels,
+locks, commands, report downloads and hash inventory are retained outside Git in
+the primary checkout's owner-only ignored
+`logs/research-diagnostics-acceptance/2026-09-21/`. Credentials and SDK caches are
+excluded. The task's serial agent and service containers are stopped after
+verification, with named volumes, environments and prior attempts preserved.
+
+The inspected main [hosted run](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35573331304)
+failed before source or authoritative jobs executed; macOS was skipped. GitHub's
+annotation identifies failed recent account payments or an insufficient spending
+limit. The owner must resolve **Billing & plans**, then rerun required checks;
+repository changes cannot repair that account condition. Protection settings and
+checks remain unchanged. Prior merge authorization applied only to PRs 69 and 70.
+
+Reversal removes the new diagnostic owners, exports, consumer/interface and direct
+dependency declaration together, restoring the matching lock/admission digest.
+The smoke cache/compilation fix can be reverted independently if its measured
+cause is resolved elsewhere. Preserve all attempt stores, reports, immutable
+model/source artifacts, failed evidence and matching wheels when reversing.
 
 ### Frozen baseline acceptance
 

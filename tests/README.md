@@ -58,6 +58,25 @@ invoke them through their test or consumer, never in the pytest process itself.
 The package's real orchestration stays in `src/applications/`;
 consumers compose it with synthetic transports, failure injection and assertions.
 
+`make wheel-smoke` compiles the hash-locked installation's bytecode and gives its
+child processes one writable run-local Matplotlib cache. This avoids repeated
+font discovery when the user's cache is unavailable. The feature and later
+economic/recovery consumers retain their existing 60-second deadlines and full
+assertions. The command prints its retained `/private/tmp` or system temporary
+root and preserves the wheel, environment, inputs and attempts on failure and
+success. Archive needed evidence before explicitly cleaning up that directory;
+never replace an environment still used by a worker or notebook.
+
+The feature consumer also creates `models/window-study.json`, runs SciPy window
+diagnostics over actual retained feature/prediction results, verifies delayed and
+missing labels, predictive inapplicability, saved-input reproduction and retained
+computation/publication failures. With `ALPHA_CLEARML_LOCAL_ENV` set to the private
+loopback credential file, it publishes actual reports, injects a lost receipt,
+reconciles without recalculation and verifies downloaded artifact hashes. The
+[QR guide](../examples/README.md#compare-reference-and-current-windows) reuses those
+saved inputs in the maintained interface. The live server path is separate from
+the ordinary offline wheel smoke; neither path grants trading authority.
+
 For manual installed checks, copy the selected consumer and its inputs into a
 fresh external directory, preserving basenames. Use the installed interpreter
 to run `python -I <copied-consumer> <inputs>`; `eda_consumer.py` and

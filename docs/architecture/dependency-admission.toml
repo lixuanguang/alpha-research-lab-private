@@ -47,7 +47,7 @@ native_python_packages = [
 ]
 
 [lock_digests]
-"uv.lock" = "b3c7e6cae180a590f5bbb8cbe09106325ba83de8fb0ad7f916f64947269ae138"
+"uv.lock" = "67f115cf2763eaec492defa8b2245b20ea282876d235a45c2ecb28044cd58d37"
 
 [pip_audit]
 version = "2.10.1"

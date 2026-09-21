@@ -7,6 +7,7 @@ from research.experiments.comparison import (
     ParameterComparison,
 )
 from research.experiments.configuration import BacktestRun
+from research.experiments.diagnostic_runs import WindowDiagnosticRun
 from research.experiments.diagnostics import (
     AlphalensDiagnostics,
     AlphalensReport,
@@ -34,6 +35,15 @@ from research.experiments.tracking import (
     PublicationReceipt,
     TrackedModel,
 )
+from research.experiments.window_diagnostics import (
+    DiagnosticObservation,
+    DiagnosticSource,
+    DistributionDiagnostic,
+    PredictiveDiagnostic,
+    WindowDiagnosticReport,
+    WindowDiagnostics,
+    WindowDiagnosticStudy,
+)
 
 __all__ = [
     "AlphalensDiagnostics",
@@ -51,6 +61,9 @@ __all__ = [
     "ComparisonStudy",
     "DiagnosticDrop",
     "DiagnosticMetric",
+    "DiagnosticObservation",
+    "DiagnosticSource",
+    "DistributionDiagnostic",
     "EconomicReport",
     "EvaluationRecord",
     "ExperimentSpec",
@@ -58,6 +71,7 @@ __all__ = [
     "Fingerprint",
     "ParameterComparison",
     "PipelineRun",
+    "PredictiveDiagnostic",
     "PublicationReceipt",
     "QuantStatsReport",
     "ReportPolicy",
@@ -70,4 +84,8 @@ __all__ = [
     "TimeWindow",
     "TrackedModel",
     "TrialEvaluation",
+    "WindowDiagnosticReport",
+    "WindowDiagnosticRun",
+    "WindowDiagnosticStudy",
+    "WindowDiagnostics",
 ]

@@ -66,6 +66,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "quantlib" },
     { name = "quantstats" },
+    { name = "scipy" },
     { name = "vectorbt" },
     { name = "websockets" },
 ]
@@ -101,6 +102,7 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.13.5" },
     { name = "quantlib", specifier = "==1.43" },
     { name = "quantstats", specifier = "==0.0.81" },
+    { name = "scipy", specifier = "==1.18.1" },
     { name = "vectorbt", specifier = "==1.1.0" },
     { name = "websockets", specifier = "==16.0" },
 ]
