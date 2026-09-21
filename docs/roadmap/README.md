@@ -912,6 +912,16 @@ wheels are preserved under the original checkout's ignored, owner-only
 caches are excluded. The task's local agent and service containers were stopped;
 named service volumes remain. The original checkout's tracked files are unchanged.
 
+[Draft PR 69](https://github.com/lixuanguang/alpha-research-lab-private/pull/69)
+contains this partial delivery. Its [initial hosted CI run](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35561256394)
+on implementation commit `e157d270ad878aa6d550ca3d847670e47175a38c` did not
+allocate runners or execute source steps. GitHub annotations cite recent account
+payment failure or an insufficient spending limit: source validation and the
+authoritative merged-result job failed at scheduling; macOS smoke was skipped.
+The complete local lane above passed, but hosted Linux/macOS and merged-result
+execution remain unproven. The PR remains a draft; no merge exception, workflow
+change, deployment or trading authority is implied.
+
 Final review also preserved publication compatibility for existing experiments
 whose free-form parameters contain `search` without a trial. The added regression
 and comparison tests passed **15 tests / 1 performance case deselected**, followed
