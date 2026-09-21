@@ -12,7 +12,7 @@ from typing import Literal
 from financial_units import ExactRatio
 from research.experiments import AttemptStore, ExperimentSpec, Fingerprint, TemporalSplit
 from research.models.inputs import ModelDataset
-from research.models.linear import LinearDefinition, ModelVersion
+from research.models.linear import EstimatorRegistry, LinearDefinition, LinearModel, ModelVersion
 from serialization import DomainCodec, WireRecord
 
 
@@ -44,6 +44,7 @@ class ModelStudy(WireRecord, frozen=True, kw_only=True):
     definition: LinearDefinition | None
     available_at: datetime | None
     models: tuple[RetainedResult, ...] = ()
+    estimator_implementation: str = "linear-return-v1"
 
     def __post_init__(self) -> None:
         """Require exactly construction or reload, with explicit historical availability."""
@@ -57,6 +58,9 @@ class ModelStudy(WireRecord, frozen=True, kw_only=True):
             or not self.sources
             or len(self.sources) > 1024
             or type(self.models) is not tuple
+            or type(self.estimator_implementation) is not str
+            or not self.estimator_implementation
+            or self.estimator_implementation != self.estimator_implementation.strip()
         ):
             raise ValueError("invalid model study configuration")
         for reference in (*self.sources, *self.models):
@@ -94,6 +98,7 @@ class ModelStudy(WireRecord, frozen=True, kw_only=True):
                 self.selection_reason,
                 self.definition,
                 self.available_at,
+                self.estimator_implementation,
             )
         )
         return ExperimentSpec(
@@ -112,6 +117,24 @@ class ModelStudy(WireRecord, frozen=True, kw_only=True):
             environment_sha256=environment,
             split=self.split,
         )
+
+    def resolve_estimator(self, registry: EstimatorRegistry | None = None) -> LinearModel:
+        """Resolve the configured model implementation through one explicit registry.
+
+        Args:
+            registry: Optional estimator registry; the default retains the linear estimator.
+
+        Returns:
+            Fresh estimator instance for this construction study.
+
+        Raises:
+            ValueError: Inference-only studies do not carry a construction definition.
+        """
+        self.__post_init__()
+        if self.definition is None:
+            raise ValueError("inference-only model study has no estimator definition")
+        resolved_registry = EstimatorRegistry() if registry is None else registry
+        return resolved_registry.resolve(self.estimator_implementation, self.definition)
 
     def dataset(self, store: AttemptStore) -> ModelDataset:
         """Reopen and hash actual completed diagnostic bytes before dataframe admission.

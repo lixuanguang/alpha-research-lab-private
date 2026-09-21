@@ -12,6 +12,7 @@ from pathlib import Path
 from lakefs_sdk import ApiClient
 
 # project library imports
+from applications.backtest.comparison import compare_parameters
 from applications.backtest.configured import _StorageAccess, run_configured, run_worker
 from market_data.storage import DatasetVersion, LakeFSStorage
 from research.experiments import (
@@ -19,6 +20,7 @@ from research.experiments import (
     BacktestRun,
     ClearMLDestination,
     ClearMLPublication,
+    ComparisonStudy,
     PipelineRun,
     ResearchPipeline,
     ResultManifest,
@@ -47,6 +49,9 @@ class _Arguments(argparse.Namespace):
     dataset_version: Path | None
     lakefs_endpoint: str | None
     lakefs_credentials: Path | None
+    journal: Path
+    max_trials: int | None
+    comparison_config: Path | None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(prog="alpha-backtest", description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
+    comparison = commands.add_parser("compare")
+    for option in ("config", "snapshots", "raw", "attempts", "tracking", "journal"):
+        comparison.add_argument(f"--{option}", type=Path, required=True)
+    comparison.add_argument("--max-bytes", type=int, required=True)
+    comparison.add_argument("--max-trials", type=int)
     for action in ("run", "prepare"):
         run = commands.add_parser(action)
         for option in ("config", "snapshots", "raw", "attempts", "tracking"):
@@ -82,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     pipeline.add_argument("--queue", required=True)
     pipeline.add_argument("--dataset-version", type=Path)
     pipeline.add_argument("--lakefs-endpoint")
+    pipeline.add_argument("--comparison-config", type=Path)
     commands.add_parser("worker")
     for action in ("export", "checkpoint", "publish"):
         command = commands.add_parser(action)
@@ -94,7 +105,19 @@ def main(argv: list[str] | None = None) -> int:
     codec = DomainCodec()
     client: ApiClient | None = None
     try:
-        if args.action == "worker":
+        if args.action == "compare":
+            result = compare_parameters(
+                args.config,
+                args.snapshots,
+                args.raw,
+                attempts=args.attempts,
+                journal=args.journal,
+                max_bytes=args.max_bytes,
+                tracking=codec.decode_json(args.tracking.read_bytes(), ClearMLDestination),
+                max_trials=args.max_trials,
+            )
+            print(codec.encode_json(result).decode())
+        elif args.action == "worker":
             run_worker()
         elif args.action == "pipeline":
             plan = PipelineRun.capture(
@@ -110,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.dataset_version is None
                 else codec.decode_json(args.dataset_version.read_bytes(), DatasetVersion),
                 lakefs_endpoint=args.lakefs_endpoint,
+                comparison=None
+                if args.comparison_config is None
+                else ComparisonStudy.read(args.comparison_config),
             )
             print(ResearchPipeline.run(plan))
         elif args.action in ("run", "prepare"):

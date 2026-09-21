@@ -100,7 +100,7 @@ and fault injection. Feature/label libraries compose through the existing
 
 `make wheel-smoke` installs the frozen runtime into a clean environment outside
 the checkout. It imports every shipped API, checks package resources and identity
-scope, and runs the four existing commands with copied synthetic/saved inputs.
+scope, and runs the installed application commands with copied synthetic/saved inputs.
 It reuses ingestion/recovery consumers for acquisition resume, dataset admission,
 EDA, pinned mixed trade/book selection, retained unfitted studies, fresh-process
 identity/result reproduction, two-instrument exact feature/label diagnostics and book replay;
@@ -139,3 +139,40 @@ file enables actual task/artifact/model uploads, failure/abandonment, a lost-rec
 retry and server receipt assertions. See the [local server runbook](../configs/development/clearml/README.md).
 Docker server volumes and credentials are external to CI; no live-server pass is
 inferred from the ordinary synthetic wheel smoke.
+
+## Research comparison acceptance
+
+The feature-study consumer now verifies a real Alphalens IC example and retained
+report artifacts. The economic consumer exercises a two-rule Optuna grid,
+vectorbt/reference parity and fresh-process resume. Their actual ClearML uploads
+remain opt-in through `ALPHA_CLEARML_LOCAL_ENV`; synthetic transport tests do not
+prove server execution. The [pipeline consumer](integration/consumers/backtest/pipeline_workflow.py)
+requires the dedicated running local agent and a matching installed wheel. It
+checks failed-step recovery, server overrides, actual comparison task execution
+and unchanged terminal trials on resume.
+
+The [offline feature consumer](integration/consumers/research/offline_features.py)
+uses the [separately locked Feast worker](../configs/development/research-worker/README.md).
+After copying the consumer outside the checkout and completing `feature_study.py`,
+run it with the installed core interpreter and explicit paths:
+
+```sh
+/absolute/core/bin/python -I /absolute/consumers/offline_features.py \
+  /absolute/feature-study-output /absolute/fresh-feast-output \
+  --worker-python /absolute/checkout/configs/development/research-worker/.venv/bin/python
+```
+
+It registers exact MR3 values and clock metadata with the real Feast SDK, pins the
+registry and Parquet source, and verifies native parity, a delayed correction,
+a missing entity and TTL expiry in separate worker processes. It also creates a
+formal parity attempt with five hashed artifacts; `ALPHA_CLEARML_LOCAL_ENV` opts
+into actual publication and downloaded-artifact verification. It is a maintained
+manual acceptance program, not an implicit core CI install of Feast. The bounded
+worker does not qualify remote stores or online retrieval.
+
+Keep package installation and environment synchronization idle while running
+installed consumers, notebooks or the ClearML agent. Runtime identity checks
+reject missing or changed package bytes during a concurrent reinstall. Preserve
+failed evidence and rerun from a fresh output directory after stabilizing the
+installation. See the [roadmap evidence](../docs/roadmap/README.md#research-comparison-and-extension)
+for the exact validation results and the outstanding Evidently dependency blocker.

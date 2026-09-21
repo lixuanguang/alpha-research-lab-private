@@ -16,7 +16,7 @@ from clearml import Task
 from msgspec.structs import replace
 
 # project library imports
-from research.experiments import AttemptStore, BacktestRun, ResultManifest
+from research.experiments import AttemptStore, BacktestRun, PublicationReceipt, ResultManifest
 from serialization import DomainCodec
 
 
@@ -36,7 +36,7 @@ class _PipelineAcceptance:
         for name in ("raw", "snapshots"):
             shutil.copytree(source / name, self.inputs / name)
 
-    def pipeline(self, name: str, *, successful: bool) -> None:
+    def pipeline(self, name: str, *, successful: bool, comparison: bool = False) -> None:
         """Execute the public installed CLI and retain controller output for each launch."""
         result = subprocess.run(
             [
@@ -58,7 +58,8 @@ class _PipelineAcceptance:
                 "2000000",
                 "--queue",
                 "alpha-research-local",
-            ],
+            ]
+            + (["--comparison-config", str(self.source / "comparison.json")] if comparison else []),
             cwd=self.output,
             capture_output=True,
             check=False,
@@ -144,6 +145,50 @@ class _PipelineAcceptance:
             )
         )
         print("Verified pipeline parity, failed-step recovery and server override")
+        self.comparison()
+
+    def comparison(self) -> None:
+        """Prove the real worker executes one frozen grid and resumes its journal unchanged."""
+        self.pipeline("comparison", successful=True, comparison=True)
+        store = AttemptStore(self.attempts)
+        trials = tuple(
+            h
+            for h in store.histories()
+            if "comparison-definition" in store.artifacts(h.start.attempt_id)
+        )
+        assert len(trials) == 2 and all(h.status == "completed" for h in trials)
+        original = tuple(self.codec.encode_json(h) for h in trials)
+        for history in trials:
+            ResultManifest.read(store, history.start.attempt_id)
+            association = msgspec.json.decode(
+                store.artifact(history.start.attempt_id, "pipeline-step"), type=list[str]
+            )
+            task = Task.get_task(task_id=association[1])
+            assert task.status == "completed" and task.get_parameters()["Run/stage"] == "comparison"
+            mapped = msgspec.json.decode(
+                task.get_parameters()["retained/attempt_ids"].encode(), type=tuple[str, ...]
+            )
+            assert history.start.attempt_id in mapped
+            receipt = self.codec.decode_json(
+                store.artifact(history.start.attempt_id, "clearml-receipt"), PublicationReceipt
+            )
+            publication = Task.get_task(task_id=receipt.task_id)
+            variant = self.codec.decode_json(history.start.request, BacktestRun)
+            assert publication.get_parameters()["comparison/variant"] == variant.identity
+            assert publication.get_parameters()["comparison/rule"] == variant.economics.rule
+            assert "comparison/exact_net_return" in publication.get_parameters()
+            assert not any(event.status == "holdout_consumed" for event in history.events)
+        self.pipeline("comparison", successful=True, comparison=True)
+        reopened = tuple(
+            h
+            for h in store.histories()
+            if "comparison-definition" in store.artifacts(h.start.attempt_id)
+        )
+        assert tuple(self.codec.encode_json(h) for h in reopened) == original
+        (self.output / "comparison-acceptance.json").write_bytes(
+            self.codec.encode_json(tuple(h.start.attempt_id for h in reopened))
+        )
+        print("Verified actual ClearML comparison execution and unchanged resumed trial history")
 
 
 def main() -> None:

@@ -57,7 +57,7 @@ protected research outputs. Keep retrievable permitted raw/output references.
 
 Use the pinned project interpreter and installed candidate, from the repository
 root or `examples/`. The two offline versions default to synthetic local fixtures, installed research/economic
-APIs and installed subprocess consumers through MR 5. No venue connection, archive download, account
+APIs and installed subprocess consumers, including rule-only comparisons. No venue connection, archive download, account
 or credential is needed. The engineer's health exercise uses a temporary local
 syslog socket and intentionally stops its own synthetic child collectors.
 
@@ -361,9 +361,9 @@ Python, Markdown and notebook sources stay tracked; the small
 [measurement summary](evidence/query-workload-measurements.json) contains identities, counts
 and timings, not raw market rows. It remains a historical result, not a new benchmark.
 
-The optional columnar experiment requires `duckdb==1.5.5` only in an isolated
-`uv run --with` environment; the normal notebook and installed reference reader do
-not require it. Copy `query_columnar_candidate.py` outside the checkout. Its
+The historical optional columnar experiment uses `duckdb==1.5.5`, now also
+pinned by the bounded research analysis consumer. That dependency admission does
+not qualify the experimental storage backend or update its historical measurement. Copy `query_columnar_candidate.py` outside the checkout. Its
 `convert`, `scan`, `verify` and `io` operations take the same input directory.
 `convert` refuses an existing output; preserve each failed candidate in a separate
 experiment directory before retrying. `verify` compares every complete revision

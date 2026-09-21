@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-20. **MRs 1–6 are implemented; MRs 7–21 are planned.**
+Owner: repository founder. Updated 2026-09-21. **MRs 1–6 are implemented; MR 7 is partially implemented; MRs 8–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -28,6 +28,7 @@ model studies or configured bounded spot economics → retained costed reports.
 | Versioned observed-price features and separate forward labels | Inspect exact returns, causal windows, missingness and delayed outcome availability | Bounded unfitted trade-price diagnostic; no economic, book/macro, model or runtime claim |
 | Exact spot economics and bounded vectorbt comparison | Reconcile delayed target execution, costs, cash, holdings and retained analytical output | Synthetic/offline spot scope; no liquidity, empirical or execution qualification |
 | Configured economics, QuantStats reports, local ClearML pipelines and lakeFS input pins | Run, repeat, resume and inspect exact costed output with retained failures and immutable storage versions | No-fit validation studies, one serial local worker and synthetic retention/restore qualification |
+| Retained rule comparisons, factor reports and offline feature parity | Reproduce bounded Optuna trials, Alphalens diagnostics and causal Feast retrieval through installed research APIs | Local synthetic scope; Evidently acceptance remains blocked by dependency admission |
 | Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; shared large-study orchestration and empirical acceptance remain planned |
 
 The [data command reference](../../src/market_data/README.md) owns current usage.
@@ -94,7 +95,8 @@ the other's evidence. Conditional work stays dormant until its consumer exists.
 This revision starts at MR 4. MR 3's feature/label scope and acceptance remain
 unchanged by these plans; later adapters consume its delivered public outputs.
 MR 4's ClearML/Pandera, MR 5's bounded vectorbt, and MR 6's report/pipeline/storage
-consumers have concrete implementations and evidence below; later entries remain planned.
+consumers have concrete implementations and evidence below; MR 7 is partially delivered,
+and later entries remain planned.
 Deliver the named consumers in bounded slices within the existing MR numbers.
 
 Use **ClearML** for experiment tracking, model records and research orchestration.
@@ -823,6 +825,117 @@ All comparison artifacts resolve model versions, dataset/feature snapshots, metr
 definitions, windows and attempt IDs through ClearML and the retained manifests.
 Large trial grids may be stored as indexed artifacts, but every evaluated variant
 must remain individually attributable; retaining only the winning curve is insufficient.
+
+Delivery status (2026-09-21): **partial; acceptance is not complete.** The owning
+libraries now expose compatible feature/estimator/rule registration and the
+existing backtest application consumes a distinct completed-price reversal rule.
+`research.experiments` owns retained Alphalens reports and bounded Optuna grid
+comparisons; `research.features` owns the offline feature contract and
+`research.exploration` owns bounded DuckDB/Polars analysis. Applications compose
+these APIs and preserve the single command entry per workflow.
+
+The prerequisite audit checked actual temporal/attempt, feature/model and exact
+economic implementations, with **37 passed, 1 deselected** in the focused
+prerequisite lane. The deselected performance case is not behavioral evidence.
+No merged-PR count was used as a substitute for that audit. The core interpreter
+and dataframe pins remain CPython **3.14.7** and pandas **3.0.5**.
+
+The Evidently acceptance slice is blocked by dependency admission. The compatible
+resolver candidate, Evidently 0.4.36, requires NLTK; the latest 0.7.23 release also
+requires it unconditionally. NLTK 3.10.3 is the latest published release and has
+the unresolved [GHSA-8mgp-746c-j5xp / CVE-2026-81726](https://github.com/advisories/GHSA-8mgp-746c-j5xp)
+finding (also PYSEC-2026-3740), with no patched release listed on this date.
+The repository blocks unresolved vulnerabilities and has no waiver mechanism.
+Evidently and its unused transitive graph were removed; no substitute adapter or
+unexecuted diagnostic scaffold is claimed. Revisit the exact dependency closure
+when a patched release exists, then implement and verify known shift, delayed
+labels and actual ClearML report publication before completing MR 7.
+
+Feast 0.66.0 requires pandas below 3 and therefore uses an explicitly separate
+local research-worker lock. It cannot downgrade the runtime's dataframe pin.
+SHAP and skfolio remain conditional: this delivery selects no explanation-dependent
+model or multi-asset allocation consumer. MR 8 empirical acceptance, MR 9 online
+retrieval and MR 14 independent account allocation are not expanded here.
+
+Verified delivery evidence, 2026-09-21:
+
+- `TMPDIR=/private/tmp PYTEST_ADDOPTS=--basetemp=/private/tmp/research-final-pytest
+  make check`: **passed**, with **1,190 passed / 3 performance cases deselected /
+  no skips** in 119.29 seconds. Ruff/format covered 336 files, strict mypy checked
+  329 source files, native stubtest checked 1,562 modules, and ownership, links,
+  Bandit and secret checks passed. Core admission/audit covered **179 external
+  locked packages** with no unresolved vulnerability or coverage finding.
+- Clean wheel smoke installed **135 runtime packages** outside the checkout and
+  exercised public APIs, all six commands, exact economics, the actual vectorbt
+  engine, comparison resume and historical snapshots. The separately locked Feast
+  worker audit covered **64 external locked packages** with no findings; its
+  installed platform selects 63 packages. These counts describe different graphs.
+- Independent factor cases verify IC +1/-1, demeaned quantile returns -0.05/+0.05,
+  daily membership turnover 1.0, pending labels, ties and an inapplicable single
+  asset. Intraday-only turnover remains unavailable when Alphalens' daily resample
+  lacks prior daily membership; it is never relabeled as intraday turnover.
+- Actual local ClearML feature/factor and economic consumers passed publication
+  and downloaded-artifact hash checks. Two fresh processes retain the same
+  comparison history: momentum exact net return -0.000007235 and reversal
+  0.00000188599. Every trial retains its own configuration, objective and task;
+  no selected winner replaces the other outcomes.
+- The final installed Feast 0.66.0 consumer created its actual registry and
+  Parquet source from verified MR 3 output. Baseline retrieval matched two exact
+  values and one explicit missing entity; a delayed correction became `9/10`
+  only after `2024-06-01T00:00:10.250000Z`, and the one-second TTL case expired.
+  Formal attempt `b3d1b68c75d0423dba90182d7abd0aa0` published to ClearML task
+  `1c58dfe1bf194ad4b5322a384000af3b`; all five downloaded artifact hashes matched.
+  The retained request pins both registry and source bytes. The current SDK view
+  has no registered revision-ID field; immutable source/registry digests and
+  explicit created-time filtering prove the exercised revision boundary.
+
+
+- The final installed local ClearML pipeline passed exact initial-run parity,
+  missing-input failure/downstream suppression, recovery preserving the failed
+  history, and a real server-side no-trade configuration override. Its comparison
+  step executed attempts `821a9413129c41bc8781ed69c6a3e6e5` and
+  `cbedc28d66b942878b5d4618045a85ee`, with actual UI variant/rule/objective metadata.
+  Resuming the same output root preserved both histories byte for byte.
+- marimo's read-only preview created no attempt; two explicit fresh-process runs
+  produced equal report manifests and distinct completed attempts with actual
+  ClearML publication. The maintained QR notebook completed **18/18 code cells**
+  in a fresh kernel, attempt `dfd2e123-d034-4e5d-8c6d-a012fc764dcc`, source digest
+  `00c81e8ec984feefb009187080a0b08030f898ee757bc7957abee114089fc82d`.
+  It retained both rule trials and completed synthetic model/economic handoff.
+  Notebook tracking deliberately used its named offline failure fixture and
+  retained pending outboxes; actual service evidence comes from the installed
+  consumers above. Live notebooks were unchanged and were not rerun.
+
+Successful and failed local output, logs, notebook attempts, locks and matching
+wheels are preserved under the original checkout's ignored, owner-only
+`logs/research-comparison-acceptance/2026-09-21/` directory. Credentials and SDK
+caches are excluded. The task's local agent and service containers were stopped;
+named service volumes remain. The original checkout's tracked files are unchanged.
+
+Final review also preserved publication compatibility for existing experiments
+whose free-form parameters contain `search` without a trial. The added regression
+and comparison tests passed **15 tests / 1 performance case deselected**, followed
+by the complete final lane above and a fresh wheel smoke. This one-condition
+publication guard does not change the exercised service adapters; their actual
+service evidence is reused, and both matching wheel versions are retained.
+Final staged secret scanning passed **447 governed paths**; local links passed
+for the standard **32 documents** and **7 additional owning guides**.
+
+Development failures remain retained: initial typing stubs, a cross-directory
+test-helper import, and security lint were corrected before the complete passing
+lane. Earlier notebook and pipeline executions overlapped a package reinstall and
+failed while installed modules were absent; the final service/notebook phases run
+serially with installation. Those failures are harness evidence, not service
+reliability measurements. Performance tests, empirical source acceptance and shared
+service qualification are not claimed. The comparison adapter currently consumes
+local pinned snapshots; remote lakeFS materialization is explicitly unsupported,
+while MR 6's configured versioned workflow remains intact.
+
+Implementation
+grants no deployment or trading authority; the existing QuantLib release restriction
+remains. Revert the owners, consumers, examples and dependency/admission changes
+together. Preserve attempt stores, Optuna journals, source/registry versions,
+matching installed wheels and service evidence to reproduce historical results.
 
 ### Frozen baseline acceptance
 

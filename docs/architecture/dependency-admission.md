@@ -111,6 +111,32 @@ on its actual deadline even if deployment is later.
 
 ## Review and reversal
 
+The research-comparison change preserves CPython 3.14.7, pandas 3.0.5, NumPy 2.4.6
+and Plotly 6.3.1. It adds Alphalens Reloaded 0.4.3, DuckDB 1.5.5, Polars 1.44.2,
+Optuna 5.0.0 and marimo 0.24.2 for their first owned consumers. The resulting
+core lock has 179 external packages; the complete unfiltered lock graph passes
+the exact-version vulnerability audit. The separately locked Feast 0.66.0 worker
+uses pandas 2.3.3 because its upstream metadata excludes pandas 3. Its 64-package
+service-tool closure is audited independently, like the existing local ClearML
+agent; it is not a release closure or a change to core runtime requirements.
+
+New bundled-license records retain the actual distribution notices.
+`LicenseRef-Docutils-Bundled` refers to Docutils 0.23's `COPYING.rst`, SHA-256
+`6ab4f27c76c74f96e5e692da5944a6f82968f3bddaac5660a4aa723e70eb5d8f`:
+public-domain dedication with the enumerated BSD-2/BSD-3 exceptions; the source
+archive also identifies the separately licensed GPL-3-or-later Emacs `rst.el` tool.
+Greenlet 3.5.6 retains MIT and PSF-2.0 for Stackless-derived platform files.
+PyZMQ's wheel retains BSD-3-Clause, MPL-2.0, ISC and Apache-2.0 notices for its
+bundled components. These are concrete notice reviews, not blanket approvals.
+
+Evidently is **not admitted or installed**. Compatible Evidently 0.4.36 and latest
+0.7.23 both depend unconditionally on NLTK. Its latest 3.10.3 release fails the
+audit with PYSEC-2026-3740 / CVE-2026-81726, and the
+[upstream advisory lists no patched release](https://github.com/advisories/GHSA-8mgp-746c-j5xp).
+Removing that unused graph restores a clean audit; no finding is waived. MR 7
+remains incomplete until an admissible closure and the required consumer exist.
+The existing QuantLib allowance and release block remain unchanged.
+
 Re-review on expiry, any dependency/policy change, or the first release consumer.
 If the admission contract is defective, revert or correct the affected policy,
 lock identity, checker, tests and documentation together. This allowance grants

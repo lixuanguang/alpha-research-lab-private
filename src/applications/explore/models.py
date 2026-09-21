@@ -17,18 +17,25 @@ from research.experiments import (
     PublicationReceipt,
     TrackedModel,
 )
-from research.models import LinearModel, ModelStudy, ModelVersion
+from research.models import EstimatorRegistry, ModelStudy, ModelVersion
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 
 
-def evaluate_model(config: Path, *, attempts: Path, tracking: ClearMLDestination) -> AttemptHistory:
+def evaluate_model(
+    config: Path,
+    *,
+    attempts: Path,
+    tracking: ClearMLDestination,
+    registry: EstimatorRegistry | None = None,
+) -> AttemptHistory:
     """Construct or reload configured model state, evaluate and publish the retained attempt.
 
     Args:
         config: Strict non-secret ModelStudy JSON, at most one MiB.
         attempts: Complete local single-writer history, feature results and model bytes.
         tracking: Required formal-workflow destination; credentials remain SDK configuration.
+        registry: Optional estimator registry; the default supplies the installed model.
 
     Returns:
         Immutable completed or empirically rejected attempt; model/evaluation bytes remain retained.
@@ -43,6 +50,7 @@ def evaluate_model(config: Path, *, attempts: Path, tracking: ClearMLDestination
     if len(payload) > 1_048_576:
         raise ValueError("model study config exceeds one MiB")
     study = codec.decode_json(payload, ModelStudy)
+    resolved_registry = EstimatorRegistry() if registry is None else registry
     spec = study.specification(
         implementation=ImplementationIdentity.sha256(),
         environment=ExperimentSpec.installed_environment(),
@@ -80,7 +88,8 @@ def evaluate_model(config: Path, *, attempts: Path, tracking: ClearMLDestination
             dataset = study.dataset(store)
             versions: tuple[ModelVersion, ...]
             if study.definition is not None and study.available_at is not None:
-                model = LinearModel.construct(
+                estimator = study.resolve_estimator(resolved_registry)
+                model = estimator.construct(
                     study.definition,
                     dataset,
                     study.split,
@@ -92,6 +101,11 @@ def evaluate_model(config: Path, *, attempts: Path, tracking: ClearMLDestination
                 versions = (model,)
             else:
                 versions = study.reload(store)
+                if not versions:
+                    raise ValueError("model study reload returned no model versions")
+                estimator = resolved_registry.resolve(
+                    study.estimator_implementation, versions[0].definition
+                )
             store.retain(
                 start.attempt_id,
                 "tracked-models",
@@ -108,7 +122,7 @@ def evaluate_model(config: Path, *, attempts: Path, tracking: ClearMLDestination
                     )
                 ),
             )
-            evaluation = LinearModel.evaluate(
+            evaluation = estimator.evaluate(
                 versions,
                 dataset,
                 study.split,

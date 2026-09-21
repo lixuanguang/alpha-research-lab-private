@@ -20,7 +20,7 @@ from msgspec.structs import replace
 
 # project library imports
 import simulation
-from applications.backtest import compare_vectorbt, run_backtest, run_configured
+from applications.backtest import compare_parameters, compare_vectorbt, run_backtest, run_configured
 from configuration import Configuration
 from financial_units import ExactRatio
 from market_data.acquisition import AcquisitionManifest
@@ -38,6 +38,7 @@ from research.experiments import (
     BenchmarkPeriod,
     ClearMLDestination,
     ClearMLPublication,
+    ComparisonStudy,
     PublicationReceipt,
     ReportPolicy,
     ResultManifest,
@@ -154,6 +155,91 @@ class _SavedEconomy:
             max_bytes=2_000_000,
         )
         return reader, spec
+
+    @staticmethod
+    def comparison(output: Path, *, resume: bool = False) -> None:
+        """Resume the installed Optuna study in a fresh process and reopen every artifact."""
+        codec = DomainCodec()
+        attempts = output / "comparison-attempts"
+        config = output / "comparison.json"
+        destination = codec.decode_json((output / "tracking.json").read_bytes(), ClearMLDestination)
+        if not resume:
+            base = codec.decode_json((output / "configured.json").read_bytes(), BacktestRun)
+            control = replace(
+                base,
+                economics=replace(
+                    base.economics,
+                    instance="synthetic-reversal",
+                    rule="completed-price-reversal-v1",
+                ),
+            )
+            selected = ComparisonStudy(
+                name="installed-spot-comparison",
+                variants=(base, control),
+                budget=2,
+                seed=23,
+                minimum_return=ExactRatio.from_fraction(Fraction(-1)),
+            )
+            config.write_bytes(codec.encode_json(selected))
+        before = tuple(h.start.attempt_id for h in AttemptStore(attempts).histories())
+        with patch.object(ClearMLPublication, "publish", _SavedEconomy.unavailable):
+            try:
+                compare_parameters(
+                    config,
+                    output / "snapshots",
+                    output / "raw",
+                    attempts=attempts,
+                    journal=output / "comparison-journal.jsonl",
+                    max_bytes=2_000_000,
+                    tracking=destination,
+                    max_trials=1,
+                )
+            except ConnectionError:
+                pass
+            else:
+                raise AssertionError("unavailable comparison publication was hidden")
+        store = AttemptStore(attempts)
+        histories = store.histories()
+        assert len(histories) == (2 if resume else 1)
+        assert all(h.status == "completed" for h in histories)
+        assert set(before) < {h.start.attempt_id for h in histories}
+        for history in histories:
+            ResultManifest.read(store, history.start.attempt_id)
+        if resume:
+            return
+        first = codec.encode_json(histories[0])
+        subprocess.run(
+            [sys.executable, "-I", __file__, str(output), str(output), "comparison-resume"],
+            check=True,
+            cwd=output,
+        )
+        assert codec.encode_json(store.read(histories[0].start.attempt_id)) == first
+        assert (
+            len(
+                {
+                    store.artifact(h.start.attempt_id, "selection-identity")
+                    for h in store.histories()
+                }
+            )
+            == 1
+        )
+        if _SavedEconomy.configure_tracking(output):
+            # third party library imports
+            from clearml import Task
+
+            with AttemptStore(attempts) as writer:
+                for history in writer.histories():
+                    attempt = history.start.attempt_id
+                    receipt = ClearMLPublication(writer, destination).publish(attempt)
+                    task = Task.get_task(task_id=receipt.task_id)
+                    for artifact in ResultManifest.read(writer, attempt).artifacts:
+                        downloaded = task.artifacts[artifact.name].get_local_copy()
+                        assert downloaded is not None
+                        assert (
+                            hashlib.sha256(Path(downloaded).read_bytes()).hexdigest()
+                            == artifact.sha256
+                        )
+            print("Verified comparison tasks and all artifact digests")
 
     @staticmethod
     def configured(
@@ -386,6 +472,9 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     assert "site-packages" in Path(simulation.__file__).parts
     codec = DomainCodec()
+    if len(sys.argv) == 4 and sys.argv[3] == "comparison-resume":
+        _SavedEconomy.comparison(output, resume=True)
+        return
     if len(sys.argv) != 4:
         _SavedEconomy.prepare(inputs, output)
     reader, spec = _SavedEconomy.inputs(output)
@@ -428,6 +517,7 @@ def main() -> None:
         files_uri="http://127.0.0.1:18081",
     )
     _SavedEconomy.configured(output, spec, split, destination)
+    _SavedEconomy.comparison(output)
     with patch.object(ClearMLPublication, "publish", _SavedEconomy.unavailable):
         try:
             compare_vectorbt(

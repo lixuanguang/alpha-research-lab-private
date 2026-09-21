@@ -7,7 +7,7 @@ import hashlib
 from datetime import datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, Protocol
 
 # project library imports
 from financial_units import ExactRatio
@@ -275,3 +275,189 @@ class TrailingReturn(WireRecord, frozen=True, kw_only=True):
             )
         )
         return FeatureValue(self.identity, decision_at, decision_at, window, value)
+
+
+class FeatureDefinition(Protocol):
+    """Describe the narrow causal contract shared by registered feature definitions."""
+
+    @property
+    def schema_version(self) -> str:
+        """Identify the implementation/schema contract.
+
+        Returns:
+            Stable schema identity for the feature definition.
+        """
+        ...
+
+    @property
+    def units(self) -> str:
+        """Identify the feature output units.
+
+        Returns:
+            Units of each emitted feature value.
+        """
+        ...
+
+    @property
+    def policy(self) -> WindowPolicy:
+        """Expose the causal window policy.
+
+        Returns:
+            Immutable policy governing coverage, warm-up and freshness.
+        """
+        ...
+
+    @property
+    def cadence_us(self) -> int:
+        """Expose the decision cadence in microseconds.
+
+        Returns:
+            Positive interval between scheduled feature decisions.
+        """
+        ...
+
+    @property
+    def processing_delay_us(self) -> int:
+        """Expose the feature processing delay in microseconds.
+
+        Returns:
+            Delay between the decision and the latest admissible observation.
+        """
+        ...
+
+    @property
+    def identity(self) -> str:
+        """Identify the immutable feature formula and its resolved parameters.
+
+        Returns:
+            Stable identity of the resolved definition and its parameters.
+        """
+        ...
+
+    def __post_init__(self) -> None:
+        """Validate the definition before a consumer uses it.
+
+        Raises:
+            ValueError: If the definition violates its schema or timing contract.
+        """
+        ...
+
+    def evaluate(
+        self, batches: tuple[QueryBatch, ...], *, binding: InputBinding, decision_at: datetime
+    ) -> FeatureValue:
+        """Evaluate one causal feature value from admitted cutoff batches.
+
+        Args:
+            batches: Admitted cutoff query batches containing the causal window.
+            binding: Source/stream/instrument identity for the requested window.
+            decision_at: UTC decision timestamp at which the value is available.
+
+        Returns:
+            Feature value retaining its definition, window and availability identity.
+        """
+        ...
+
+
+class FeatureFactory(Protocol):
+    """Construct a compatible evaluator for one registered implementation ID."""
+
+    def __call__(self, definition: TrailingReturn) -> FeatureDefinition:
+        """Construct one evaluator from the retained typed definition.
+
+        Args:
+            definition: Immutable definition supplied by the research study.
+
+        Returns:
+            Evaluator preserving the definition's causal contract.
+        """
+        ...
+
+
+class FeatureRegistry:
+    """Resolve compatible feature evaluators through explicit versioned factories."""
+
+    def __init__(self) -> None:
+        """Register the existing trailing-return implementation by default."""
+        self._factories: dict[str, FeatureFactory] = {}
+        self.register("trailing-return-v1", self._validate_trailing_return)
+
+    @property
+    def identities(self) -> tuple[str, ...]:
+        """Return registered feature implementation identities in insertion order.
+
+        Returns:
+            Stable implementation identities available to this registry.
+        """
+        return tuple(self._factories)
+
+    def register(self, identity: str, factory: FeatureFactory) -> None:
+        """Register one feature implementation under a unique engine identity.
+
+        Args:
+            identity: Stable implementation/engine identity.
+            factory: Evaluator factory for typed definitions under that identity.
+
+        Raises:
+            ValueError: If the identity is invalid or already registered.
+        """
+        identity = self._validate_identity(identity)
+        if identity in self._factories:
+            raise ValueError(f"duplicate feature implementation identity: {identity}")
+        self._factories[identity] = factory
+
+    def resolve(self, identity: str, definition: TrailingReturn) -> FeatureDefinition:
+        """Construct one evaluator and enforce the retained feature contract.
+
+        Args:
+            identity: Registered implementation/engine identity.
+            definition: Immutable trailing-return definition selected by a study.
+
+        Returns:
+            Compatible feature evaluator for the study.
+
+        Raises:
+            ValueError: If no implementation is registered or the evaluator changes
+                the definition's identity, units, window or timing contract.
+        """
+        identity = self._validate_identity(identity)
+        factory = self._factories.get(identity)
+        if factory is None:
+            raise ValueError(f"unsupported installed feature: {identity}")
+        evaluator = factory(definition)
+        if (
+            evaluator.schema_version != definition.schema_version
+            or evaluator.identity != definition.identity
+            or evaluator.units != definition.units
+            or evaluator.policy != definition.policy
+            or evaluator.cadence_us != definition.cadence_us
+            or evaluator.processing_delay_us != definition.processing_delay_us
+        ):
+            raise ValueError("feature evaluator changes the selected definition contract")
+        evaluator.__post_init__()
+        return evaluator
+
+    def supports(self, identity: str) -> bool:
+        """Report whether one implementation identity is registered.
+
+        Args:
+            identity: Candidate feature implementation identity.
+
+        Returns:
+            Whether the identity is registered.
+        """
+        return type(identity) is str and bool(identity) and identity in self._factories
+
+    @staticmethod
+    def _validate_identity(identity: str) -> str:
+        """Validate one nonempty, trimmed implementation identity."""
+        if type(identity) is not str or not identity or identity != identity.strip():
+            raise ValueError("feature implementation identity must be a nonempty trimmed string")
+        return identity
+
+    @staticmethod
+    def _validate_trailing_return(definition: TrailingReturn) -> FeatureDefinition:
+        """Construct the maintained trailing-return evaluator."""
+        if not isinstance(definition, TrailingReturn):
+            raise TypeError("trailing-return implementation requires TrailingReturn")
+        definition.__post_init__()
+        return definition
