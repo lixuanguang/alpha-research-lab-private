@@ -19,6 +19,10 @@ The [offline activity notebook](research-foundations.ipynb) includes a rule-only
 comparison; the [marimo example](research-comparison.py) separates verified
 DuckDB/Polars previews from an explicit formal factor run. Evidently remains
 blocked by dependency admission, so this is not complete MR 7 acceptance.
+The [fresh dependency review](../docs/architecture/dependency-admission.md#evidently-prerequisite-recheck)
+records the rejected closure and prerequisite for resuming implementation.
+There is no maintained Evidently command, notebook action or report consumer yet;
+existing Alphalens reports do not satisfy that separate acceptance requirement.
 The [isolated Feast worker](../configs/development/research-worker/README.md)
 provides bounded local offline retrieval without changing the core pandas pin.
 **Planned:** candidate packaging and paper/live operation.

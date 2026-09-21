@@ -142,6 +142,69 @@ If the admission contract is defective, revert or correct the affected policy,
 lock identity, checker, tests and documentation together. This allowance grants
 no deployment, activation, credential, market or capital authority.
 
+### Evidently prerequisite recheck
+
+Status: **blocked**, observed 2026-09-21 at 05:01 UTC, against main
+`3ebd6a4bdb5722117e66dca830af28ee140b9f52`. This is a fresh review of
+published artifacts and advisories, not admission of an additional dependency.
+PyPI and upstream release records still identify Evidently **0.7.23** and NLTK
+**3.10.3** as the latest stable releases. The downloaded wheel hashes matched
+PyPI; their actual `METADATA` contains the following unconditional requirements:
+
+| Candidate | Relevant wheel requirements | Observed result |
+| --- | --- | --- |
+| Evidently 0.4.36 | `nltk>=3.6.7`, `pandas[parquet]>=1.3.5`, `plotly>=5.10.0` | Disposable copy of the full project resolves on CPython 3.14.7 without changing any existing external version, including pandas 3.0.5, NumPy 2.4.6 and Plotly 6.3.1; vulnerability audit fails |
+| Evidently 0.7.23 | `nltk>=3.6.7`, `pandas[parquet]>=1.3.5`, `plotly>=5.10.0,<6` | Resolver exits 1 because the core pins Plotly 6.3.1; a compatibility worker would still require vulnerable NLTK |
+| NLTK 3.10.3 | Python `>=3.10` | Reviewed advisory affects `<=3.10.3`, has no patched version and is not withdrawn |
+
+Evidence sources are the [Evidently release](https://pypi.org/project/evidently/0.7.23/),
+[earlier resolver candidate](https://pypi.org/project/evidently/0.4.36/),
+[NLTK release](https://pypi.org/project/nltk/3.10.3/),
+[GitHub advisory](https://github.com/advisories/GHSA-8mgp-746c-j5xp) and
+[PyPA advisory record](https://github.com/pypa/advisory-database/blob/main/vulns/nltk/PYSEC-2026-3740.yaml).
+The GitHub, PyPA and OSV records agree on the unresolved prerequisite.
+
+Resolution was attempted for both candidates with
+`uv lock --project <disposable-copy> --refresh`; the real project manifest, lock
+and admission policy were not modified.
+The 0.4.36 candidate lock contains **216 external packages** (218 including the
+two local projects). Exporting every registry package from that lock, without
+platform filtering, and running pinned pip-audit 2.10.1 with
+`--no-deps --disable-pip -r <exact-candidate-requirements> --format json` returned
+**exit 1: 216 covered, one finding, no skips**. The finding is
+`nltk==3.10.3: PYSEC-2026-3740`, aliases `CVE-2026-81726` and
+`GHSA-8mgp-746c-j5xp`, with an empty fixed-version list. `--no-deps` here prevents
+re-resolution of the already complete exact graph; it does not omit dependencies.
+Successful resolution alone does not establish installed SDK compatibility.
+No candidate was installed, imported or admitted.
+
+Retained SHA-256 identities:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Evidently 0.4.36 wheel | `332849bd2dd4b3e2ee551a9ece8f813cb32e90065e2f0e153d253f958a5df13f` |
+| Evidently 0.7.23 wheel | `dbba5537a644f3401b8a393008cd126e304bcf939a070a7c4399bcc5b97061f6` |
+| NLTK 3.10.3 wheel | `ff9598a8e20518ee0d557745890cc4435b9578489e2dcbc69c4f81fa060caf7c` |
+| Rejected 0.4.36 candidate lock | `58c3e851a9d77c7a892b38587f82e267cdec2549e20c43be42242e8444e4af6e` |
+| Complete candidate requirements | `49ea8cfb118d2a5989cb24bb1cdf547b40eebe994cf2db850711eb18a6653ea4` |
+| Candidate audit JSON | `ed7a650606339cf4ad258cda8bd93f6b8f4d55a482c6d1e9e05511d02edd494a` |
+
+Raw responses, wheel metadata/bytes, rejected resolver inputs/lock, commands and
+audit output are retained in the primary checkout's ignored, owner-only
+`logs/research-completion-prerequisite/2026-09-21/` directory. This is local
+evidence, not a shared evidence service; preserve it before cleanup. The earlier
+research-comparison acceptance archive remains intact.
+
+There is **no admissible closure among the reviewed released candidates**.
+The next feasible step is a published NLTK fix accepted by the advisory/audit
+services, or a released Evidently distribution that genuinely removes the
+mandatory vulnerable dependency, followed by complete admission and installed
+SDK verification. If current Evidently still conflicts with the core pins, only
+then consider a separately locked, fully audited compatibility worker. Isolation,
+unused NLP features, older affected NLTK versions and `--no-deps` installation
+cannot clear this blocker. A substitute diagnostic library would require an
+explicit change to MR 7's selected-tool acceptance and is not implemented here.
+
 ## Commands
 
 ```sh

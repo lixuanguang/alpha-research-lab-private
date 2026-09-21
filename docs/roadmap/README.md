@@ -951,6 +951,82 @@ remains. Revert the owners, consumers, examples and dependency/admission changes
 together. Preserve attempt stores, Optuna journals, source/registry versions,
 matching installed wheels and service evidence to reproduce historical results.
 
+#### Completion attempt and acceptance reconciliation
+
+Rechecked 2026-09-21 from latest main
+`3ebd6a4bdb5722117e66dca830af28ee140b9f52` in isolated branch
+`codex/mr-07-completion`. **MR 7 remains incomplete.** The
+[dependency prerequisite review](../architecture/dependency-admission.md#evidently-prerequisite-recheck)
+retains fresh wheel metadata, upstream advisories and resolver/audit evidence:
+Evidently 0.4.36 resolves with all existing pins but its complete 216-package
+external graph fails the NLTK advisory; 0.7.23 additionally conflicts with the
+core Plotly pin. Neither candidate is admitted. A separate worker cannot resolve
+the vulnerability. No replacement diagnostic or unexecuted consumer was added.
+
+The existing source, application composition, tests and retained service results
+were inspected directly. All **930** files in the prior acceptance inventory
+still match their hashes. All **196** runtime files in the retained final wheel
+match this checkout's source; wheel SHA-256 is
+`c24bbdd67b4b893c89752d2f3d974b6d383374d2fd8ecddf666ae0fe212f14d1`.
+These checks justify reusing the unchanged implementation's prior service and
+notebook evidence summarized below; they do not claim a fresh ClearML or Feast
+service run or override the fresh smoke failure recorded after the table.
+
+| Mandatory outcome | Implementation and inspected evidence | Acceptance status |
+| --- | --- | --- |
+| Shared selection, distinct consumer and isolated instances | `EconomicComparison`, `RuleRegistry`, completed-price reversal; [comparison tests](../../tests/unit/simulation/test_comparison.py) and [extension tests](../../tests/unit/simulation/test_extensions.py) preserve selection, separate checkpoints/pending state and exact results. Rules are deterministic; the Optuna sampler has a declared retained seed/journal. | Delivered in the bounded synthetic scope |
+| Compatible extension without runner edits; guide and rule-only notebook | Feature/estimator registries and injected rule factories retain public owner boundaries; [QR guide](../../examples/README.md), [activity notebook](../../examples/research-foundations.ipynb) and the retained 18/18-cell run exercise the path. | Delivered; no arbitrary new schema or empirical model claim |
+| Full parameter trial history, frozen choices, resume and holdout discipline | `ParameterComparison` and `EconomicComparison` retain accepted/pruned/rejected/failed/interrupted trials, fixed budget/split and exact ledger evaluation; installed comparison and serial pipeline histories remain in the prior archive. | Delivered; validation only, no promotion |
+| Alphalens factor diagnostics and ClearML reports | `AlphalensDiagnostics` and `compare_factors`; [independent numerical tests](../../tests/unit/research/test_diagnostics.py) cover IC, quantile returns, turnover, unavailable labels and inapplicability. Installed feature-consumer evidence includes actual artifact-download hashes. | Delivered; intraday turnover limitation retained |
+| Feast offline availability, revision, missing-entity and TTL parity | `OfflineFeatureAccess`, `OfflineFeatureBridge` and `compare_offline_features`; retained final SDK report pins registry/source and five ClearML artifacts for task `1c58dfe1bf194ad4b5322a384000af3b`. | Delivered; separate audited worker, offline only |
+| DuckDB/Polars precision and marimo explicit execution | `BoundedFeatureAnalysis` and [analysis tests](../../tests/unit/research/test_analysis.py); marimo's verified validation preview is separate from its formal run action. Prior fresh-process equal-report evidence is retained. | Delivered; no reactive fit or holdout read |
+| Evidently reference/current diagnostics and actual report publication | No admitted SDK closure or consumer. Declared windows/schema/units/availability, feature/prediction/model lineage, frozen metric/test thresholds, exclusions, known-shift/control, delayed-label and inapplicable-prediction cases, failure/recovery and downloaded ClearML report hashes remain unimplemented/unproven for Evidently. | **Blocked; mandatory acceptance unmet** |
+| Conditional SHAP and skfolio | No selected explanation-dependent model or multi-asset allocation consumer. | Inapplicable under the existing conditional criteria |
+
+Fresh local verification:
+
+- `UV_CACHE_DIR=/private/tmp/alpha-completion-uv-cache TMPDIR=/private/tmp
+  PYTEST_ADDOPTS=--basetemp=/private/tmp/alpha-completion-pytest make check`:
+  **failed, exit 2**, at installed-wheel smoke. All preceding checks passed:
+  locked resolution, Ruff/format (336 files), strict mypy (329 files), native
+  stubtest (1,562 modules), engineering rules, 179-package admission/audit with
+  no findings or coverage gaps, links, Bandit, secrets (447 paths), and
+  **1,190 tests passed / 3 performance deselected / no skips** in 176.96 seconds.
+- The clean wheel installed 135 runtime packages and passed `uv pip check`.
+  Its bytes equal the retained final wheel above. The existing installed
+  `feature_study.py` consumer exceeded its 60-second timeout; later economic
+  and recovery consumers in that smoke sequence were not reached.
+- A copied diagnostic consumer in a separate installed environment completed
+  feature/factor/model and fresh-process assertions. Added stack dumps showed
+  time in dependency compilation/native imports; the sandboxed diagnostic also
+  used a temporary Matplotlib cache. This is diagnosis, not standard smoke
+  acceptance. The focused retry, `UV_CACHE_DIR=/private/tmp/alpha-completion-uv-cache
+  UV_COMPILE_BYTECODE=1 TMPDIR=/private/tmp make wheel-smoke`, also **failed,
+  exit 2**, at the same 60-second boundary. Install-time compilation did not
+  resolve it. The cause of the remaining timeout is unproven; assertions and
+  timeouts were not weakened, and the complete lane is not reported as passing.
+- Final local-link checks explicitly include the QR guide: **33 documents
+  passed**. New source tests and live service/notebook runs are unnecessary for
+  these documentation-only edits; the required Evidently SDK, shift/control,
+  delayed-label, failure/recovery and real ClearML report checks remain blocked,
+  not skipped tests or substituted Alphalens results.
+
+Both smoke failures, diagnostic output, the matching wheel and dependency
+evidence are preserved under the primary checkout's ignored, owner-only
+`logs/research-completion-prerequisite/2026-09-21/` directory. The original
+acceptance archive and unrelated running notebook environments are preserved.
+
+The reusable attempt/split and ClearML outbox implementations retain failures and
+reconcile saved artifacts without rerunning research. That existing behavior is
+not evidence of an Evidently integration. The completion attempt changes only
+documentation/evidence; source, dependency locks/admission rules, commands,
+notebook cells and QuantLib's release restriction are unchanged. The next decision
+is the upstream prerequisite described in the linked review, after which the
+missing installed SDK and local ClearML acceptance must be executed. MR 8,
+online serving, allocation, shared-service qualification and trading remain out
+of scope. Reversal is to revert these documentation updates while preserving
+both historical evidence archives.
+
 ### Frozen baseline acceptance
 
 **MR 8.** Run `p1-btcusdt-return-v1` unchanged against the permitted actual source
