@@ -17,12 +17,16 @@ The partial MR 7 delivery adds compatible implementation registration, a distinc
 reversal rule, retained Alphalens diagnostics and fixed-budget Optuna comparisons.
 The [offline activity notebook](research-foundations.ipynb) includes a rule-only
 comparison; the [marimo example](research-comparison.py) separates verified
-DuckDB/Polars previews from an explicit formal factor run. Evidently remains
-blocked by dependency admission, so this is not complete MR 7 acceptance.
-The [fresh dependency review](../docs/architecture/dependency-admission.md#evidently-prerequisite-recheck)
-records the rejected closure and prerequisite for resuming implementation.
-There is no maintained Evidently command, notebook action or report consumer yet;
-existing Alphalens reports do not satisfy that separate acceptance requirement.
+DuckDB/Polars previews from an explicit formal factor run. The
+[accepted tool amendment](../docs/roadmap/README.md#diagnostic-tool-requirement-amendment)
+requires offline reference/current diagnostics using admitted computation
+dependencies; Evidently is optional. That consumer and its guide/notebook action
+remain unimplemented, so MR 7 acceptance remains incomplete. Existing Alphalens
+reports do not cover the missing window comparison, delayed-label/predictive
+applicability and report-publication acceptance. The
+[dependency review](../docs/architecture/dependency-admission.md#evidently-prerequisite-recheck)
+preserves the rejected Evidently closure; it no longer makes Evidently a
+prerequisite for delivering these diagnostic capabilities.
 The [isolated Feast worker](../configs/development/research-worker/README.md)
 provides bounded local offline retrieval without changing the core pandas pin.
 **Planned:** candidate packaging and paper/live operation.

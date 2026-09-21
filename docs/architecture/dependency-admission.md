@@ -133,8 +133,10 @@ Evidently is **not admitted or installed**. Compatible Evidently 0.4.36 and late
 0.7.23 both depend unconditionally on NLTK. Its latest 3.10.3 release fails the
 audit with PYSEC-2026-3740 / CVE-2026-81726, and the
 [upstream advisory lists no patched release](https://github.com/advisories/GHSA-8mgp-746c-j5xp).
-Removing that unused graph restores a clean audit; no finding is waived. MR 7
-remains incomplete until an admissible closure and the required consumer exist.
+Removing that unused graph restores a clean audit; no finding is waived. The
+[accepted MR 7 tool amendment](../roadmap/README.md#diagnostic-tool-requirement-amendment)
+permits an admitted diagnostic implementation without Evidently. MR 7 remains
+incomplete until that consumer and its required verification exist.
 The existing QuantLib allowance and release block remain unchanged.
 
 Re-review on expiry, any dependency/policy change, or the first release consumer.
@@ -144,7 +146,7 @@ no deployment, activation, credential, market or capital authority.
 
 ### Evidently prerequisite recheck
 
-Status: **blocked**, observed 2026-09-21 at 05:01 UTC, against main
+Evidently admission status: **blocked**, observed 2026-09-21 at 05:01 UTC, against main
 `3ebd6a4bdb5722117e66dca830af28ee140b9f52`. This is a fresh review of
 published artifacts and advisories, not admission of an additional dependency.
 PyPI and upstream release records still identify Evidently **0.7.23** and NLTK
@@ -196,14 +198,24 @@ evidence, not a shared evidence service; preserve it before cleanup. The earlier
 research-comparison acceptance archive remains intact.
 
 There is **no admissible closure among the reviewed released candidates**.
-The next feasible step is a published NLTK fix accepted by the advisory/audit
-services, or a released Evidently distribution that genuinely removes the
+For Evidently, the next feasible step is a published NLTK fix accepted by the
+advisory/audit services, or a released Evidently distribution that genuinely removes the
 mandatory vulnerable dependency, followed by complete admission and installed
 SDK verification. If current Evidently still conflicts with the core pins, only
 then consider a separately locked, fully audited compatibility worker. Isolation,
 unused NLP features, older affected NLTK versions and `--no-deps` installation
-cannot clear this blocker. A substitute diagnostic library would require an
-explicit change to MR 7's selected-tool acceptance and is not implemented here.
+cannot clear this blocker.
+
+The founder subsequently authorized an explicit
+[change to MR 7's tool requirement](../roadmap/README.md#diagnostic-tool-requirement-amendment)
+on 2026-09-21. The required reference/current diagnostic capability may now use
+admitted computation dependencies; Evidently is optional. The existing lock and
+license records include SciPy 1.18.1, which provides an implementation candidate.
+The amendment neither implements a diagnostic consumer nor changes package
+admission. First direct use must declare its dependency in project metadata;
+renew the full closure and installed-boundary proofs for any affected packaging.
+The rejected candidates, advisory finding and historical attempts above remain
+retained. No dependency is installed, removed, upgraded or exempted by this decision.
 
 ## Commands
 
