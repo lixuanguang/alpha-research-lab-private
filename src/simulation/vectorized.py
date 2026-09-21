@@ -14,7 +14,7 @@ from financial_units import Money, Price, Quantity
 from research.observations import TradePoint
 from serialization import DomainCodec, WireRecord
 from simulation.economics import EconomicResult
-from strategies import Momentum, NoTrade
+from strategies import RuleRegistry
 
 
 class VectorbtOrder(WireRecord, frozen=True):
@@ -109,12 +109,15 @@ class VectorbtAdapter:
         return max(point.event_at, point.known_at), point.order
 
     @classmethod
-    def run(cls, reference: EconomicResult) -> VectorbtResult:
+    def run(
+        cls, reference: EconomicResult, *, registry: RuleRegistry | None = None
+    ) -> VectorbtResult:
         """Compare a supported simple rule against the independent exact economic result.
 
         Args:
             reference: Complete result of verified chronological replay, including frozen
                 observations and original source revisions. This boundary revalidates bytes.
+            registry: Optional target-rule registry used to regenerate the configured rule.
 
         Returns:
             Versioned approximate arrays, exact order assumptions and disclosed execution scope.
@@ -132,13 +135,10 @@ class VectorbtAdapter:
         # Refuse this boundary rather than turning terminal heads into historical input.
         if state.observations.next_order != len(points):
             raise ValueError("vectorbt scope excludes revision histories")
-        rule: Momentum | NoTrade
-        if spec.rule == "completed-price-momentum-v1":
-            rule = Momentum()
-        elif spec.rule == "no-trade-v1":
-            rule = NoTrade()
-        else:
+        resolved_registry = RuleRegistry() if registry is None else registry
+        if not resolved_registry.supports(spec.rule):
             raise ValueError("unsupported vectorbt target rule")
+        rule = resolved_registry.resolve(spec.rule)
         cadence, delay = (
             timedelta(seconds=spec.cadence_seconds),
             timedelta(seconds=spec.delay_seconds),

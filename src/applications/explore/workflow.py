@@ -34,6 +34,7 @@ from research.exploration import (
     ResearchSelection,
     TradeResearchInput,
 )
+from research.features import FeatureRegistry
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 
@@ -161,6 +162,7 @@ def inspect_experiment(
     *,
     attempts: Path,
     tracking: ClearMLDestination | None = None,
+    feature_registry: FeatureRegistry | None = None,
 ) -> AttemptHistory:
     """Retain a pinned exploration study and its complete evidence through the attempt core.
 
@@ -171,6 +173,8 @@ def inspect_experiment(
         attempts: Local retained single-writer root containing the complete family history.
         tracking: Explicit ClearML destination for formal tracked invocations; omitted for
             compatibility with existing local exploratory consumers.
+        feature_registry: Optional feature implementation registry used only by FeatureStudy;
+            omitted to preserve the installed trailing-return implementation.
 
     Returns:
         Completed history containing encoded dataset, summaries and explicit no-fit status.
@@ -232,7 +236,7 @@ def inspect_experiment(
                     raise
             reader = ResearchReader(snapshots, raw, readers=SourceAdapters())
             if isinstance(study, FeatureStudy):
-                result = study.evaluate(reader)
+                result = study.evaluate(reader, registry=feature_registry)
             else:
                 dataset = reader.read(study.selection)
                 summaries = tuple(

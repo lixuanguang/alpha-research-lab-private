@@ -24,7 +24,7 @@ from research.exploration.selection import (
     TradeResearchInput,
     TradeSelection,
 )
-from research.features import FeatureValue, TrailingReturn
+from research.features import FeatureDefinition, FeatureRegistry, FeatureValue, TrailingReturn
 from research.labels import ForwardReturn, LabelValue
 from serialization import DomainCodec, WireRecord
 
@@ -41,6 +41,7 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
     decisions: TimeWindow
     feature: TrailingReturn
     label: ForwardReturn | None
+    feature_implementation: str = "trailing-return-v1"
 
     def __post_init__(self) -> None:
         """Reject unsupported sources, temporal leakage and unbounded materialized studies."""
@@ -49,6 +50,12 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
         for text in (self.family, self.question):
             if type(text) is not str or not text.strip():
                 raise ValueError("study requires a family and research question")
+        if (
+            type(self.feature_implementation) is not str
+            or not self.feature_implementation
+            or self.feature_implementation != self.feature_implementation.strip()
+        ):
+            raise ValueError("feature study requires a valid implementation identity")
         if (
             type(self.selection) is not ResearchSelection
             or type(self.split) is not TemporalSplit
@@ -142,17 +149,38 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
                 ),
             ),
             components=tuple(components),
-            parameters=(("partition", self.partition), ("question", self.question)),
+            parameters=(
+                ("feature-implementation", self.feature_implementation),
+                ("partition", self.partition),
+                ("question", self.question),
+            ),
             seeds=(),
             environment_sha256=environment,
             split=self.split,
         )
 
-    def evaluate(self, reader: ResearchReader) -> bytes:
+    def resolve_feature(self, registry: FeatureRegistry | None = None) -> FeatureDefinition:
+        """Resolve this study's definition through one explicit feature registry.
+
+        Args:
+            registry: Optional registry; the default retains the installed feature.
+
+        Returns:
+            Validated feature definition for this study.
+
+        Raises:
+            ValueError: The selected implementation is not registered.
+        """
+        self.__post_init__()
+        resolved_registry = FeatureRegistry() if registry is None else registry
+        return resolved_registry.resolve(self.feature_implementation, self.feature)
+
+    def evaluate(self, reader: ResearchReader, *, registry: FeatureRegistry | None = None) -> bytes:
         """Read every feature at its own cutoff and retain separate aligned forward outcomes.
 
         Args:
             reader: Explicit saved-data reader; the application records holdout access first.
+            registry: Optional feature registry used to resolve the selected definition.
 
         Returns:
             Deterministic JSON with ordered feature/label rows, input evidence, definitions,
@@ -161,16 +189,16 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
         Raises:
             ValueError: The saved reader returns an incompatible input family.
         """
-        self.__post_init__()
+        definition = self.resolve_feature(registry)
         codec = DomainCodec()
         features: list[tuple[str, FeatureValue]] = []
         labels: list[tuple[str, LabelValue]] = []
         samples: list[SampleInterval] = []
         decision = self.decisions.start
         while decision < self.decisions.end:
-            feature_end = decision - timedelta(microseconds=self.feature.processing_delay_us)
+            feature_end = decision - timedelta(microseconds=definition.processing_delay_us)
             feature_selection = self._selection(
-                end=feature_end, known_at=feature_end, lookback_us=self.feature.policy.lookback_us
+                end=feature_end, known_at=feature_end, lookback_us=definition.policy.lookback_us
             )
             dataset = reader.read(feature_selection)
             outcome_dataset = None
@@ -189,7 +217,7 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
                 if not isinstance(item, TradeResearchInput):
                     raise ValueError("diagnostic reader returned a non-trade input")
                 for coverage in item.coverage:
-                    feature = self.feature.evaluate(
+                    feature = definition.evaluate(
                         item.batches, binding=coverage.binding, decision_at=decision
                     )
                     row_id = codec.encode_json((item.name, coverage.binding, decision)).decode()
@@ -223,7 +251,7 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
                             label_available_at=None if label is None else label.available_at,
                         )
                     )
-            decision += timedelta(microseconds=self.feature.cadence_us)
+            decision += timedelta(microseconds=definition.cadence_us)
         return codec.encode_json(
             {
                 "schema_version": "feature-study-result-v1",

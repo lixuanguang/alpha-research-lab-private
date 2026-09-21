@@ -18,7 +18,9 @@ from clearml import Model, OutputModel, Task
 from clearml.backend_api import Session
 
 # project library imports
-from research.experiments.evaluation import EvaluationRecord
+from research.experiments.configuration import BacktestRun
+from research.experiments.diagnostics import AlphalensReport
+from research.experiments.evaluation import EvaluationRecord, TrialEvaluation
 from research.experiments.identity import Fingerprint
 from research.experiments.store import AttemptStore
 from serialization import DomainCodec, WireRecord
@@ -225,6 +227,66 @@ class ClearMLPublication:
                     task.get_logger().report_single_value(
                         "predictive/mean_squared_error", projection
                     )
+            search = dict(history.start.spec.parameters).get("search")
+            if search is not None and "trial" in dict(history.start.spec.parameters):
+                parameters.update(
+                    {
+                        "comparison/search": search,
+                        "comparison/trial": dict(history.start.spec.parameters)["trial"],
+                    }
+                )
+                variants = tuple(
+                    item for item in history.start.spec.inputs if item.name == "variant"
+                )
+                if variants:
+                    variant = self._codec.decode_json(history.start.request, BacktestRun)
+                    if variant.identity != variants[0].sha256:
+                        raise ValueError("trial configuration differs from its retained identity")
+                    parameters.update(
+                        {
+                            "comparison/variant": variant.identity,
+                            "comparison/rule": variant.economics.rule,
+                            "comparison/instance": variant.economics.instance,
+                        }
+                    )
+                if "trial-evaluation" in names:
+                    trial_evaluation = self._codec.decode_json(
+                        self._store.artifact(attempt_id, "trial-evaluation"), TrialEvaluation
+                    )
+                    ratio = trial_evaluation.net_return
+                    projection = int(ratio.numerator) / int(ratio.denominator)
+                    if not math.isfinite(projection):
+                        raise ValueError("trial objective has no finite dashboard projection")
+                    parameters["comparison/exact_net_return"] = (
+                        f"{ratio.numerator}/{ratio.denominator}"
+                    )
+                    if task.status == "in_progress":
+                        task.get_logger().report_single_value("comparison/net_return", projection)
+            if "factor-diagnostics" in names:
+                report = self._codec.decode_json(
+                    self._store.artifact(attempt_id, "factor-diagnostics"), AlphalensReport
+                )
+                parameters.update(
+                    {
+                        "factor/selection_identity": report.selection_identity,
+                        "factor/horizon_us": str(report.horizon_us),
+                        "factor/inapplicable_reason": report.inapplicable_reason or "applicable",
+                        "factor/late_labels": str(len(report.late_labels)),
+                        "factor/dropped_rows": str(len(report.dropped_rows)),
+                    }
+                )
+                if task.status == "in_progress":
+                    for kind, metrics in (
+                        ("ic", report.information_coefficients),
+                        ("quantile-return", report.quantile_returns),
+                        ("turnover", report.turnover),
+                    ):
+                        for index, metric in enumerate(metrics):
+                            if metric.value is not None:
+                                task.get_logger().report_single_value(
+                                    f"factor/{kind}/{index}/{metric.name}/{metric.period}",
+                                    metric.value,
+                                )
             if task.status == "in_progress":
                 task.set_parameters(parameters)
                 if not task.flush(wait_for_uploads=True):
@@ -339,7 +401,8 @@ class ClearMLPublication:
             return
         if task.status != "in_progress":
             raise ValueError("terminal ClearML task is missing a retained artifact")
-        path = staging / f"{name}.json"
+        suffix = ".html" if name.endswith("-html") else ".json"
+        path = staging / f"{name}{suffix}"
         path.write_bytes(payload)
         if not task.upload_artifact(
             name=name, artifact_object=str(path), auto_pickle=False, wait_on_upload=True

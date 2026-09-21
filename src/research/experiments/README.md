@@ -1,6 +1,6 @@
 # Experiment attempts and temporal splits
 
-Owner: repository founder. Updated 2026-09-20. **Implemented for bounded local
+Owner: repository founder. Updated 2026-09-21. **Implemented for bounded local
 research.** The curated `research.experiments` API owns semantic identities,
 earlier-only temporal folds and append-only execution history. It has no command.
 `applications.explore.inspect_experiment` is the first working consumer, using
@@ -12,6 +12,71 @@ delivery acceptance. The same application now retains
 The [model workflow](../models/README.md) now consumes these retained boundaries.
 Configured economic reports and local serial pipelines are implemented below. Candidate
 promotion and deployment remain separate future work.
+
+## Bounded comparison and factor diagnostics
+
+`ComparisonStudy` freezes 1–32 complete `BacktestRun` variants, one shared source,
+validation/holdout split and report policy, exact selection/pruning thresholds,
+total trial budget and an explicit GridSampler seed. `ParameterComparison` owns
+the single serial Optuna controller and append-only journal. The existing
+`alpha-backtest compare` action composes the causal reader, isolated rule instances,
+exact ledger, vectorbt comparison and retained QuantStats report:
+
+```sh
+alpha-backtest compare --config /absolute/study/comparison.json \
+  --snapshots /absolute/study/snapshots --raw /absolute/study/raw \
+  --attempts /absolute/study/attempts --journal /absolute/study/optuna.log \
+  --tracking /absolute/study/tracking.json --max-bytes 2000000
+```
+
+`--max-trials` bounds one invocation; it never increases the configured total
+budget. Resume requires identical configuration, installed code and environment.
+Keep the journal and complete attempt store together. Each trial has an immutable
+attempt mapping, source selection, exact objective, partial outputs and reason.
+Interrupted/pruned trials are abandoned, rejected thresholds remain rejected,
+and failed evaluations remain failed. An interrupted journal trial consumes its
+budget slot and cannot become a successful full evaluation. Accepted trials have
+all output hashes committed before publication; ClearML receipts map attempt and
+task identities. Each trial retains its actual variant configuration fingerprint;
+ClearML exposes the trial number, rule, instance and exact net-return ratio, plus
+a finite dashboard projection. Publication failure leaves the durable outbox
+available for retry.
+
+`alpha-backtest pipeline --comparison-config /absolute/study/comparison.json`
+adds a serial comparison stage after verified inputs and the complete economic
+run. It uses the same installed worker and stores `comparison-journal.jsonl` in
+the selected output root. Reusing that root resumes the frozen trial budget;
+new controller executions preserve original trial/task associations. The first
+variant must equal the pipeline configuration. Changing a comparison in the UI
+requires a new declared study and journal, rather than editing an active grid.
+
+The objective is exact validation net return. Float projection is confined to
+Optuna and analytical reports. No final holdout is read, no result is promoted,
+and selected vectorbt outcomes have already passed through the authoritative
+costed ledger. This initial comparison accepts local pinned snapshots; remote
+lakeFS materialization is explicitly refused. The existing configured run/pipeline
+retains its separately qualified lakeFS behavior.
+
+`applications.explore.compare_factors` verifies a completed feature-result digest
+and preserves its temporal split before calling `AlphalensDiagnostics`. The study
+declares universe, ascending/descending factor direction, outcome horizon, frozen
+base-price convention, groups, quantiles, demeaning/group adjustment and an explicit
+knowledge cutoff. Alphalens receives projected exact factor/forward-label pairs;
+future labels are never feature columns. JSON/HTML reports retain exclusions,
+late labels, IC, quantile returns and turnover. Equal-frequency qcut can drop tied
+cross-sections; undersized samples have an explicit inapplicability reason.
+Turnover follows Alphalens' daily resampling convention; an intraday fixture
+without a prior daily observation retains unavailable turnover values, not invented
+zeroes. These factor statistics do not measure executable strategy economics.
+
+The [installed feature consumer](../../../tests/integration/consumers/research/feature_study.py)
+and [installed economic consumer](../../../tests/integration/consumers/backtest/economic_workflow.py)
+exercise these paths and optionally round-trip actual ClearML artifact bytes when
+`ALPHA_CLEARML_LOCAL_ENV` is supplied. Without that private configuration the
+transport-failure tests establish local retention only. The maintained
+[QR activity notebook](../../../examples/research-foundations.ipynb) retains a
+rule-only comparison without fitting. Exact final verification and blockers are
+owned by [MR 7](../../../docs/roadmap/README.md#research-comparison-and-extension).
 
 ## Reproducible inputs and execution attempts
 

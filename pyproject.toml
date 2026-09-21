@@ -10,12 +10,17 @@ readme = "docs/README.md"
 requires-python = "==3.14.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
+    "alphalens-reloaded==0.4.3",
     "clearml==2.1.12",
+    "duckdb==1.5.5",
     "exchange-calendars==4.13.2",
     "lakefs-sdk==1.86.0",
+    "marimo==0.24.2",
     "msgspec==0.21.1",
+    "optuna==5.0.0",
     "pandas==3.0.5",
     "pandera[pandas]==0.33.1",
+    "polars==1.44.2",
     "pydantic==2.13.5",
     "QuantLib==1.43",
     "quantstats==0.0.81",
@@ -25,6 +30,7 @@ dependencies = [
 
 [project.scripts]
 alpha-backtest = "applications.backtest:main"
+alpha-explore = "applications.explore:main"
 alpha-collect = "applications.collect:main"
 alpha-acquire = "applications.acquire:main"
 alpha-dataset = "applications.publish_dataset:main"

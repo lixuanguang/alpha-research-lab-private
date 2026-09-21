@@ -19,7 +19,12 @@ from msgspec.structs import replace
 
 # project library imports
 import research.features
-from applications.explore import evaluate_model, inspect_experiment, publish_experiments
+from applications.explore import (
+    compare_factors,
+    evaluate_model,
+    inspect_experiment,
+    publish_experiments,
+)
 from configuration import Configuration
 from financial_units import ExactRatio
 from market_data.acquisition import AcquisitionManifest
@@ -31,10 +36,14 @@ from market_data.validation import Correction, QualityPolicy, TradeRevision
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import EligibilityAssertions
 from research.experiments import (
+    AlphalensReport,
+    AlphalensStudy,
+    AttemptHistory,
     AttemptStore,
     ClearMLDestination,
     ClearMLPublication,
     EvaluationRecord,
+    ResultManifest,
     SampleInterval,
     TemporalSplit,
     TimeWindow,
@@ -451,6 +460,79 @@ class _ModelAcceptance:
         print("Fresh-process backup reload reproduces exact predictions.")
 
 
+class _FactorAcceptance:
+    """Exercise retained factor reports and real optional ClearML artifact retrieval."""
+
+    @staticmethod
+    def run(output: Path, source: AttemptHistory, payload: bytes) -> None:
+        """Evaluate the installed two-instrument source with independently known ordering."""
+        study = _CODEC.decode_json((output / "study.json").read_bytes(), FeatureStudy)
+        definition = AlphalensStudy(
+            selection_identity=study.selection.identity,
+            quantiles=2,
+            known_at=_START + timedelta(seconds=30),
+            demeaned=False,
+        )
+        destination = ClearMLDestination(
+            project="alpha-factor-integration",
+            api_uri="http://127.0.0.1:18008",
+            files_uri="http://127.0.0.1:18081",
+        )
+        (output / "factor-study.json").write_bytes(_CODEC.encode_json(definition))
+        (output / "tracking.json").write_bytes(_CODEC.encode_json(destination))
+        with AttemptStore(output / "attempts") as store:
+            before = {h.start.attempt_id for h in store.histories()}
+        with patch.object(
+            ClearMLPublication, "publish", side_effect=ConnectionError("offline factor fixture")
+        ):
+            try:
+                compare_factors(
+                    definition,
+                    family=study.family,
+                    source_attempt=source.start.attempt_id,
+                    source_sha256=hashlib.sha256(payload).hexdigest(),
+                    split=study.split,
+                    attempts=output / "attempts",
+                    tracking=destination,
+                )
+            except ConnectionError:
+                pass
+            else:
+                raise AssertionError("unavailable factor publication was hidden")
+        with AttemptStore(output / "attempts") as store:
+            histories = [h for h in store.histories() if h.start.attempt_id not in before]
+            assert len(histories) == 1 and histories[0].status == "completed"
+            attempt_id = histories[0].start.attempt_id
+            manifest = ResultManifest.read(store, attempt_id)
+            report = _CODEC.decode_json(
+                store.artifact(attempt_id, "factor-diagnostics"), AlphalensReport
+            )
+            assert report.inapplicable_reason is None and len(report.eligible_rows) == 2
+            assert report.information_coefficients
+            coefficient = report.information_coefficients[0].value
+            assert coefficient is not None and abs(coefficient - 1.0) < 1e-12
+            assert not any(e.status == "holdout_consumed" for e in histories[0].events)
+            if _ModelAcceptance._configure_server():
+                receipt = ClearMLPublication(store, destination).publish(attempt_id)
+                # third party library imports
+                from clearml import Task
+
+                tasks = Task.get_tasks(
+                    project_name=destination.project,
+                    task_name=f"^attempt-{attempt_id}$",
+                    allow_archived=True,
+                )
+                assert len(tasks) == 1 and tasks[0].id == receipt.task_id
+                for artifact in manifest.artifacts:
+                    downloaded = tasks[0].artifacts[artifact.name].get_local_copy()
+                    assert downloaded is not None
+                    assert (
+                        hashlib.sha256(Path(downloaded).read_bytes()).hexdigest() == artifact.sha256
+                    )
+                (output / "factor-clearml-receipt.json").write_bytes(_CODEC.encode_json(receipt))
+        print("Installed Alphalens IC and retained report bytes verified; holdout untouched.")
+
+
 def main() -> None:
     """Publish real saved fixtures or reproduce the completed study in a fresh installed process.
 
@@ -520,6 +602,7 @@ def main() -> None:
     (output / "result.json").write_bytes(payload)
     print("Installed two-instrument feature/label study and fresh-process parity verified.")
     if len(sys.argv) == 3:
+        _FactorAcceptance.run(output, history, payload)
         _ModelAcceptance.run(inputs, output / "models")
 
 

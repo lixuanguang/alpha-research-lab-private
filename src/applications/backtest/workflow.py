@@ -5,7 +5,6 @@ from __future__ import annotations
 # standard library imports
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import ClassVar
 
 # project library imports
 from accounting import Ledger, LedgerState
@@ -30,16 +29,7 @@ from simulation import (
     SpotSimulation,
     VectorbtAdapter,
 )
-from strategies import Momentum, NoTrade
-
-
-class _Rules:
-    """Resolve only reviewed installed rule implementations for this application."""
-
-    definitions: ClassVar[dict[str, type[Momentum] | type[NoTrade]]] = {
-        "completed-price-momentum-v1": Momentum,
-        "no-trade-v1": NoTrade,
-    }
+from strategies import RuleRegistry
 
 
 def run_backtest(
@@ -49,6 +39,7 @@ def run_backtest(
     batch_size: int = 256,
     checkpoint: EconomicCheckpoint | None = None,
     stop_at: datetime | None = None,
+    registry: RuleRegistry | None = None,
 ) -> EconomicResult | EconomicCheckpoint:
     """Execute or resume one isolated spot economy using the existing verified replay iterator.
 
@@ -58,6 +49,7 @@ def run_backtest(
         batch_size: Query delivery bound, excluded from economic identity.
         checkpoint: Complete economic/source state; a source cursor alone is unsupported.
         stop_at: Optional completed-step checkpoint clock before the terminal; no result claim.
+        registry: Optional target-rule registry; the default registry supplies reviewed rules.
 
     Returns:
         Reconciled terminal result or complete checkpoint at the explicit stop boundary.
@@ -67,9 +59,8 @@ def run_backtest(
     """
     codec = DomainCodec()
     spec = codec.decode_json(codec.encode_json(spec), BacktestSpec)
-    definition = _Rules.definitions.get(spec.rule)
-    if definition is None:
-        raise ValueError(f"unsupported installed target rule: {spec.rule}")
+    resolved_registry = RuleRegistry() if registry is None else registry
+    rule = resolved_registry.resolve(spec.rule)
     if checkpoint is not None:
         checkpoint = codec.decode_json(codec.encode_json(checkpoint), EconomicCheckpoint)
         if checkpoint.spec_identity != spec.identity:
@@ -106,7 +97,7 @@ def run_backtest(
         if state is None
         else state.ledger
     )
-    simulation = SpotSimulation(spec, observations, definition(), ledger, state=state)
+    simulation = SpotSimulation(spec, observations, rule, ledger, state=state)
     while True:
         scheduled = simulation.scheduled_at
         if stop_at is not None:
@@ -129,6 +120,7 @@ def compare_vectorbt(
     split: TemporalSplit,
     attempts: Path,
     tracking: ClearMLDestination,
+    registry: RuleRegistry | None = None,
 ) -> AttemptHistory:
     """Retain a formal vectorbt comparison and publish through MR 4's recoverable outbox.
 
@@ -139,6 +131,7 @@ def compare_vectorbt(
         split: Existing no-fit study partition; this slice permits validation access only.
         attempts: Single-writer attempt store retaining failures and exact/approximate results.
         tracking: Required ClearML destination; unavailable transport leaves recoverable intent.
+        registry: Optional target-rule registry shared by exact and vectorized consumers.
 
     Returns:
         Completed retained attempt after acknowledged publication; exact ledger remains separate.
@@ -154,6 +147,7 @@ def compare_vectorbt(
         or not split.validation.start <= spec.start < spec.end <= split.validation.end
     ):
         raise ValueError("vectorbt comparison requires an explicit no-fit validation window")
+    resolved_registry = RuleRegistry() if registry is None else registry
     codec = DomainCodec()
     experiment = ExperimentSpec(
         family=family,
@@ -180,11 +174,11 @@ def compare_vectorbt(
         )
         publication.enqueue(start.attempt_id)
         try:
-            exact = run_backtest(reader, spec)
+            exact = run_backtest(reader, spec, registry=resolved_registry)
             if not isinstance(exact, EconomicResult):
                 raise ValueError("reference economics did not reach terminal completion")
             store.retain(start.attempt_id, "economic-reference", codec.encode_json(exact))
-            approximate = VectorbtAdapter.run(exact)
+            approximate = VectorbtAdapter.run(exact, registry=resolved_registry)
             payload = codec.encode_json(approximate)
             store.retain(start.attempt_id, "vectorbt-comparison", payload)
             store.finish(

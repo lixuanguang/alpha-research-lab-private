@@ -111,6 +111,14 @@ def main() -> None:
             == partition.sha256
         )
     executable = Path(sys.executable).parent
+    explore_help = subprocess.run(
+        [str(executable / "alpha-explore"), "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    assert "feast-worker" in explore_help.stdout
     fixture = subprocess.run(
         [
             str(executable / "alpha-inspect-fixture"),

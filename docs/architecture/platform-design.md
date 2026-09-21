@@ -509,6 +509,19 @@ terminal attempts and holdout history remain authoritative locally. ClearML sour
 the locked wheel against its pinned upstream archive. Configured economic reports and local serial installed pipelines are now implemented;
 candidate promotion remains planned.
 
+**Current comparison owners:** compatible feature and estimator factories extend
+their existing typed definitions, while `strategies.RuleRegistry` creates fresh
+rule instances for each economic run. `research.experiments` owns bounded Optuna
+journals, complete unsuccessful-trial history and Alphalens report contracts;
+`research.exploration` owns verified bounded DuckDB/Polars projections.
+`research.features` owns the offline Feast bridge and causal result admission.
+The existing exploration/backtest applications compose these libraries; no library
+imports an application or exposes a runnable command. Feast's incompatible pandas
+constraint is isolated in a separately locked local SDK worker, while core pandas
+remains 3.0.5. Evidently remains unimplemented because its required dependency
+closure fails admission. MR 7 is partial, and no comparison grants candidate,
+deployment or trading authority.
+
 Research reports state the economic mechanism, falsifiable hypothesis, target, sign, horizon, universe, rebalance,
 benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.
 Once an exploratory result influences a candidate decision, it receives durable identity and provenance.

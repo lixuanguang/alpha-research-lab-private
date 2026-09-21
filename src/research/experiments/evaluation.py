@@ -1,8 +1,9 @@
-"""Retain predictive evaluations separately from model construction and strategy economics."""
+"""Retain distinct exact predictive errors and economic trial objectives."""
 
 from __future__ import annotations
 
 # standard library imports
+import math
 from datetime import datetime
 from fractions import Fraction
 from typing import Literal
@@ -80,3 +81,23 @@ class EvaluationRecord(WireRecord, frozen=True, kw_only=True):
         expected = ExactRatio.from_fraction(sum(errors, Fraction()) / len(errors))
         if self.mean_squared_error != expected:
             raise ValueError("mean squared error differs from retained prediction outcomes")
+
+
+class TrialEvaluation(WireRecord, frozen=True):
+    """Keep an authoritative exact objective separate from Optuna's float projection."""
+
+    net_return: ExactRatio
+
+    def __post_init__(self) -> None:
+        """Validate direct construction at the evaluation boundary."""
+        if type(self.net_return) is not ExactRatio:
+            raise TypeError("trial objective requires exact net return")
+        self.net_return.__post_init__()
+        try:
+            projection = float(
+                Fraction(int(self.net_return.numerator), int(self.net_return.denominator))
+            )
+        except OverflowError as error:
+            raise ValueError("trial objective has no finite Optuna projection") from error
+        if not math.isfinite(projection):
+            raise ValueError("trial objective has no finite Optuna projection")

@@ -38,7 +38,13 @@ from research.exploration import (
     TradeResearchInput,
     TradeSelection,
 )
-from research.features import TrailingReturn, WindowPolicy
+from research.features import (
+    FeatureDefinition,
+    FeatureRegistry,
+    FeatureValue,
+    TrailingReturn,
+    WindowPolicy,
+)
 from research.labels import ForwardReturn
 from serialization import DomainCodec
 
@@ -79,6 +85,54 @@ class _AdmittedPrices(ResearchReader):
             )
             results.append(TradeResearchInput(item.name, batches, (coverage,)))
         return ResearchDataset(selection, selection.identity, tuple(results))
+
+
+class _DelegatingFeature:
+    """Expose one registered feature engine while retaining the typed definition contract."""
+
+    def __init__(self, definition: TrailingReturn) -> None:
+        """Bind the immutable definition delegated to the installed evaluator."""
+        self._definition = definition
+
+    @property
+    def schema_version(self) -> str:
+        """Return the retained schema identity."""
+        return self._definition.schema_version
+
+    @property
+    def units(self) -> str:
+        """Return the retained output units."""
+        return self._definition.units
+
+    @property
+    def policy(self) -> WindowPolicy:
+        """Return the retained causal policy."""
+        return self._definition.policy
+
+    @property
+    def cadence_us(self) -> int:
+        """Return the retained decision cadence."""
+        return self._definition.cadence_us
+
+    @property
+    def processing_delay_us(self) -> int:
+        """Return the retained processing delay."""
+        return self._definition.processing_delay_us
+
+    @property
+    def identity(self) -> str:
+        """Return the retained immutable definition identity."""
+        return self._definition.identity
+
+    def __post_init__(self) -> None:
+        """Validate the retained typed definition."""
+        self._definition.__post_init__()
+
+    def evaluate(
+        self, batches: tuple[QueryBatch, ...], *, binding: InputBinding, decision_at: datetime
+    ) -> FeatureValue:
+        """Delegate evaluation to the retained definition."""
+        return self._definition.evaluate(batches, binding=binding, decision_at=decision_at)
 
 
 class TestPriceDiagnostics:
@@ -502,6 +556,61 @@ class TestFeatureStudies:
             == fields["features"]
         )
         assert admitted.cutoffs == [_START + timedelta(seconds=n) for n in (10, 20)]
+
+    def test_formal_inspector_passes_registered_feature_engine(self, tmp_path: Path) -> None:
+        """Resolve an injected feature engine through the formal retained workflow."""
+        study = replace(self._study(), feature_implementation="delegating-trailing-v1")
+        config = tmp_path / "study.json"
+        config.write_bytes(_CODEC.encode_json(study))
+        request = TestPriceDiagnostics._request()
+        reader = _AdmittedPrices(
+            TestPriceDiagnostics._reader(
+                request,
+                (
+                    TestPriceDiagnostics._item(request, 0, 1, "100", 1, 0),
+                    TestPriceDiagnostics._item(request, 8, 9, "110", 2, 1),
+                    TestPriceDiagnostics._item(request, 11, 11, "111", 3, 2),
+                    TestPriceDiagnostics._item(request, 19, 19, "121", 4, 3),
+                ),
+            ),
+            request,
+        )
+        resolved: list[str] = []
+
+        def factory(definition: TrailingReturn) -> FeatureDefinition:
+            """Record formal resolution and construct the compatible evaluator.
+
+            Args:
+                definition: Typed feature settings retained by the study.
+
+            Returns:
+                Evaluator preserving the selected definition contract.
+            """
+            resolved.append(definition.identity)
+            return _DelegatingFeature(definition)
+
+        registry = FeatureRegistry()
+        registry.register("delegating-trailing-v1", factory)
+        with (
+            patch("applications.explore.workflow.ResearchReader", return_value=reader),
+            patch(
+                "applications.explore.workflow.ImplementationIdentity.sha256",
+                return_value="a" * 64,
+            ),
+            patch(
+                "applications.explore.workflow.ExperimentSpec.installed_environment",
+                return_value="b" * 64,
+            ),
+        ):
+            history = inspect_experiment(
+                config,
+                tmp_path / "snapshots",
+                RawStore(tmp_path / "raw"),
+                attempts=tmp_path / "attempts",
+                feature_registry=registry,
+            )
+        assert history.status == "completed"
+        assert resolved == [study.feature.identity]
 
     def test_semantic_identity_bounds_and_holdout_protection(self) -> None:
         """Preserve identity across resource knobs and reject unsafe temporal scopes."""

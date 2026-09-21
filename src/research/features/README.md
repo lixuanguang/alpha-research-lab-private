@@ -8,6 +8,30 @@ partitions. The existing `applications.explore.inspect_experiment` orchestrates
 admission, installed identities, retained attempts and holdout consumption.
 There is no new command, model, strategy, fit, incremental engine or deployment.
 
+## Compatible implementations and offline reuse
+
+`FeatureRegistry` accepts an explicit implementation ID and a typed factory over
+the existing `TrailingReturn` settings. `FeatureStudy.feature_implementation`
+defaults to the maintained engine. A supplied registry can select a compatible
+engine without changing shared runners; it must preserve the declared definition,
+units, schema, window and timing contract. The implementation ID enters the study
+specification while the original feature definition stays in retained output.
+Unregistered engines and duplicate registration fail explicitly.
+
+`OfflineFeatureDefinition` pins definition/registry bytes, SDK version, exact
+source version/digest, entity type/join key, units and TTL. `OfflineFeatureBridge`
+validates the versioned subprocess response; `OfflineFeatureAccess` owns causal
+admission and parity against retained observations. Exact feature values cross
+the worker boundary as reduced numerator/denominator strings. Unknown, missing,
+late and expired observations stay explicit; no zero fill is introduced.
+
+The [separate local worker](../../../configs/development/research-worker/README.md)
+keeps Feast's pandas-below-3 dependency out of the core pandas 3.0.5 runtime.
+The selected offline path requires an eligibility-filtered immutable source and
+pins actual registry/source state. A normal event-time join alone is insufficient
+for delayed availability or revisions. This is offline research only; an online
+store and runtime consumer remain conditional MR 9 work.
+
 ## Formula and clocks
 
 For decision `t`, feature processing delay `d` and lookback `w`, the feature
@@ -130,3 +154,14 @@ and matching wheels/environments for reproduction. Older code cannot read the
 new study schema. Existing EDA, `ExplorationStudy`, raw/snapshot and attempt schemas
 remain compatible. Source evidence limitations and the separate deployment/trading
 authority boundary remain unchanged.
+
+`applications.explore.compare_offline_features` is the formal parity consumer.
+It verifies an existing completed feature attempt, its exact result digest, family
+and validation split, then derives the complete native reference grid. The request
+must identify the retained trailing-return definition, instrument keys and units.
+One SDK retrieval is retained with the full request, native reference, source
+result and exact comparison. Mismatches remain rejected; successful results commit
+a manifest before ClearML publication. The
+[installed acceptance program](../../../tests/integration/consumers/research/offline_features.py)
+exercises this workflow with the separately locked worker. No holdout, online
+store or remote source is selected by this action.

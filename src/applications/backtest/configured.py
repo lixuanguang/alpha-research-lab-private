@@ -17,7 +17,8 @@ from lakefs_sdk import ApiClient, Configuration
 from msgspec.structs import replace
 
 # project library imports
-from applications.backtest.workflow import _Rules, run_backtest
+from applications.backtest.comparison import compare_parameters
+from applications.backtest.workflow import run_backtest
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
 from market_data.storage import DatasetVersion, LakeFSStorage, RawStore
@@ -27,6 +28,7 @@ from research.experiments import (
     BacktestRun,
     ClearMLDestination,
     ClearMLPublication,
+    ComparisonStudy,
     ExperimentSpec,
     PipelineRun,
     QuantStatsReport,
@@ -37,6 +39,7 @@ from research.experiments import (
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 from simulation import EconomicCheckpoint
+from strategies import RuleRegistry
 
 
 class _StorageAccess:
@@ -106,7 +109,7 @@ def run_configured(
         Exception: Computation or publication fails with retained original attempt outcome.
     """
     selected = BacktestRun.read(config)
-    if selected.economics.rule not in _Rules.definitions:
+    if not RuleRegistry().supports(selected.economics.rule):
         raise ValueError("unsupported installed target rule")
     if type(max_bytes) is not int or max_bytes <= 0:
         raise ValueError("max_bytes must be positive")
@@ -273,42 +276,84 @@ def run_worker() -> None:
         raise ValueError("worker installed artifact/environment differs from pipeline pin")
     selected = codec.decode_json(parameters["Run/configuration"].encode(), BacktestRun)
     stage = parameters["Run/stage"]
-    if stage not in ("inputs", "complete"):
+    if stage not in ("inputs", "complete", "comparison"):
         raise ValueError("unknown pipeline research stage")
     output = Path(parameters["Run/output"])
-    config = output / f"{stage}-{task.id}.json"
+    if (
+        output.parent != Path(plan.output_root)
+        or len(output.name) != 32
+        or any(character not in "0123456789abcdef" for character in output.name)
+    ):
+        raise ValueError("pipeline output differs from the resolved plan")
+    config = output / (
+        f"configuration-{stage}-{task.id}.json"
+        if stage == "comparison"
+        else f"{stage}-{task.id}.json"
+    )
     ResultManifest.export(config, codec.encode_json(selected))
     inputs = Path(plan.inputs_root)
     attempts = Path(plan.attempts)
     association = (parameters["Run/controller"], task.id)
+    comparison_attempt_ids: tuple[str, ...] = ()
     client = None
     if plan.dataset_version is not None and plan.lakefs_endpoint is not None:
         client = _StorageAccess.open(
             plan.lakefs_endpoint, Path(os.environ["ALPHA_LAKEFS_CREDENTIALS"])
         )
     try:
-        run_configured(
-            config,
-            inputs / "snapshots",
-            inputs / "raw",
-            attempts=attempts,
-            max_bytes=plan.max_bytes,
-            tracking=plan.tracking,
-            stage="inputs" if stage == "inputs" else "complete",
-            upstream=parameters["Run/upstream"] or None,
-            step=association,
-            version=plan.dataset_version,
-            storage=None if client is None else LakeFSStorage(client),
-        )
+        if stage == "comparison":
+            if plan.comparison is None or "Run/comparison" not in parameters:
+                raise ValueError("comparison pipeline stage has no comparison configuration")
+            comparison = codec.decode_json(parameters["Run/comparison"].encode(), ComparisonStudy)
+            if comparison != plan.comparison or comparison.variants[0] != selected:
+                raise ValueError("comparison configuration differs from the resolved plan")
+            journal = Path(parameters.get("Run/journal", ""))
+            expected_journal = Path(plan.output_root) / "comparison-journal.jsonl"
+            if journal != expected_journal:
+                raise ValueError("comparison pipeline journal differs from the resolved output")
+            comparison_config = output / f"comparison-{task.id}.json"
+            ResultManifest.export(comparison_config, codec.encode_json(comparison))
+            comparison_attempt_ids = compare_parameters(
+                comparison_config,
+                inputs / "snapshots",
+                inputs / "raw",
+                attempts=attempts,
+                journal=journal,
+                max_bytes=plan.max_bytes,
+                tracking=plan.tracking,
+                step=association,
+            )
+        else:
+            run_configured(
+                config,
+                inputs / "snapshots",
+                inputs / "raw",
+                attempts=attempts,
+                max_bytes=plan.max_bytes,
+                tracking=plan.tracking,
+                stage="inputs" if stage == "inputs" else "complete",
+                upstream=parameters["Run/upstream"] or None,
+                step=association,
+                version=plan.dataset_version,
+                storage=None if client is None else LakeFSStorage(client),
+            )
     finally:
         if client is not None:
             client.close()
         store = AttemptStore(attempts)
+        matched: list[AttemptHistory] = []
         for history in store.histories():
             attempt = history.start.attempt_id
-            if "pipeline-step" in store.artifacts(attempt) and store.artifact(
-                attempt, "pipeline-step"
-            ) == codec.encode_json(association):
+            pipeline_artifacts = tuple(
+                name
+                for name in store.artifacts(attempt)
+                if name == "pipeline-step" or name.startswith("pipeline-step-")
+            )
+            if any(
+                store.artifact(attempt, name) == codec.encode_json(association)
+                for name in pipeline_artifacts
+            ):
+                matched.append(history)
                 parameters.update(
                     {
                         "retained/attempt_id": attempt,
@@ -320,6 +365,42 @@ def run_worker() -> None:
                     }
                 )
                 task.set_parameters(parameters)
-                ResultManifest.export(
-                    output / f"{stage}-{task.id}-attempt.json", codec.encode_json(history)
+        if stage == "comparison":
+            histories_by_id = {history.start.attempt_id: history for history in store.histories()}
+            histories = (
+                tuple(
+                    histories_by_id[attempt_id]
+                    for attempt_id in comparison_attempt_ids
+                    if attempt_id in histories_by_id
                 )
+                if comparison_attempt_ids
+                else tuple(matched)
+            )
+            if histories:
+                last = histories[-1]
+                parameters.update(
+                    {
+                        "retained/attempt_id": last.start.attempt_id,
+                        "retained/run_identity": last.start.run_identity,
+                        "retained/outcome": last.status,
+                    }
+                )
+                task.set_parameters(parameters)
+                parameters.update(
+                    {
+                        "retained/attempt_ids": codec.encode_json(
+                            tuple(history.start.attempt_id for history in histories)
+                        ).decode(),
+                        "retained/result_sha256": hashlib.sha256(
+                            codec.encode_json(histories)
+                        ).hexdigest(),
+                    }
+                )
+                task.set_parameters(parameters)
+                ResultManifest.export(
+                    output / f"{stage}-{task.id}-attempts.json", codec.encode_json(histories)
+                )
+        elif matched:
+            ResultManifest.export(
+                output / f"{stage}-{task.id}-attempt.json", codec.encode_json(matched[-1])
+            )

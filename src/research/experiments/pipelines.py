@@ -15,6 +15,7 @@ from clearml.automation import PipelineController
 
 # project library imports
 from market_data.storage import DatasetVersion
+from research.experiments.comparison import ComparisonStudy
 from research.experiments.configuration import BacktestRun
 from research.experiments.identity import ExperimentSpec, Fingerprint
 from research.experiments.tracking import ClearMLDestination
@@ -39,12 +40,17 @@ class PipelineRun(WireRecord, frozen=True):
     queue: str
     dataset_version: DatasetVersion | None = None
     lakefs_endpoint: str | None = None
+    comparison: ComparisonStudy | None = None
     schema_version: str = "research-pipeline-v1"
 
     def __post_init__(self) -> None:
         """Refuse relative paths, missing identities and unsupported execution definitions."""
         self.configuration.__post_init__()
         self.tracking.__post_init__()
+        if self.comparison is not None:
+            self.comparison.__post_init__()
+            if self.comparison.variants[0] != self.configuration:
+                raise ValueError("pipeline comparison must include its configured run first")
         if (self.dataset_version is None) != (self.configuration.versioned_inputs_sha256 is None):
             raise ValueError("pipeline requires the configured immutable dataset version")
         if self.dataset_version is not None and (
@@ -86,6 +92,7 @@ class PipelineRun(WireRecord, frozen=True):
         queue: str,
         dataset_version: DatasetVersion | None = None,
         lakefs_endpoint: str | None = None,
+        comparison: ComparisonStudy | None = None,
     ) -> PipelineRun:
         """Verify installed owned bytes against the selected wheel before dispatch.
 
@@ -100,6 +107,7 @@ class PipelineRun(WireRecord, frozen=True):
             queue: Dedicated local queue served by one worker.
             dataset_version: Optional immutable storage manifest selected by configuration.
             lakefs_endpoint: Explicit API endpoint; worker credentials remain outside the plan.
+            comparison: Optional frozen comparison grid whose first variant is configuration.
 
         Returns:
             Verified installed environment and artifact manifest.
@@ -129,6 +137,7 @@ class PipelineRun(WireRecord, frozen=True):
             queue=queue,
             dataset_version=dataset_version,
             lakefs_endpoint=lakefs_endpoint,
+            comparison=comparison,
         )
 
 
@@ -206,7 +215,10 @@ class ResearchPipeline:
         )
         pipeline.set_default_execution_queue(plan.queue)
         previous: str | None = None
-        for stage in ("inputs", "complete"):
+        stages: tuple[str, ...] = ("inputs", "complete")
+        if plan.comparison is not None:
+            stages = (*stages, "comparison")
+        for stage in stages:
             task = Task.create(
                 project_name=plan.tracking.project,
                 task_name=f"{launch.name}-{stage}",
@@ -228,16 +240,18 @@ class ResearchPipeline:
                     f"{plan.command!r}, 'worker'])\n"
                 ),
             )
-            task.set_parameters(
-                {
-                    "Run/plan": codec.encode_json(plan).decode(),
-                    "Run/configuration": codec.encode_json(plan.configuration).decode(),
-                    "Run/stage": stage,
-                    "Run/controller": controller.id,
-                    "Run/output": str(launch),
-                    "Run/upstream": "",
-                }
-            )
+            parameters = {
+                "Run/plan": codec.encode_json(plan).decode(),
+                "Run/configuration": codec.encode_json(plan.configuration).decode(),
+                "Run/stage": stage,
+                "Run/controller": controller.id,
+                "Run/output": str(launch),
+                "Run/upstream": "",
+            }
+            if plan.comparison is not None:
+                parameters["Run/comparison"] = codec.encode_json(plan.comparison).decode()
+                parameters["Run/journal"] = str(Path(plan.output_root) / "comparison-journal.jsonl")
+            task.set_parameters(parameters)
             pipeline.add_step(
                 name=stage,
                 base_task_id=task.id,

@@ -3,194 +3,33 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal, localcontext
 from fractions import Fraction
-from pathlib import Path
 
 # third party library imports
 import pytest
+from economic_examples import CODEC as _CODEC
+from economic_examples import START as _START
+from economic_examples import ReplayInputs
 from msgspec.structs import replace
 
 # project library imports
 from applications.backtest import run_backtest
-from configuration import Configuration
-from financial_units import Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
-from market_data.adapters.providers.tardis import TardisDecoder
+from financial_units import ExactRatio
 from market_data.adapters.sources import SourceAdapters
-from market_data.adapters.venues.binance import BinancePayloadDecoder
-from market_data.contracts import Disconnect, Occurrence, RawObject, SourceRequest, Trade
 from market_data.query import QueryReader
-from market_data.validation import QualityPolicy
-from reference_data.catalogs import CatalogSnapshot
-from reference_data.eligibility import EligibilityAssertions
 from research.experiments import BenchmarkPeriod, QuantStatsReport, ReportPolicy
-from risk import SpotLimits
-from serialization import DomainCodec
 from simulation import (
-    BacktestSpec,
     EconomicCheckpoint,
     EconomicResult,
-    SpotCosts,
     VectorbtAdapter,
     VectorbtResult,
 )
 
-_ROOT = Path(__file__).parents[3]
-_START = datetime(2024, 6, 1, tzinfo=UTC)
-_CODEC = DomainCodec()
-type _Row = tuple[int, int, str | None]
 
-
-class TestEconomicReplay:
+class TestEconomicReplay(ReplayInputs):
     """Exercise exact baseline economics and the scheduler's consequential boundaries."""
-
-    rows: tuple[_Row, ...] = (
-        (50, 50, "100"),
-        (110, 110, "110"),
-        (121, 121, "111"),
-        (170, 170, "105"),
-        (181, 181, "104"),
-        (230, 230, "106"),
-    )
-
-    @staticmethod
-    def _knowledge(row: _Row) -> int:
-        """Order synthetic rows by source availability, preserving equal-time insertion order."""
-        return row[1]
-
-    @staticmethod
-    def _canonical(
-        rows: tuple[_Row, ...], *, instrument: int = 0
-    ) -> tuple[tuple[bytes, ...], BacktestSpec]:
-        """Admit native synthetic capture bytes with explicit membership and source order."""
-        config = Configuration.read(_ROOT / "configs/data-jobs/fixture-inspection.json")
-        catalog = _CODEC.decode_json(
-            (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
-        )
-        run = config.resolve(
-            "btc-fixture" if instrument == 0 else "eth-fixture",
-            catalog,
-            implementation_identity="a" * 64,
-        )
-        job = replace(run.job, end=_START + timedelta(minutes=4))
-        run = replace(run, job=job)
-        history = replace(
-            _CODEC.decode_json(
-                (_ROOT / "tests/fixtures/eligibility/membership-corrections.json").read_bytes(),
-                EligibilityAssertions,
-            ),
-            catalog=catalog,
-        )
-        partitions: list[bytes] = []
-        decoder = TardisDecoder(BinancePayloadDecoder(run.instruments), run.instruments[0].source)
-        for request in SourceRequest.partition(run):
-            occurrences: list[Occurrence] = []
-            for index, (event, known, price) in enumerate(
-                sorted(rows, key=TestEconomicReplay._knowledge)
-            ):
-                instant = _START + timedelta(seconds=known)
-                if not request.start <= instant < request.end:
-                    continue
-                raw = (
-                    b"\n"
-                    if price is None
-                    else (
-                        instant.isoformat().replace("+00:00", "Z").encode()
-                        + b" "
-                        + _CODEC.encode_json(
-                            {
-                                "stream": f"{request.instrument.symbol.lower()}@trade",
-                                "data": {
-                                    "e": "trade",
-                                    "E": 1717200000000 + event * 1000,
-                                    "T": 1717200000000 + event * 1000,
-                                    "s": request.instrument.symbol,
-                                    "t": index,
-                                    "p": price,
-                                    "q": "2",
-                                    "m": True,
-                                },
-                            }
-                        )
-                        + b"\n"
-                    )
-                )
-                origin = RawObject(
-                    sha256="a" * 64,
-                    size_bytes=4096,
-                    request_identity=request.identity,
-                    retrieval_reference="synthetic:economic-clock",
-                    ts_received=_START + timedelta(days=1),
-                    ts_ingested=_START + timedelta(days=1),
-                )
-                decoded = decoder.decode_line(
-                    raw.decode().rstrip("\n"),
-                    source_sequence=index,
-                    local_received=origin.ts_received,
-                    local_ingested=origin.ts_ingested,
-                    source_digest=origin.sha256,
-                    disconnect_capture_time=instant,
-                )
-                assert isinstance(decoded, (Trade, Disconnect))
-                occurrences.append(
-                    Occurrence(
-                        request=request, origin=origin, position=index, raw=raw, event=decoded
-                    )
-                )
-            partitions.append(
-                QualityPolicy(use="exploratory", known_at=_START, max_gap=timedelta(hours=1))
-                .validate(
-                    request,
-                    occurrences,
-                    eligibility=history,
-                    verifier=SourceAdapters().verifier(request),
-                )
-                .require_canonical()
-            )
-        selected = run.instruments[0]
-        dimension = Dimension(instrument_id=selected.instrument_id, kind=QuantityKind.BASE_UNIT)
-        quantity = Quantity(value=Decimal("0.00100"), dimension=dimension)
-        tick = Price(value=Decimal("0.01"), currency=selected.quote_currency, per=dimension)
-        binding = (selected.source, "trade", selected.instrument_id)
-        spec = BacktestSpec(
-            instance="synthetic-momentum",
-            binding=binding,
-            start=_START,
-            end=job.end,
-            initial_cash=Money(value=Decimal("1000"), currency=selected.quote_currency),
-            quantity=quantity,
-            limits=SpotLimits(
-                maximum=quantity,
-                lot=Quantity(value=Decimal("0.00001"), dimension=dimension),
-                tick=tick,
-                product="spot",
-            ),
-            costs=SpotCosts(adverse=tick, fee_rate=Decimal("0.001"), rounding="half_even"),
-            rule="completed-price-momentum-v1",
-            cadence_seconds=60,
-            delay_seconds=1,
-            max_age_seconds=30,
-        )
-        return tuple(partitions), spec
-
-    @classmethod
-    def _inputs(
-        cls, rows: tuple[_Row, ...], *, instrument: int = 0
-    ) -> tuple[QueryReader, BacktestSpec]:
-        """Compose a public query reader from completely admitted fixture partitions."""
-        canonical, spec = cls._canonical(rows, instrument=instrument)
-        return QueryReader(
-            canonical, readers=SourceAdapters(), precedence=(spec.binding,), max_bytes=2_000_000
-        ), spec
-
-    @classmethod
-    def _run(cls, rows: tuple[_Row, ...] | None = None) -> EconomicResult:
-        """Complete an independent synthetic run through the public application."""
-        reader, spec = cls._inputs(cls.rows if rows is None else rows)
-        result = run_backtest(reader, spec)
-        assert isinstance(result, EconomicResult)
-        return result
 
     def test_independent_baseline_costs_no_trade_and_instrument_reuse(self) -> None:
         """Reconcile hand arithmetic and isolate BTC/ETH control and momentum instances."""

@@ -7,7 +7,7 @@ import hashlib
 import re
 from datetime import datetime, timedelta
 from fractions import Fraction
-from typing import Literal
+from typing import Literal, Protocol
 
 # project library imports
 from financial_units import ExactRatio
@@ -345,3 +345,97 @@ class LinearModel:
     def _availability(version: ModelVersion) -> datetime:
         """Select the latest available version with ties already rejected."""
         return version.available_at
+
+
+class EstimatorFactory(Protocol):
+    """Construct a compatible estimator for one registered model implementation."""
+
+    def __call__(self, definition: LinearDefinition) -> LinearModel:
+        """Construct one estimator from the retained typed definition.
+
+        Args:
+            definition: Immutable configured or least-squares model settings.
+
+        Returns:
+            Estimator implementing the model consumer contract.
+        """
+        ...
+
+
+class EstimatorRegistry:
+    """Resolve compatible estimator implementations by explicit model identity."""
+
+    def __init__(self) -> None:
+        """Register the existing exact linear estimator by default."""
+        self._factories: dict[str, EstimatorFactory] = {}
+        self.register("linear-return-v1", self._resolve_linear)
+
+    @property
+    def identities(self) -> tuple[str, ...]:
+        """Return registered estimator identities in insertion order.
+
+        Returns:
+            Stable implementation identities available to this registry.
+        """
+        return tuple(self._factories)
+
+    def register(self, identity: str, factory: EstimatorFactory) -> None:
+        """Register one typed estimator factory under a unique identity.
+
+        Args:
+            identity: Stable estimator/model implementation identity.
+            factory: Callable constructing an estimator from typed settings.
+
+        Raises:
+            ValueError: If the identity is invalid or duplicated.
+        """
+        identity = self._validate_identity(identity)
+        if identity in self._factories:
+            raise ValueError(f"duplicate estimator implementation identity: {identity}")
+        self._factories[identity] = factory
+
+    def resolve(self, identity: str, definition: LinearDefinition) -> LinearModel:
+        """Construct a compatible estimator for one registered model identity.
+
+        Args:
+            identity: Versioned model implementation identity.
+            definition: Immutable model definition supplied by the study or version.
+
+        Returns:
+            New estimator instance owned by the caller.
+
+        Raises:
+            ValueError: If the identity is invalid or unsupported.
+        """
+        self._validate_identity(identity)
+        factory = self._factories.get(identity)
+        if factory is None:
+            raise ValueError(f"unsupported installed estimator: {identity}")
+        definition.__post_init__()
+        return factory(definition)
+
+    def supports(self, identity: str) -> bool:
+        """Report whether one estimator identity is registered.
+
+        Args:
+            identity: Candidate estimator implementation identity.
+
+        Returns:
+            Whether the identity is registered.
+        """
+        return type(identity) is str and bool(identity) and identity in self._factories
+
+    @staticmethod
+    def _validate_identity(identity: str) -> str:
+        """Validate one nonempty, trimmed estimator identity."""
+        if type(identity) is not str or not identity or identity != identity.strip():
+            raise ValueError("estimator implementation identity must be a nonempty trimmed string")
+        return identity
+
+    @staticmethod
+    def _resolve_linear(definition: LinearDefinition) -> LinearModel:
+        """Resolve the maintained linear estimator after validating its definition."""
+        if type(definition) is not LinearDefinition:
+            raise TypeError("linear-return implementation requires LinearDefinition")
+        definition.__post_init__()
+        return LinearModel()

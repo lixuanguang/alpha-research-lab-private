@@ -10,7 +10,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 # third party library imports
 import pytest
@@ -21,6 +21,8 @@ from research.experiments import (
     AttemptEvent,
     AttemptStart,
     AttemptStore,
+    ClearMLDestination,
+    ClearMLPublication,
     ExperimentSpec,
     Fingerprint,
     SampleInterval,
@@ -91,6 +93,38 @@ class TestExperiments:
             environment_sha256="c" * 64,
             split=cls._split(),
         )
+
+    def test_custom_search_parameter_remains_publishable(self, tmp_path: Path) -> None:
+        """Do not interpret an existing free-form search parameter as an Optuna trial."""
+        destination = ClearMLDestination(
+            project="custom-experiment",
+            api_uri="http://127.0.0.1:18008",
+            files_uri="http://127.0.0.1:18081",
+        )
+        task = MagicMock(
+            **{"id": "synthetic-task", "status": "in_progress", "flush.return_value": True}
+        )
+        with (
+            AttemptStore(tmp_path / "attempts") as store,
+            patch.object(ClearMLPublication, "_task", return_value=task),
+            patch.object(ClearMLPublication, "_upload"),
+            patch(
+                "research.experiments.tracking.Session.get_api_server_host",
+                return_value=destination.api_uri,
+            ),
+        ):
+            spec = replace(self._spec(), parameters=(("search", "manual-screen"),))
+            start = store.start(spec, at=self._time(12), invocation="custom diagnostic")
+            store.finish(
+                start.attempt_id,
+                status="completed",
+                at=self._time(13),
+                reason="Independent custom experiment",
+                result=b"retained-result",
+            )
+            receipt = ClearMLPublication(store, destination).publish(start.attempt_id)
+            assert receipt.task_id == "synthetic-task"
+            assert store.read(start.attempt_id).start.spec.parameters == spec.parameters
 
     def test_hand_fitting_set_and_future_perturbation(self) -> None:
         """Admit exactly two earlier rows; no unavailable outcome or held-out value enters fit."""

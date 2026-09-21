@@ -1,6 +1,6 @@
 # Quant researcher implementation guide
 
-Owner: repository founder. Updated 2026-09-20.
+Owner: repository founder. Updated 2026-09-21.
 This is the activity-based guide for researching data, features, models and
 strategies, then preparing accepted candidates for operation. The
 [platform infrastructure roadmap](../docs/roadmap/README.md) owns what must be
@@ -13,6 +13,14 @@ book reconstruction/replay, pinned multi-input selection, EDA, retained experime
 attempts, temporal splits, versioned observed-price feature/label studies, exact
 model construction/evaluation, bounded synthetic spot economics, configured
 costed reports, local serial pipelines and pinned lakeFS dataset versions.
+The partial MR 7 delivery adds compatible implementation registration, a distinct
+reversal rule, retained Alphalens diagnostics and fixed-budget Optuna comparisons.
+The [offline activity notebook](research-foundations.ipynb) includes a rule-only
+comparison; the [marimo example](research-comparison.py) separates verified
+DuckDB/Polars previews from an explicit formal factor run. Evidently remains
+blocked by dependency admission, so this is not complete MR 7 acceptance.
+The [isolated Feast worker](../configs/development/research-worker/README.md)
+provides bounded local offline retrieval without changing the core pandas pin.
 **Planned:** candidate packaging and paper/live operation.
 Exploratory notebook calculations are possible today; they do not establish that
 the corresponding maintained platform workflow exists. Current empirical data
@@ -24,6 +32,29 @@ process, follow the journey below. Future activities describe contracts and
 handoffs, not commands or imports that can be run today.
 
 ## Research activities and journey
+
+For the interactive comparison, use a completed installed feature-consumer output
+directory containing `study.json`, `factor-study.json`, `tracking.json` and the
+complete attempt store. Set `ALPHA_COMPARISON_DIRECTORY`,
+`ALPHA_COMPARISON_SOURCE_ATTEMPT` and `ALPHA_COMPARISON_SOURCE_SHA256` to the exact
+retained source. Then run `marimo run examples/research-comparison.py` from the
+installed pinned environment. Its row slider only recomputes bounded read-only
+views. **Run and retain factor diagnostics** creates a new attempt and requires
+actual ClearML publication. It never fits or reads the final holdout.
+
+For a fresh-process reproduction, use the same three source variables and explicit
+`ALPHA_COMPARISON_RUN=1 python examples/research-comparison.py`. Without the run
+switch, script execution only checks the preview. Compare retained report bytes,
+not execution UUIDs or timestamps. Keep credentials in the existing private SDK
+configuration. The source result and frozen factor configuration remain unchanged.
+
+Compatible extensions use `FeatureRegistry`, `EstimatorRegistry` or `RuleRegistry`
+from their curated owners. Register a unique implementation ID in the caller's
+registry, select that ID in configuration and supply the registry to the existing
+workflow. The feature and estimator seams preserve their existing typed definition
+contracts; arbitrary new schemas are not accepted implicitly. The built-in reversal
+rule buys only on a strict completed-price fall, unlike momentum. Each run receives
+a fresh rule instance and retains its own state, pending intents and result.
 
 ```mermaid
 flowchart LR
@@ -506,5 +537,6 @@ Use the installed [saved-input consumer](../tests/integration/consumers/research
 as the executable construction/reload example. The offline QR notebook now constructs, evaluates and reloads exact models through
 that public workflow. Its default explicitly injects unavailable publication after
 local retention; the optional real transport requires authored configuration. The live
-notebooks keep their book-only scope. No notebook starts a Docker service. SHAP, pipeline execution and runtime binding remain
-with their conditional or later consumers.
+notebooks keep their book-only scope. No notebook starts a Docker service. Actual pipeline execution is exercised by
+the separate installed agent consumer; SHAP and runtime binding retain their
+conditional or later scope.
