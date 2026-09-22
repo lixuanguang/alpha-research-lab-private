@@ -184,6 +184,13 @@ orders execute against the exchange book on arrival. Resting orders, queue
 position, market impact and empirical latency calibration remain unsupported.
 The frozen P1 trade-price experiment is unchanged.
 
+The [replacement MR8 specification and report](../docs/research/saved-baseline-acceptance.md)
+uses this exact saved configuration for simulation acceptance. Historical causal
+qualification remains separate: original receipt times, continuity, positive
+coverage, historical eligibility and correction history are unproven. Strict
+dataset admission is unchanged. The notebook reopens the shared ledger and exposes
+its exact reconciled attribution alongside cash, position and NAV.
+
 The installed real-source run examined 10,000 messages and produced **62 orders,
 78 level fills, 998.35849845 USDT terminal NAV and -1.64150155 USDT net P&L** for
 the fixed imbalance rule. The no-trade control remained at **1,000 USDT**. The
@@ -317,11 +324,15 @@ The notebook records the complete input and original payload identities without
 filling unknown clocks. Hash verification cannot authenticate provider claims.
 
 Expected source refusal
-completes the evidence handoff with **MR 8 OPEN**, without running economics.
+completes the evidence handoff with its original **MR 8 OPEN** label, without
+running economics. That retained label refers to the superseded P1 milestone
+target; P1 remains deferred and unaccepted. The current MR8 specification is the
+separate [saved-OKX simulation scope](../docs/research/saved-baseline-acceptance.md).
 A completed notebook is not empirical acceptance. Unexpected input/runtime errors
-fail the run. The handoff assigns the remaining source investigation, external
-provider review, and subsequent actual-source economic/report/recovery
-proof. It does not change the frozen sample, acceptance standard or roadmap status.
+fail the run. The legacy handoff records the remaining source investigation, external
+provider review, and subsequent actual-source economic/report/recovery proof only
+for an explicitly resumed P1 case. It does not change the frozen sample or its
+acceptance standard; those actions remain deferred.
 
 ## Live versions
 

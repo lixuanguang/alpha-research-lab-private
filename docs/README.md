@@ -23,11 +23,13 @@ activities clearly distinguished from implemented workflows.
 One reproducible strategy baseline is the first delivery target; shared research,
 portfolio infrastructure and independently operated strategies are the destination.
 
-The [P1 experiment specification](research/p1-baseline.md) selects Binance public
-BTCUSDT spot-trade archives and a fixed one-minute positive-return baseline.
-The permitted saved hour has passed dataset publication with exploratory degraded
-scope. Historical eligibility, coverage and revision-availability evidence remain
-unresolved; no empirical strategy result is claimed.
+The [saved-data baseline specification and report](research/saved-baseline-acceptance.md)
+revises MR8 to bounded reproducible simulation using the saved OKX ETH-USDT L2
+archive, the existing imbalance rule and no-trade control. Run it through
+`alpha-backtest books` or the [maintained notebook](../examples/orderbook-research.ipynb).
+Historical causal qualification remains unproven. The separate
+[P1 experiment](research/p1-baseline.md), configurations and results remain frozen,
+deferred and unaccepted; no further Binance/Tardis investigation is required.
 
 The [platform infrastructure roadmap](roadmap/README.md) begins with researcher
 dataset access. It owns future capability delivery, dependencies and acceptance.

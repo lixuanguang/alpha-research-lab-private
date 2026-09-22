@@ -5,6 +5,14 @@ Acceptance date: 2026-09-22. Scope and original acceptance criteria:
 [MR 9A](../roadmap/README.md#l2-order-book-backtesting). This is an engineering
 example, not a selected alpha strategy or a live-execution qualification.
 
+The [replacement MR8 specification and acceptance record](saved-baseline-acceptance.md)
+reuses this workflow and its applicable MR9A evidence for bounded reproducible
+simulation. It records current post-PR-#77 verification separately; the original
+artifact identities and results below remain historical evidence. Original receipt
+times, sequence continuity, positive interval coverage, historical eligibility and
+exhaustive correction history remain unqualified. Frozen P1 stays deferred and
+unaccepted under its unchanged experiment criteria.
+
 ## Run the complete workflow
 
 From the repository root, with the pinned uv environment and the existing saved

@@ -1,7 +1,8 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-23. **MRs 1–7 are implemented; MR 8 has
-scoped causal integration with legacy P1 empirical acceptance deferred and unaccepted; MR 9 has bounded saved-input
+Owner: repository founder. Updated 2026-09-23. **MRs 1–7 are implemented; MR 8 is
+complete within its explicitly revised saved-data simulation scope; legacy P1
+remains deferred and unaccepted; MR 9 has bounded saved-input
 batch parity with runtime qualification open; MR 9A has completed local L2
 backtesting acceptance; MRs 10–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
@@ -45,8 +46,10 @@ are deprioritised for new research work. Preserve their existing adapters, fixtu
 and frozen P1 records, but defer further P1 source investigation and provider
 outreach. Such outreach is not a platform requirement or a prerequisite for the
 current OKX/Bitfinex research workflows. Continue from the saved OKX order-book
-workflow for L2 backtesting. P1 remains unaccepted; deferring it neither closes MR 8
-nor changes source-quality requirements for another experiment.
+workflow for L2 backtesting. The founder subsequently authorized the explicit
+[MR8 scope amendment](../research/saved-baseline-acceptance.md): reproducible
+simulation on saved OKX data replaces the legacy milestone target. P1 remains
+unaccepted and all strict source-quality requirements remain unchanged.
 
 ## Platform and researcher responsibilities
 
@@ -81,7 +84,7 @@ source evidence and researcher access improve independently.
 | 5 | [First economic backtest and vectorbt research adapter](#first-economic-backtest) | Existing replay and financial contracts; MR 4 for tracked vectorbt runs; no fitted-model dependency |
 | 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
 | 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
-| 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — scoped causal integration delivered; legacy empirical acceptance deferred | If resumed: MRs 5–6 plus required actual source evidence |
+| 8 | [Saved-data baseline acceptance](#saved-data-baseline-acceptance) — complete within revised simulation scope; P1 deferred and unaccepted | MRs 5–6, MR9A saved-book workflow and explicit replacement specification |
 | 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) — saved-input batch slice delivered; runtime acceptance open | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
 | 9A | [L2 order-book backtesting](#l2-order-book-backtesting) — implemented; local acceptance complete | Saved L2 reader and MRs 5–6; before MR 10 for order-book strategies |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable; MR 9A for order-book strategies |
@@ -99,7 +102,7 @@ source evidence and researcher access improve independently.
 
 Numbers provide a fresh backlog order, not a requirement to wait for every lower
 number. MR 11 must move forward before any actual deployment, including a collector.
-MR 21 can proceed independently. MR 8 accepts the specific frozen experiment;
+MR 21 can proceed independently. MR 8 accepts the explicitly revised saved-data simulation;
 MR 7 separately accepts the reusable research workflow. Neither substitutes for
 the other's evidence. Conditional work stays dormant until its consumer exists.
 MR 9A implements the saved ETH-USDT order-book workflow independently of MR 8
@@ -1228,6 +1231,47 @@ dependency declaration together, restoring the matching lock/admission digest.
 The smoke cache/compilation fix can be reverted independently if its measured
 cause is resolved elsewhere. Preserve all attempt stores, reports, immutable
 model/source artifacts, failed evidence and matching wheels when reversing.
+
+### Saved-data baseline acceptance
+
+**MR8 — complete within explicitly revised simulation scope, 2026-09-23.**
+The founder authorizes replacing the legacy Binance/Tardis milestone target with
+the existing saved OKX ETH-USDT L2 configuration. The
+[replacement specification and criterion-by-criterion report](../research/saved-baseline-acceptance.md)
+owns the fixed input, rules, fees, timing, exact reconciliation and fresh-process
+complete-output repeat/restart requirements. It reuses MR9A's shared implementation
+and applicable evidence, plus the maintained
+[order-book notebook](../../examples/orderbook-research.ipynb) and `alpha-backtest books`.
+
+This is reproducible simulation acceptance only. Historical receipt times,
+sequence continuity, positive coverage, eligibility/reference availability and
+exhaustive correction history remain unqualified. Strict causal admission is
+unchanged. The known negative result is not a profitability, candidate promotion
+or live-readiness claim. Frozen P1, all configurations and results remain deferred
+and unaccepted; further Binance/Tardis records, purchases and outreach are outside
+this work.
+
+All replacement criteria **S1–S7 passed** on current main after PR #77. The installed
+notebook completed all 12 cells over 10,000 saved messages. Both accounts retained
+360 decisions and 361 valuations; the imbalance rule produced 62 orders, 78 fills,
+1.62998455 USDT fees and -1.64150155 USDT net P&L, ending flat at
+998.35849845 USDT. The no-trade account remained flat at 1,000 USDT. Independent
+checks reconciled every fee and all 722 valuations exactly, including both P&L
+attributions. Fresh-process CLI repeat and pending-order resume matched the complete
+EDA, configuration, both checkpoints and JSON/HTML reports byte for byte.
+
+No shared implementation gap was found; existing runtime and configurations were
+reused unchanged. The notebook now reopens the shared ledger and displays exact
+attribution. Existing installed L2 tests passed **19 cases, zero skips/deselections**;
+notebook lint, engineering rules and 39-document plus notebook link checks passed.
+The [acceptance record](../research/saved-baseline-acceptance.md#retained-current-evidence)
+retains the pre-execution specification, matching wheel, exact commands, process
+identities, results and limitations. Earlier MR9A/P1 evidence remains under its
+original identity. No new hosted CI, merge or release outcome is claimed.
+
+The sections below retain the original P1 acceptance and software-delivery history.
+Their statements about MR8 being open describe the superseded milestone target;
+the P1 experiment's own acceptance criteria remain unchanged.
 
 ### Frozen baseline acceptance
 

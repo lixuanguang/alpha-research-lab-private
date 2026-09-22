@@ -1,6 +1,6 @@
 # Quant researcher implementation guide
 
-Owner: repository founder. Updated 2026-09-22.
+Owner: repository founder. Updated 2026-09-23.
 This is the activity-based guide for researching data, features, models and
 strategies, then preparing accepted candidates for operation. The
 [platform infrastructure roadmap](../docs/roadmap/README.md) owns what must be
@@ -16,6 +16,10 @@ costed reports, local serial pipelines and pinned lakeFS dataset versions.
 The [saved L2 workflow](../docs/research/l2-book-backtest.md) adds configured book
 EDA, an imbalance/no-trade comparison, depth-based IOC fills and exact accounting
 through `alpha-backtest books` and [the order-book notebook](orderbook-research.ipynb).
+The [revised MR8 acceptance record](../docs/research/saved-baseline-acceptance.md)
+fixes this saved configuration as the reproducible simulation baseline, with
+exact reconciliation and complete fresh-process repeat/restart evidence. This
+scope does not qualify historical availability, coverage or correction history.
 This saved OKX workflow is the current starting point for L2 research. Binance and
 Tardis are deprioritised; the frozen P1 evidence notebook is a retained legacy
 investigation whose empirical acceptance is deferred. Its missing provider records
@@ -434,7 +438,7 @@ A reviewed `DatasetInput` supplied through `ALPHA_P1_ADMISSION_INPUT` now exerci
 strict provider qualification, including retained earlier archives and correction
 availability. The [implementation report](../docs/research/source-qualification.md)
 records its tested scope and remaining actual-source prerequisite.
-**A completed evidence handoff does not close MR 8.** Source qualification and
+**A completed legacy evidence handoff does not accept P1.** Source qualification and
 actual-source economic/report/recovery proof remain required.
 
 Set `ALPHA_QR_WORKFLOW=book-capture` for the original QR live recording workflow.
@@ -525,7 +529,7 @@ Its sections follow the implemented research/development pipeline through MR 5.
 | 6. Retain features and labels | Execute exact trailing/forward diagnostics, compare repeat run identity and distinct attempts | `inspect_experiment`, `FeatureStudy`, `AttemptStore` |
 | 7. Compare models and reopen state | Train-only least squares versus configured zero, exact MSE, reload and publication outbox | `evaluate_model`; offline publication failure fixture or explicitly configured SDK transport |
 | 8. Evaluate fixed-rule economics | No-trade/momentum, independent risk, positive-delay fills, exact ledger, full resume and vectorbt | MR 5's supported workflows; fitted predictions are not wired into targets |
-| 9. Hand off to quant development | Retain input/configuration/model/attempt/checkpoint identities and limitations | Installed reproduction and recovery; Configured reports/pipelines available; MR 8 empirical acceptance remains future |
+| 9. Hand off to quant development | Retain input/configuration/model/attempt/checkpoint identities and limitations | Installed reproduction and recovery; configured reports/pipelines available; revised MR8 covers saved-data simulation, with historical causal qualification separate |
 
 The [engineer notebook](infrastructure-diagnostics.ipynb) owns infrastructure
 failure interpretation and runs the actual installed data, feature/model and economic

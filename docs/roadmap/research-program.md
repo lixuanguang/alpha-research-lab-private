@@ -4,12 +4,14 @@ This page describes the empirical work needed to grow the repository from its cu
 institutional, multi-asset, multi-strategy research-to-production platform. It is a human-maintained program,
 not an executable package catalog, registry service, or release gate. Acquisition,
 publication, bounded queries/replay, EDA, retained price feature/label diagnostics
-and collector health are implemented. Fitted model workflows, strategy simulation, broker integration and
-strategy monitoring remain planned; the roadmap records exact supported scope.
+and collector health are implemented, alongside fitted model workflows and bounded
+spot simulation. Broker integration and strategy monitoring remain planned; the
+roadmap records exact supported scope.
 
-The immediate operating model is a single founder implementing the
-[selected P1 source and frozen hypothesis](../research/p1-baseline.md), with access and historical evidence still
-unresolved. The single [implementation roadmap](README.md) owns delivery of its library operations and
+The immediate operating model is a single founder verifying the
+[bounded saved-data simulation baseline](../research/saved-baseline-acceptance.md).
+The [frozen P1 hypothesis](../research/p1-baseline.md) remains deferred and unaccepted,
+with historical source evidence unresolved. The single [implementation roadmap](README.md) owns delivery of its library operations and
 orchestrator pipelines. The [QR implementation guide](../../examples/README.md#research-activities-and-journey)
 owns the activity-based journey and current usage; this page owns methodology and
 research records. Candidate research plans do not duplicate the infrastructure backlog.

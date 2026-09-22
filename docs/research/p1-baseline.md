@@ -12,6 +12,12 @@ provider records or outreach as a required next step. The existing OKX order-boo
 and Bitfinex workflows can proceed independently. The conditional requirements
 below describe what this particular frozen case would need if explicitly resumed.
 
+**Milestone scope amendment, 2026-09-23:** the founder subsequently authorized
+[replacement MR8 acceptance](saved-baseline-acceptance.md) on saved OKX L2 data.
+That revision changes the milestone, not this experiment, its parameters or its
+results. References below to closing MR8 describe the superseded P1 milestone
+target; the frozen P1 acceptance requirements remain binding only for P1.
+
 The [saved-source verification record](#saved-source-verification) records the
 2026-09-21/22 acceptance attempt and the exact evidence still needed. The frozen
 economics now have explicit [momentum](../../configs/backtests/p1-btcusdt-return-v1.json)
@@ -62,7 +68,8 @@ admit the saved sample, run the unchanged strategy and no-trade control through
 the installed package, and retain the report showing cash, holdings, fees and
 P&L. A fresh run and an interrupted/resumed run must reproduce the results.
 QR reviews the report's assumptions and remaining limitations. These actual-data
-execution and reproduction results are still needed to close MR 8.
+execution and reproduction results are still needed to accept P1, independently
+of the revised MR8 milestone.
 
 **A profitable result is not required.** A new strategy, parameter search or new
 backtester is not required. If the source cannot supply the missing facts, QR
@@ -540,9 +547,9 @@ original/revised archives and applies full-payload availability causally. The
 [notebook](../../examples/research-foundations-live.ipynb) consumes the same typed
 input as `alpha-dataset` through `ALPHA_P1_ADMISSION_INPUT`.
 
-This does not supply the missing historical facts for the actual hour. **MR8 remains
-open** until provider review, strict actual-source admission, unchanged costed runs,
-exact accounting and fresh-process economic reproduction all pass. The earlier
+This does not supply the missing historical facts for the actual hour. **P1 remains
+deferred and unaccepted** until provider review, strict actual-source admission,
+unchanged costed runs, exact accounting and fresh-process economic reproduction all pass. The earlier
 notebook hashes and results above describe the prior candidate; current verification
 and limitations are recorded in the linked report. Frozen configuration bytes remain
 unchanged.
