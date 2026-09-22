@@ -202,6 +202,12 @@ consumer and implementation together while preserving saved inputs and attempts.
 
 ## Frozen source evidence
 
+**Deferred legacy investigation.** Binance and Tardis are deprioritised by the
+founder. These instructions preserve reproduction of P1; they are not a requirement
+to obtain provider records or contact either provider. For current L2 research use
+the [saved OKX order-book study](#historical-order-book-study), or explicitly select
+`book-capture` for the existing Bitfinex route.
+
 The [QR live notebook](research-foundations-live.ipynb) now defaults to
 `ALPHA_QR_WORKFLOW=p1-evidence`. It reopens the explicitly pinned P1 Binance
 archive and auxiliary native capture, without initiating a network call. Its
@@ -223,10 +229,58 @@ interval and capture binding. It never selects a latest run or substitutes a fix
 
 Each execution creates an exclusive `data/notebooks/p1-evidence/<uuid>/` study
 containing the verified archive, acquisition, both unchanged economic configurations,
-supplied capture/eligibility, source summary, actual strict publication report,
+supplied capture/eligibility, source summary, measured trading-status/coverage/correction
+checks, public source records and receipts, actual strict publication report,
 document review, semantic hash inventory and `handoff.json`/`handoff.md`.
 Restart from setup to repeat cells that retain immutable outputs. The existing
 notebook runner archives successful and failed executions separately.
+
+### Investigate the three questions
+
+The notebook now performs the investigation before asking for additional records:
+
+| Question | Executed checks | Retained output |
+| --- | --- | --- |
+| Could this pair trade during the hour? | Provider symbol inventory and each interval of supplied eligibility, with the source facts available at the frozen sample's start | `trading-status.json` |
+| Does the recording cover the hour? | Missing/repeated IDs, timestamp ordering, quiet intervals including boundaries, native disconnect markers, overlapping provider incidents and a minute-count plot | `coverage-checks.json` |
+| Were trade values changed later? | Exact native/archive comparison, conflicting native versions, capture delays, late captures and the provider's published archive-update table | `correction-checks.json` |
+
+The last cell displays a plain-language three-row summary and writes
+`findings.json`, `handoff.md` and `provider-questions.md`. The questions are a draft
+for the remaining provider evidence; the notebook sends no message. Matching
+records and missing incident reports never become a completeness guarantee.
+Archive-only investigations report native measurements as unknown, not zero.
+
+Saved mode is the default. `ALPHA_P1_PUBLIC_DIRECTORY` selects a bundle containing
+`binance-public-readme.md`, `tardis-exchange.json`, `tardis-metadata.md` and
+`tardis-data-faq.md`, each with its original `.receipt.json`. The default bundle is
+the retained `logs/frozen-baseline/2026-09-22/source-evidence/`. The notebook verifies
+source URLs, successful HTTP status, hashes, lengths and acquisition clocks before
+using these records. It preserves compressed original bytes and bounds decoding.
+Missing or altered selected files fail; there is no online fallback.
+
+For a deliberate refresh, fetch only those four small public provider records:
+
+```sh
+uv run --frozen --no-editable python -c 'from market_data.adapters.sources import SourceOccurrenceVerifier'
+ALPHA_P1_PUBLIC_MODE=refresh uv run --frozen --no-sync \
+  --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
+  python examples/run_notebook.py examples/research-foundations-live.ipynb \
+  --kernel-python .venv/bin/python
+```
+
+The existing kernel setup below supplies `ipykernel`. Refresh permits one request
+per record, with a 15-second socket timeout and an 8 MiB raw/decoded byte limit.
+It retains failures and stops, and does not purchase data, use credentials,
+download the archive again or change the frozen sample. Each successful response
+and its actual receipt is copied under the new study's `public/`. A new retrieval
+does not establish when a fact was known during the historical hour.
+
+To reproduce that investigation without network access, set
+`ALPHA_P1_PUBLIC_MODE=saved`, `ALPHA_P1_PUBLIC_DIRECTORY` to its exact `public/`
+directory, and `ALPHA_P1_REOPEN` to the study directory, then rerun the command
+without the refresh assignment. The notebook prints both paths. Refreshing again
+creates a new investigation because retrieval records change.
 
 To add evidence, copy the generated `review-template.json` to a separate working
 file. Keep its exact `scope`, and add objects to `documents` with:
@@ -244,7 +298,7 @@ eligibility evidence is available, provide its existing typed
 `EligibilityAssertions` JSON through `ALPHA_P1_ELIGIBILITY`. Otherwise the notebook
 passes an empty history, preserving unknown eligibility.
 
-Run with the same pinned tooling command shown below. To verify reproduction,
+Run with the pinned tooling command above. To verify reproduction,
 restart through the runner with `ALPHA_P1_REOPEN` set to the exact earlier study.
 It verifies the earlier retained bytes and compares deterministic input, code,
 configuration and quality digests. Changing inputs or notebook source is a new
@@ -252,12 +306,21 @@ investigation and fails this reproduction comparison. UUIDs and execution clocks
 are excluded from semantic comparison.
 
 Strict publication currently refuses the source: historical eligibility and
-positive coverage/complete revision evidence remain unresolved, and the platform
-has no strict contract accepting the latter evidence yet. Expected source refusal
+positive coverage/complete revision evidence remain unresolved. The shared strict
+contract now accepts a completed externally reviewed `SourceQualification` inside a
+`DatasetInput`. Supply that JSON through `ALPHA_P1_ADMISSION_INPUT`; retain every
+referenced current/prior archive under `ALPHA_P1_RAW`. The primary acquisition and
+causal policy must match the frozen selection exactly. Optional separate eligibility
+must agree with the input's embedded history. See the
+[contract and preparation requirements](../src/market_data/README.md#reviewed-provider-qualification).
+The notebook records the complete input and original payload identities without
+filling unknown clocks. Hash verification cannot authenticate provider claims.
+
+Expected source refusal
 completes the evidence handoff with **MR 8 OPEN**, without running economics.
 A completed notebook is not empirical acceptance. Unexpected input/runtime errors
-fail the run. The handoff assigns the remaining source investigation, concrete
-platform admission work, and subsequent actual-source economic/report/recovery
+fail the run. The handoff assigns the remaining source investigation, external
+provider review, and subsequent actual-source economic/report/recovery
 proof. It does not change the frozen sample, acceptance standard or roadmap status.
 
 ## Live versions

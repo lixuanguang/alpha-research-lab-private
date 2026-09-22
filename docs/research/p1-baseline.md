@@ -5,6 +5,13 @@ Owner: repository founder. Frozen specification date: 2026-09-11; source amendme
 dataset publication are implemented; empirical causal acceptance remains open.
 This page owns the sample, timing, economic assumptions and acceptance criteria.
 
+**Priority clarification, 2026-09-23:** the founder has deprioritised Binance and
+Tardis. Empirical acceptance of this legacy case is **deferred and unaccepted**.
+Preserve its specification, source bytes and results; do not pursue additional
+provider records or outreach as a required next step. The existing OKX order-book
+and Bitfinex workflows can proceed independently. The conditional requirements
+below describe what this particular frozen case would need if explicitly resumed.
+
 The [saved-source verification record](#saved-source-verification) records the
 2026-09-21/22 acceptance attempt and the exact evidence still needed. The frozen
 economics now have explicit [momentum](../../configs/backtests/p1-btcusdt-return-v1.json)
@@ -25,9 +32,11 @@ account credential, trading access or capital use is involved.
 
 ## QR handoff to finish MR 8
 
-The remaining QR task is to qualify the saved data for **Binance BTCUSDT,
+If this deferred case is explicitly resumed, its remaining QR task is to qualify
+the saved data for **Binance BTCUSDT,
 1 June 2024, 00:00–01:00 UTC**. Keep that sample and the frozen strategy unchanged.
-The software is implemented; the missing items are source facts:
+The software is implemented; the missing items are source facts. They are not a
+requirement to contact Binance or Tardis or to continue prioritising these sources:
 
 | QR must provide | In simple terms | Useful supporting records |
 | --- | --- | --- |
@@ -39,6 +48,10 @@ For each item, retain the actual supporting files, their source URLs or provider
 references, retrieval times, and the dates/instrument they cover. Attach them to
 the existing [P1 evidence notebook](../../examples/research-foundations-live.ipynb)
 using its [handoff instructions](../../examples/notebook-operations.md#frozen-source-evidence).
+The notebook's investigation cells check the saved trade stream and provider records,
+display the three findings, and write a draft `provider-questions.md` for facts still
+missing. It can explicitly refresh four public records or reproduce an earlier
+investigation offline; neither path changes the strict admission requirements.
 State unresolved facts plainly; do not fill them with guessed timestamps or
 assumed trading status. The existing 27,480 matched trades and recorder timestamps
 can be reused; QR does not need to repeat that comparison merely to produce a new
@@ -451,3 +464,85 @@ remain unproven. Revert the continuation commit and its documentation together;
 retain original data, new source responses, all attempts and matching candidate wheels.
 Version-2 witnessed snapshots and engineering configurations require this candidate
 or later; version-1 readers cannot read them. No deployment or trading follows.
+
+### Executable QR investigation
+
+The [QR notebook](../../examples/research-foundations-live.ipynb) now measures the
+three handoff questions directly. Its 2026-09-22 public refresh retained four
+official responses with URLs, hashes and actual retrieval times, then read the
+same archive and native capture through installed decoders. The refresh replaced
+no frozen input and contacted no provider representative.
+
+Observed results: **27,480 selected trades**, IDs **3620989757–3621017236**, no
+missing IDs inside that range, no repeated IDs and no event-time regressions.
+The longest observed quiet interval, including the sample boundaries, was
+**3.689 seconds**. The retained capture contained **28,055 messages** including
+boundary events, no disconnect markers and no reported provider incident
+overlapping the selected hour. All selected five-field trade values matched;
+there were no extra selected native versions or conflicting native IDs.
+
+Matched capture delays ranged from **7,984 to 153,001 microseconds**, measured
+between the retained exchange event time and the conservatively decoded recorder
+time. **Three selected trades were captured at or after 01:00 UTC**; the latest
+capture was `01:00:00.005781`. These are recorder observations, not measured
+strategy or order latency, and are not moved before the sample cutoff.
+
+The symbol inventory begins in 2019, but no historical eligibility assertions
+were supplied. The retrieved Binance update table lists two replacement bundles
+dated 2022; it does not provide a per-trade historical publication/correction
+timeline for this hour. The notebook retains these observations without turning
+them into trading-status, completeness or full revision-history assertions.
+Strict publication still refuses the sample, so **MR 8 remains open**.
+
+Outputs include `trading-status.json`, `coverage-checks.json`,
+`correction-checks.json`, a minute-count plot, a plain-language `handoff.md`, and
+`provider-questions.md` containing unsent draft questions. The
+[operations guide](../../examples/notebook-operations.md#investigate-the-three-questions)
+explains saved/refresh modes, supporting-document attachment and offline reproduction.
+
+Final notebook source SHA-256:
+`be6038d49a2c3909c32837b70bee48197e3e7741d58ed7aa6ed62895b7331c00`.
+It uses the unchanged installed runtime
+`c8fcc0d9ee99b0c96fa761ef6370f5b6c60fa1bc3ef2d406623f643dd56c121f`.
+Both final offline executions passed all **37 cells (20 code cells)**:
+`examples/runs/research-foundations-live/c9ebfec9-3058-40d7-8463-b56e69ce864c.ipynb`
+and `examples/runs/research-foundations-live/beea306b-3522-4ddb-8d36-2bf2c666b685.ipynb`.
+The latter reopened
+`data/notebooks/p1-evidence/175c73bd-ef3a-48a6-b0ab-cdfe7bc11958/`
+and reproduced all **25 semantic artifacts byte for byte** in
+`data/notebooks/p1-evidence/0f3894be-aeda-4fb7-90ad-784a4d93e792/`.
+Each retained the expected refusal and published no snapshot. Attempt clocks and
+the reproduction note remain separate from the deterministic evidence inventory.
+
+The initial public refresh is retained in executed attempt
+`23e1a654-3d01-465a-a74c-e7eadb0d6a8d` and study
+`data/notebooks/p1-evidence/fa8aec4f-cf2a-4f9d-8f89-cd3dac2ebe4c/`.
+It preceded presentation/formatting edits; the final executions reuse its exact
+four response bodies and receipts, without repeating network requests. The final
+chart was visually checked. Maintained notebook outputs and execution metadata
+are cleared; these executed copies and source-derived files remain ignored.
+
+Five temporary evidence-file cases checked valid compressed input and rejection
+of altered bytes, a wrong source URL, reversed receipt clocks and a missing file.
+A separate three-row counterexample checked missing/repeated IDs, event-time
+regression, a half-open incident boundary, and unknown native measurements when
+no capture is supplied. Both records are retained under
+`logs/frozen-baseline/notebook-investigation/`. Notebook Ruff lint/format and
+local links, including both changed example guides, passed. Runtime, dependency
+and frozen economic configuration files were not changed by this notebook work.
+
+### Strict provider admission implementation
+
+On 2026-09-23 the missing strict coverage/revision admission path was implemented.
+The [implementation report](source-qualification.md) supersedes the earlier software
+limitation: `use="causal"` now accepts a fully reviewed `SourceQualification`, retains
+original/revised archives and applies full-payload availability causally. The
+[notebook](../../examples/research-foundations-live.ipynb) consumes the same typed
+input as `alpha-dataset` through `ALPHA_P1_ADMISSION_INPUT`.
+
+This does not supply the missing historical facts for the actual hour. **MR8 remains
+open** until provider review, strict actual-source admission, unchanged costed runs,
+exact accounting and fresh-process economic reproduction all pass. The earlier
+notebook hashes and results above describe the prior candidate; current verification
+and limitations are recorded in the linked report. Frozen configuration bytes remain
+unchanged.

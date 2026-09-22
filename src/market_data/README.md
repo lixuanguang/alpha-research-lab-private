@@ -824,9 +824,10 @@ and build time are not semantic fields. Original evidence clocks are retained.
 
 The reader reuses existing archive, occurrence, eligibility and quality contracts.
 It verifies all raw/canonical files and reproduces admission before returning the
-manifest. `exploratory_degraded` and `causal_witnessed` are supported; historical evidence limitations
-remain visible. This is a bounded in-memory reference path with one saved raw
-archive per partition, not a query API or an atomic snapshot. The
+manifest. `exploratory_degraded`, `causal_witnessed` and reviewed `causal_qualified`
+scopes retain their evidence limitations. This is a bounded in-memory reference
+path; qualified partitions can also retain earlier versions of the same archive
+request. It is not a query API or an atomic snapshot. The
 [manifest contract](../../docs/data/contracts.md#dataset-manifest-identity-and-verification)
 explains identity and version semantics; the
 [isolated consumer](../../tests/integration/consumers/datasets/identify_dataset.py) and the notebook example in
@@ -1479,3 +1480,77 @@ history. Those facts stay unknown in reports. Existing `use="causal"` still refu
 incomplete source evidence; there is no generic evidence registry or caller-authored
 completion switch. Actual frozen P1 eligibility and full-source acceptance remain
 open in the [source record](../../docs/research/p1-baseline.md#source-investigation-continuation).
+
+## Reviewed provider qualification
+
+Owner: repository founder. `QualityPolicy(use="causal", ...)` now admits
+`causal_qualified` scope when a `SourceQualification` bundle passes the shared
+gate. This is a bounded, externally reviewed evidence contract for saved Binance
+spot trade archives. It does not authenticate arbitrary documents or infer missing
+provider facts from consecutive trade IDs, current metadata or matching captures.
+
+The public records in `market_data.validation` are:
+
+| Record | Required information |
+| --- | --- |
+| `ProviderDocument` | Original nonempty bytes, their SHA-256, issuer/reference, document publication and actual retrieval time. Maximum 16 MiB each. |
+| `EvidenceCitation` | Retained document SHA-256 and exact supporting page, section or row location. |
+| `TradeAvailability` | Full `TradeRevision.identity`, publication time, usable availability time and supporting citation, for every original and corrected version. The identity includes quote quantity and best-match metadata as well as price, size, side, ID and event time. |
+| `SourceQualification` | Exact request identity (including catalog/units), all archive digests, the entire selected half-open UTC interval, expected economic trade count, exhaustive history cutoff, instrument/coverage/revision citations, all version facts, reviewer and review reference/time. |
+
+The reviewer must establish that the cited provider records substantiate the
+instrument's historical status **and selected reference/units**, positive full-hour
+coverage including upstream omissions, and exhaustive original/corrected values
+through `history_through`. The history cutoff must reach the interval end. Coverage
+and history documents cannot claim future completeness relative to their publication.
+A retrospective audit may support earlier availability; its 2026 retrieval time
+remains distinct from the reviewed historical fact. No receipt timestamp is invented.
+An unverifiable or unavailable claim must remain unqualified.
+
+Historical `EligibilityAssertions` retain their existing schema. For the selected
+interval, use `basis="source_evidence"` and the instrument citation's document
+SHA-256 as `evidence.identity`. Each inclusion must be known at its historical
+interval start, including changes during the hour. A policy cutoff at 00:00 cannot
+hide a suspension learned at 00:30. Every status assertion must have been recorded
+by the qualification review. A present-day listing does not establish these facts.
+
+Attach the bundle as `DatasetInput.qualification`; use `SourceQualification.read`
+with an explicit `max_bytes` to decode a separate file, or decode the complete
+`DatasetInput` with `DomainCodec`. Retain `Correction` links for all changed payloads:
+publication and availability must match their `TradeAvailability`, and
+`evidence_reference` must equal its retained document digest. Exact inventory
+comparison rejects missing, extra or foreign versions, mismatched archive bytes,
+wrong counts and missing original values. It never assumes an empty correction
+list proves an exhaustive history.
+
+If an archive was replaced, also supply `DatasetInput.prior_acquisitions`, containing
+complete acquisitions for the **identical request**. Their raw objects must be in the
+same `RawStore`. The gate exhausts and verifies every archive, deduplicates unchanged
+trades, retains all predecessor values and applies each correction only at its
+availability cutoff. This is explicit version history, not general overlap merging.
+A revision that moves outside the selected window, reverts to a previously identical
+payload, or requires a missing original cannot currently qualify. An optional
+`ArchiveCapture` still binds one archive; multi-archive histories instead use their
+reviewed full-field availability inventory without that single-archive witness.
+
+Serialize the complete input and use the existing installed command:
+
+```sh
+alpha-dataset publish --inputs /absolute/reviewed/dataset-input.json \
+  --store /absolute/saved/raw --snapshots /absolute/saved/snapshots \
+  --max-bytes 134217728
+```
+
+The snapshot directory must already exist. `causal_qualified` is schema version 3;
+its documents, facts, corrections and original acquisitions are part of its identity.
+Reopening, query and replay reproduce admission. Version 1/2 records omit absent
+new fields and retain their identities; older readers cannot consume version 3.
+Mixing admission scopes in one snapshot remains unsupported. Memory use is bounded
+by explicit input limits, not streaming or a process-wide memory ceiling.
+
+The [QR notebook](../../examples/research-foundations-live.ipynb) accepts the same
+file through `ALPHA_P1_ADMISSION_INPUT`, retains `dataset-input.json` and an original
+`version-inventory.json`, and reports the actual gate outcome. The
+[implementation evidence](../../docs/research/source-qualification.md) separates
+synthetic acceptance from the still-unqualified actual P1 sample. No provider facts
+were fabricated for that sample and the frozen experiment is unchanged.

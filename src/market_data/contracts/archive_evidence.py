@@ -85,7 +85,7 @@ class ArchiveCapture(WireRecord, frozen=True, kw_only=True):
 
 
 class ArchiveAvailability(WireRecord, frozen=True, kw_only=True):
-    """Attach a reverified native capture clock without changing original archive fields."""
+    """Attach reverified capture or qualified availability without changing original clocks."""
 
     evidence_identity: str
     available_at: datetime
@@ -98,4 +98,4 @@ class ArchiveAvailability(WireRecord, frozen=True, kw_only=True):
             or len(self.evidence_identity) != 64
             or any(char not in "0123456789abcdef" for char in self.evidence_identity)
         ):
-            raise ValueError("availability requires capture evidence SHA-256")
+            raise ValueError("availability requires evidence SHA-256")

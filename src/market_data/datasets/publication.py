@@ -17,7 +17,13 @@ from market_data.datasets.manifests import DatasetInput, DatasetManifest, Datase
 from market_data.datasets.readers import DatasetReaders
 from market_data.datasets.snapshots import SnapshotStore
 from market_data.storage import RawStore
-from market_data.validation import Correction, QualityPolicy, QualityReport, TradeRevision
+from market_data.validation import (
+    Correction,
+    QualityPolicy,
+    QualityReport,
+    SourceQualification,
+    TradeRevision,
+)
 from reference_data.eligibility import EligibilityAssertions
 
 
@@ -213,6 +219,10 @@ class DatasetPublication:
                     capture=selected.capture
                     if isinstance(selected.capture, ArchiveCapture)
                     else None,
+                    qualification=selected.qualification
+                    if isinstance(selected.qualification, SourceQualification)
+                    else None,
+                    prior_acquisitions=selected.acquisitions[1:],
                 )
                 if report is not None:
                     report(acquisition.run.identity, outcome)
@@ -226,6 +236,8 @@ class DatasetPublication:
                         eligibility=selected.eligibility,
                         corrections=evidence,
                         capture=selected.capture,
+                        qualification=selected.qualification,
+                        prior_acquisitions=selected.prior_acquisitions,
                     )
                 )
                 payloads.append(canonical)
@@ -234,16 +246,23 @@ class DatasetPublication:
                     "dataset correction evidence names an unselected partition payload"
                 )
         witnessed = any(isinstance(part.capture, ArchiveCapture) for part in partitions)
+        qualified = any(isinstance(part.qualification, SourceQualification) for part in partitions)
         return DatasetManifest(
-            schema_version="2" if witnessed else "1",
-            canonical_schema="canonical-trade-partition-v2"
+            schema_version="3" if qualified else "2" if witnessed else "1",
+            canonical_schema="canonical-trade-partition-v3"
+            if qualified
+            else "canonical-trade-partition-v2"
             if witnessed
             else "canonical-trade-partition-v1",
-            availability_policy="native-witness-or-evidenced-later-v2"
+            availability_policy="provider-qualified-v3"
+            if qualified
+            else "native-witness-or-evidenced-later-v2"
             if witnessed
             else "original-or-evidenced-later-v1",
             normalization_identity=self._normalization_identity,
-            scope="causal_witnessed"
+            scope="causal_qualified"
+            if qualified
+            else "causal_witnessed"
             if all(p.policy.use == "witnessed" for p in partitions)
             else "exploratory_degraded",
             partitions=tuple(partitions),
@@ -259,6 +278,8 @@ class DatasetPublication:
         eligibility: EligibilityAssertions,
         corrections: tuple[Correction, ...] = (),
         capture: ArchiveCapture | None = None,
+        qualification: SourceQualification | None = None,
+        prior_acquisitions: tuple[AcquisitionManifest, ...] = (),
     ) -> QualityReport:
         """Route one saved partition through quality admission before publication.
 
@@ -270,6 +291,8 @@ class DatasetPublication:
             eligibility: Retained assertions tied to the acquisition's exact catalog/units.
             corrections: Explicit evidence linking economic versions within this partition.
             capture: Optional complete native captures for witnessed archive admission.
+            qualification: Reviewed provider documents and exact history inventory for causal use.
+            prior_acquisitions: Earlier complete archives for the identical source request.
 
         Returns:
             Scoped report with invalid/gap counts; require_canonical refuses rejected input.
@@ -281,15 +304,26 @@ class DatasetPublication:
         requests = SourceRequest.partition(manifest.run)
         if len(requests) != 1:
             raise ValueError("quality requires exactly one selected instrument/source partition")
-        with closing(self.occurrences(manifest, store, max_bytes=max_bytes)) as occurrences:
+        with closing(
+            self._history((manifest, *prior_acquisitions), store, max_bytes)
+        ) as occurrences:
             return policy.validate(
                 requests[0],
                 occurrences,
                 eligibility=eligibility,
                 corrections=corrections,
                 capture=capture,
+                qualification=qualification,
                 verifier=self._readers.verifier(requests[0]),
             )
+
+    def _history(
+        self, manifests: tuple[AcquisitionManifest, ...], store: RawStore, max_bytes: int
+    ) -> Generator[Occurrence]:
+        """Exhaust and close every raw version under the existing quality failure boundary."""
+        for manifest in manifests:
+            with closing(self.occurrences(manifest, store, max_bytes=max_bytes)) as rows:
+                yield from rows
 
     def admit_trades(
         self,

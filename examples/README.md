@@ -16,6 +16,10 @@ costed reports, local serial pipelines and pinned lakeFS dataset versions.
 The [saved L2 workflow](../docs/research/l2-book-backtest.md) adds configured book
 EDA, an imbalance/no-trade comparison, depth-based IOC fills and exact accounting
 through `alpha-backtest books` and [the order-book notebook](orderbook-research.ipynb).
+This saved OKX workflow is the current starting point for L2 research. Binance and
+Tardis are deprioritised; the frozen P1 evidence notebook is a retained legacy
+investigation whose empirical acceptance is deferred. Its missing provider records
+do not block OKX/Bitfinex work or require provider outreach.
 The research comparison workflow adds compatible implementation registration, a distinct
 reversal rule, retained Alphalens diagnostics and fixed-budget Optuna comparisons.
 The [offline activity notebook](research-foundations.ipynb) includes a rule-only
@@ -413,12 +417,23 @@ remain the offline entry points so saved commands and links continue to work.
 | Engineer: inspect infrastructure and diagnose failures | [Infrastructure diagnostics — offline](infrastructure-diagnostics.ipynb): installed data/feature/model/economic consumers, fresh-process recovery and health diagnostics | [Infrastructure diagnostics — live](infrastructure-diagnostics-live.ipynb): one public Bitfinex capture, durable/native/canonical replay parity and observed quality |
 
 Restart the kernel and **Run All in order**. Each version runs independently.
+The `p1-evidence` default described below is retained legacy behavior, not the
+recommended next research activity. Use the [order-book notebook](orderbook-research.ipynb)
+for the current saved OKX backtest; select `book-capture` explicitly for Bitfinex.
 The QR live notebook's default `p1-evidence` route reads explicitly pinned saved
 Binance inputs, verifies the unchanged frozen configurations, collects supporting
 documents and retains the strict admission outcome plus a QR/developer handoff.
-It makes no network call. Follow the
+It measures trading-status evidence, ID/time continuity, provider incidents,
+exact archive/capture agreement and correction-availability limits. A minute-count
+plot and plain-language findings show what is observed and what the provider still
+needs to establish. Saved mode makes no network call; an explicit refresh retrieves
+four small official provider records with retained receipts. Follow the
 [source-evidence instructions](notebook-operations.md#frozen-source-evidence) to
 attach provider records and reproduce the retained evidence in a fresh kernel.
+A reviewed `DatasetInput` supplied through `ALPHA_P1_ADMISSION_INPUT` now exercises
+strict provider qualification, including retained earlier archives and correction
+availability. The [implementation report](../docs/research/source-qualification.md)
+records its tested scope and remaining actual-source prerequisite.
 **A completed evidence handoff does not close MR 8.** Source qualification and
 actual-source economic/report/recovery proof remain required.
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import closing
 from itertools import combinations
 from pathlib import Path
@@ -16,10 +16,10 @@ import msgspec
 
 # project library imports
 from market_data.acquisition import AcquisitionManifest
-from market_data.contracts import ArchiveCapture, SourceRequest
+from market_data.contracts import ArchiveCapture, Occurrence, SourceRequest
 from market_data.datasets.readers import DatasetReaders
 from market_data.storage import RawStore
-from market_data.validation import Correction, QualityPolicy, QualityReport
+from market_data.validation import Correction, QualityPolicy, QualityReport, SourceQualification
 from reference_data.eligibility import EligibilityAssertions
 from serialization import DomainCodec
 
@@ -36,6 +36,8 @@ class DatasetInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fie
     eligibility: EligibilityAssertions
     corrections: tuple[Correction, ...] = ()
     capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
+    qualification: SourceQualification | msgspec.UnsetType = msgspec.UNSET
+    prior_acquisitions: tuple[AcquisitionManifest, ...] | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Require explicit typed admission inputs without admitting their observations.
@@ -48,10 +50,55 @@ class DatasetInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fie
             or type(self.policy) is not QualityPolicy
             or type(self.eligibility) is not EligibilityAssertions
             or (self.capture is not msgspec.UNSET and type(self.capture) is not ArchiveCapture)
+            or (
+                self.qualification is not msgspec.UNSET
+                and type(self.qualification) is not SourceQualification
+            )
             or type(self.corrections) is not tuple
             or any(type(item) is not Correction for item in self.corrections)
         ):
             raise ValueError("dataset input requires typed acquisition and admission evidence")
+        if self.qualification is not msgspec.UNSET:
+            self.qualification.__post_init__()
+            if self.policy.use != "causal":
+                raise ValueError("qualification requires strict causal policy")
+        if self.prior_acquisitions is not msgspec.UNSET:
+            if (
+                type(self.prior_acquisitions) is not tuple
+                or not self.prior_acquisitions
+                or self.qualification is msgspec.UNSET
+            ):
+                raise ValueError("prior archives require nonempty qualified acquisition history")
+            requests = SourceRequest.partition(self.acquisition.run)
+            if len(requests) != 1:
+                raise ValueError("qualified archive history requires one source partition")
+            digests: set[str] = set()
+            for acquisition in (self.acquisition, *self.prior_acquisitions):
+                if type(acquisition) is not AcquisitionManifest:
+                    raise ValueError("prior archives require AcquisitionManifest records")
+                acquisition.__post_init__()
+                if (
+                    len(acquisition.completed) != 1
+                    or acquisition.pending is not None
+                    or tuple(item.identity for item in SourceRequest.partition(acquisition.run))
+                    != (requests[0].identity,)
+                    or acquisition.completed[0].sha256 in digests
+                ):
+                    raise ValueError("prior archive binding is incomplete, foreign or duplicated")
+                digests.add(acquisition.completed[0].sha256)
+
+    @property
+    def acquisitions(self) -> tuple[AcquisitionManifest, ...]:
+        """Retain each independently verified archive version without overwriting originals.
+
+        Returns:
+            Current acquisition followed by explicitly selected earlier archive versions.
+        """
+        self.__post_init__()
+        return (
+            self.acquisition,
+            *(() if self.prior_acquisitions is msgspec.UNSET else self.prior_acquisitions),
+        )
 
     @classmethod
     def resolve(
@@ -142,6 +189,8 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
     eligibility: EligibilityAssertions
     corrections: tuple[Correction, ...] = ()
     capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
+    qualification: SourceQualification | msgspec.UnsetType = msgspec.UNSET
+    prior_acquisitions: tuple[AcquisitionManifest, ...] | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Reject incomplete, foreign or unsupported partition declarations.
@@ -162,12 +211,22 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
         self.acquisition.__post_init__()
         self.policy.__post_init__()
         self.eligibility.__post_init__()
+        DatasetInput(
+            acquisition=self.acquisition,
+            policy=self.policy,
+            eligibility=self.eligibility,
+            corrections=self.corrections,
+            capture=self.capture,
+            qualification=self.qualification,
+            prior_acquisitions=self.prior_acquisitions,
+        )
         if (
             len(SourceRequest.partition(self.acquisition.run)) != 1
             or len(self.acquisition.completed) != 1
             or self.acquisition.pending is not None
             or self.acquisition.run.catalog.identity != self.eligibility.catalog.identity
-            or self.policy.use not in ("exploratory", "witnessed")
+            or self.policy.use not in ("exploratory", "witnessed", "causal")
+            or (self.policy.use == "causal" and self.qualification is msgspec.UNSET)
         ):
             raise ValueError(
                 "dataset requires one complete witnessed archive partition"
@@ -192,15 +251,21 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
     """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    schema_version: Literal["1", "2"] = "1"
-    canonical_schema: Literal["canonical-trade-partition-v1", "canonical-trade-partition-v2"] = (
-        "canonical-trade-partition-v1"
-    )
+    schema_version: Literal["1", "2", "3"] = "1"
+    canonical_schema: Literal[
+        "canonical-trade-partition-v1",
+        "canonical-trade-partition-v2",
+        "canonical-trade-partition-v3",
+    ] = "canonical-trade-partition-v1"
     correction_policy: Literal["evidenced-v1"] = "evidenced-v1"
     availability_policy: Literal[
-        "original-or-evidenced-later-v1", "native-witness-or-evidenced-later-v2"
+        "original-or-evidenced-later-v1",
+        "native-witness-or-evidenced-later-v2",
+        "provider-qualified-v3",
     ] = "original-or-evidenced-later-v1"
-    scope: Literal["exploratory_degraded", "causal_witnessed"] = "exploratory_degraded"
+    scope: Literal["exploratory_degraded", "causal_witnessed", "causal_qualified"] = (
+        "exploratory_degraded"
+    )
     normalization_identity: str
     partitions: tuple[DatasetPartition, ...]
 
@@ -215,9 +280,10 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             not in (
                 ("1", "canonical-trade-partition-v1", "original-or-evidenced-later-v1"),
                 ("2", "canonical-trade-partition-v2", "native-witness-or-evidenced-later-v2"),
+                ("3", "canonical-trade-partition-v3", "provider-qualified-v3"),
             )
             or self.correction_policy != "evidenced-v1"
-            or self.scope not in ("exploratory_degraded", "causal_witnessed")
+            or self.scope not in ("exploratory_degraded", "causal_witnessed", "causal_qualified")
             or type(self.normalization_identity) is not str
             or re.fullmatch(r"[0-9a-f]{64}", self.normalization_identity) is None
             or type(self.partitions) is not tuple
@@ -229,8 +295,16 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             if type(partition) is not DatasetPartition:
                 raise ValueError("dataset requires DatasetPartition records")
             partition.__post_init__()
-            if (self.schema_version == "2") != isinstance(partition.capture, ArchiveCapture):
+            if self.schema_version != "3" and (
+                (self.schema_version == "2") != isinstance(partition.capture, ArchiveCapture)
+            ):
                 raise ValueError("dataset version differs from capture admission inputs")
+            if (self.schema_version == "3") != isinstance(
+                partition.qualification, SourceQualification
+            ):
+                raise ValueError("dataset version differs from provider qualification")
+            if (self.scope == "causal_qualified") != (partition.policy.use == "causal"):
+                raise ValueError("dataset scope differs from provider qualification")
             if (self.scope == "causal_witnessed") != (partition.policy.use == "witnessed"):
                 raise ValueError("dataset scope differs from partition admission")
             identity = SourceRequest.partition(partition.acquisition.run)[0].identity
@@ -298,20 +372,42 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
                 or hashlib.sha256(canonical).hexdigest() != partition.sha256
             ):
                 raise ValueError("canonical partition size or SHA-256 mismatch")
-            reader = readers.saved(partition.acquisition)[0]
-            with closing(reader.read(store, max_bytes=max_bytes)) as occurrences:
+            selected = DatasetInput(
+                acquisition=partition.acquisition,
+                policy=partition.policy,
+                eligibility=partition.eligibility,
+                corrections=partition.corrections,
+                capture=partition.capture,
+                qualification=partition.qualification,
+                prior_acquisitions=partition.prior_acquisitions,
+            )
+            request = SourceRequest.partition(partition.acquisition.run)[0]
+            with closing(cls._occurrences(selected, store, readers, max_bytes)) as occurrences:
                 outcome = partition.policy.validate(
-                    SourceRequest.partition(partition.acquisition.run)[0],
+                    request,
                     occurrences,
                     eligibility=partition.eligibility,
                     corrections=partition.corrections,
                     capture=partition.capture
                     if isinstance(partition.capture, ArchiveCapture)
                     else None,
-                    verifier=readers.verifier(reader.request),
+                    qualification=partition.qualification
+                    if isinstance(partition.qualification, SourceQualification)
+                    else None,
+                    verifier=readers.verifier(request),
                 )
             if outcome.require_canonical() != canonical:
                 raise ValueError("canonical partition differs from retained admission inputs")
             if report is not None:
                 report(partition.acquisition.run.identity, outcome)
         return manifest
+
+    @staticmethod
+    def _occurrences(
+        selected: DatasetInput, store: RawStore, readers: DatasetReaders, max_bytes: int
+    ) -> Generator[Occurrence]:
+        """Read each full archive inside the quality gate's existing input-error boundary."""
+        for acquisition in selected.acquisitions:
+            reader = readers.saved(acquisition)[0]
+            with closing(reader.read(store, max_bytes=max_bytes)) as rows:
+                yield from rows
