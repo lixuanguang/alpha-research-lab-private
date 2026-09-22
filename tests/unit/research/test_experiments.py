@@ -178,8 +178,10 @@ class TestExperiments:
     def test_semantic_identity_reload_and_changed_inputs(self) -> None:
         """Reorder mappings without changing identity; any influencing choice changes the run."""
         spec = self._spec()
+        assert spec.split is not None
         reloaded = _CODEC.decode_json(_CODEC.encode_json(spec), ExperimentSpec)
         assert reloaded == spec and reloaded.identity == spec.identity
+        assert reloaded.split is not None
         assert reloaded.split.fitting_rows() == spec.split.fitting_rows()
         reversed_parameters = tuple(reversed(spec.parameters))
         reversed_samples = tuple(reversed(spec.split.samples))
@@ -223,6 +225,7 @@ class TestExperiments:
         with pytest.raises(ValueError, match="embargo"):
             replace(split, embargo_us=True)
         spec = self._spec()
+        assert spec.split is not None
         force_setattr(spec.split.samples[0], "input_sha256", "not-a-digest")
         with pytest.raises(ValueError, match="SHA-256"):
             _ = spec.identity
@@ -237,6 +240,7 @@ class TestExperiments:
     def test_attempt_identity_outcomes_and_reader_writer_boundary(self, tmp_path: Path) -> None:
         """Keep distinct executions and every terminal outcome without rewriting history."""
         spec = self._spec()
+        assert spec.split is not None
         with AttemptStore(tmp_path) as store:
             first = store.start(spec, at=self._time(30), invocation="location/one", request=b"one")
             with pytest.raises(BlockingIOError):
@@ -292,6 +296,7 @@ class TestExperiments:
     ) -> None:
         """Retain failed holdout reads and refuse using them to evaluate a tuned variant."""
         spec = self._spec()
+        assert spec.split is not None
         with AttemptStore(tmp_path) as store:
             first = store.start(spec, at=self._time(30), invocation="evaluate")
             store.consume_holdout(first.attempt_id, at=self._time(30), reason="final evaluation")
@@ -327,6 +332,7 @@ class TestExperiments:
     def test_interrupted_rejected_start_cannot_complete(self, tmp_path: Path) -> None:
         """Keep the frozen boundary even if the process stops before rejection publication."""
         spec = self._spec()
+        assert spec.split is not None
         changed = replace(
             spec,
             split=replace(spec.split, holdout=TimeWindow(start=self._time(22), end=self._time(24))),
@@ -392,3 +398,39 @@ class TestExperiments:
                 reason="process interrupted before atomic completion",
             )
         assert store.read(history.start.attempt_id).status == "abandoned"
+
+    def test_engineering_family_cannot_consume_or_replace_holdout(self, tmp_path: Path) -> None:
+        """Retain failed design changes and forbid holdout access for an unfitted sample."""
+        validation = self._spec()
+        sample = replace(
+            validation,
+            schema_version="experiment-engineering-sample-v1",
+            split=None,
+            engineering_sample=TimeWindow(start=self._time(0), end=self._time(1)),
+        )
+        assert _CODEC.decode_json(_CODEC.encode_json(sample), ExperimentSpec) == sample
+        assert b"engineering_sample" not in _CODEC.encode_json(validation)
+        assert sample.identity != validation.identity
+        with AttemptStore(tmp_path) as store:
+            original = store.start(validation, at=self._time(30), invocation="validation")
+            with pytest.raises(ValueError, match="frozen"):
+                store.start(sample, at=self._time(30), invocation="change design")
+            assert store.read(original.attempt_id).status == "incomplete"
+            independent = replace(sample, family="engineering")
+            run = store.start(independent, at=self._time(30), invocation="sample")
+            with pytest.raises(ValueError, match="no holdout"):
+                store.consume_holdout(run.attempt_id, at=self._time(30), reason="forbidden")
+            store.finish(
+                run.attempt_id,
+                status="completed",
+                at=self._time(31),
+                reason="engineering evidence only",
+                result=b"sample",
+            )
+            with pytest.raises(ValueError, match="frozen"):
+                store.start(
+                    replace(validation, family="engineering"),
+                    at=self._time(32),
+                    invocation="replace sample with holdout",
+                )
+            assert sum(item.status == "rejected" for item in store.histories()) == 2

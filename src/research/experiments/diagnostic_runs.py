@@ -97,6 +97,8 @@ class WindowDiagnosticRun:
                 "diagnostics require terminal validation sources without holdout access"
             )
         split = history.start.spec.split
+        if split is None:
+            raise ValueError("validation diagnostics require a temporal split")
         if (
             split.validation != self._study.split.validation
             or split.holdout != self._study.split.holdout
@@ -120,8 +122,11 @@ class WindowDiagnosticRun:
             raise ValueError("diagnostics require completed retained feature bytes")
         self._verify(payload, source)
         feature = FeatureLabelPayload.decode(payload)
+        split = history.start.spec.split
+        if split is None:
+            raise ValueError("feature diagnostics require a temporal split")
         if (
-            feature.split_identity != history.start.spec.split.identity
+            feature.split_identity != split.identity
             or feature.split_identity != self._study.split.identity
         ):
             raise ValueError("diagnostics must preserve the source feature temporal split")
@@ -143,6 +148,8 @@ class WindowDiagnosticRun:
         self._verify(payload, source)
         evaluation = codec.decode_json(payload, EvaluationRecord)
         split = history.start.spec.split
+        if split is None:
+            raise ValueError("validation diagnostics require a temporal split")
         if evaluation.split_identity != split.identity or evaluation.window != split.validation:
             raise ValueError("prediction evaluation differs from its retained temporal split")
         declared = sorted(item.sha256 for item in self._study.features)

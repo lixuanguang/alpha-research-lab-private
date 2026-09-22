@@ -245,7 +245,7 @@ is an assertion supplied by the caller, not independently fetched/verified proof
 
 [`QualityPolicy`](../../src/market_data/validation/quality.py) consumes a single
 `SourceRequest`, its original occurrences, linked eligibility history and optional
-explicit correction evidence. `use` explicitly selects exploratory or causal use;
+explicit correction evidence. `use` selects exploratory, strict causal or scoped witnessed use;
 `known_at` is the fixed eligibility cutoff, and positive `max_gap` is an observed
 silence tolerance. The library keeps no mutable state between validations.
 [`DatasetPublication.validate_partition`](../../src/market_data/datasets/publication.py) is the
@@ -278,8 +278,8 @@ not establish recorder completeness. Eligibility is selected at every assertion
 validity boundary within the interval, including intervals without observations;
 all original assertions, exclusions, reasons and independent clocks are retained.
 
-`QualityReport.scope` is `exploratory_degraded` (accepted for that declared use) or
-`rejected`. Both supported input contracts lack complete recorder evidence and the
+`QualityReport.scope` is `exploratory_degraded`, `causal_witnessed` (each accepted
+only for its declared scope), or `rejected`. The original input contracts lack complete recorder evidence and the
 catalog is authored, so this implementation cannot produce a fully valid causal
 partition. Exploratory use can retain gaps or unknown/excluded membership with
 explicit annotations; structural errors and unresolved trade revisions reject it.
@@ -479,3 +479,10 @@ The reference selector has synthetic causality/control evidence and an installed
 published-archive consumer. It does not establish historical P1 availability.
 Bounded queries and trade replay consume this selection contract; native book
 publication/replay uses its separate schema and adapter.
+
+
+The [witnessed archive contract](../../src/market_data/README.md#witnessed-archive-availability)
+adds native capture evidence without altering source archive records. It supplies
+conservative effective availability for matched decision-relevant fields, preserves
+correction delays and requires historical source membership for witnessed admission.
+It does not certify unknown upstream coverage; strict causal acceptance stays closed.

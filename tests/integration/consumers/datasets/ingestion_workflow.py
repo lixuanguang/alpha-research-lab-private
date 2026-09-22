@@ -185,6 +185,7 @@ def main() -> None:
             RawStore(output / "raw"),
             attempts=output / "attempts",
         )
+        assert attempt_history.start.spec.split is not None
         assert (
             attempt_history.status == "completed"
             and attempt_history.start.spec.split.fitting_rows() == ()
@@ -443,6 +444,7 @@ def main() -> None:
     attempt = inspect_experiment(
         output / "study.json", output / "snapshots", raw, attempts=output / "attempts"
     )
+    assert attempt.start.spec.split is not None
     assert attempt.status == "completed" and attempt.start.spec.split.fitting_rows() == ()
     reopened_records = fixture.command(
         [sys.executable, "-I", str(Path(__file__).resolve()), str(inputs), str(output), "--reopen"]

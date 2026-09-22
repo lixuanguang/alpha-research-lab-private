@@ -40,7 +40,7 @@ class QueryEvidence(NamedTuple):
     """Carry unprojectable binding, units, quality and complete membership evidence."""
 
     request: SourceRequest
-    scope: Literal["exploratory_degraded"]
+    scope: Literal["exploratory_degraded", "causal_witnessed"]
     policy: QualityPolicy
     eligibility: EligibilityAssertions
     reasons: tuple[str, ...]
@@ -183,8 +183,8 @@ class QueryReader:
         Yields:
             Typed tuples with exact values in requested column order, full unprojectable
             controls and binding-scoped evidence. Cutoff order is AsOfSelector order;
-            history is partition/head order, not chronological replay order. Quality remains
-            exploratory_degraded. No retained evidence grants historical availability.
+            history is partition/head order, not chronological replay order. Original quality
+            scope and limits survive. Reverified native evidence may supply archive availability.
 
         Raises:
             ValueError: Options, admission, window or selection are invalid.

@@ -58,6 +58,16 @@ invoke them through their test or consumer, never in the pytest process itself.
 The package's real orchestration stays in `src/applications/`;
 consumers compose it with synthetic transports, failure injection and assertions.
 
+The manual [saved-source consumer](integration/consumers/backtest/source_acceptance.py)
+uses the existing actual Binance archive and frozen economic configs, with no
+synthetic eligibility or availability. It retains causal-publication refusal and
+non-admission through the installed backtest application. Exit 3 means the
+refusal checks passed and empirical acceptance remains open; it is not a passing
+baseline result. The [P1 verification contract](../docs/research/p1-baseline.md#saved-source-verification)
+owns the explicit inputs, new output directories, fresh-process reopen invocation
+and precise remaining evidence. This source-dependent program is not a pytest
+or ordinary wheel-smoke test.
+
 `make wheel-smoke` compiles the hash-locked installation's bytecode and gives its
 child processes one writable run-local Matplotlib cache. This avoids repeated
 font discovery when the user's cache is unavailable. The feature and later
@@ -195,3 +205,12 @@ reject missing or changed package bytes during a concurrent reinstall. Preserve
 failed evidence and rerun from a fresh output directory after stabilizing the
 installation. See the [roadmap evidence](../docs/roadmap/README.md#research-comparison-and-extension)
 for the exact validation results and the outstanding Evidently dependency blocker.
+
+
+The installed [engineering sample consumer](integration/consumers/backtest/engineering_sample.py)
+is included in wheel smoke. It uses synthetic native capture bytes and hypothetical
+source eligibility with both unchanged frozen P1 configurations, checking exact
+loss/cash/position/NAV/gross-to-net values, no-trade, evidence rejection without a
+snapshot, durable reports and fresh-process resume/repeat parity. This is software
+proof, not acceptance of the actual archive. Public-source research and installed
+actual capture matching are retained separately in the owning P1 evidence record.

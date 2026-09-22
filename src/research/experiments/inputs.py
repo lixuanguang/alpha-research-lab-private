@@ -66,6 +66,11 @@ class ResearchInputs(WireRecord, frozen=True):
             snapshot_id=reader.identity,
             features=tuple(features),
             limitations=(
+                *(
+                    ("Unfitted engineering sample; no validation, holdout or strategy selection.",)
+                    if selected.split is None
+                    else ()
+                ),
                 "Observed-price diagnostics are separate from the rule's completed-price inputs.",
                 "No fitted model, label retrieval or holdout access is required by this rule.",
             ),

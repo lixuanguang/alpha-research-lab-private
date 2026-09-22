@@ -550,7 +550,11 @@ class SpotSimulation:
             terminal=self._trace[-1].mark,
             limitations=(
                 *limitations,
-                "exploratory_degraded inputs; synthetic software evidence only",
+                (
+                    "causal_witnessed inputs; empirical baseline acceptance remains separate"
+                    if all(item.scope == "causal_witnessed" for item in self.observations.evidence)
+                    else "exploratory_degraded inputs; synthetic software evidence only"
+                ),
                 "trade-price full fills; no spread, queue, liquidity, impact or financing model",
             ),
         )

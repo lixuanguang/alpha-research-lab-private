@@ -19,7 +19,16 @@ from market_data.adapters.providers.binance import ArchiveRow, BinanceArchiveTra
 from market_data.adapters.providers.tardis import TardisDecoder
 from market_data.adapters.sources import SourceAdapters
 from market_data.adapters.venues.binance import BinancePayloadDecoder
-from market_data.contracts import Disconnect, Occurrence, RawObject, SourceRequest, Trade
+from market_data.contracts import (
+    ArchiveCapture,
+    CaptureSlice,
+    Disconnect,
+    Occurrence,
+    RawObject,
+    SourceRequest,
+    Trade,
+)
+from market_data.query import QueryMarketRow, QueryReader
 from market_data.validation import Correction, QualityPolicy, QualityReport, TradeRevision
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import EligibilityAssertions
@@ -539,3 +548,145 @@ class TestPartitionQuality:
         force_setattr(report, "invalid_count", 1)
         with pytest.raises(ValueError, match="disagree"):
             report.require_canonical()
+
+    @staticmethod
+    def _capture(selection: SourceRequest, payload: bytes) -> ArchiveCapture:
+        """Bind a synthetic native tape; fixture clocks are never empirical evidence."""
+        return ArchiveCapture(
+            request_identity=selection.identity,
+            archive_sha256="a" * 64,
+            access_reference="synthetic fixture; no historical source claim",
+            slices=tuple(
+                CaptureSlice(
+                    start=_START + timedelta(minutes=10 * index),
+                    minutes=10,
+                    received_at=_START + timedelta(days=1),
+                    payload=payload if index == 0 else b"",
+                )
+                for index in range(6)
+            ),
+        )
+
+    @staticmethod
+    def _native(price: str = "100.00", capture: str = "00:00:00.0000001") -> bytes:
+        """Represent one independent native message with sub-microsecond recorder precision."""
+        return (
+            f'2024-06-01T{capture}Z {{"stream":"btcusdt@trade","data":'
+            f'{{"e":"trade","E":1717200000000,"s":"BTCUSDT","t":12,'
+            f'"p":"{price}","q":"2.0","T":1717200000000,"m":true}}}}\n'
+        ).encode()
+
+    def test_witnessed_availability_late_correction_and_strict_scope(
+        self, selection: SourceRequest
+    ) -> None:
+        """Prove capture ceiling, late revision cutoffs and preservation of unknown coverage."""
+        original = self._item(selection)
+        changed = self._item(selection, _RAW.replace(b"100.00", b"101.00"), position=1)
+        assertion = self._history(selection).assertions[0]
+        history = EligibilityAssertions(
+            catalog=selection.manifest.catalog,
+            assertions=(
+                replace(
+                    assertion,
+                    evidence=replace(assertion.evidence, basis="source_evidence"),
+                ),
+            ),
+        )
+        capture = self._capture(selection, self._native() + self._native("101.00", "00:00:30"))
+        correction = Correction(
+            supersedes=TradeRevision(occurrences=(original,)).identity,
+            replacement=TradeRevision(occurrences=(changed,)).identity,
+            ts_published=_START + timedelta(seconds=40),
+            ts_available=_START + timedelta(seconds=50),
+            evidence_reference="synthetic correction",
+        )
+        policy = replace(self._policy(), use="witnessed")
+        report = policy.validate(
+            selection,
+            (original, changed),
+            eligibility=history,
+            corrections=(correction,),
+            capture=capture,
+            verifier=SourceAdapters.verifier(selection),
+        )
+        assert report.scope == "causal_witnessed"
+        assert "recorder coverage unknown" in report.reasons
+        binding = (selection.instrument.source, "trade", selection.instrument.instrument_id)
+        reader = QueryReader(
+            (report.require_canonical(),),
+            readers=SourceAdapters(),
+            precedence=(binding,),
+            max_bytes=100_000,
+        )
+        for second, expected in (
+            (0, None),
+            (1, Decimal("100")),
+            (49, Decimal("100")),
+            (50, Decimal("101")),
+        ):
+            batches = tuple(
+                reader.batches(
+                    (binding[2],),
+                    start=_START,
+                    end=_START + timedelta(minutes=1),
+                    known_at=_START + timedelta(seconds=second),
+                    columns=("price",),
+                    batch_size=1,
+                )
+            )
+            rows = tuple(row for batch in batches for row in batch.rows)
+            if expected is None:
+                assert rows == ()
+            else:
+                assert isinstance(rows[0], QueryMarketRow) and rows[0].values == (expected,)
+        strict = replace(policy, use="causal").validate(
+            selection,
+            (original, changed),
+            eligibility=history,
+            corrections=(correction,),
+            capture=capture,
+            verifier=SourceAdapters.verifier(selection),
+        )
+        assert strict.canonical is None
+
+    def test_witness_rejects_missing_conflicts_gaps_and_late_eligibility(
+        self, selection: SourceRequest
+    ) -> None:
+        """No partially matching tape, gap or retrospectively authored membership is admitted."""
+        item = self._item(selection)
+        assertion = self._history(selection).assertions[0]
+        sourced = replace(assertion, evidence=replace(assertion.evidence, basis="source_evidence"))
+        history = EligibilityAssertions(catalog=selection.manifest.catalog, assertions=(sourced,))
+        policy = replace(self._policy(), use="witnessed")
+        for tape, membership in (
+            (None, history),
+            (self._capture(selection, self._native("99")), history),
+            (self._capture(selection, self._native() + b"\n"), history),
+            (self._capture(selection, self._native()), replace(history, assertions=())),
+            (self._capture(selection, self._native()), replace(history, assertions=(assertion,))),
+            (
+                self._capture(selection, self._native()),
+                replace(
+                    history,
+                    assertions=(replace(sourced, ts_knowledge=_START + timedelta(seconds=1)),),
+                ),
+            ),
+        ):
+            report = policy.validate(
+                selection,
+                (item,),
+                eligibility=membership,
+                capture=tape,
+                verifier=SourceAdapters.verifier(selection),
+            )
+            assert report.canonical is None
+            with pytest.raises(ValueError, match="publication refused"):
+                report.require_canonical()
+        report = replace(policy, max_gap=timedelta(seconds=30)).validate(
+            selection,
+            (item,),
+            eligibility=history,
+            capture=self._capture(selection, self._native()),
+            verifier=SourceAdapters.verifier(selection),
+        )
+        assert report.canonical is None and report.gap_count == 1

@@ -15,7 +15,6 @@ from uuid import uuid4
 
 # project library imports
 from research.experiments.identity import ExperimentSpec
-from research.experiments.splits import TimeWindow
 from serialization import DomainCodec, WireRecord
 
 
@@ -196,12 +195,12 @@ class AttemptStore:
         )
         family_path = self._family_path(spec.family)
         if not family_path.exists():
-            self._publish(family_path, self._codec.encode_json(spec.split.holdout))
+            self._publish(family_path, self._family_declaration(spec))
         directory = self._root / start.attempt_id
         directory.mkdir()
         self._publish(directory / "start.json", self._codec.encode_json(start))
         self._sync(self._root)
-        if self._codec.decode_json(family_path.read_bytes(), TimeWindow) != spec.split.holdout:
+        if family_path.read_bytes() != self._family_declaration(spec):
             self.finish(
                 start.attempt_id,
                 status="rejected",
@@ -225,6 +224,8 @@ class AttemptStore:
         """
         self._require_writer()
         current = self.read(attempt_id)
+        if current.start.spec.split is None:
+            raise ValueError("engineering sample has no holdout to consume")
         self._require_frozen_holdout(current.start.spec)
         for history in self.histories():
             if (
@@ -374,9 +375,18 @@ class AttemptStore:
 
     def _require_frozen_holdout(self, spec: ExperimentSpec) -> None:
         """Refuse interrupted rejected starts and fail closed on missing family metadata."""
-        frozen = self._codec.decode_json(self._family_path(spec.family).read_bytes(), TimeWindow)
-        if frozen != spec.split.holdout:
+        frozen = self._family_path(spec.family).read_bytes()
+        if frozen != self._family_declaration(spec):
             raise ValueError("family holdout is frozen")
+
+    def _family_declaration(self, spec: ExperimentSpec) -> bytes:
+        """Freeze a disjoint design kind; an engineering family cannot evade a holdout."""
+        spec.__post_init__()
+        return self._codec.encode_json(
+            spec.split.holdout
+            if spec.split is not None
+            else ("unfitted-engineering-sample-v1", spec.engineering_sample)
+        )
 
     def _require_writer(self) -> None:
         """Refuse mutations from readers, closed contexts or inherited fork handles."""

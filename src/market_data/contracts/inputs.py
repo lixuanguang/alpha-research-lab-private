@@ -8,6 +8,8 @@ from datetime import datetime
 from typing import BinaryIO, Protocol, runtime_checkable
 
 # project library imports
+from market_data.contracts.archive_evidence import ArchiveCapture
+from market_data.contracts.binance import Trade
 from market_data.contracts.events import MarketEventRecord
 from market_data.contracts.occurrences import Occurrence
 from market_data.contracts.raw import RawObject, RequestBinding
@@ -95,3 +97,18 @@ class ByteReader(Protocol):
             Binary stream owned and closed by the caller.
         """
         ...
+
+
+@runtime_checkable
+class ArchiveCaptureVerifier(Protocol):
+    """Decode complete corroborating native responses at their provider boundary."""
+
+    def captures(self, evidence: ArchiveCapture) -> tuple[Trade, ...]:
+        """Re-decode source bytes and refuse gaps or conflicting captured payloads.
+
+        Args:
+            evidence: Complete native response slices bound to the archive selection.
+
+        Returns:
+            Captured individual Binance trades with original recorder clocks.
+        """

@@ -5,17 +5,26 @@ from __future__ import annotations
 # standard library imports
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from decimal import Decimal
 from fractions import Fraction
 from itertools import pairwise
 from typing import ClassVar, Literal
 
+# third party library imports
+from msgspec.structs import replace
+
 # project library imports
 from market_data.contracts import (
+    ArchiveAvailability,
+    ArchiveCapture,
+    ArchiveCaptureVerifier,
+    ArchiveTrade,
     Disconnect,
     MarketEventRecord,
     Occurrence,
     OccurrenceVerifier,
     SourceRequest,
+    Trade,
 )
 from market_data.validation.revisions import Correction, TradeRevision
 from reference_data.eligibility import EligibilityAssertion, EligibilityAssertions
@@ -31,7 +40,7 @@ class QualityReport(WireRecord, frozen=True, kw_only=True):
     Rejected raw bytes remain in the supplied occurrences or immutable raw store.
     """
 
-    scope: Literal["exploratory_degraded", "rejected"]
+    scope: Literal["exploratory_degraded", "causal_witnessed", "rejected"]
     reasons: tuple[str, ...]
     invalid_count: int
     gap_count: int
@@ -45,7 +54,7 @@ class QualityReport(WireRecord, frozen=True, kw_only=True):
             ValueError: Scope, reasons, counts or canonical-byte disposition is invalid.
             TypeError: A count has an unsafe Python type.
         """
-        if self.scope not in ("exploratory_degraded", "rejected") or (
+        if self.scope not in ("exploratory_degraded", "causal_witnessed", "rejected") or (
             type(self.reasons) is not tuple
             or not self.reasons
             or any(type(reason) is not str or not reason for reason in self.reasons)
@@ -54,13 +63,13 @@ class QualityReport(WireRecord, frozen=True, kw_only=True):
         for count in (self.invalid_count, self.gap_count, self.duplicate_count):
             MarketEventRecord._require_int(count, field_name="quality count")
         if (self.scope == "rejected" and self.canonical is not None) or (
-            self.scope == "exploratory_degraded"
+            self.scope in ("exploratory_degraded", "causal_witnessed")
             and (type(self.canonical) is not bytes or not self.canonical or self.invalid_count)
         ):
             raise ValueError("quality outcome and canonical bytes disagree")
 
     def require_canonical(self) -> bytes:
-        """Release bytes only for the accepted declared exploratory scope.
+        """Release bytes only for the accepted declared and explicitly limited scope.
 
         Returns:
             Deterministic bytes retaining quality policy, limitations and full histories.
@@ -78,14 +87,15 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
     """Own declared use, fixed eligibility cutoff and observed-gap tolerance.
 
     Exploratory use admits evidence limitations with explicit degraded annotations;
-    causal use requires coverage, membership and availability. Current archive and
-    captured-fixture contracts provide no complete recorder evidence, so causal use
-    fails closed. This boundary does not accept a caller-authored completeness flag.
+    strict causal use requires complete source evidence and remains fail-closed.
+    Witnessed use requires exact native capture agreement and historical source
+    eligibility, but retains unknown upstream coverage and unseen revision history.
+    This boundary does not accept a caller-authored completeness flag.
     """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
     schema_version: Literal["1"] = "1"
-    use: Literal["exploratory", "causal"]
+    use: Literal["exploratory", "causal", "witnessed"]
     known_at: datetime
     max_gap: timedelta
 
@@ -97,7 +107,7 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
             TypeError: The cutoff is not an aware datetime.
         """
         self._require_utc(self.known_at, field_name="known_at")
-        if self.schema_version != "1" or self.use not in ("exploratory", "causal"):
+        if self.schema_version != "1" or self.use not in ("exploratory", "causal", "witnessed"):
             raise ValueError("unsupported quality policy")
         if type(self.max_gap) is not timedelta or self.max_gap <= timedelta(0):
             raise ValueError("max_gap must be a positive timedelta")
@@ -110,6 +120,7 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
         eligibility: EligibilityAssertions,
         verifier: OccurrenceVerifier,
         corrections: tuple[Correction, ...] = (),
+        capture: ArchiveCapture | None = None,
     ) -> QualityReport:
         """Check one selected partition completely before releasing canonical bytes.
 
@@ -118,7 +129,10 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
             occurrences: Original ordered records per raw object; consumed into memory.
             verifier: Explicit native re-decoder bound to this source request.
             eligibility: Complete retained history, linked to the request's authored catalog.
-            corrections: Explicit MR 10 revision evidence; conflicts without links fail.
+            corrections: Explicit revision evidence; conflicts without links fail.
+            capture: Native Tardis slices corroborating the exact archive. Witnessed use
+                requires every selected economic version and source-backed eligibility;
+                it does not assert upstream completeness or an exhaustive revision history.
 
         Returns:
             Accepted degraded bytes or a rejected report with no publishable prefix.
@@ -193,7 +207,11 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
             | {
                 bound
                 for assertion in eligibility.assertions
-                for bound in (assertion.valid_from, assertion.valid_to)
+                for bound in (
+                    (assertion.valid_from, assertion.valid_to, assertion.ts_knowledge)
+                    if self.use == "witnessed"
+                    else (assertion.valid_from, assertion.valid_to)
+                )
                 if start < bound < end
             }
         )
@@ -202,7 +220,9 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                 left,
                 right,
                 eligibility.select(
-                    request.instrument.instrument_id, valid_at=left, known_at=self.known_at
+                    request.instrument.instrument_id,
+                    valid_at=left,
+                    known_at=min(left, self.known_at) if self.use == "witnessed" else self.known_at,
                 ),
             )
             for left, right in pairwise(boundaries)
@@ -212,15 +232,47 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                 reasons.append(f"eligibility {left.isoformat()}..{right.isoformat()}: {selected}")
         if unknown_availability:
             reasons.append("original trade availability unknown")
+        if capture is not None:
+            try:
+                heads = self._witness(heads, capture, verifier, request)
+                unknown_availability = False
+            except (ValueError, TypeError, OverflowError) as error:
+                errors.append(f"capture evidence: {error}")
+        if self.use == "witnessed":
+            if capture is None:
+                errors.append("witnessed admission requires native archive capture evidence")
+            for left, right, selected in membership:
+                if (
+                    not isinstance(selected, EligibilityAssertion)
+                    or selected.state != "included"
+                    or selected.evidence.basis != "source_evidence"
+                    or selected.ts_knowledge > left
+                ):
+                    errors.append(f"historical source eligibility unavailable: {left}..{right}")
+            if gaps or disconnects:
+                errors.append("witnessed admission refuses observed coverage failures")
+        if capture is not None and not unknown_availability:
+            reasons = [
+                reason for reason in reasons if reason != "original trade availability unknown"
+            ]
+            reasons.extend(
+                (
+                    "Captures corroborate selected ID/event/price/quantity/maker fields only",
+                    "Capture agreement cannot prove upstream completeness or unseen revisions",
+                )
+            )
         versions = {TradeRevision(occurrences=(item,)).identity for item in trades}
         duplicate_count = len(trades) - len(versions)
         reasons = sorted(set(reasons + errors))
         canonical = None
-        if not errors and self.use == "exploratory":
+        scope = "causal_witnessed" if self.use == "witnessed" else "exploratory_degraded"
+        if not errors and self.use in ("exploratory", "witnessed"):
             canonical = self._codec.encode_json(
                 {
-                    "schema_version": "canonical-trade-partition-v1",
-                    "scope": "exploratory_degraded",
+                    "schema_version": "canonical-trade-partition-v2"
+                    if capture is not None
+                    else "canonical-trade-partition-v1",
+                    "scope": scope,
                     "policy": self,
                     "request": request,
                     "eligibility": eligibility,
@@ -228,16 +280,80 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                     "reasons": tuple(reasons),
                     "revisions": heads,
                     "controls": tuple(sorted(controls, key=self._codec.encode_json)),
+                    **({"capture": capture} if capture is not None else {}),
                 }
             )
         return QualityReport(
-            scope="exploratory_degraded" if canonical is not None else "rejected",
+            scope=("causal_witnessed" if self.use == "witnessed" else "exploratory_degraded")
+            if canonical is not None
+            else "rejected",
             reasons=tuple(reasons),
             invalid_count=invalid_count,
             gap_count=gaps + disconnects,
             duplicate_count=duplicate_count,
             canonical=canonical,
         )
+
+    @classmethod
+    def _witness(
+        cls,
+        heads: tuple[TradeRevision, ...],
+        capture: ArchiveCapture,
+        verifier: OccurrenceVerifier,
+        request: SourceRequest,
+    ) -> tuple[TradeRevision, ...]:
+        """Match every retained economic version to native recorder evidence, without inference."""
+        if not isinstance(verifier, ArchiveCaptureVerifier):
+            raise ValueError("source verifier does not support archive capture evidence")
+        observed: dict[tuple[int, datetime, Decimal, Decimal, bool], datetime] = {}
+        start, end = request.manifest.job.start, request.manifest.job.end
+        for event in verifier.captures(capture):
+            key = cls._capture_key(event)
+            observed[key] = min(
+                observed.get(key, event.provenance.ts_knowledge), event.provenance.ts_knowledge
+            )
+        used: set[tuple[int, datetime, Decimal, Decimal, bool]] = set()
+        result: list[TradeRevision] = []
+        identity = capture.identity
+        for head in heads:
+            chain: list[TradeRevision] = []
+            current: TradeRevision | None = head
+            while current is not None:
+                chain.append(current)
+                current = current.previous
+            for version in reversed(chain):
+                if any(
+                    item.origin.sha256 != capture.archive_sha256 for item in version.occurrences
+                ):
+                    raise ValueError("capture refers to another archive object")
+                archive_event = version.occurrences[0].event
+                if not isinstance(archive_event, ArchiveTrade):
+                    raise ValueError("capture witness requires original archive trades")
+                key = cls._capture_key(archive_event)
+                if key not in observed or key in used:
+                    raise ValueError("archive version missing or ambiguous in native capture")
+                used.add(key)
+                current = replace(
+                    version,
+                    previous=current,
+                    availability=ArchiveAvailability(
+                        evidence_identity=identity,
+                        available_at=observed[key],
+                    ),
+                )
+            if current is not None:
+                result.append(current)
+        if {key for key in observed if start <= key[1] < end} != used:
+            raise ValueError(
+                "native capture includes unmatched selected archive trades or revisions"
+            )
+        return tuple(result)
+
+    @staticmethod
+    def _capture_key(event: ArchiveTrade | Trade) -> tuple[int, datetime, Decimal, Decimal, bool]:
+        """Bind only fields actually present in both independent source representations."""
+        instant = event.ts_event if isinstance(event, ArchiveTrade) else event.provenance.ts_event
+        return event.trade_id, instant, event.price, event.quantity, event.is_buyer_maker
 
     @staticmethod
     def _check_occurrence(

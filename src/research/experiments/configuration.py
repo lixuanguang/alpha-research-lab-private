@@ -7,10 +7,13 @@ import hashlib
 from datetime import timedelta
 from pathlib import Path
 
+# third party library imports
+import msgspec
+
 # project library imports
 from research.experiments.identity import ExperimentSpec, Fingerprint
 from research.experiments.reports import ReportPolicy
-from research.experiments.splits import TemporalSplit
+from research.experiments.splits import TemporalSplit, TimeWindow
 from research.features import TrailingReturn
 from serialization import DomainCodec, WireRecord
 from simulation import BacktestSpec
@@ -23,7 +26,8 @@ class BacktestRun(WireRecord, frozen=True):
     snapshot_id: str
     economics: BacktestSpec
     report: ReportPolicy
-    split: TemporalSplit
+    split: TemporalSplit | None
+    engineering_sample: TimeWindow | msgspec.UnsetType = msgspec.UNSET
     feature: TrailingReturn | None = None
     versioned_inputs_sha256: str | None = None
     schema_version: str = "configured-backtest-v1"
@@ -34,29 +38,45 @@ class BacktestRun(WireRecord, frozen=True):
         if self.versioned_inputs_sha256 is not None:
             Fingerprint(name="versioned-inputs", sha256=self.versioned_inputs_sha256)
         if (
-            self.schema_version != "configured-backtest-v1"
+            self.schema_version
+            not in ("configured-backtest-v1", "configured-engineering-sample-v1")
             or type(self.economics) is not BacktestSpec
             or type(self.report) is not ReportPolicy
-            or type(self.split) is not TemporalSplit
         ):
             raise ValueError("unsupported configured economic research schema")
         self.economics.__post_init__()
         self.report.__post_init__()
-        self.split.__post_init__()
+        if self.schema_version == "configured-engineering-sample-v1":
+            if self.split is not None or type(self.engineering_sample) is not TimeWindow:
+                raise ValueError("engineering sample requires its interval and no temporal split")
+            self.engineering_sample.__post_init__()
+            if (self.engineering_sample.start, self.engineering_sample.end) != (
+                self.economics.start,
+                self.economics.end,
+            ):
+                raise ValueError("engineering sample must exactly match economic interval")
+        else:
+            if (
+                type(self.split) is not TemporalSplit
+                or self.engineering_sample is not msgspec.UNSET
+            ):
+                raise ValueError("validation study requires its temporal split")
+            self.split.__post_init__()
         if self.feature is not None:
             if type(self.feature) is not TrailingReturn:
                 raise TypeError("configured diagnostic requires TrailingReturn")
             self.feature.__post_init__()
-        if (
+        if self.split is not None and (
             self.split.fit_mode != "none"
             or self.split.samples
             or not self.split.validation.start
             <= self.economics.start
             < self.economics.end
             <= self.split.validation.end
-            or self.report.cadence_seconds != self.economics.cadence_seconds
         ):
             raise ValueError("configured economics requires a no-fit validation window")
+        if self.report.cadence_seconds != self.economics.cadence_seconds:
+            raise ValueError("report cadence differs from economic cadence")
         cadence = timedelta(seconds=self.economics.cadence_seconds)
         duration = self.economics.end - self.economics.start
         ends = tuple(self.economics.start + cadence * i for i in range(1, duration // cadence + 1))
@@ -103,14 +123,27 @@ class BacktestRun(WireRecord, frozen=True):
             Existing attempt-core specification, with fitting explicitly inapplicable.
         """
         return ExperimentSpec(
+            schema_version=(
+                "experiment-spec-v1"
+                if self.split is not None
+                else "experiment-engineering-sample-v1"
+            ),
             family=self.family,
             inputs=(
                 Fingerprint(name="snapshot", sha256=self.snapshot_id),
                 Fingerprint(name="resolved-configuration", sha256=self.identity),
             ),
             components=(Fingerprint(name="implementation", sha256=implementation),),
-            parameters=(("scope", "offline cash-funded spot validation"),),
-            seeds=(),
+            parameters=(
+                (
+                    "scope",
+                    "offline cash-funded spot validation"
+                    if self.split is not None
+                    else "unfitted engineering sample; no strategy selection",
+                ),
+            ),
+            seeds=() if self.split is not None else (("deterministic-rule", 0),),
             environment_sha256=environment,
             split=self.split,
+            engineering_sample=self.engineering_sample,
         )

@@ -11,7 +11,7 @@ from typing import Literal
 
 # project library imports
 from market_data.acquisition import AcquisitionManifest
-from market_data.contracts import Occurrence, SourceRequest
+from market_data.contracts import ArchiveCapture, Occurrence, SourceRequest
 from market_data.datasets.books import BookDatasetManifest, BookInput, BookPartition
 from market_data.datasets.manifests import DatasetInput, DatasetManifest, DatasetPartition
 from market_data.datasets.readers import DatasetReaders
@@ -210,6 +210,9 @@ class DatasetPublication:
                     policy=selected.policy,
                     eligibility=selected.eligibility,
                     corrections=evidence,
+                    capture=selected.capture
+                    if isinstance(selected.capture, ArchiveCapture)
+                    else None,
                 )
                 if report is not None:
                     report(acquisition.run.identity, outcome)
@@ -222,6 +225,7 @@ class DatasetPublication:
                         policy=selected.policy,
                         eligibility=selected.eligibility,
                         corrections=evidence,
+                        capture=selected.capture,
                     )
                 )
                 payloads.append(canonical)
@@ -229,8 +233,19 @@ class DatasetPublication:
                 raise ValueError(
                     "dataset correction evidence names an unselected partition payload"
                 )
+        witnessed = any(isinstance(part.capture, ArchiveCapture) for part in partitions)
         return DatasetManifest(
+            schema_version="2" if witnessed else "1",
+            canonical_schema="canonical-trade-partition-v2"
+            if witnessed
+            else "canonical-trade-partition-v1",
+            availability_policy="native-witness-or-evidenced-later-v2"
+            if witnessed
+            else "original-or-evidenced-later-v1",
             normalization_identity=self._normalization_identity,
+            scope="causal_witnessed"
+            if all(p.policy.use == "witnessed" for p in partitions)
+            else "exploratory_degraded",
             partitions=tuple(partitions),
         ), tuple(payloads)
 
@@ -243,6 +258,7 @@ class DatasetPublication:
         policy: QualityPolicy,
         eligibility: EligibilityAssertions,
         corrections: tuple[Correction, ...] = (),
+        capture: ArchiveCapture | None = None,
     ) -> QualityReport:
         """Route one saved partition through quality admission before publication.
 
@@ -253,6 +269,7 @@ class DatasetPublication:
             policy: Declared use, eligibility cutoff and maximum observed silence.
             eligibility: Retained assertions tied to the acquisition's exact catalog/units.
             corrections: Explicit evidence linking economic versions within this partition.
+            capture: Optional complete native captures for witnessed archive admission.
 
         Returns:
             Scoped report with invalid/gap counts; require_canonical refuses rejected input.
@@ -270,6 +287,7 @@ class DatasetPublication:
                 occurrences,
                 eligibility=eligibility,
                 corrections=corrections,
+                capture=capture,
                 verifier=self._readers.verifier(requests[0]),
             )
 

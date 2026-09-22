@@ -225,6 +225,9 @@ def run_configured(
                 )
             else:
                 report = QuantStatsReport.build(result, selected.report)
+                if selected.split is None:
+                    limitations: tuple[str, ...] = (*report.limitations, *inputs.limitations)
+                    report = replace(report, limitations=limitations)
                 manifest = ResultManifest.retain(
                     store,
                     start.attempt_id,

@@ -16,7 +16,7 @@ import msgspec
 
 # project library imports
 from market_data.acquisition import AcquisitionManifest
-from market_data.contracts import SourceRequest
+from market_data.contracts import ArchiveCapture, SourceRequest
 from market_data.datasets.readers import DatasetReaders
 from market_data.storage import RawStore
 from market_data.validation import Correction, QualityPolicy, QualityReport
@@ -35,6 +35,7 @@ class DatasetInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fie
     policy: QualityPolicy
     eligibility: EligibilityAssertions
     corrections: tuple[Correction, ...] = ()
+    capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Require explicit typed admission inputs without admitting their observations.
@@ -46,6 +47,7 @@ class DatasetInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fie
             type(self.acquisition) is not AcquisitionManifest
             or type(self.policy) is not QualityPolicy
             or type(self.eligibility) is not EligibilityAssertions
+            or (self.capture is not msgspec.UNSET and type(self.capture) is not ArchiveCapture)
             or type(self.corrections) is not tuple
             or any(type(item) is not Correction for item in self.corrections)
         ):
@@ -139,6 +141,7 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
     policy: QualityPolicy
     eligibility: EligibilityAssertions
     corrections: tuple[Correction, ...] = ()
+    capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Reject incomplete, foreign or unsupported partition declarations.
@@ -152,6 +155,7 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
             type(self.acquisition) is not AcquisitionManifest
             or type(self.policy) is not QualityPolicy
             or type(self.eligibility) is not EligibilityAssertions
+            or (self.capture is not msgspec.UNSET and type(self.capture) is not ArchiveCapture)
             or type(self.corrections) is not tuple
         ):
             raise ValueError("dataset partition requires typed admission inputs")
@@ -163,9 +167,13 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
             or len(self.acquisition.completed) != 1
             or self.acquisition.pending is not None
             or self.acquisition.run.catalog.identity != self.eligibility.catalog.identity
-            or self.policy.use != "exploratory"
+            or self.policy.use not in ("exploratory", "witnessed")
         ):
-            raise ValueError("dataset requires one complete exploratory archive partition")
+            raise ValueError(
+                "dataset requires one complete witnessed archive partition"
+                if self.policy.use == "witnessed"
+                else "dataset requires one complete exploratory archive partition"
+            )
         if self.acquisition.run.job.provider != "binance-archive":
             raise ValueError("unsupported saved source; only Binance daily archive is installed")
         for correction in self.corrections:
@@ -178,18 +186,21 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
     """Identify ordered admitted partitions without claiming atomic snapshot publication.
 
     Version 1 fixes canonical-trade-partition-v1, evidenced corrections and original
-    availability extended only by evidenced later corrections. Changing those rules
-    requires another supported format version. This reader supports exploratory use.
+    availability extended only by evidenced later corrections.
+    Version 2 retains native capture witnesses and separately scoped causal use.
+    Version 1 saved inputs preserve their original byte and semantic identities.
     """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    schema_version: Literal["1"] = "1"
-    canonical_schema: Literal["canonical-trade-partition-v1"] = "canonical-trade-partition-v1"
-    correction_policy: Literal["evidenced-v1"] = "evidenced-v1"
-    availability_policy: Literal["original-or-evidenced-later-v1"] = (
-        "original-or-evidenced-later-v1"
+    schema_version: Literal["1", "2"] = "1"
+    canonical_schema: Literal["canonical-trade-partition-v1", "canonical-trade-partition-v2"] = (
+        "canonical-trade-partition-v1"
     )
-    scope: Literal["exploratory_degraded"] = "exploratory_degraded"
+    correction_policy: Literal["evidenced-v1"] = "evidenced-v1"
+    availability_policy: Literal[
+        "original-or-evidenced-later-v1", "native-witness-or-evidenced-later-v2"
+    ] = "original-or-evidenced-later-v1"
+    scope: Literal["exploratory_degraded", "causal_witnessed"] = "exploratory_degraded"
     normalization_identity: str
     partitions: tuple[DatasetPartition, ...]
 
@@ -200,11 +211,13 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             ValueError: The format, scope, code identity or partition selection is invalid.
         """
         if (
-            self.schema_version != "1"
-            or self.canonical_schema != "canonical-trade-partition-v1"
+            (self.schema_version, self.canonical_schema, self.availability_policy)
+            not in (
+                ("1", "canonical-trade-partition-v1", "original-or-evidenced-later-v1"),
+                ("2", "canonical-trade-partition-v2", "native-witness-or-evidenced-later-v2"),
+            )
             or self.correction_policy != "evidenced-v1"
-            or self.availability_policy != "original-or-evidenced-later-v1"
-            or self.scope != "exploratory_degraded"
+            or self.scope not in ("exploratory_degraded", "causal_witnessed")
             or type(self.normalization_identity) is not str
             or re.fullmatch(r"[0-9a-f]{64}", self.normalization_identity) is None
             or type(self.partitions) is not tuple
@@ -216,6 +229,10 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             if type(partition) is not DatasetPartition:
                 raise ValueError("dataset requires DatasetPartition records")
             partition.__post_init__()
+            if (self.schema_version == "2") != isinstance(partition.capture, ArchiveCapture):
+                raise ValueError("dataset version differs from capture admission inputs")
+            if (self.scope == "causal_witnessed") != (partition.policy.use == "witnessed"):
+                raise ValueError("dataset scope differs from partition admission")
             identity = SourceRequest.partition(partition.acquisition.run)[0].identity
             if identity in selected:
                 raise ValueError("dataset contains a duplicate source partition")
@@ -288,6 +305,9 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
                     occurrences,
                     eligibility=partition.eligibility,
                     corrections=partition.corrections,
+                    capture=partition.capture
+                    if isinstance(partition.capture, ArchiveCapture)
+                    else None,
                     verifier=readers.verifier(reader.request),
                 )
             if outcome.require_canonical() != canonical:

@@ -145,3 +145,12 @@ consumer tests together. Preserve retained results/checkpoints and ClearML tasks
 as historical evidence. An older wheel must not resume the new checkpoint schema.
 Existing query APIs, snapshots and previously installed commands retain their contracts. There is
 no deployment, account state or trading activity to reverse.
+
+
+Frozen engineering-sample execution now uses the same runner through the
+[configured experiment mode](../research/experiments/README.md#unfitted-engineering-samples).
+Native archive witnesses carry their effective availability through observations,
+delayed fills, terminal marking and complete checkpoint recovery. Economic reports
+preserve admission scope and unknown coverage; completed accounting does not itself
+establish empirical P1 acceptance. Frozen parameters and the original independent
+hand-ledger/rounding oracles are unchanged.
