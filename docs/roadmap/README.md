@@ -1518,8 +1518,9 @@ and fill assumptions, decisions, orders, fills and an exactly reconciled report.
 The complete and interrupted/resumed runs must agree, including pending orders,
 consumed liquidity and independent instance state. Focused hand-calculated cases
 must cover depth walking, insufficient size/partial fills, fees and cash/position
-postings; causal checks must show that later or unavailable book changes cannot
-alter an earlier decision or fill. Exercise invalid/stale inputs and a different
+postings; causal checks must show that future changes cannot alter earlier
+decisions or fills, and decisions see only book updates delivered by the modeled
+feed clock. Exercise invalid/stale inputs and a different
 declared delay, preserving failures instead of silently filling gaps. Use bounded
 configuration/fixture cases to verify another supported spot instrument and
 isolated strategy instances; reject unsupported product mechanics explicitly.
