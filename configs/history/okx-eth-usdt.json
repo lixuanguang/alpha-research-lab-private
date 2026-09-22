@@ -1,0 +1,14 @@
+{
+  "symbol": "ETH-USDT",
+  "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+  "base_currency": "ETH",
+  "quote_currency": "USDT",
+  "day": "2026-09-20",
+  "max_bytes": 160000000,
+  "max_expanded_bytes": 1000000000,
+  "max_records": 10000,
+  "max_line_bytes": 1000000,
+  "duration_seconds": 180,
+  "timeout_seconds": 30,
+  "retries": 2
+}

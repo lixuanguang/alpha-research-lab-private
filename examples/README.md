@@ -392,6 +392,15 @@ new orchestration framework or second production implementation.
 
 ## Start with your research question
 
+For a real saved order-book study, open
+[ETH/USDT historical order book](orderbook-research.ipynb). It selects the downloaded
+OKX ETH-USDT archive for 2026-09-20, the newest day listed when checked on
+2026-09-22 after the requested September 21 archive was unavailable. The complete
+daily file is retained locally; charts cover only the first 10,000 messages.
+This notebook uses the existing OKX reader for spread and depth inspection and
+does not run the trade-price strategy backtester. See
+[setup and download instructions](notebook-operations.md#historical-order-book-study).
+
 Two reader journeys each have an offline and a live version. The existing filenames
 remain the offline entry points so saved commands and links continue to work.
 

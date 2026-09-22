@@ -118,6 +118,62 @@ Existing `data/bitfinex/`, `data/okx/`, `data/binance-archives/` and ignored
 run snapshots retain their original environment-variable meaning. No latest-input
 search or automatic source switch occurs in the current QR path.
 
+## Historical order-book study
+
+[Order-book research](orderbook-research.ipynb) is a real saved-data experiment
+alongside the workflow tutorials. Its settings cell selects the exact OKX archive
+directory and [ETH-USDT configuration](../configs/history/okx-eth-usdt.json).
+The 2026-09-22 public index check found no September 21 archive and selected the
+latest listed day, **2026-09-20**. The saved full-day archive is 97,973,786 bytes;
+the existing reader replayed 10,000 messages from 00:00:00.001 through
+00:06:00.252 UTC. This is a six-minute inspection, not full-day semantic validation.
+
+The saved download is
+`data/okx/history/f62e64b7-1b40-4869-8b05-2ca911fefcef/`. It is ignored by Git,
+so another checkout needs the complete directory or a separate download. The
+raw SHA-256 is `d5d530e6ce635d0e92ba4cd6d280b0aa2f64e918f09e2822018ed061846e1ea3`.
+The directory retains the exact selected index, request and raw bytes; its
+`availability-check/` also retains the original recent-day and September 21
+index responses. A fresh download gets its own directory; update the notebook's
+`ARCHIVE` setting explicitly rather than choosing a mutable latest directory.
+
+```sh
+uv run --frozen --no-editable alpha-acquire archive index --config configs/history/okx-eth-usdt.json
+uv run --frozen --no-editable alpha-acquire archive fetch --config configs/history/okx-eth-usdt.json --output data/okx/history
+```
+
+These commands contact OKX's public service. Running the notebook only reads saved
+files and creates a new local result directory:
+
+```sh
+uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
+  python examples/run_notebook.py examples/orderbook-research.ipynb --kernel-python .venv/bin/python
+```
+
+The kernel must contain the installed current package and `ipykernel`; use the
+existing setup below. The notebook verifies the complete archive and compares its
+EDA reconstruction with the installed reader's state and trace digests. It retains
+exact spread/depth observations, approximate charts and a result with strategy P&L
+explicitly absent. Current economics consumes trade prices, not L2 books; the
+archive also has no original receipt times or sequence IDs. No synthetic prices,
+source clocks or economic fills are substituted. Preserve executed notebooks and
+market-derived outputs under ignored `examples/runs/`, and clear the maintained
+notebook's outputs before committing.
+
+[MR 9A](../docs/roadmap/README.md#l2-order-book-backtesting) plans the next step:
+run a book-based strategy, simulate immediate orders against available depth, and
+produce a cash/position/P&L report before MR 10 packages an order-book candidate.
+
+Verified on 2026-09-22: all 12 cells (six code cells) completed in a fresh kernel
+after formatting. The 10,000 exact observations and replay report matched the
+earlier independent kernel run byte for byte; neither run had a crossed book or
+missing side in this prefix. Ruff lint/format, guide file links and the existing
+architecture link check passed. Results remain under ignored
+`examples/runs/orderbook-research/424f9214-41bc-4d9c-8af5-7a42b4c08286-artifacts/`.
+
+To reverse this study setup, remove its configuration, notebook and these guide
+entries together. Preserve the downloaded archive and completed/failed runs.
+
 ## Frozen source evidence
 
 The [QR live notebook](research-foundations-live.ipynb) now defaults to
