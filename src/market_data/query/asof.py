@@ -13,6 +13,7 @@ import msgspec
 
 # project library imports
 from market_data.contracts import (
+    ArchiveCapture,
     ArchiveTrade,
     Disconnect,
     Occurrence,
@@ -38,8 +39,8 @@ class _Partition(WireRecord, frozen=True, kw_only=True):
     _wire: ClassVar[msgspec.json.Decoder[dict[str, msgspec.Raw]]] = msgspec.json.Decoder(
         dict[str, msgspec.Raw]
     )
-    schema_version: Literal["canonical-trade-partition-v1"]
-    scope: Literal["exploratory_degraded"]
+    schema_version: Literal["canonical-trade-partition-v1", "canonical-trade-partition-v2"]
+    scope: Literal["exploratory_degraded", "causal_witnessed"]
     policy: QualityPolicy
     request: SourceRequest
     eligibility: EligibilityAssertions
@@ -49,6 +50,7 @@ class _Partition(WireRecord, frozen=True, kw_only=True):
     reasons: tuple[str, ...]
     revisions: tuple[TradeRevision, ...]
     controls: tuple[Occurrence, ...]
+    capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Reject altered canonical claims using the existing source and quality gate.
@@ -90,6 +92,7 @@ class _Partition(WireRecord, frozen=True, kw_only=True):
             eligibility=self.eligibility,
             corrections=tuple(corrections.values()),
             verifier=verifier,
+            capture=self.capture if isinstance(self.capture, ArchiveCapture) else None,
         )
         # Both encodings use the same sorted domain codec. Compare field bytes
         # without allocating two additional trees of nested Python dictionaries.

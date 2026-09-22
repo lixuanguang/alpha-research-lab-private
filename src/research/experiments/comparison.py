@@ -62,6 +62,8 @@ class ComparisonStudy(WireRecord, frozen=True):
             if type(item) is not BacktestRun:
                 raise TypeError("comparison variants must be resolved BacktestRun records")
             item.__post_init__()
+            if item.split is None:
+                raise ValueError("engineering samples cannot enter parameter selection")
             if item.versioned_inputs_sha256 is not None:
                 raise ValueError(
                     "comparison requires local pinned snapshots; "

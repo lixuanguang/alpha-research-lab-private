@@ -753,7 +753,7 @@ snapshot publication and the dataset command apply separate contracts.
 
 ## Validate a canonical partition
 
-Import `QualityPolicy` from [`quality.py`](validation/quality.py). For saved Binance inputs,
+Import `QualityPolicy` from `market_data.validation`. For saved Binance inputs,
 call `DatasetPublication.validate_partition` on `DatasetPublication` from `market_data.datasets` with one
 explicit acquisition manifest, its `RawStore`, the matching `EligibilityAssertions`,
 a positive archive byte cap and a policy. For an already decoded bounded batch,
@@ -824,7 +824,7 @@ and build time are not semantic fields. Original evidence clocks are retained.
 
 The reader reuses existing archive, occurrence, eligibility and quality contracts.
 It verifies all raw/canonical files and reproduces admission before returning the
-manifest. Only `exploratory_degraded` is supported; historical evidence limitations
+manifest. `exploratory_degraded` and `causal_witnessed` are supported; historical evidence limitations
 remain visible. This is a bounded in-memory reference path with one saved raw
 archive per partition, not a query API or an atomic snapshot. The
 [manifest contract](../../docs/data/contracts.md#dataset-manifest-identity-and-verification)
@@ -1441,3 +1441,41 @@ installed consumer is `alpha-backtest`; see the [local versioning, retention and
 restore guide](../../configs/development/lakefs/README.md). Model/report artifacts
 remain separate in ClearML. This is synthetic local integration, not shared storage
 or deployment qualification.
+
+
+## Witnessed archive availability
+
+Owner: repository founder. Implemented for saved Binance individual-trade archives.
+`ArchiveCapture` and `CaptureSlice` from `market_data.contracts` retain the exact
+archive request/raw identity, public-access reference, actual retrieval clocks and
+complete uncompressed native Tardis response slices. Their capture-time intervals
+must be contiguous and cover the selection; each native timestamp must fall within
+its response interval. `SourceAdapters` reuses the Tardis/Binance decoders, including
+conservative sub-microsecond ceiling. No timestamp is copied into `ArchiveTrade`.
+
+Supply `capture=` on a `DatasetInput` or `validate_partition`. Full native re-decoding
+must match every selected economic version on trade ID, exchange event time, exact
+price/quantity and maker side. Missing, extra or conflicting selected messages,
+disconnect markers, incorrect archive binding and malformed slices reject the whole
+partition before publication. Archive quote quantity and best-match metadata remain
+archive fields; their historical availability is not established by the witness.
+Corrections still need the existing explicit links, and usable knowledge is bounded
+by capture, predecessor and correction availability. Raw digest/order never chooses
+an economic version. All evidence bytes enter canonical and dataset identities and
+are checked again when reopening a snapshot.
+
+`QualityPolicy(use="witnessed", ...)` admits `causal_witnessed` scope only with this
+match, no observed policy gap and included `source_evidence` eligibility known by
+each historical interval start. Unknown, late-authored or assumed membership fails.
+Query, replay and economics carry the witness clock, scope and limitations through
+cutoffs and complete checkpoints. Existing exploratory bytes and identities omit
+absent new fields and remain readable. This mode is available through the curated
+publication API; no new application or library command was added.
+
+**This is scoped causal use of witnessed rows, not full empirical admission.**
+Agreement between two retained representations and no observed gaps do not prove
+uninterrupted recorder health, upstream completeness or an exhaustive revision
+history. Those facts stay unknown in reports. Existing `use="causal"` still refuses
+incomplete source evidence; there is no generic evidence registry or caller-authored
+completion switch. Actual frozen P1 eligibility and full-source acceptance remain
+open in the [source record](../../docs/research/p1-baseline.md#source-investigation-continuation).

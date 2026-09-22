@@ -9,8 +9,9 @@ The [saved-source verification record](#saved-source-verification) records the
 2026-09-21/22 acceptance attempt and the exact evidence still needed. The frozen
 economics now have explicit [momentum](../../configs/backtests/p1-btcusdt-return-v1.json)
 and [no-trade](../../configs/backtests/p1-btcusdt-no-trade-v1.json) configurations
-for the existing `applications.backtest.run_backtest` consumer. These are
-`BacktestSpec` inputs, not `alpha-backtest run`'s validation-study configuration.
+for the existing `applications.backtest.run_backtest` consumer. These unchanged `BacktestSpec` inputs can be embedded in the explicit
+[engineering-sample configuration](../../src/research/experiments/README.md#unfitted-engineering-samples)
+for `alpha-backtest run`; no validation or holdout window is invented.
 
 The selected source is Binance public spot-trade archives, authorized before any
 comparative strategy result. The source policy, exact arithmetic and chronological
@@ -247,8 +248,8 @@ neither complete outcome. Completing one does not retire the other's requirement
 
 ## Saved-source verification
 
-Owner: repository founder. Status: **acceptance open; source refusal verification
-implemented**, 2026-09-22. The implementation starts from main `86835ee8`. No
+Owner: repository founder. Status at the first delivery: **acceptance open; source refusal verification
+implemented**, 2026-09-22. The continuation below supersedes its software gaps. The implementation starts from main `86835ee8`. No
 sample, strategy, timing, fee, rounding, size or capital parameter has changed.
 The original acquisition and receipt clocks remain intact.
 
@@ -269,8 +270,8 @@ capture. The publisher sidecar's observed Last-Modified is
 | Historical receipt/availability | The [pinned archive documentation](https://github.com/binance/binance-public-data/blob/5c7f3197591c0d54d85dc43066226bc4c671d47a/README.md) describes exchange-event timestamps and later daily publication. It supplies no recorder receipt timestamp for the selected trades. Event-time availability would remain an assumption. |
 | Revision availability | One retained archive and its current checksum do not establish the sequence and availability of previous economic versions. The published update listing supplies no per-trade history for this sample. |
 | Coverage | Native full-file decoding and observed continuity checks cannot prove that no trade was omitted upstream. There is no retained recorder health/disconnect evidence for this hour. |
-| Causal publication support | `QualityPolicy` currently supports only degraded exploratory publication and rejects causal use. Evidence-backed causal admission needs its own concrete input contract and verification after the required source evidence is obtained; a caller-supplied completeness flag is insufficient. |
-| Frozen retained economic reports | MR 6's configured attempt/report path requires validation and holdout windows. P1 has neither. An explicit unfitted engineering-sample representation is still needed before a qualified P1 result can use that retained workflow; inventing split windows would change the frozen specification. |
+| Causal publication support | At the first delivery, `QualityPolicy` supported only degraded exploratory publication and rejected causal use. Evidence-backed causal admission needs its own concrete input contract and verification after the required source evidence is obtained; a caller-supplied completeness flag is insufficient. |
+| Frozen retained economic reports | At the first delivery, MR 6's configured attempt/report path required validation and holdout windows. P1 has neither. An explicit unfitted engineering-sample representation is still needed before a qualified P1 result can use that retained workflow; inventing split windows would change the frozen specification. |
 
 The [installed source consumer](../../tests/integration/consumers/backtest/source_acceptance.py)
 exhausts the saved native reader, retains the real causal quality refusal, verifies
@@ -322,3 +323,90 @@ It cannot fill the empirical gaps above. Reversal removes the consumer/configs a
 reverts these acceptance notes together while preserving original raw data,
 failed attempts, matching wheels and verification output. No deployment or trading
 authority follows from this work.
+
+
+## Source investigation continuation
+
+Owner: repository founder. Updated 2026-09-22. **MR 8 acceptance remains open.**
+Continuation starts at `2c93536`; fetched `origin/main` was still `86835ee80a4f420133416d6148886b9a1fbc0150`,
+already its parent. No merge or replacement PR was needed. The original ZIP,
+acquisition clocks, frozen configurations and previous failed attempts remain intact.
+
+New public evidence is retained in the primary checkout's ignored
+`logs/frozen-baseline/2026-09-22/source-evidence/`. Each download has its exact URL,
+HTTP headers/status, actual request/receipt clocks, byte length and SHA-256 in a
+sibling `.receipt.json`. Tardis permits unauthenticated first-day-of-month native
+feed access in its [HTTP API documentation](https://docs.tardis.dev/api/http-api-reference.md).
+This is auxiliary evidence for the existing Binance archive, not a source or window
+substitution. Private research access does not establish redistribution or indefinite
+retention rights. No credential, subscription or purchase was used.
+
+Seven complete native response slices cover recorder time `00:00–01:01 UTC` (six
+ten-minute slices plus one terminal minute to inspect delayed arrivals). They contain
+28,055 captured messages including boundary events. Independent exact comparison
+found all **27,480 frozen-hour archive trades** with matching individual ID, exchange
+event time, price, quantity and maker side; zero missing or conflicting selected
+payloads. The interval's trade IDs are 3620989757–3621017236. Native receipt timestamps
+supply conservative known-by times for those matched fields; they do not rewrite
+archive event time or establish an original local-system receipt clock. Sub-microsecond
+source capture precision is conservatively rounded upward by the existing decoder.
+Archive quote quantity and best-match metadata are not covered by this comparison.
+The isolated installed candidate independently verified the same 27,480 matches;
+its runtime identity is `6c5a559eea3677ab7343a6175749e959e9673484cd0f0076eaf382eee205788b`.
+The exact concrete capture identity is
+`99db0e477bf651dadd9ff564cf8fcf4e6cca6632f3cd1d6667b284db4d280385`.
+The final selected capture is `2024-06-01T01:00:00.005781+00:00`, after the
+sample's end; it cannot be made available to an earlier decision. The retained
+`installed-probe.json` and clock manifest identify this check. It does not publish
+or run economics on the actual sample.
+
+| Required fact | New evidence and precise consequence |
+| --- | --- |
+| Historical eligibility and reference availability | Tardis exchange metadata lists BTCUSDT spot data available since 2019-03-30. Its [metadata contract](https://docs.tardis.dev/api/instruments-metadata-api.md) says trading status is current and most historical changes are best-effort. Neither that listing, traded rows, nor the 2017 announcement establishes historical eligibility throughout the hour or when its reference facts became available. No inclusion assertion was authored for the actual sample. |
+| Trade availability | Native captured messages corroborate all selected decision-relevant fields at their recorder timestamps. This is stronger than event-time inference, but does not establish the earliest original publication or availability of archive-only fields. |
+| Corrections/revisions | No conflicting selected payload appeared in the retrieved tape. That is an observation, not an exhaustive vendor revision history. A provider record establishing original versions and publication/availability of every relevant correction is still missing. |
+| Coverage/outages/omissions | No blank disconnect markers appeared. The retained incident inventory reports a June 14 outage, none overlapping this hour. These negative observations and exact archive/tape agreement do not prove uninterrupted recorder health or exclude omissions shared by both representations. Positive interval-applicable coverage evidence remains missing. |
+| Rights/access | Official unauthenticated sample access and exact source URLs/receipts are retained. Existing private research scope is unchanged; long-term retention and redistribution rights remain unestablished. |
+
+The existing [market-data owners](../../src/market_data/README.md#witnessed-archive-availability)
+now support native evidence-backed **scoped** causal admission (`use="witnessed"`,
+`scope="causal_witnessed"`). It requires exact native agreement, historical source
+eligibility and no observed policy gap, preserves unknown completeness and unseen
+revisions, and binds all evidence into version-2 publication/query/replay identities.
+Original archive records remain unchanged. Strict `use="causal"` remains fail-closed;
+there is no completion flag that upgrades missing evidence. Full empirical causal
+admission still needs a concrete source contract for the remaining coverage/revision
+facts; this scope must not be treated as satisfying that requirement.
+
+Explicit unfitted engineering samples now use the existing configured backtest,
+attempt journal, complete checkpoints, atomic costed reports and ClearML recovery.
+A family cannot switch between this design and a validation/holdout design, and
+engineering samples cannot consume a holdout or enter parameter comparisons.
+Old inputs omit absent new fields and retain their original identities. No library
+command, alternate economic runner or sibling application dependency was added.
+
+The installed synthetic consumer uses **both unchanged frozen configurations** with
+native fixture captures and explicitly hypothetical reference facts. Its independent
+example buys 0.001 BTC at 111.01 (fee 0.00011101) and sells at 103.99
+(fee 0.00010399): gross -0.007 minus slippage 0.00002 and fees 0.000215 equals
+net **-0.007235 USDT**, final flat cash/NAV **999.99276500 USDT**. No-trade retains
+1000 USDT and zero costs. These are software oracles, not measured strategy results.
+The fixture cannot be attached to the actual archive. Fresh-process resume and repeat
+compare complete result manifests; admission failure produces no snapshot.
+
+The 2026-09-21 refusal output is reused only for its original state and non-admission
+claim. The continuation does not rerun that unchanged actual-source economics merely
+to produce another refusal. New runtime behavior requires new checks and installed
+proof, recorded in the [roadmap continuation](../roadmap/README.md#frozen-baseline-continuation).
+Original source integrity remains supported because its retained bytes and selection
+are unchanged. Existing independent monetary/rounding oracles remain authoritative.
+
+Remaining prerequisite: obtain historical BTCUSDT eligibility/reference availability,
+positive interval coverage and complete applicable version/correction evidence tied
+to these bytes and this hour. If unavailable, purchasing evidence, changing source or
+window, or amending the frozen acceptance standard requires an explicit founder
+decision; none was made here. Actual-source costed baseline execution and acceptance
+remain unproven. Revert the continuation commit and its documentation together;
+retain original data, new source responses, all attempts and matching candidate wheels.
+Version-2 witnessed snapshots and engineering configurations require this candidate
+or later; version-1 readers cannot read them. No deployment or trading follows.

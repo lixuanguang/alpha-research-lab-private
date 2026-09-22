@@ -507,7 +507,11 @@ and train-only centered least-squares state, reload-only inference and exact
 predictive evaluation. ClearML publication is a separate recoverable outbox;
 terminal attempts and holdout history remain authoritative locally. ClearML source admission verifies
 the locked wheel against its pinned upstream archive. Configured economic reports and local serial installed pipelines are now implemented;
-candidate promotion remains planned.
+candidate promotion remains planned. Explicit unfitted engineering samples use the
+same backtest workflow and retained stores without designating a validation or holdout
+window. Family declarations prevent crossing design modes to bypass holdout controls.
+Native archive capture corroboration lives in existing market-data owners; scoped
+causal admission preserves unresolved coverage and revision-history limits.
 
 **Current comparison owners:** compatible feature and estimator factories extend
 their existing typed definitions, while `strategies.RuleRegistry` creates fresh

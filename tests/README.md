@@ -205,3 +205,12 @@ reject missing or changed package bytes during a concurrent reinstall. Preserve
 failed evidence and rerun from a fresh output directory after stabilizing the
 installation. See the [roadmap evidence](../docs/roadmap/README.md#research-comparison-and-extension)
 for the exact validation results and the outstanding Evidently dependency blocker.
+
+
+The installed [engineering sample consumer](integration/consumers/backtest/engineering_sample.py)
+is included in wheel smoke. It uses synthetic native capture bytes and hypothetical
+source eligibility with both unchanged frozen P1 configurations, checking exact
+loss/cash/position/NAV/gross-to-net values, no-trade, evidence rejection without a
+snapshot, durable reports and fresh-process resume/repeat parity. This is software
+proof, not acceptance of the actual archive. Public-source research and installed
+actual capture matching are retained separately in the owning P1 evidence record.

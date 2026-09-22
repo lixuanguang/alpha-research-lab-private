@@ -13,7 +13,7 @@ from typing import ClassVar, Literal
 import msgspec
 
 # project library imports
-from market_data.contracts import ArchiveTrade, Occurrence, Trade
+from market_data.contracts import ArchiveAvailability, ArchiveTrade, Occurrence, Trade
 from reference_data.instruments import InstrumentId
 from serialization import DomainCodec
 
@@ -71,6 +71,7 @@ class TradeRevision(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
     _codec: ClassVar[DomainCodec] = DomainCodec()
     schema_version: Literal["1"] = "1"
     occurrences: tuple[Occurrence, ...]
+    availability: ArchiveAvailability | msgspec.UnsetType = msgspec.UNSET
     previous: TradeRevision | None = None
     correction: Correction | None = None
 
@@ -90,6 +91,12 @@ class TradeRevision(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
         signatures = {self._signature(item) for item in self.occurrences}
         if len(signatures) != 1:
             raise ValueError("revision occurrences must share an economic key and payload")
+        if self.availability is not msgspec.UNSET:
+            if type(self.availability) is not ArchiveAvailability or any(
+                not isinstance(item.event, ArchiveTrade) for item in self.occurrences
+            ):
+                raise ValueError("external availability requires archive occurrences")
+            self.availability.__post_init__()
         if self.previous is None and self.correction is None:
             return
         if type(self.previous) is not TradeRevision or type(self.correction) is not Correction:
@@ -186,6 +193,8 @@ class TradeRevision(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
             and item.event.provenance.ts_source_received is not None
         ]
         bounds = [min(captures)] if captures else []
+        if isinstance(self.availability, ArchiveAvailability):
+            bounds.append(self.availability.available_at)
         if self.previous is not None and (previous_time := self.previous.ts_knowledge) is not None:
             bounds.append(previous_time)
         if self.correction is not None:

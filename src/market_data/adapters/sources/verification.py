@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # project library imports
 from market_data.adapters.providers.binance import ArchiveRow, BinanceArchiveTrades
 from market_data.adapters.providers.tardis import TardisDecoder
 from market_data.adapters.venues.binance import BinancePayloadDecoder
 from market_data.contracts import (
+    ArchiveCapture,
     ArchiveTrade,
     DepthSnapshot,
     DepthUpdate,
@@ -101,3 +102,57 @@ class SourceOccurrenceVerifier(OccurrenceVerifier):
         if capture is None:
             raise ValueError("captured occurrence has no source capture")
         return capture, event.provenance.ts_knowledge
+
+    def captures(self, evidence: ArchiveCapture) -> tuple[Trade, ...]:
+        """Verify complete native Tardis slices for the exact archive interval.
+
+        Args:
+            evidence: Contiguous original uncompressed response slices and acquisition clocks.
+
+        Returns:
+            Native trades including boundary rows; matching economic versions is separate.
+
+        Raises:
+            ValueError: Binding, framing, capture coverage, ordering or source messages fail.
+        """
+        evidence.__post_init__()
+        request = self._request
+        start, end = request.manifest.job.start, request.manifest.job.end
+        if (
+            request.manifest.job.provider != "binance-archive"
+            or request.manifest.job.venue != "binance"
+            or evidence.request_identity != request.identity
+            or evidence.slices[0].start > start
+            or evidence.slices[-1].start + timedelta(minutes=evidence.slices[-1].minutes) < end
+        ):
+            raise ValueError("capture evidence differs from archive selection or coverage")
+        decoder = TardisDecoder(
+            BinancePayloadDecoder(request.manifest.instruments), "tardis.binance.witness"
+        )
+        identity = evidence.identity
+        retained: list[Trade] = []
+        previous: datetime | None = None
+        for piece in evidence.slices:
+            for index, line in enumerate(piece.payload.decode().splitlines()):
+                if not line:
+                    raise ValueError("capture coverage contains a disconnect marker")
+                event = decoder.decode_line(
+                    line,
+                    source_sequence=index,
+                    local_received=piece.received_at,
+                    local_ingested=piece.received_at,
+                    source_digest=identity,
+                )
+                if (
+                    not isinstance(event, Trade)
+                    or event.instrument_id != request.instrument.instrument_id
+                ):
+                    raise ValueError("capture evidence requires native individual trades")
+                instant = event.provenance.ts_knowledge
+                if not piece.start <= instant < piece.start + timedelta(minutes=piece.minutes):
+                    raise ValueError("native capture falls outside its response interval")
+                if previous is not None and instant < previous:
+                    raise ValueError("native capture order regressed")
+                previous = instant
+                retained.append(event)
+        return tuple(retained)

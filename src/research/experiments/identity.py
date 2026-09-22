@@ -8,8 +8,11 @@ import platform
 from importlib.metadata import distributions
 from typing import Literal
 
+# third party library imports
+import msgspec
+
 # project library imports
-from research.experiments.splits import TemporalSplit
+from research.experiments.splits import TemporalSplit, TimeWindow
 from serialization import DomainCodec, WireRecord
 
 
@@ -39,18 +42,21 @@ class ExperimentSpec(WireRecord, frozen=True, kw_only=True):
     scopes selection history and the frozen holdout in one retained store.
     """
 
-    schema_version: Literal["experiment-spec-v1"] = "experiment-spec-v1"
+    schema_version: Literal["experiment-spec-v1", "experiment-engineering-sample-v1"] = (
+        "experiment-spec-v1"
+    )
     family: str
     inputs: tuple[Fingerprint, ...]
     components: tuple[Fingerprint, ...]
     parameters: tuple[tuple[str, str], ...]
     seeds: tuple[tuple[str, int], ...]
     environment_sha256: str
-    split: TemporalSplit
+    split: TemporalSplit | None
+    engineering_sample: TimeWindow | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Validate complete semantic identity before any attempt is retained."""
-        if self.schema_version != "experiment-spec-v1":
+        if self.schema_version not in ("experiment-spec-v1", "experiment-engineering-sample-v1"):
             raise ValueError("unsupported experiment schema")
         Fingerprint(name=self.family, sha256=self.environment_sha256)
         for items in (self.inputs, self.components):
@@ -64,9 +70,17 @@ class ExperimentSpec(WireRecord, frozen=True, kw_only=True):
                 raise ValueError("fingerprint names must be unique within their role")
         self._validate_pairs(self.parameters, is_seed=False)
         self._validate_pairs(self.seeds, is_seed=True)
-        if type(self.split) is not TemporalSplit:
-            raise TypeError("experiment requires a temporal split")
-        self.split.__post_init__()
+        if self.schema_version == "experiment-engineering-sample-v1":
+            if self.split is not None or type(self.engineering_sample) is not TimeWindow:
+                raise TypeError("engineering experiment requires its sample and no split")
+            self.engineering_sample.__post_init__()
+        else:
+            if (
+                type(self.split) is not TemporalSplit
+                or self.engineering_sample is not msgspec.UNSET
+            ):
+                raise TypeError("experiment requires a temporal split")
+            self.split.__post_init__()
 
     @staticmethod
     def _validate_pairs(pairs: object, *, is_seed: bool) -> None:
@@ -105,7 +119,7 @@ class ExperimentSpec(WireRecord, frozen=True, kw_only=True):
                     tuple(sorted(self.parameters)),
                     tuple(sorted(self.seeds)),
                     self.environment_sha256,
-                    self.split.identity,
+                    self.split.identity if self.split is not None else self.engineering_sample,
                 )
             )
         ).hexdigest()

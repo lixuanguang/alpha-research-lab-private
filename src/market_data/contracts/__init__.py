@@ -1,6 +1,7 @@
 """Expose the market data contracts public contract."""
 
 # project library imports
+from market_data.contracts.archive_evidence import ArchiveAvailability, ArchiveCapture, CaptureSlice
 from market_data.contracts.archive_requests import OKXArchiveRequest
 from market_data.contracts.archive_trades import ArchiveTrade
 from market_data.contracts.binance import BinanceMarketEvent, DepthSnapshot, DepthUpdate, Trade
@@ -19,6 +20,7 @@ from market_data.contracts.events import (
     TaggedEvent,
 )
 from market_data.contracts.inputs import (
+    ArchiveCaptureVerifier,
     ByteReader,
     FixtureReader,
     OccurrenceVerifier,
@@ -33,6 +35,9 @@ from market_data.contracts.requests import SourceRequest
 from market_data.contracts.transport import FeedSocket, SnapshotTransport
 
 __all__ = [
+    "ArchiveAvailability",
+    "ArchiveCapture",
+    "ArchiveCaptureVerifier",
     "ArchiveTrade",
     "BinanceMarketEvent",
     "BookObservation",
@@ -40,6 +45,7 @@ __all__ = [
     "CaptureCursor",
     "CaptureRecord",
     "CaptureRequest",
+    "CaptureSlice",
     "DecodeContext",
     "DepthSnapshot",
     "DepthUpdate",

@@ -219,6 +219,7 @@ def _formal_comparison(
     Raises:
         AssertionError: The formal attempt, manifest or optional remote artifacts are invalid.
     """
+    assert source.start.spec.split is not None
     is_server = _configure_clearml()
     before = {history.start.attempt_id for history in AttemptStore(attempts).histories()}
     if is_server:

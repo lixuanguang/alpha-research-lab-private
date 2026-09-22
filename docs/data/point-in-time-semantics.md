@@ -164,3 +164,16 @@ different meanings. Do not backdate a late correction or recovery backfill, or
 claim that a subsequently downloaded vendor archive reproduces the original
 local information set. Preserve source-local order and explicitly define any
 cross-source tie rule rather than inventing a total observed arrival order.
+
+
+## Corroborated archive availability
+
+The [native witness boundary](../../src/market_data/README.md#witnessed-archive-availability)
+retains independent Tardis response bytes for the exact Binance archive selection.
+`TradeRevision.availability` contains a reverified recorder timestamp and evidence
+identity; the original `ArchiveTrade.ts_knowledge` remains absent. This is a
+conservative witnessed availability, not a claim about the earliest original
+publication or the local system's historical receipt. Corrections cannot be used
+before either their capture or explicit correction availability. Snapshot reopening
+recomputes the evidence; queries filter knowledge before revision selection and
+replay retains each version. Coverage and unseen revisions remain explicit limits.

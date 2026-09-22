@@ -147,6 +147,7 @@ def main() -> None:
         ("ingestion_workflow.py", "ingestion"),
         ("feature_study.py", "features"),
         ("economic_workflow.py", "economics"),
+        ("engineering_sample.py", "engineering-sample"),
         ("recovery_consumer.py", "recovery"),
     ):
         subprocess.run(

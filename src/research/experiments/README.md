@@ -423,3 +423,33 @@ only dataset/source and derived feature bytes. New storage commits never replace
 market availability clocks. No shared-service, deployment or trading authority is
 added. Revert command/owners, lock/admission, stubs and tests together; retain old
 attempts, matching wheels, data versions and private service backups for replay.
+
+
+## Unfitted engineering samples
+
+`BacktestRun(schema_version="configured-engineering-sample-v1", split=None,
+engineering_sample=TimeWindow(...), ...)` uses the existing `alpha-backtest run`
+and programmatic `run_configured` workflow. The explicit half-open UTC sample must
+exactly equal `economics.start/end`; there are no invented training, validation or
+holdout intervals. Reports retain the sample scope, missing observations and source
+limitations. Benchmark cadence, costs and all economic validation remain unchanged.
+A completed calculation is not empirical baseline acceptance or strategy selection.
+
+The existing frozen [P1 configurations](../../../configs/backtests/p1-btcusdt-return-v1.json)
+remain `BacktestSpec` inputs. Put the unchanged decoded value in `economics`, pin the
+published snapshot, and explicitly supply `ReportPolicy` (P1's non-interest-bearing
+cash is a zero-return benchmark). The installed
+[engineering consumer](../../../tests/integration/consumers/backtest/engineering_sample.py)
+shows this assembly with clearly synthetic source facts, both frozen configurations,
+exact costed reconciliation and fresh-process resume/repeat parity. It runs in wheel
+smoke; it never labels its fixture results as empirical strategy evidence.
+
+`ExperimentSpec` uses `experiment-engineering-sample-v1` for this mode. Its sample,
+resolved configuration, evidence-bound snapshot, deterministic seed, implementation
+and environment participate in semantic identity. Each invocation keeps its own
+attempt, failure and existing ClearML outbox. Complete checkpoints, atomic result
+manifests and publication recovery are reused. The family declaration freezes design
+kind and interval; a validation family cannot be converted to engineering mode to
+bypass a holdout, and an engineering family cannot consume a holdout. Parameter
+comparison and validation diagnostics reject engineering samples. Existing version-1
+inputs omit the new field and preserve their semantic identities and holdout rules.

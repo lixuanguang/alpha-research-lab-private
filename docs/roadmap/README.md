@@ -1,7 +1,7 @@
 # Platform infrastructure roadmap
 
 Owner: repository founder. Updated 2026-09-22. **MRs 1–7 are implemented; MR 8 has
-source verification with acceptance open; MRs 9–21 are planned.**
+scoped causal integration with empirical acceptance open; MRs 9–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -70,7 +70,7 @@ source evidence and researcher access improve independently.
 | 5 | [First economic backtest and vectorbt research adapter](#first-economic-backtest) | Existing replay and financial contracts; MR 4 for tracked vectorbt runs; no fitted-model dependency |
 | 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
 | 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
-| 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — source verification delivered; acceptance open | MRs 5–6 plus required actual source evidence |
+| 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — scoped causal integration delivered; acceptance open | MRs 5–6 plus required actual source evidence |
 | 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable |
 | 11 | [Trusted deployment artifact](#trusted-deployment-artifact) | Dependency admission and a concrete deployable consumer |
@@ -1305,6 +1305,55 @@ not established by this local lane.
 The source record owns reproduction, retained local evidence and reversal. Preserve
 matching artifacts and partial attempts when reverting the new consumer/configs.
 This work grants no deployment or trading authority. **MR 8 is not complete.**
+
+
+### Frozen baseline continuation
+
+**MR 8 — software integration delivered; empirical acceptance open.** Continued
+existing PR #72 and worktree from `2c93536` after fetching main; main remained its
+existing parent, `86835ee`. The [source continuation](../research/p1-baseline.md#source-investigation-continuation)
+records retrievable native capture evidence, exact applicability and remaining gaps.
+All 27,480 frozen archive trades match independently captured decision-relevant
+fields and have recorder timestamps. Historical eligibility/reference availability,
+positive coverage and exhaustive correction/version history remain unestablished.
+No actual-source baseline result or profitability claim is made.
+
+Delivered integration: native archive witnesses in existing contracts/adapters and
+validation, scoped causal publication/query/replay with retained limitations,
+unfitted engineering-sample configuration, semantic identities, retained attempts,
+complete checkpoint recovery and atomic costed reports through the existing backtest
+workflow. Strict full-source causal admission stays closed on missing evidence;
+scoped captured-row agreement cannot satisfy the full frozen acceptance requirement.
+Existing exploratory saved-input identities and holdout controls are preserved.
+
+Final local source lane (`make check`, attempt 4): lock, Ruff, formatting, strict
+mypy (335 files), native stubtest, engineering standards, dependency admission/audit,
+architecture links, Bandit and secret scanning passed; **1,199 tests passed,
+3 performance cases deselected, zero skips**. The unchanged performance lane is
+outside this required check. Two installed-wheel attempts timed out at the existing
+feature-study consumer's 60-second bound during cold startup. The diagnostic passed
+and populated the Matplotlib cache; the complete unchanged `wheel_layout.py` then
+passed with fresh output directories and the same installed wheel, preserving the
+60-second consumer bounds. Thus source and installed components passed; neither
+original timed-out `make` invocation is reported as a successful command.
+
+The retained wheel SHA-256 is
+`dc81101c2d5561f918114f4ace6807ea5b7967e8ab57dfba1b389eee4142010e`.
+Both build attempts produced identical wheel bytes. Runtime requirements differ
+only in their generated output-path comment. Evidence, commands, initial lint/doc
+failures, the corrected legacy error-message test and timeout attempts are retained
+under primary-checkout `logs/frozen-baseline/2026-09-22/`. Final documentation-only
+edits do not change the tested runtime identity. The separately inspected hosted CI
+at the preceding head was blocked by GitHub billing; final-head status and any
+founder-authorized merge are recorded on existing PR #72, without changing billing
+or bypassing configured merge requirements.
+
+The new installed synthetic consumer checks both unchanged frozen configurations,
+exact negative gross-to-net/cash/position/NAV reconciliation, no-trade, no partial
+publication and fresh-process resume/repeat report parity. It is included in wheel
+smoke. Prior source-refusal evidence is reused only for its historical scope.
+The external prerequisite and version-2 rollback boundary are in the owning P1 page.
+No deployment, purchase, source substitution or trading is authorized by this evidence.
 
 ## Candidate promotion and operation
 
