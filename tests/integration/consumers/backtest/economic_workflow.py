@@ -20,7 +20,13 @@ from msgspec.structs import replace
 
 # project library imports
 import simulation
-from applications.backtest import compare_parameters, compare_vectorbt, run_backtest, run_configured
+from applications.backtest import (
+    compare_parameters,
+    compare_vectorbt,
+    qualify_scheduled_features,
+    run_backtest,
+    run_configured,
+)
 from configuration import Configuration
 from financial_units import ExactRatio
 from market_data.acquisition import AcquisitionManifest
@@ -45,7 +51,13 @@ from research.experiments import (
     TemporalSplit,
     TimeWindow,
 )
-from research.features import TrailingReturn, WindowPolicy
+from research.features import (
+    ScheduledFeatureCheckpoint,
+    ScheduledFeatureParity,
+    ScheduledFeatures,
+    TrailingReturn,
+    WindowPolicy,
+)
 from serialization import DomainCodec
 from simulation import (
     BacktestSpec,
@@ -155,6 +167,76 @@ class _SavedEconomy:
             max_bytes=2_000_000,
         )
         return reader, spec
+
+    @staticmethod
+    def feature_parity(output: Path, *, resume: bool = False) -> None:
+        """Verify installed batch state and command output outside the source checkout."""
+        codec = DomainCodec()
+        reader, spec = _SavedEconomy.inputs(output)
+        expected = codec.decode_json((output / "expected.json").read_bytes(), EconomicResult)
+        if resume:
+            checkpoint = codec.decode_json(
+                (output / "feature-checkpoint.json").read_bytes(), ScheduledFeatureCheckpoint
+            )
+            running = ScheduledFeatures(
+                reader, checkpoint.definition, checkpoint=checkpoint, batch_size=1
+            )
+            parity = codec.decode_json(
+                (output / "feature-parity.json").read_bytes(), ScheduledFeatureParity
+            )
+            for row in parity.batch.values[len(checkpoint.values) :]:
+                running.evaluate(row.observation.closed_at)
+            assert running.checkpoint == parity.batch
+            return
+        parity = qualify_scheduled_features(reader, expected, batch_size=1)
+        assert parity.is_equal and len(parity.batch.values) == 3
+        assert parity.replay.input_identity == reader.identity
+        assert expected.limitations == parity.limitations[2:]
+        (output / "feature-parity.json").write_bytes(codec.encode_json(parity))
+        running = ScheduledFeatures(reader, parity.batch.definition)
+        running.evaluate(spec.start + timedelta(seconds=spec.cadence_seconds))
+        (output / "feature-checkpoint.json").write_bytes(codec.encode_json(running.checkpoint))
+        subprocess.run(
+            [sys.executable, "-I", __file__, str(output), str(output), "feature-resume"],
+            check=True,
+            cwd=output,
+        )
+        command = Path(sys.executable).parent / "alpha-backtest"
+        invocation = [
+            str(command),
+            "qualify-features",
+            "--config",
+            str(output / "configured.json"),
+            "--snapshots",
+            str(output / "snapshots"),
+            "--raw",
+            str(output / "raw"),
+            "--reference",
+            str(output / "expected.json"),
+            "--max-bytes",
+            "2000000",
+            "--output",
+            str(output / "feature-command.json"),
+        ]
+        subprocess.run(invocation, check=True, cwd=output)
+        assert (output / "feature-command.json").read_bytes() == codec.encode_json(parity)
+        changed = replace(
+            expected,
+            spec=replace(expected.spec, instance="different"),
+            checkpoint=replace(
+                expected.checkpoint,
+                spec_identity=replace(expected.spec, instance="different").identity,
+            ),
+        )
+        (output / "wrong-feature-reference.json").write_bytes(codec.encode_json(changed))
+        invocation[invocation.index("--reference") + 1] = str(
+            output / "wrong-feature-reference.json"
+        )
+        invocation[invocation.index("--output") + 1] = str(output / "rejected-feature.json")
+        failure = subprocess.run(invocation, cwd=output, capture_output=True, check=False)
+        assert failure.returncode == 2 and b"configured economics" in failure.stderr
+        assert not (output / "rejected-feature.json").exists()
+        print("Installed scheduled features: exact parity, fresh-process restart and CLI refusal")
 
     @staticmethod
     def comparison(output: Path, *, resume: bool = False) -> None:
@@ -472,6 +554,9 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     assert "site-packages" in Path(simulation.__file__).parts
     codec = DomainCodec()
+    if len(sys.argv) == 4 and sys.argv[3] == "feature-resume":
+        _SavedEconomy.feature_parity(output, resume=True)
+        return
     if len(sys.argv) == 4 and sys.argv[3] == "comparison-resume":
         _SavedEconomy.comparison(output, resume=True)
         return
@@ -517,6 +602,7 @@ def main() -> None:
         files_uri="http://127.0.0.1:18081",
     )
     _SavedEconomy.configured(output, spec, split, destination)
+    _SavedEconomy.feature_parity(output)
     _SavedEconomy.comparison(output)
     with patch.object(ClearMLPublication, "publish", _SavedEconomy.unavailable):
         try:

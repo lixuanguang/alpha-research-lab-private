@@ -37,8 +37,11 @@ These owners expose one curated `__init__.py` API each. The sole installed
 `alpha-backtest` application command now exposes configured execution, atomic
 report publication and local serial pipelines through the
 [experiment owner](../research/experiments/README.md#configured-economics-reports-and-serial-pipelines).
-The current installed Python workflow is the application consumer, not a library
-runner or a second implementation of chronological replay.
+The current installed Python workflow is the application consumer. The same
+command also exposes `qualify-features` over an existing configured result. It
+compares shared completed-price features across replay, scheduled batch calls and
+serialized restart, retaining exact traces and their original source limitations;
+see the [feature contract](../research/features/README.md#scheduled-completed-price-parity).
 
 ## Time, controls and completion
 
