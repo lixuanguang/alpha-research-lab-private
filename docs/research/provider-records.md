@@ -93,8 +93,12 @@ original bytes and attachments with source,
 receipt and publication clocks. Review the precise instrument/window, supported
 claims and correction-history cutoff, including whether the records establish
 historical availability rather than only present-day knowledge. Only then encode
-the reviewed `DatasetInput` and use the existing notebook admission path. MR8 still
+the reviewed `DatasetInput` and use the existing notebook admission path. P1 still
 requires successful actual-source admission, both unchanged costed runs and their
 accounting and restart checks. If a provider cannot supply a required fact, record
 that refusal; changing the frozen acceptance standard requires a separate founder
 decision.
+
+The subsequent [MR8 scope amendment](saved-baseline-acceptance.md) authorizes a
+separate saved-OKX simulation target. It does not accept P1 or reopen this deferred
+investigation; the original records and no-outreach decision remain preserved.
