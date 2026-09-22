@@ -1,6 +1,6 @@
 # Notebook setup, execution and troubleshooting
 
-Owner: repository founder. Current retention guidance updated 2026-09-20. This is
+Owner: repository founder. Current retention guidance updated 2026-09-22. This is
 the supporting operations guide. Start with the [researcher's guide](README.md) to choose a question and
 understand the data. This page owns notebook setup, execution and source/output retention. The
 [roadmap](../docs/roadmap/README.md#execution-and-maintenance) owns implementation
@@ -118,9 +118,69 @@ Existing `data/bitfinex/`, `data/okx/`, `data/binance-archives/` and ignored
 run snapshots retain their original environment-variable meaning. No latest-input
 search or automatic source switch occurs in the current QR path.
 
+## Frozen source evidence
+
+The [QR live notebook](research-foundations-live.ipynb) now defaults to
+`ALPHA_QR_WORKFLOW=p1-evidence`. It reopens the explicitly pinned P1 Binance
+archive and auxiliary native capture, without initiating a network call. Its
+deliverable is a reproducible source-evidence handoff for the
+[frozen acceptance requirements](../docs/research/p1-baseline.md#acceptance-and-research-discipline).
+The separate Bitfinex workflow remains available with
+`ALPHA_QR_WORKFLOW=book-capture`.
+
+The default paths name the retained acquisition
+`data/binance-archives/runs/acb948277201cc169d32c2bb874fb40ce9e9c33c893e56a992faa47853147f80/manifest.json`,
+its `data/binance-archives/raw/` store, and
+`logs/frozen-baseline/2026-09-22/source-evidence/archive-capture.json`.
+These ignored inputs are local; a clean checkout does not contain them. Supply
+explicit paths using `ALPHA_P1_MANIFEST`, `ALPHA_P1_RAW` and `ALPHA_P1_CAPTURE`
+when reopening retained inputs elsewhere. A nonempty missing selector fails.
+Set `ALPHA_P1_CAPTURE=''` deliberately for an archive-only investigation.
+The notebook verifies the frozen archive/configuration digests, source, instrument,
+interval and capture binding. It never selects a latest run or substitutes a fixture.
+
+Each execution creates an exclusive `data/notebooks/p1-evidence/<uuid>/` study
+containing the verified archive, acquisition, both unchanged economic configurations,
+supplied capture/eligibility, source summary, actual strict publication report,
+document review, semantic hash inventory and `handoff.json`/`handoff.md`.
+Restart from setup to repeat cells that retain immutable outputs. The existing
+notebook runner archives successful and failed executions separately.
+
+To add evidence, copy the generated `review-template.json` to a separate working
+file. Keep its exact `scope`, and add objects to `documents` with:
+
+- `requirement`: `historical_eligibility`, `coverage` or `revisions`;
+- `path`: an absolute path to a retained provider record;
+- `source_reference`: provider provenance or reference;
+- `claim`: the precise fact and interval the record supports;
+- `limitations`: what remains unproven.
+
+Set `ALPHA_P1_DOCUMENTS` to that working file and rerun. At most 20 documents,
+each at most 8 MiB, are copied and hashed. They remain candidate evidence requiring
+review; no attachment or authored status upgrades quality. If actual historical
+eligibility evidence is available, provide its existing typed
+`EligibilityAssertions` JSON through `ALPHA_P1_ELIGIBILITY`. Otherwise the notebook
+passes an empty history, preserving unknown eligibility.
+
+Run with the same pinned tooling command shown below. To verify reproduction,
+restart through the runner with `ALPHA_P1_REOPEN` set to the exact earlier study.
+It verifies the earlier retained bytes and compares deterministic input, code,
+configuration and quality digests. Changing inputs or notebook source is a new
+investigation and fails this reproduction comparison. UUIDs and execution clocks
+are excluded from semantic comparison.
+
+Strict publication currently refuses the source: historical eligibility and
+positive coverage/complete revision evidence remain unresolved, and the platform
+has no strict contract accepting the latter evidence yet. Expected source refusal
+completes the evidence handoff with **MR 8 OPEN**, without running economics.
+A completed notebook is not empirical acceptance. Unexpected input/runtime errors
+fail the run. The handoff assigns the remaining source investigation, concrete
+platform admission work, and subsequent actual-source economic/report/recovery
+proof. It does not change the frozen sample, acceptance standard or roadmap status.
+
 ## Live versions
 
-[QR live](research-foundations-live.ipynb) and
+[QR live](research-foundations-live.ipynb) with `ALPHA_QR_WORKFLOW=book-capture` and
 [engineer live](infrastructure-diagnostics-live.ipynb) each initiate one new public
 Bitfinex R0 capture when run. The selected [configuration](../configs/live/bitfinex-btc-usd.json)
 allows 20 seconds of receipt, 10,000 messages, a 32 MB journal, 8 MB frames, queue
@@ -160,7 +220,7 @@ Run the respective offline version below. No capture is repeated and no mutable 
 alias is selected. The offline QR path reads a saved selection and inspects its values,
 controls and earlier cutoff; its synthetic prototype remains restricted to the teaching
 sample. The live QR version retains its explicitly declared R0 prototype in the study.
-Both live versions ignore these offline input selectors and always create a new recording.
+The book-capture routes ignore these offline input selectors and create a new recording.
 
 Live QR analysis uses exact rational arithmetic over native base quantities and retains
 market-derived ratios locally in `prototype.json`. Maintained outputs show only reviewed
@@ -181,10 +241,12 @@ uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0
 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/infrastructure-diagnostics.ipynb
 ```
 
-The live counterparts explicitly contact the public source and retain new local data:
+The QR evidence route reads saved real inputs; the explicit book routes contact
+the public source and retain new local recordings:
 
 ```sh
 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations-live.ipynb
+ALPHA_QR_WORKFLOW=book-capture uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations-live.ipynb
 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/infrastructure-diagnostics-live.ipynb
 ```
 

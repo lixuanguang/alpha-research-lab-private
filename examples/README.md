@@ -1,6 +1,6 @@
 # Quant researcher implementation guide
 
-Owner: repository founder. Updated 2026-09-21.
+Owner: repository founder. Updated 2026-09-22.
 This is the activity-based guide for researching data, features, models and
 strategies, then preparing accepted candidates for operation. The
 [platform infrastructure roadmap](../docs/roadmap/README.md) owns what must be
@@ -164,8 +164,9 @@ The index describes sources; it is not an executable catalog of implemented
 adapters. Use the existing acquisition/publication commands in the
 [data command reference](../src/market_data/README.md), or the current notebooks.
 Choose the explicitly offline or live notebook in the [catalog](#start-with-your-research-question).
-Offline versions use synthetic or selected saved inputs; live versions initiate one bounded
-public capture through the existing installed command. See the
+Offline versions use synthetic or selected saved inputs. The QR live notebook defaults
+to a saved P1 source-evidence investigation; its explicit `book-capture` route and
+the engineer live notebook initiate a bounded public recording. See the
 [operations guide](notebook-operations.md#live-versions) for effects and retention.
 
 Select instruments, business interval, requested fields and the decision/knowledge
@@ -396,18 +397,27 @@ remain the offline entry points so saved commands and links continue to work.
 
 | Reader | Offline version | Live version |
 | --- | --- | --- |
-| QR: question → data → quality → features/models → costed rules → handoff | [Research workflow — offline](research-foundations.ipynb): saved-input inspection plus a connected retained trade study through exact economics | [Research workflow — live](research-foundations-live.ipynb): one public Bitfinex capture, bounded book publication, pinned EDA and exact visible-size diagnostic |
+| QR: question → data → quality → features/models → costed rules → handoff | [Research workflow — offline](research-foundations.ipynb): saved-input inspection plus a connected retained trade study through exact economics | [Research workflow — live](research-foundations-live.ipynb): frozen P1 source-evidence handoff by default; explicit Bitfinex book-capture route for pinned EDA and visible-size diagnostics |
 | Engineer: inspect infrastructure and diagnose failures | [Infrastructure diagnostics — offline](infrastructure-diagnostics.ipynb): installed data/feature/model/economic consumers, fresh-process recovery and health diagnostics | [Infrastructure diagnostics — live](infrastructure-diagnostics-live.ipynb): one public Bitfinex capture, durable/native/canonical replay parity and observed quality |
 
 Restart the kernel and **Run All in order**. Each version runs independently.
-The live versions create new retained recordings on each run; the offline versions never
-contact a provider. Both live versions produce `raw/`, `snapshots/` and `selection.json`
-that the offline QR version can reopen, plus a recording directory for offline engineering.
+The QR live notebook's default `p1-evidence` route reads explicitly pinned saved
+Binance inputs, verifies the unchanged frozen configurations, collects supporting
+documents and retains the strict admission outcome plus a QR/developer handoff.
+It makes no network call. Follow the
+[source-evidence instructions](notebook-operations.md#frozen-source-evidence) to
+attach provider records and reproduce the retained evidence in a fresh kernel.
+**A completed evidence handoff does not close MR 8.** Source qualification and
+actual-source economic/report/recovery proof remain required.
+
+Set `ALPHA_QR_WORKFLOW=book-capture` for the original QR live recording workflow.
+The book-capture routes create `raw/`, `snapshots/` and `selection.json` that the
+offline QR version can reopen, plus a recording directory for offline engineering.
 Use the [operations guide](notebook-operations.md#live-versions) for exact commands,
 source budgets, failures and saved-input handoff.
 
 The former reliability/capture notebooks remain consolidated into these two reader
-journeys. Live/offline entry points distinguish input effects while reusing the installed
+journeys. Explicit workflow selections distinguish input effects while reusing the installed
 capture, publication, query and replay operations. Future platform stages extend these
 journeys when implemented; they do not require one notebook per roadmap item.
 Older source, outputs, saved raw data and ignored run snapshots remain retained.
@@ -439,7 +449,7 @@ study-specific: the teaching imbalance is not applied automatically to arbitrary
 
 Existing source adapters also support the permitted samples below. They are
 acquired deliberately through [source commands](notebook-operations.md#acquire-and-reopen-permitted-inputs),
-or by choosing the explicit live versions; offline tutorials make no source calls.
+or by choosing the explicit book-capture routes; offline tutorials make no source calls.
 
 | Sample | What it exposes | Remaining boundary |
 | --- | --- | --- |
