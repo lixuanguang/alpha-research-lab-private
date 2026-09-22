@@ -122,7 +122,7 @@ search or automatic source switch occurs in the current QR path.
 
 [Order-book research](orderbook-research.ipynb) is a real saved-data experiment
 alongside the workflow tutorials. Its settings cell selects the exact OKX archive
-directory and [ETH-USDT configuration](../configs/history/okx-eth-usdt.json).
+directory and [L2 backtest configuration](../configs/backtests/okx-eth-usdt-book-v1.json).
 The 2026-09-22 public index check found no September 21 archive and selected the
 latest listed day, **2026-09-20**. The saved full-day archive is 97,973,786 bytes;
 the existing reader replayed 10,000 messages from 00:00:00.001 through
@@ -151,28 +151,54 @@ uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
 ```
 
 The kernel must contain the installed current package and `ipykernel`; use the
-existing setup below. The notebook verifies the complete archive and compares its
-EDA reconstruction with the installed reader's state and trace digests. It retains
-exact spread/depth observations, approximate charts and a result with strategy P&L
-explicitly absent. Current economics consumes trade prices, not L2 books; the
-archive also has no original receipt times or sequence IDs. No synthetic prices,
-source clocks or economic fills are substituted. Preserve executed notebooks and
-market-derived outputs under ignored `examples/runs/`, and clear the maintained
-notebook's outputs before committing.
+existing setup below. Install the current non-editable package before starting
+that kernel:
 
-[MR 9A](../docs/roadmap/README.md#l2-order-book-backtesting) plans the next step:
-run a book-based strategy, simulate immediate orders against available depth, and
-produce a cash/position/P&L report before MR 10 packages an order-book candidate.
+```sh
+uv run --frozen --no-editable python -c 'from applications.backtest import run_books'
+```
 
-Verified on 2026-09-22: all 12 cells (six code cells) completed in a fresh kernel
-after formatting. The 10,000 exact observations and replay report matched the
-earlier independent kernel run byte for byte; neither run had a crossed book or
-missing side in this prefix. Ruff lint/format, guide file links and the existing
-architecture link check passed. Results remain under ignored
-`examples/runs/orderbook-research/424f9214-41bc-4d9c-8af5-7a42b4c08286-artifacts/`.
+The notebook calls `applications.backtest.run_books` to perform verified native
+replay, exact EDA, a configured imbalance rule and a no-trade control, independent
+risk, immediate-or-cancel depth execution and exact cash/position/P&L accounting.
+The same workflow is available without a notebook:
 
-To reverse this study setup, remove its configuration, notebook and these guide
-entries together. Preserve the downloaded archive and completed/failed runs.
+```sh
+uv run --frozen --no-editable alpha-backtest books \
+  --config configs/backtests/okx-eth-usdt-book-v1.json \
+  --archive data/okx/history/f62e64b7-1b40-4869-8b05-2ca911fefcef \
+  --output logs/book-backtest/runs
+```
+
+The command prints a unique directory containing `report.html`, `report.json`,
+`eda.json`, `configuration.json`, both complete checkpoints and the attempt record.
+The notebook adds book/NAV charts. Use `--stop-at` and `--resume` as described in the
+[acceptance and recovery guide](../docs/research/l2-book-backtest.md#interrupt-and-resume).
+Failed attempts remain retained; a missing or corrupt archive never falls back
+to a synthetic source.
+
+The configuration declares the sample, spot grids, fees, limits, participation
+cap and modeled feed/processing/order/response delays. Original receipt times and
+source sequence IDs remain unknown. Decisions consume the delayed local book;
+orders execute against the exchange book on arrival. Resting orders, queue
+position, market impact and empirical latency calibration remain unsupported.
+The frozen P1 trade-price experiment is unchanged.
+
+The installed real-source run examined 10,000 messages and produced **62 orders,
+78 level fills, 998.35849845 USDT terminal NAV and -1.64150155 USDT net P&L** for
+the fixed imbalance rule. The no-trade control remained at **1,000 USDT**. The
+[acceptance record](../docs/research/l2-book-backtest.md) retains full result and
+verification context. This six-minute engineering demonstration makes no
+profitability, full-day coverage or live-execution claim.
+
+Preserve executed notebooks under ignored `examples/runs/` and generated reports
+under ignored `logs/book-backtest/`. Clear maintained notebook outputs before
+committing. The original EDA-only run remains retained at
+`examples/runs/orderbook-research/424f9214-41bc-4d9c-8af5-7a42b4c08286-artifacts/`;
+its earlier byte-parity observation does not describe the newly added economics.
+
+To reverse this workflow, remove its book-specific configuration, notebook
+consumer and implementation together while preserving saved inputs and attempts.
 
 ## Frozen source evidence
 

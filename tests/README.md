@@ -15,7 +15,7 @@ owns validation and merge requirements.
 | `fixtures/` | Static input bytes organized by domain and scenario; no executable Python |
 | `support/subprocesses/` | Child-process acquisition fakes and deliberate publication interruptions |
 | `integration/test_*.py` | Discovered workflow tests, including acquisition through saved EDA |
-| `integration/consumers/` | Standalone installed-package scenarios grouped into datasets, eligibility, query, replay, research and capture |
+| `integration/consumers/` | Standalone installed-package scenarios grouped into datasets, eligibility, query, replay, research capture and backtest |
 
 The static inputs include Tardis-framed trades and Coinbase book messages under
 `fixtures/market_data/`, eligibility histories under `fixtures/eligibility/`, a
@@ -38,6 +38,9 @@ make test
 
 # Installed acquisition/resume/publication/EDA and feature/label/model workflows.
 uv run --frozen --no-editable pytest -q -m integration tests/integration/test_ingestion_workflow.py
+
+# Installed L2 IOC workflow, independent accounts and complete restart.
+uv run --frozen --no-editable pytest -q -m integration tests/integration/test_book_backtest.py
 
 # Existing component integration cases as well as workflow integration tests.
 make integration-test

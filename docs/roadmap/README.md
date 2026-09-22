@@ -2,7 +2,8 @@
 
 Owner: repository founder. Updated 2026-09-22. **MRs 1–7 are implemented; MR 8 has
 scoped causal integration with empirical acceptance open; MR 9 has bounded saved-input
-batch parity with runtime qualification open; MRs 10–21 are planned.**
+batch parity with runtime qualification open; MR 9A has completed local L2
+backtesting acceptance; MRs 10–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -28,7 +29,8 @@ model studies or configured bounded spot economics → retained costed reports.
 | Book reconstruction, publication and replay | Inspect visible books, recovery and matching saved state | Exploratory degraded scope; no queue position or executable-fill claim |
 | Retained experiment attempts and temporal splits | Reproduce semantic inputs, inspect all attempts and enforce declared fit/holdout boundaries | Local single-writer store; current consumers are unfitted exploration and price diagnostics, with bounded model and economic consumers |
 | Versioned observed-price features and separate forward labels | Inspect exact returns, causal windows, missingness and delayed outcome availability | Bounded unfitted trade-price diagnostic; no economic, book/macro, model or runtime claim |
-| Exact spot economics and bounded vectorbt comparison | Reconcile delayed target execution, costs, cash, holdings and retained analytical output | Synthetic/offline spot scope; no liquidity, empirical or execution qualification |
+| Saved L2 IOC backtesting | Run saved-book EDA, isolated rules, depth fills and exact cash/positions/P&L | Constant research delays; unknown source receipt/continuity; no-impact visible-size model |
+| Exact trade-price spot economics and bounded vectorbt comparison | Reconcile delayed target execution, costs, cash, holdings and retained analytical output | Synthetic/offline spot scope; no liquidity, empirical or execution qualification |
 | Configured economics, QuantStats reports, local ClearML pipelines and lakeFS input pins | Run, repeat, resume and inspect exact costed output with retained failures and immutable storage versions | No-fit validation studies, one serial local worker and synthetic retention/restore qualification |
 | Retained comparisons, factor/window reports and offline feature parity | Reproduce Optuna trials, Alphalens and SciPy diagnostics, and causal Feast retrieval through installed research APIs | Bounded local synthetic scope; diagnostic thresholds confer no promotion authority |
 | Pinned research selections, configured EDA and maintained notebooks | Discover saved snapshots and reopen named trade/book inputs with identities, units and missingness | Bounded exploratory assembly; shared large-study orchestration and empirical acceptance remain planned |
@@ -73,7 +75,7 @@ source evidence and researcher access improve independently.
 | 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
 | 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — scoped causal integration delivered; acceptance open | MRs 5–6 plus required actual source evidence |
 | 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) — saved-input batch slice delivered; runtime acceptance open | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
-| 9A | [L2 order-book backtesting](#l2-order-book-backtesting) — planned | Saved L2 reader and MRs 5–6; before MR 10 for order-book strategies |
+| 9A | [L2 order-book backtesting](#l2-order-book-backtesting) — implemented; local acceptance complete | Saved L2 reader and MRs 5–6; before MR 10 for order-book strategies |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable; MR 9A for order-book strategies |
 | 11 | [Trusted deployment artifact](#trusted-deployment-artifact) | Dependency admission and a concrete deployable consumer |
 | 12 | [Paper order lifecycle and recovery](#paper-order-lifecycle-and-recovery) | MR 10; MR 11 before deployment |
@@ -92,10 +94,10 @@ number. MR 11 must move forward before any actual deployment, including a collec
 MR 21 can proceed independently. MR 8 accepts the specific frozen experiment;
 MR 7 separately accepts the reusable research workflow. Neither substitutes for
 the other's evidence. Conditional work stays dormant until its consumer exists.
-MR 9A is the next capability for the saved ETH-USDT order-book workflow. It can
-proceed without closing MR 8 or the runtime portion of MR 9. Complete it before
-starting MR 10 for an order-book candidate; trade-price candidates retain their
-existing prerequisites.
+MR 9A implements the saved ETH-USDT order-book workflow independently of MR 8
+and the runtime portion of MR 9. Its local acceptance is complete; hosted merge
+gates remain required. MR 10 can package an order-book candidate after those
+gates; trade-price candidates retain their existing prerequisites.
 
 ## Selected research integrations
 
@@ -103,7 +105,7 @@ This revision starts at MR 4. MR 3's feature/label scope and acceptance remain
 unchanged by these plans; later adapters consume its delivered public outputs.
 MR 4's ClearML/Pandera, MR 5's bounded vectorbt, and MR 6's report/pipeline/storage
 consumers have concrete implementations and evidence below; MR 7 is delivered in its bounded scope,
-and later entries remain planned.
+MR 9A also delivers bounded L2 economics; the remaining later entries stay planned.
 Deliver the named consumers in bounded slices within the existing MR numbers.
 
 Use **ClearML** for experiment tracking, model records and research orchestration.
@@ -1464,11 +1466,11 @@ not marked complete while the runtime prerequisites above remain open.
 
 ### L2 order-book backtesting
 
-**MR 9A, planned.** Make the saved-book workflow runnable end to end:
+**MR 9A, implemented; local acceptance 2026-09-22.** The saved-book workflow is runnable end to end:
 verified L2 archive → book observations and EDA → strategy targets → independent
 risk checks → simulated orders and fills → cash, positions and P&L report.
-The current OKX reader rebuilds books, but MR 5's economic runner accepts trade
-prices. This work closes that gap before packaging an order-book candidate in
+The existing OKX reader supplies books to a separate L2 economic path; MR 5's
+trade-price runner remains supported. This closes the gap before an order-book candidate in
 MR 10. It does not depend on a live collector, fitted model, online feature store
 or MR 8 baseline acceptance.
 
@@ -1529,6 +1531,39 @@ Run the real saved-data example through the installed package; small fixtures
 prove mechanics but do not replace that integration proof. Keep raw market data
 and bulk results outside Git. Hosted source/macOS/merged-result CI remains the
 pre-merge gate; update this section with actual commands, results and limits.
+
+**Delivered evidence.** The configured command is:
+
+```sh
+uv run --frozen --no-editable alpha-backtest books \
+  --config configs/backtests/okx-eth-usdt-book-v1.json \
+  --archive data/okx/history/f62e64b7-1b40-4869-8b05-2ca911fefcef \
+  --output logs/book-backtest/runs
+```
+
+The [completed notebook](../../examples/orderbook-research.ipynb) calls the same
+installed `run_books` orchestrator. The 10,000-message source interval is
+00:00:00.001–00:06:00.252 UTC. The fixed imbalance rule submitted **62 orders**,
+received **78 level fills**, ended flat with **998.35849845 USDT NAV** and
+**-1.64150155 USDT net P&L**, including **1.62998455 USDT taker fees**. The no-trade
+control stayed flat at **1,000 USDT**. No parameter tuning or empirical alpha claim
+is part of acceptance.
+
+The [acceptance record](../research/l2-book-backtest.md) owns the exact financial,
+timing and depletion assumptions, retained artifact identities, commands and
+limits. Focused existing/new regressions passed **79 tests**, with **1 deselected**;
+the outside-checkout installed CLI fixture passed for ETH-USDT, BTC-USDT, three
+isolated accounts, complete restart equivalence and retained source failure.
+Strict typing, formatting, native stub checks, security and engineering rules passed.
+The real-data notebook completed in a fresh kernel; the interrupted/resumed real
+run matched both account checkpoints, EDA and reports byte for byte. Final
+installed fixture recovery passed after the validation-guard cleanup. Hand cases cover partial
+fills, exact postings, fees, affordability, depleted liquidity and source updates;
+causal cases cover delayed information, pending responses and changed future data.
+Original receipt and sequence fields remain unknown; archive continuity and
+full-day semantic coverage remain unproven. This is long-only, no-impact IOC
+research with explicit participation caps, not resting-order or runtime recovery
+support. Hosted source/macOS/merged-result CI remains required before merge.
 
 Reversal: remove the new configuration/consumer and book-specific implementation
 together while preserving saved inputs and run records. Reject incompatible

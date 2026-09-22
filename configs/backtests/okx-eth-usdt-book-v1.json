@@ -1,0 +1,148 @@
+{
+  "schema_version": "l2-spot-research-v1",
+  "history": {
+    "symbol": "ETH-USDT",
+    "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+    "base_currency": "ETH",
+    "quote_currency": "USDT",
+    "day": "2026-09-20",
+    "max_bytes": 160000000,
+    "max_expanded_bytes": 1000000000,
+    "max_records": 10000,
+    "max_line_bytes": 1000000,
+    "duration_seconds": 180,
+    "timeout_seconds": 30,
+    "retries": 2
+  },
+  "start": "2026-09-20T00:00:00Z",
+  "end": "2026-09-20T00:06:00.500000Z",
+  "timing": {
+    "schema_version": "constant-book-delays-v1",
+    "feed_us": 100000,
+    "processing_us": 10000,
+    "entry_us": 20000,
+    "response_us": 100000,
+    "cadence_us": 1000000,
+    "stale_us": 2000000
+  },
+  "instances": [
+    {
+      "instance": "imbalance",
+      "rule": "book-imbalance-v1",
+      "quantity": {
+        "dimension": {
+          "instrument_id": {
+            "uuid_value": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521"
+          },
+          "kind": "base_unit"
+        },
+        "value": "0.01"
+      },
+      "initial_cash": {
+        "currency": {
+          "code": "USDT",
+          "minor_unit": "0.00000001"
+        },
+        "value": "1000"
+      },
+      "limits": {
+        "maximum": {
+          "dimension": {
+            "instrument_id": {
+              "uuid_value": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521"
+            },
+            "kind": "base_unit"
+          },
+          "value": "0.01"
+        },
+        "lot": {
+          "dimension": {
+            "instrument_id": {
+              "uuid_value": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521"
+            },
+            "kind": "base_unit"
+          },
+          "value": "0.0001"
+        },
+        "tick": {
+          "currency": {
+            "code": "USDT",
+            "minor_unit": "0.00000001"
+          },
+          "per": {
+            "instrument_id": {
+              "uuid_value": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521"
+            },
+            "kind": "base_unit"
+          },
+          "value": "0.01"
+        },
+        "product": "spot"
+      },
+      "imbalance_threshold": "0.2",
+      "depth": 5,
+      "fee_rate": "0.001",
+      "rounding": "half_even",
+      "take_fraction": "0.01"
+    },
+    {
+      "instance": "no-trade",
+      "rule": "book-no-trade-v1",
+      "quantity": {
+        "dimension": {
+          "instrument_id": {
+            "uuid_value": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521"
+          },
+          "kind": "base_unit"
+        },
+        "value": "0.01"
+      },
+      "initial_cash": {
+        "currency": {
+          "code": "USDT",
+          "minor_unit": "0.00000001"
+        },
+        "value": "1000"
+      },
+      "limits": {
+        "maximum": {
+          "dimension": {
+            "instrument_id": {
+              "uuid_value": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521"
+            },
+            "kind": "base_unit"
+          },
+          "value": "0.01"
+        },
+        "lot": {
+          "dimension": {
+            "instrument_id": {
+              "uuid_value": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521"
+            },
+            "kind": "base_unit"
+          },
+          "value": "0.0001"
+        },
+        "tick": {
+          "currency": {
+            "code": "USDT",
+            "minor_unit": "0.00000001"
+          },
+          "per": {
+            "instrument_id": {
+              "uuid_value": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521"
+            },
+            "kind": "base_unit"
+          },
+          "value": "0.01"
+        },
+        "product": "spot"
+      },
+      "imbalance_threshold": "0.2",
+      "depth": 5,
+      "fee_rate": "0.001",
+      "rounding": "half_even",
+      "take_fraction": "0.01"
+    }
+  ]
+}

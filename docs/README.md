@@ -14,8 +14,10 @@ source admission; see the [model contract](../src/research/models/README.md).
 [Bounded spot economics](../src/simulation/README.md) composes saved synthetic inputs,
 completed observations, fixed rules, independent limits, delayed fills and exact
 accounting, with a separate vectorbt comparison and retained ClearML artifacts.
-Empirical causal dataset acceptance, configured economic reports, production
-execution and deployment remain future work. Start with the [QR implementation guide](../examples/README.md)
+Configured economic reports and [saved L2 backtesting](research/l2-book-backtest.md)
+are available through `alpha-backtest`; the book path adds depth walking, IOC
+partial fills and consumed liquidity. Empirical causal dataset acceptance,
+production execution and deployment remain future work. Start with the [QR implementation guide](../examples/README.md)
 for current notebooks and the full research-to-production journey, with planned
 activities clearly distinguished from implemented workflows.
 One reproducible strategy baseline is the first delivery target; shared research,
@@ -70,6 +72,7 @@ record what ran. `make check` remains the complete check entry point.
 | `alpha-inspect-fixture --help` | Inspect one saved trade frame through an explicitly configured job |
 | `alpha-acquire --help` | Acquire and resume supported historical source partitions |
 | `alpha-dataset --help` | Publish validated saved acquisitions and inspect an explicit snapshot ID |
+| `alpha-backtest books --help` | Run saved L2 EDA, book rules, IOC fills and exact spot accounting |
 | `alpha-collect --help` | Capture supported live market-data sources within their declared source contracts |
 | `make check` | Complete source checks and isolated wheel smoke |
 | `make format`, `make format-check`, `make lint` | Python formatting and linting |
@@ -106,6 +109,7 @@ the QuantLib release restriction.
 | [Operations runbook](governance/operations.md) | Security, monitoring, stop and recovery requirements for a future deployment |
 | [Platform infrastructure roadmap](roadmap/README.md) | One backlog for reusable capabilities, MR dependencies, functional ownership and acceptance |
 | [QR implementation guide](../examples/README.md) | Research activities: data selection/onboarding, features/labels, models/rules, backtesting, candidate promotion and monitoring; current versus planned support |
+| [Saved L2 workflow](research/l2-book-backtest.md) | Configured book simulation, real-source results and offline recovery |
 | [Frozen P1 experiment](research/p1-baseline.md) | Selected sample, strategy, timing, cost assumptions and experiment acceptance requirements |
 | [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |
 | [Data sources](data_source/README.md) | Sources by asset class and data type, historical coverage, access limits and dated verification evidence |
@@ -114,7 +118,8 @@ the QuantLib release restriction.
 | [Data contracts](data/contracts.md), [point-in-time semantics](data/point-in-time-semantics.md), [data library](../src/market_data/README.md) | Implemented events, decoding, provenance and current construction example |
 
 The [data command reference](../src/market_data/README.md) and
-[collector guide](data/l3-collectors.md) own command usage and limits. Backtesting,
+[collector guide](data/l3-collectors.md) own acquisition usage and limits.
+[Backtesting](research/l2-book-backtest.md) has an installed offline command;
 paper trading, deployment, activation and trading stop commands remain planned.
 Keep actual release identities, data provenance and unresolved dependency
 evidence; no current result grants live readiness.

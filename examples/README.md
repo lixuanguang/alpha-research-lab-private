@@ -13,6 +13,9 @@ book reconstruction/replay, pinned multi-input selection, EDA, retained experime
 attempts, temporal splits, versioned observed-price feature/label studies, exact
 model construction/evaluation, bounded synthetic spot economics, configured
 costed reports, local serial pipelines and pinned lakeFS dataset versions.
+The [saved L2 workflow](../docs/research/l2-book-backtest.md) adds configured book
+EDA, an imbalance/no-trade comparison, depth-based IOC fills and exact accounting
+through `alpha-backtest books` and [the order-book notebook](orderbook-research.ipynb).
 The research comparison workflow adds compatible implementation registration, a distinct
 reversal rule, retained Alphalens diagnostics and fixed-budget Optuna comparisons.
 The [offline activity notebook](research-foundations.ipynb) includes a rule-only
@@ -397,8 +400,8 @@ For a real saved order-book study, open
 OKX ETH-USDT archive for 2026-09-20, the newest day listed when checked on
 2026-09-22 after the requested September 21 archive was unavailable. The complete
 daily file is retained locally; charts cover only the first 10,000 messages.
-This notebook uses the existing OKX reader for spread and depth inspection and
-does not run the trade-price strategy backtester. See
+This notebook calls the shared saved-book workflow for spread/depth EDA,
+configured book-rule and no-trade accounts, IOC fills and exact costed P&L. See
 [setup and download instructions](notebook-operations.md#historical-order-book-study).
 
 Two reader journeys each have an offline and a live version. The existing filenames
