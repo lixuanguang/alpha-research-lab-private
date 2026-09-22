@@ -278,10 +278,14 @@ not establish recorder completeness. Eligibility is selected at every assertion
 validity boundary within the interval, including intervals without observations;
 all original assertions, exclusions, reasons and independent clocks are retained.
 
-`QualityReport.scope` is `exploratory_degraded`, `causal_witnessed` (each accepted
-only for its declared scope), or `rejected`. The original input contracts lack complete recorder evidence and the
-catalog is authored, so this implementation cannot produce a fully valid causal
-partition. Exploratory use can retain gaps or unknown/excluded membership with
+`QualityReport.scope` is `exploratory_degraded`, `causal_witnessed`,
+`causal_qualified` (each accepted only for its declared scope), or `rejected`.
+The original archive inputs still lack complete source evidence. Strict causal
+admission now requires a retained, externally reviewed `SourceQualification`
+binding the request/catalog, whole interval, archive and full-version inventory,
+historical eligibility and availability facts. Provider authenticity and claim
+interpretation remain a human review boundary; hashes cannot establish those facts.
+Exploratory use can retain gaps or unknown/excluded membership with
 explicit annotations; structural errors and unresolved trade revisions reject it.
 A rejected report has `canonical=None`; `require_canonical()` raises publication
 refusal with the reasons. No partial output is released after a reader failure.
@@ -289,8 +293,9 @@ refusal with the reasons. No partial output is released after a reader failure.
 it does not count unread rows or classify an economic conflict as a malformed row.
 Raw bytes remain with the caller or immutable store, including after rejection.
 
-Accepted deterministic JSON bytes use schema `canonical-trade-partition-v1` and
-explicit scope, policy, complete request/catalog, eligibility history, selected
+Accepted deterministic JSON bytes use `canonical-trade-partition-v1` without
+added evidence, `v2` with native capture, or `v3` with reviewed provider qualification.
+They retain explicit scope, policy, complete request/catalog, eligibility history, selected
 membership segments, reasons, full revision heads and binding-scoped controls.
 Heads use revision admission's deterministic payload-identity order; source order is retained
 in occurrence positions. No event or assertion is forward-filled or replaced by
@@ -300,6 +305,17 @@ verification, atomic publication and the installed command are separate consumer
 evidence and no large-partition performance or empirical P1 acceptance claim.
 
 ## Dataset manifest identity and verification
+
+Version `3` adds reviewed provider qualification and optional complete
+`prior_acquisitions` for the identical source request. Its canonical schema is
+`canonical-trade-partition-v3`, availability policy is `provider-qualified-v3`
+and scope is `causal_qualified`. Every retained archive is natively verified;
+snapshot and query reopening reproduce admission and preserve predecessor values
+and original unknown clocks. Evidence bytes and review provenance enter identity.
+Version `1`/`2` identities are preserved by omitting absent optional fields; older
+readers cannot consume version `3`. The
+[provider contract](../../src/market_data/README.md#reviewed-provider-qualification)
+defines review requirements, history cutoff and supported limitations.
 
 `DatasetManifest` version `1` binds an **ordered** tuple of `DatasetPartition`
 records. Each entry retains the canonical SHA-256, complete acquisition manifest,

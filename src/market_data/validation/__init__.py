@@ -2,6 +2,12 @@
 
 # project library imports
 from market_data.validation.freshness import ContinuousQuality
+from market_data.validation.qualification import (
+    EvidenceCitation,
+    ProviderDocument,
+    SourceQualification,
+    TradeAvailability,
+)
 from market_data.validation.quality import QualityPolicy, QualityReport
 from market_data.validation.revisions import (
     Correction,
@@ -13,9 +19,13 @@ from market_data.validation.revisions import (
 __all__ = [
     "ContinuousQuality",
     "Correction",
+    "EvidenceCitation",
+    "ProviderDocument",
     "QualityPolicy",
     "QualityReport",
     "RevisionConflictError",
+    "SourceQualification",
+    "TradeAvailability",
     "TradeKey",
     "TradeRevision",
 ]

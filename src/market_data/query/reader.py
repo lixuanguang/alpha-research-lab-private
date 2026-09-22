@@ -40,7 +40,7 @@ class QueryEvidence(NamedTuple):
     """Carry unprojectable binding, units, quality and complete membership evidence."""
 
     request: SourceRequest
-    scope: Literal["exploratory_degraded", "causal_witnessed"]
+    scope: Literal["exploratory_degraded", "causal_witnessed", "causal_qualified"]
     policy: QualityPolicy
     eligibility: EligibilityAssertions
     reasons: tuple[str, ...]

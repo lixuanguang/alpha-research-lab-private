@@ -1,7 +1,7 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-22. **MRs 1–7 are implemented; MR 8 has
-scoped causal integration with empirical acceptance open; MR 9 has bounded saved-input
+Owner: repository founder. Updated 2026-09-23. **MRs 1–7 are implemented; MR 8 has
+scoped causal integration with legacy P1 empirical acceptance deferred and unaccepted; MR 9 has bounded saved-input
 batch parity with runtime qualification open; MR 9A has completed local L2
 backtesting acceptance; MRs 10–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
@@ -40,6 +40,14 @@ The [frozen P1 experiment](../research/p1-baseline.md) retains its own identity,
 source sample and economic assumptions. It is not renumbered with this roadmap.
 No empirical strategy, paper deployment or live trading acceptance is claimed.
 
+**Current source priority (founder clarification, 2026-09-23).** Binance and Tardis
+are deprioritised for new research work. Preserve their existing adapters, fixtures
+and frozen P1 records, but defer further P1 source investigation and provider
+outreach. Such outreach is not a platform requirement or a prerequisite for the
+current OKX/Bitfinex research workflows. Continue from the saved OKX order-book
+workflow for L2 backtesting. P1 remains unaccepted; deferring it neither closes MR 8
+nor changes source-quality requirements for another experiment.
+
 ## Platform and researcher responsibilities
 
 | Boundary | Quant researcher owns | Platform infrastructure owns |
@@ -73,7 +81,7 @@ source evidence and researcher access improve independently.
 | 5 | [First economic backtest and vectorbt research adapter](#first-economic-backtest) | Existing replay and financial contracts; MR 4 for tracked vectorbt runs; no fitted-model dependency |
 | 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
 | 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
-| 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — scoped causal integration delivered; acceptance open | MRs 5–6 plus required actual source evidence |
+| 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — scoped causal integration delivered; legacy empirical acceptance deferred | If resumed: MRs 5–6 plus required actual source evidence |
 | 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) — saved-input batch slice delivered; runtime acceptance open | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
 | 9A | [L2 order-book backtesting](#l2-order-book-backtesting) — implemented; local acceptance complete | Saved L2 reader and MRs 5–6; before MR 10 for order-book strategies |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable; MR 9A for order-book strategies |
@@ -1223,7 +1231,11 @@ model/source artifacts, failed evidence and matching wheels when reversing.
 
 ### Frozen baseline acceptance
 
-**MR 8 — source verification implemented; empirical acceptance open.** Run `p1-btcusdt-return-v1` unchanged against the permitted actual source
+**MR 8 — source verification implemented; legacy empirical acceptance deferred
+and unaccepted.** The founder has deprioritised Binance/Tardis work. The following
+acceptance criteria apply only if this frozen case is explicitly resumed; they do
+not require provider outreach or block independent OKX/Bitfinex work.
+Run `p1-btcusdt-return-v1` unchanged against the permitted actual source
 and an isolated installed candidate. Resolve or explicitly leave unresolved the
 [experiment's source and acceptance requirements](../research/p1-baseline.md#acceptance-and-research-discipline).
 Saved ZIP integrity does not prove historical membership, coverage or revision
@@ -1362,6 +1374,40 @@ publication and fresh-process resume/repeat report parity. It is included in whe
 smoke. Prior source-refusal evidence is reused only for its historical scope.
 The external prerequisite and version-2 rollback boundary are in the owning P1 page.
 No deployment, purchase, source substitution or trading is authorized by this evidence.
+
+
+### Strict provider evidence continuation
+
+**2026-09-23 — strict admission implementation delivered; MR8 empirical acceptance
+remains open.** The previously missing provider-evidence contract now connects
+retained document bytes and reviewed full-window coverage, original/revised payload
+inventory, historical eligibility and availability clocks to the shared causal gate.
+Version-3 snapshots retain and revalidate that evidence and earlier archive versions;
+existing exploratory/witnessed versions preserve their identities. The QR notebook
+accepts the same reviewed `DatasetInput` as the installed `alpha-dataset` command.
+
+Local source checks passed **1,244 tests, three performance cases deselected,
+zero skips**. The final complete installed-wheel checks passed separately after
+correcting the initial failures retained in the report. Both frozen synthetic
+strategies reconcile exactly and reproduce across fresh-process resume/repeat.
+The real notebook passed all 37 cells twice and reproduced all 27 semantic
+artifacts; it still correctly refuses the unqualified actual source.
+
+The [implementation report](../research/source-qualification.md) records verification,
+synthetic economic/restart evidence, the exact notebook command and supported limits.
+Provider authenticity and claim interpretation remain an explicit external review
+boundary. The actual frozen hour still lacks the required reviewed provider facts;
+no sample/strategy/fee/timing parameter or acceptance rule was changed. Obtaining those
+facts and passing actual-source costed/recovery acceptance remain necessary to close
+MR8. MR7 and MR9A acceptance are unchanged.
+
+The [public provider-records investigation](../research/provider-records.md) obtained
+an additional Binance correction record, outside the frozen sample's scope, and
+retained its provenance. It did not establish the missing historical facts. The
+[provider requests](../research/provider-requests.md) remain unsent and the proposed
+outreach has been withdrawn following the founder's source-priority clarification.
+This legacy acceptance work is deferred. The missing facts remain documented for
+any future explicit resumption; they are not required next actions for the platform.
 
 ## Candidate promotion and operation
 

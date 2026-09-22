@@ -26,6 +26,7 @@ from market_data.contracts import (
     SourceRequest,
     Trade,
 )
+from market_data.validation.qualification import SourceQualification
 from market_data.validation.revisions import Correction, TradeRevision
 from reference_data.eligibility import EligibilityAssertion, EligibilityAssertions
 from serialization import DomainCodec, WireRecord
@@ -40,7 +41,7 @@ class QualityReport(WireRecord, frozen=True, kw_only=True):
     Rejected raw bytes remain in the supplied occurrences or immutable raw store.
     """
 
-    scope: Literal["exploratory_degraded", "causal_witnessed", "rejected"]
+    scope: Literal["exploratory_degraded", "causal_witnessed", "causal_qualified", "rejected"]
     reasons: tuple[str, ...]
     invalid_count: int
     gap_count: int
@@ -54,7 +55,12 @@ class QualityReport(WireRecord, frozen=True, kw_only=True):
             ValueError: Scope, reasons, counts or canonical-byte disposition is invalid.
             TypeError: A count has an unsafe Python type.
         """
-        if self.scope not in ("exploratory_degraded", "causal_witnessed", "rejected") or (
+        if self.scope not in (
+            "exploratory_degraded",
+            "causal_witnessed",
+            "causal_qualified",
+            "rejected",
+        ) or (
             type(self.reasons) is not tuple
             or not self.reasons
             or any(type(reason) is not str or not reason for reason in self.reasons)
@@ -63,7 +69,7 @@ class QualityReport(WireRecord, frozen=True, kw_only=True):
         for count in (self.invalid_count, self.gap_count, self.duplicate_count):
             MarketEventRecord._require_int(count, field_name="quality count")
         if (self.scope == "rejected" and self.canonical is not None) or (
-            self.scope in ("exploratory_degraded", "causal_witnessed")
+            self.scope in ("exploratory_degraded", "causal_witnessed", "causal_qualified")
             and (type(self.canonical) is not bytes or not self.canonical or self.invalid_count)
         ):
             raise ValueError("quality outcome and canonical bytes disagree")
@@ -84,13 +90,15 @@ class QualityReport(WireRecord, frozen=True, kw_only=True):
 
 
 class QualityPolicy(WireRecord, frozen=True, kw_only=True):
-    """Own declared use, fixed eligibility cutoff and observed-gap tolerance.
+    """Own declared use, eligibility knowledge and observed-gap tolerance.
 
     Exploratory use admits evidence limitations with explicit degraded annotations;
     strict causal use requires complete source evidence and remains fail-closed.
     Witnessed use requires exact native capture agreement and historical source
     eligibility, but retains unknown upstream coverage and unseen revision history.
     This boundary does not accept a caller-authored completeness flag.
+    Strict causal membership uses each interval's historical decision time;
+    known_at is the fixed exploratory cutoff and the witnessed cutoff ceiling.
     """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
@@ -121,6 +129,7 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
         verifier: OccurrenceVerifier,
         corrections: tuple[Correction, ...] = (),
         capture: ArchiveCapture | None = None,
+        qualification: SourceQualification | None = None,
     ) -> QualityReport:
         """Check one selected partition completely before releasing canonical bytes.
 
@@ -133,6 +142,9 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
             capture: Native Tardis slices corroborating the exact archive. Witnessed use
                 requires every selected economic version and source-backed eligibility;
                 it does not assert upstream completeness or an exhaustive revision history.
+            qualification: Retained externally reviewed provider facts required for strict
+                causal use. Exact bytes, full inventory and independent clocks are rechecked;
+                provider authenticity and interpretation remain the reviewer's responsibility.
 
         Returns:
             Accepted degraded bytes or a rejected report with no publishable prefix.
@@ -209,7 +221,7 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                 for assertion in eligibility.assertions
                 for bound in (
                     (assertion.valid_from, assertion.valid_to, assertion.ts_knowledge)
-                    if self.use == "witnessed"
+                    if self.use in ("witnessed", "causal")
                     else (assertion.valid_from, assertion.valid_to)
                 )
                 if start < bound < end
@@ -222,7 +234,11 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                 eligibility.select(
                     request.instrument.instrument_id,
                     valid_at=left,
-                    known_at=min(left, self.known_at) if self.use == "witnessed" else self.known_at,
+                    known_at=left
+                    if self.use == "causal"
+                    else min(left, self.known_at)
+                    if self.use == "witnessed"
+                    else self.known_at,
                 ),
             )
             for left, right in pairwise(boundaries)
@@ -238,8 +254,8 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                 unknown_availability = False
             except (ValueError, TypeError, OverflowError) as error:
                 errors.append(f"capture evidence: {error}")
-        if self.use == "witnessed":
-            if capture is None:
+        if self.use in ("witnessed", "causal"):
+            if self.use == "witnessed" and capture is None:
                 errors.append("witnessed admission requires native archive capture evidence")
             for left, right, selected in membership:
                 if (
@@ -250,7 +266,7 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                 ):
                     errors.append(f"historical source eligibility unavailable: {left}..{right}")
             if gaps or disconnects:
-                errors.append("witnessed admission refuses observed coverage failures")
+                errors.append(f"{self.use} admission refuses observed coverage failures")
         if capture is not None and not unknown_availability:
             reasons = [
                 reason for reason in reasons if reason != "original trade availability unknown"
@@ -261,15 +277,50 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                     "Capture agreement cannot prove upstream completeness or unseen revisions",
                 )
             )
+        if qualification is not None:
+            try:
+                if type(qualification) is not SourceQualification or self.use != "causal":
+                    raise ValueError("provider qualification requires strict causal admission")
+                heads = qualification.qualify(request, heads, eligibility)
+                reasons = [
+                    reason
+                    for reason in reasons
+                    if reason
+                    not in (
+                        "recorder coverage unknown",
+                        "catalog units are authored research assumptions",
+                        "original trade availability unknown",
+                    )
+                ]
+                reasons.extend(
+                    (
+                        "Provider authenticity and fact interpretation rely on "
+                        "retained external review",
+                        "Provider coverage and revision history qualified through "
+                        f"{qualification.history_through.isoformat()}",
+                    )
+                )
+            except (ValueError, TypeError, OverflowError) as error:
+                errors.append(f"provider qualification: {error}")
+        elif self.use == "causal":
+            errors.append("strict causal admission requires reviewed provider qualification")
         versions = {TradeRevision(occurrences=(item,)).identity for item in trades}
         duplicate_count = len(trades) - len(versions)
         reasons = sorted(set(reasons + errors))
         canonical = None
-        scope = "causal_witnessed" if self.use == "witnessed" else "exploratory_degraded"
-        if not errors and self.use in ("exploratory", "witnessed"):
+        scope: Literal["causal_qualified", "causal_witnessed", "exploratory_degraded"] = (
+            "causal_qualified"
+            if self.use == "causal"
+            else "causal_witnessed"
+            if self.use == "witnessed"
+            else "exploratory_degraded"
+        )
+        if not errors:
             canonical = self._codec.encode_json(
                 {
-                    "schema_version": "canonical-trade-partition-v2"
+                    "schema_version": "canonical-trade-partition-v3"
+                    if qualification is not None
+                    else "canonical-trade-partition-v2"
                     if capture is not None
                     else "canonical-trade-partition-v1",
                     "scope": scope,
@@ -281,12 +332,11 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                     "revisions": heads,
                     "controls": tuple(sorted(controls, key=self._codec.encode_json)),
                     **({"capture": capture} if capture is not None else {}),
+                    **({"qualification": qualification} if qualification is not None else {}),
                 }
             )
         return QualityReport(
-            scope=("causal_witnessed" if self.use == "witnessed" else "exploratory_degraded")
-            if canonical is not None
-            else "rejected",
+            scope=scope if canonical is not None else "rejected",
             reasons=tuple(reasons),
             invalid_count=invalid_count,
             gap_count=gaps + disconnects,

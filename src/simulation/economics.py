@@ -547,7 +547,10 @@ class SpotSimulation:
             limitations=(
                 *limitations,
                 (
-                    "causal_witnessed inputs; empirical baseline acceptance remains separate"
+                    "causal_qualified inputs rely on external provider review; "
+                    "empirical acceptance remains separate"
+                    if all(item.scope == "causal_qualified" for item in self.observations.evidence)
+                    else "causal_witnessed inputs; empirical baseline acceptance remains separate"
                     if all(item.scope == "causal_witnessed" for item in self.observations.evidence)
                     else "exploratory_degraded inputs; synthetic software evidence only"
                 ),

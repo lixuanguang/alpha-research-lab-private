@@ -14,6 +14,7 @@ from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 # third party library imports
+import msgspec
 from msgspec.structs import replace
 
 # project library imports
@@ -22,10 +23,17 @@ from configuration import Configuration
 from financial_units import ExactRatio
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.sources import SourceAdapters
-from market_data.contracts import ArchiveCapture, CaptureSlice, SourceRequest
+from market_data.contracts import ArchiveCapture, ArchiveTrade, CaptureSlice, SourceRequest
 from market_data.datasets import DatasetInput, DatasetPublication
 from market_data.storage import RawFiles, RawStore
-from market_data.validation import QualityPolicy
+from market_data.validation import (
+    EvidenceCitation,
+    ProviderDocument,
+    QualityPolicy,
+    SourceQualification,
+    TradeAvailability,
+    TradeRevision,
+)
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import (
     EligibilityAssertion,
@@ -52,7 +60,7 @@ class _EngineeringSample:
     """Exercise existing saved-input, attempt, report and recovery owners outside a checkout."""
 
     @staticmethod
-    def prepare(inputs: Path, output: Path) -> None:
+    def prepare(inputs: Path, output: Path, *, qualified: bool = False) -> None:
         """Publish native-verified synthetic inputs with hypothetical eligibility."""
         codec = DomainCodec()
         spec = codec.decode_json((inputs / "p1-btcusdt-return-v1.json").read_bytes(), BacktestSpec)
@@ -152,6 +160,67 @@ class _EngineeringSample:
             capture=capture,
         )
         publisher = DatasetPublication(SourceAdapters(), "a" * 64)
+        if qualified:
+            payload = (
+                b"SYNTHETIC PROVIDER REVIEW FIXTURE; not empirical evidence. "
+                b"The attached native fixture and archive enumerate every original trade, "
+                b"with no revisions through 01:00 UTC. Complete [00:00,01:00) coverage. "
+                b"Instrument status and selected units were available at 00:00. "
+                b"Each full archive version was published at event time and available 1us later."
+            )
+            document = ProviderDocument(
+                sha256=hashlib.sha256(payload).hexdigest(),
+                issuer="synthetic test provider",
+                reference="synthetic:installed-admission",
+                published_at=spec.end,
+                received_at=spec.end,
+                payload=payload,
+            )
+            citation = EvidenceCitation(
+                document_sha256=document.sha256, locator="entire fixture statement"
+            )
+            facts: list[TradeAvailability] = []
+            for item in publisher.occurrences(selected.acquisition, raw, max_bytes=4_000_000):
+                assert isinstance(item.event, ArchiveTrade)
+                facts.append(
+                    TradeAvailability(
+                        version_identity=TradeRevision(occurrences=(item,)).identity,
+                        published_at=item.event.ts_event,
+                        available_at=item.event.ts_event + timedelta(microseconds=1),
+                        evidence=citation,
+                    )
+                )
+            selected = replace(
+                selected,
+                policy=replace(selected.policy, use="causal"),
+                eligibility=replace(
+                    eligibility,
+                    assertions=(
+                        replace(
+                            eligibility.assertions[0],
+                            evidence=replace(
+                                eligibility.assertions[0].evidence, identity=document.sha256
+                            ),
+                        ),
+                    ),
+                ),
+                qualification=SourceQualification(
+                    request_identity=request.identity,
+                    archive_sha256s=(origin.sha256,),
+                    start=spec.start,
+                    end=spec.end,
+                    history_through=spec.end,
+                    trade_count=len(facts),
+                    documents=(document,),
+                    instrument=citation,
+                    coverage=citation,
+                    revision_history=citation,
+                    versions=tuple(facts),
+                    reviewer="synthetic fixture reviewer",
+                    review_reference="synthetic:installed-test",
+                    reviewed_at=spec.end,
+                ),
+            )
         bad = replace(selected, capture=replace(capture, archive_sha256="b" * 64))
         try:
             publisher.publish((bad,), raw, output / "snapshots", max_bytes=4_000_000)
@@ -160,6 +229,35 @@ class _EngineeringSample:
         else:
             raise AssertionError("mismatched evidence published a snapshot")
         identity = publisher.publish((selected,), raw, output / "snapshots", max_bytes=4_000_000)
+        if qualified:
+            input_path = output / "dataset-input.json"
+            input_path.write_bytes(codec.encode_json(selected))
+            command = subprocess.run(
+                [
+                    str(Path(sys.executable).with_name("alpha-dataset")),
+                    "publish",
+                    "--inputs",
+                    str(input_path),
+                    "--store",
+                    str(output / "raw"),
+                    "--snapshots",
+                    str(output / "snapshots"),
+                    "--max-bytes",
+                    "4000000",
+                ],
+                cwd=output,
+                check=True,
+                capture_output=True,
+                timeout=20,
+            )
+            completion = msgspec.json.decode(
+                command.stdout.splitlines()[-1], type=dict[str, str | int | None]
+            )
+            published = completion["snapshot_id"]
+            assert isinstance(published, str) and completion["scope"] == "causal_qualified"
+            assert completion["status"] == "complete"
+            identity = published
+            (output / "publication.jsonl").write_bytes(command.stdout)
         zero = ExactRatio.from_fraction(Fraction(0))
         for name in ("p1-btcusdt-return-v1", "p1-btcusdt-no-trade-v1"):
             economics = codec.decode_json((inputs / f"{name}.json").read_bytes(), BacktestSpec)
@@ -190,7 +288,7 @@ class _EngineeringSample:
         raise ConnectionError("synthetic unavailable transport; local output remains durable")
 
     @staticmethod
-    def execute(output: Path, *, resume: bool) -> None:
+    def execute(output: Path, *, resume: bool, qualified: bool = False) -> None:
         """Reopen installed saved inputs and compare reports across independent fresh processes."""
         codec = DomainCodec()
         destination = ClearMLDestination(
@@ -258,6 +356,9 @@ class _EngineeringSample:
                 assert Decimal(report.net_profit) == expected - Decimal("1000")
                 assert any("engineering sample" in item for item in report.limitations)
                 assert any("upstream completeness" in item for item in report.limitations)
+                if qualified:
+                    assert any("causal_qualified inputs" in item for item in report.limitations)
+                    assert any("external review" in item for item in report.limitations)
                 record = codec.encode_json(manifest)
                 expected_path = output / f"{name}-expected.json"
                 if stage == "complete":
@@ -282,14 +383,25 @@ def main() -> None:
     """
     inputs, output = Path(sys.argv[1]), Path(sys.argv[2])
     if len(sys.argv) > 3:
-        _EngineeringSample.execute(output, resume=True)
+        _EngineeringSample.execute(output, resume=True, qualified=sys.argv[3] == "qualified")
         return
-    output.mkdir()
-    _EngineeringSample.prepare(inputs, output)
-    _EngineeringSample.execute(output, resume=False)
-    subprocess.run(
-        [sys.executable, "-I", __file__, str(inputs), str(output), "resume"], check=True, cwd=output
-    )
+    for qualified in (False, True):
+        destination = output.with_name(output.name + "-qualified") if qualified else output
+        destination.mkdir()
+        _EngineeringSample.prepare(inputs, destination, qualified=qualified)
+        _EngineeringSample.execute(destination, resume=False, qualified=qualified)
+        subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                __file__,
+                str(inputs),
+                str(destination),
+                "qualified" if qualified else "resume",
+            ],
+            check=True,
+            cwd=destination,
+        )
 
 
 if __name__ == "__main__":

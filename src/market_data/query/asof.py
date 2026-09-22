@@ -22,7 +22,13 @@ from market_data.contracts import (
 )
 from market_data.datasets import DatasetReaders, SnapshotStore
 from market_data.storage import RawStore
-from market_data.validation import Correction, QualityPolicy, TradeKey, TradeRevision
+from market_data.validation import (
+    Correction,
+    QualityPolicy,
+    SourceQualification,
+    TradeKey,
+    TradeRevision,
+)
 from reference_data.eligibility import EligibilityAssertion, EligibilityAssertions
 from reference_data.instruments import InstrumentId
 from serialization import DomainCodec, WireRecord
@@ -39,8 +45,12 @@ class _Partition(WireRecord, frozen=True, kw_only=True):
     _wire: ClassVar[msgspec.json.Decoder[dict[str, msgspec.Raw]]] = msgspec.json.Decoder(
         dict[str, msgspec.Raw]
     )
-    schema_version: Literal["canonical-trade-partition-v1", "canonical-trade-partition-v2"]
-    scope: Literal["exploratory_degraded", "causal_witnessed"]
+    schema_version: Literal[
+        "canonical-trade-partition-v1",
+        "canonical-trade-partition-v2",
+        "canonical-trade-partition-v3",
+    ]
+    scope: Literal["exploratory_degraded", "causal_witnessed", "causal_qualified"]
     policy: QualityPolicy
     request: SourceRequest
     eligibility: EligibilityAssertions
@@ -51,6 +61,7 @@ class _Partition(WireRecord, frozen=True, kw_only=True):
     revisions: tuple[TradeRevision, ...]
     controls: tuple[Occurrence, ...]
     capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
+    qualification: SourceQualification | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Reject altered canonical claims using the existing source and quality gate.
@@ -93,6 +104,9 @@ class _Partition(WireRecord, frozen=True, kw_only=True):
             corrections=tuple(corrections.values()),
             verifier=verifier,
             capture=self.capture if isinstance(self.capture, ArchiveCapture) else None,
+            qualification=self.qualification
+            if isinstance(self.qualification, SourceQualification)
+            else None,
         )
         # Both encodings use the same sorted domain codec. Compare field bytes
         # without allocating two additional trees of nested Python dictionaries.
