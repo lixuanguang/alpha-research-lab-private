@@ -73,7 +73,8 @@ source evidence and researcher access improve independently.
 | 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
 | 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — scoped causal integration delivered; acceptance open | MRs 5–6 plus required actual source evidence |
 | 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) — saved-input batch slice delivered; runtime acceptance open | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
-| 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable |
+| 9A | [L2 order-book backtesting](#l2-order-book-backtesting) — planned | Saved L2 reader and MRs 5–6; before MR 10 for order-book strategies |
+| 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable; MR 9A for order-book strategies |
 | 11 | [Trusted deployment artifact](#trusted-deployment-artifact) | Dependency admission and a concrete deployable consumer |
 | 12 | [Paper order lifecycle and recovery](#paper-order-lifecycle-and-recovery) | MR 10; MR 11 before deployment |
 | 13 | [Independent risk and account reconciliation](#independent-risk-and-account-reconciliation) | MRs 5 and 12 |
@@ -91,6 +92,10 @@ number. MR 11 must move forward before any actual deployment, including a collec
 MR 21 can proceed independently. MR 8 accepts the specific frozen experiment;
 MR 7 separately accepts the reusable research workflow. Neither substitutes for
 the other's evidence. Conditional work stays dormant until its consumer exists.
+MR 9A is the next capability for the saved ETH-USDT order-book workflow. It can
+proceed without closing MR 8 or the runtime portion of MR 9. Complete it before
+starting MR 10 for an order-book candidate; trade-price candidates retain their
+existing prerequisites.
 
 ## Selected research integrations
 
@@ -1457,6 +1462,77 @@ Hosted source/macOS/merged-result CI remains a required pre-merge boundary; its
 PR status is reported separately and local checks do not bypass it. Full MR 9 is
 not marked complete while the runtime prerequisites above remain open.
 
+### L2 order-book backtesting
+
+**MR 9A, planned.** Make the saved-book workflow runnable end to end:
+verified L2 archive → book observations and EDA → strategy targets → independent
+risk checks → simulated orders and fills → cash, positions and P&L report.
+The current OKX reader rebuilds books, but MR 5's economic runner accepts trade
+prices. This work closes that gap before packaging an order-book candidate in
+MR 10. It does not depend on a live collector, fitted model, online feature store
+or MR 8 baseline acceptance.
+
+**First supported scope.** Reuse the saved OKX ETH-USDT spot archive for
+2026-09-20 selected by the [order-book study](../../examples/notebook-operations.md#historical-order-book-study).
+Start with its explicit 10,000-message window and a simple, configured book-based
+rule plus a no-trade control. The window is an engineering demonstration; neither
+profitability nor full-day coverage is a completion condition. Instrument, window,
+rule parameters, initial cash, limits, fee rates and timing assumptions belong in
+versioned configuration. Shared libraries must not hardcode this pair or date.
+
+The first simulator supports long-only spot orders that execute immediately on
+arrival: buys consume available asks and sells consume available bids, walking
+price levels in order. Partial fills are supported; cancel the unfilled remainder
+of each immediate-or-cancel order. Enforce configured size and cash limits, tick
+and lot rules and taker fees through the existing exact financial contracts.
+Do not fill at a midpoint or grant unlimited liquidity. Retain consumed liquidity
+so successive simulated orders cannot repeatedly spend the same displayed size;
+declare how later source updates affect that state. State the no-market-impact
+assumption and supported order-size envelope. Resting limit orders, queue position,
+maker fills, cancel/replace and derivatives require a separate supported slice
+before a strategy can rely on them.
+
+Follow the existing [replay clocks and fill contract](../architecture/platform-design.md#replay-clocks-and-fill-fidelity).
+Keep exchange-side book state separate from the information available to the
+strategy. Declare feed, processing, order-entry and response delays, deterministic
+tie ordering, stale/invalid-book handling and terminal valuation. Preserve the
+archive's missing receipt times and unproven sequence continuity. Model timing in
+a separate versioned research scenario; download time is not historical receipt
+time, and existing source-admission rules must not be relaxed. Keep the frozen P1
+trade-price experiment and its results unchanged.
+
+**Implementation owners.** Extend the existing owners through their public APIs:
+`market_data` for verified book replay; `research` for reusable observations,
+features and experiment records; `strategies` for the rule; `simulation` for order
+arrival, fills, costs and checkpoints; `risk` and `accounting` for reservations
+and exact postings; `configuration` and `applications.backtest` for configured
+composition and reports. Reuse the existing installed `alpha-backtest` entry point
+and make [the notebook](../../examples/orderbook-research.ipynb) call the shared
+implementation. Introduce only the pure offline order state needed here; MR 12
+still owns paper-runtime journals, reconciliation and recovery from unknown sends.
+Do not route unsupported L2 runs through the trade-price vectorbt comparison.
+
+**Acceptance.** Deliver one configured command and notebook journey over the saved
+archive, retaining input/configuration/code identities, source limitations, timing
+and fill assumptions, decisions, orders, fills and an exactly reconciled report.
+The complete and interrupted/resumed runs must agree, including pending orders,
+consumed liquidity and independent instance state. Focused hand-calculated cases
+must cover depth walking, insufficient size/partial fills, fees and cash/position
+postings; causal checks must show that later or unavailable book changes cannot
+alter an earlier decision or fill. Exercise invalid/stale inputs and a different
+declared delay, preserving failures instead of silently filling gaps. Use bounded
+configuration/fixture cases to verify another supported spot instrument and
+isolated strategy instances; reject unsupported product mechanics explicitly.
+Retain the existing trade-price regression evidence and renew affected checks.
+Run the real saved-data example through the installed package; small fixtures
+prove mechanics but do not replace that integration proof. Keep raw market data
+and bulk results outside Git. Hosted source/macOS/merged-result CI remains the
+pre-merge gate; update this section with actual commands, results and limits.
+
+Reversal: remove the new configuration/consumer and book-specific implementation
+together while preserving saved inputs and run records. Reject incompatible
+checkpoint versions explicitly. The existing trade-price path remains supported.
+
 ### Candidate packaging and runtime binding
 
 **MR 10.** Freeze the [candidate contract](../architecture/platform-design.md#candidate-promotion-contract):
@@ -1464,6 +1540,13 @@ input requirements, features/preprocessing, optional model, signal-to-target pol
 state/warm-up rules and accepted experiment evidence. Retain artifact bytes as well
 as hashes. A rule has no invented model artifact. Reuse the accepted components in
 research and runtime applications; no translation into separate production formulas.
+
+For an order-book candidate, complete [MR 9A](#l2-order-book-backtesting) before
+starting this packaging work. Bind its supported order types, book requirements,
+timing/fill model and accepted backtest evidence in the candidate contract. A
+strategy requiring resting orders must also have that execution model implemented
+and tested; the first immediate-execution slice cannot qualify it. Candidates
+using the existing trade-price model keep their current acceptance path.
 
 Acceptance: reconstruct a candidate from retained bytes without a notebook or
 credentials; reject incompatible schemas, units, timing, state or outputs; bind a
