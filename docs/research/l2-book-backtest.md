@@ -214,6 +214,18 @@ data. Preserve the complete archive directory and result directories when moving
 this study; hashes alone cannot recover missing files. The maintained notebook
 has its outputs and execution metadata cleared.
 
+### Full local pre-merge validation
+
+On 2026-09-22, implementation commit `ab93884` passed the complete local lane:
+`TMPDIR=/private/tmp MPLCONFIGDIR=/private/tmp/alpha-l2-merge-fonts make check`.
+The suite passed **1,226 tests**, with **three performance cases deselected and
+zero skips**, followed by successful installed-wheel API, command, recovery and
+historical-snapshot consumers. All configured static, governance, dependency audit,
+security and secret checks passed. The complete log is retained at
+`logs/book-backtest/merge-validation/make-check.log`. This extends the focused
+acceptance above without changing the runtime or frozen experiment. Hosted checks
+and merge outcome are recorded on [PR #76](https://github.com/lixuanguang/alpha-research-lab-private/pull/76).
+
 ## Interrupt and resume
 
 Add `--stop-at '2026-09-20T00:00:08.010000+00:00'` to the command to retain both
