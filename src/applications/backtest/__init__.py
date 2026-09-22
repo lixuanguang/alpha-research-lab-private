@@ -1,6 +1,7 @@
 """Compose the bounded economic backtest through one installed Python workflow API."""
 
 # project library imports
+from applications.backtest.books import run_books
 from applications.backtest.command import main
 from applications.backtest.comparison import EconomicComparison, compare_parameters
 from applications.backtest.configured import run_configured
@@ -14,5 +15,6 @@ __all__ = [
     "main",
     "qualify_scheduled_features",
     "run_backtest",
+    "run_books",
     "run_configured",
 ]

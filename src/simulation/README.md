@@ -6,6 +6,19 @@ The [frozen baseline](../../docs/research/p1-baseline.md) owns the experiment's
 assumptions. This library does not establish historical source coverage, empirical
 alpha, executable liquidity, release admission or trading authority.
 
+## Saved L2 IOC research
+
+`applications.backtest.run_books` and `alpha-backtest books` now compose verified
+saved OKX L2 observations with independent long-only spot accounts. The
+[usage and acceptance record](../../docs/research/l2-book-backtest.md) owns the
+configured command, actual saved ETH-USDT result, fee/timing/depletion contracts,
+restart procedure and limitations. The [notebook](../../examples/orderbook-research.ipynb)
+uses that same implementation. `BookSimulation` keeps exchange and delivered books
+separate; `BookExecution` walks depth using `SpotLimits`, `SpotCosts` and `Ledger`.
+`BookCheckpoint` retains both books, pending deliveries/orders/responses, exact
+postings and consumed liquidity. It does not use the trade-price vectorbt adapter.
+The remaining sections describe the unchanged trade-price path.
+
 ## Compose a run
 
 `applications.backtest.run_backtest(reader, spec, ...)` consumes an existing

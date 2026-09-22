@@ -1,6 +1,7 @@
 """Expose semantic experiment identity, temporal fitting boundaries and retained attempts."""
 
 # project library imports
+from research.experiments.book_reports import BookReport
 from research.experiments.comparison import (
     ComparisonEvaluator,
     ComparisonStudy,
@@ -55,6 +56,7 @@ __all__ = [
     "AttemptStore",
     "BacktestRun",
     "BenchmarkPeriod",
+    "BookReport",
     "ClearMLDestination",
     "ClearMLPublication",
     "ComparisonEvaluator",

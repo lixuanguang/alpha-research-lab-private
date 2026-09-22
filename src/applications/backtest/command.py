@@ -12,6 +12,7 @@ from pathlib import Path
 from lakefs_sdk import ApiClient
 
 # project library imports
+from applications.backtest.books import run_books
 from applications.backtest.comparison import compare_parameters
 from applications.backtest.configured import _StorageAccess, run_configured, run_worker
 from applications.backtest.features import qualify_scheduled_features
@@ -35,6 +36,7 @@ from simulation import EconomicResult
 class _Arguments(argparse.Namespace):
     """Describe parsed command selections without an untyped argument boundary."""
 
+    archive: Path
     action: str
     config: Path
     snapshots: Path
@@ -74,6 +76,11 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(prog="alpha-backtest", description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
+    books = commands.add_parser("books")
+    for option in ("config", "archive", "output"):
+        books.add_argument(f"--{option}", type=Path, required=True)
+    books.add_argument("--resume", type=Path)
+    books.add_argument("--stop-at")
     features = commands.add_parser("qualify-features")
     for option in ("config", "snapshots", "raw", "reference", "output"):
         features.add_argument(f"--{option}", type=Path, required=True)
@@ -114,7 +121,16 @@ def main(argv: list[str] | None = None) -> int:
     codec = DomainCodec()
     client: ApiClient | None = None
     try:
-        if args.action == "qualify-features":
+        if args.action == "books":
+            book_output = run_books(
+                args.config,
+                args.archive,
+                output=args.output,
+                resume=args.resume,
+                stop_at=None if args.stop_at is None else datetime.fromisoformat(args.stop_at),
+            )
+            print(str(book_output))
+        elif args.action == "qualify-features":
             selected = BacktestRun.read(args.config)
             reference = codec.decode_json(args.reference.read_bytes(), EconomicResult)
             if reference.spec != selected.economics:

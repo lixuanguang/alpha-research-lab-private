@@ -23,6 +23,40 @@ The founder selected `data/binance-archives/` for the local working copy and
 explicitly requested that downloaded contents be ignored by Git. No data purchase,
 account credential, trading access or capital use is involved.
 
+## QR handoff to finish MR 8
+
+The remaining QR task is to qualify the saved data for **Binance BTCUSDT,
+1 June 2024, 00:00–01:00 UTC**. Keep that sample and the frozen strategy unchanged.
+The software is implemented; the missing items are source facts:
+
+| QR must provide | In simple terms | Useful supporting records |
+| --- | --- | --- |
+| Historical trading status and reference information | Show that this pair was available to trade throughout this hour, and when the relevant instrument information became available. | Dated exchange/provider instrument records and any status changes covering the hour. Today's listing or the original listing announcement alone is insufficient. |
+| Evidence that the recording covers the whole hour | Establish whether trades could be missing because of a recording outage or an incomplete export. | Provider coverage/completeness records, recorder health logs, or an equivalent documented guarantee applicable to this exact interval. Two matching files and no reported outage alone do not establish completeness. |
+| Original records and later corrections | Establish which trade values were available then, whether relevant values were corrected later, and when each correction became available. | Original captured records plus a complete applicable correction history, or a provider statement establishing that no relevant corrections occurred. No conflicts in the downloaded files alone is insufficient. |
+
+For each item, retain the actual supporting files, their source URLs or provider
+references, retrieval times, and the dates/instrument they cover. Attach them to
+the existing [P1 evidence notebook](../../examples/research-foundations-live.ipynb)
+using its [handoff instructions](../../examples/notebook-operations.md#frozen-source-evidence).
+State unresolved facts plainly; do not fill them with guessed timestamps or
+assumed trading status. The existing 27,480 matched trades and recorder timestamps
+can be reused; QR does not need to repeat that comparison merely to produce a new
+handoff.
+
+After QR supplies the evidence, engineering must validate its applicability,
+admit the saved sample, run the unchanged strategy and no-trade control through
+the installed package, and retain the report showing cash, holdings, fees and
+P&L. A fresh run and an interrupted/resumed run must reproduce the results.
+QR reviews the report's assumptions and remaining limitations. These actual-data
+execution and reproduction results are still needed to close MR 8.
+
+**A profitable result is not required.** A new strategy, parameter search or new
+backtester is not required. If the source cannot supply the missing facts, QR
+should report that limitation; changing the sample or relaxing the frozen
+acceptance rule is a separate founder decision. The newer ETH order-book example
+does not replace this BTC trade-data acceptance.
+
 ## Source, rights and historical scope
 
 | Item | Frozen selection or explicit unresolved status |
