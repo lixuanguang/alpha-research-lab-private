@@ -224,8 +224,37 @@ No new tests or shared implementation were needed. The unchanged full source
 lane from [PR #77's evidence](source-qualification.md#verification-and-results)
 and original MR9A mechanics evidence are reused only for their tested scope.
 Current wheel/API/real-data/recovery proof was renewed above because the installed
-identity differs from MR9A. This documentation/notebook change does not claim a
-new complete `make check`, hosted CI, merge, artifact release or activation.
+identity differs from MR9A. The subsequent pre-merge check below renews the full
+local lane; no artifact release or activation is claimed.
+
+## Pre-merge verification
+
+On the founder's request to merge, commit `57497623459cfdda55e4acaa7529c336e55cb74c`
+passed the complete local lane on 2026-09-23:
+
+```sh
+TMPDIR=/private/tmp MPLCONFIGDIR=/private/tmp/alpha-saved-baseline-merge-fonts make check
+```
+
+The command exited **0**. Source tests passed **1,244 cases**, with **three
+performance cases deselected and zero skips**; strict mypy checked 353 files and
+native stubtest checked 1,562 modules. All configured formatting, lint, engineering,
+dependency admission/audit, links, Bandit and secret checks passed. The isolated
+installed-wheel API, command, recovery and historical-snapshot consumers passed.
+The rebuilt wheel is byte-identical to the accepted wheel above. The complete log
+is retained in `logs/saved-baseline/2026-09-23/make-check.log`; isolated smoke inputs,
+environment and outputs remain in `/private/tmp/alpha-research-wheel-smoke-bjw1mzso/`.
+Final changes after this check update this evidence text and the roadmap only.
+
+[PR #78](https://github.com/lixuanguang/alpha-research-lab-private/pull/78) owns the
+final merge status. Its initial
+[hosted run](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35761908542)
+could not start source validation because GitHub reported failed account payments
+or an insufficient spending limit. The authoritative job failed and macOS was
+skipped; these are not passing hosted checks. GitHub showed the normal merge action
+available with no conflicts. No check, branch protection, billing or security
+configuration was changed. The observed failure is retained separately in
+`logs/saved-baseline/2026-09-23/hosted-premerge.json`.
 
 ## Remaining boundaries
 

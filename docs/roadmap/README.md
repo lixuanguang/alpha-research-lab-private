@@ -1267,7 +1267,16 @@ notebook lint, engineering rules and 39-document plus notebook link checks passe
 The [acceptance record](../research/saved-baseline-acceptance.md#retained-current-evidence)
 retains the pre-execution specification, matching wheel, exact commands, process
 identities, results and limitations. Earlier MR9A/P1 evidence remains under its
-original identity. No new hosted CI, merge or release outcome is claimed.
+original identity.
+
+On the founder's merge request, the complete local `make check` lane subsequently
+passed **1,244 tests**, with three performance cases deselected and zero skips,
+followed by successful isolated installed-wheel consumers. The wheel exactly
+matches the accepted artifact. Hosted CI could not start because of GitHub account
+payment/spending limits; no hosted pass, release or activation is claimed. The
+[pre-merge record](../research/saved-baseline-acceptance.md#pre-merge-verification)
+retains that distinction; [PR #78](https://github.com/lixuanguang/alpha-research-lab-private/pull/78)
+owns the final merge outcome. Check and security configuration remain unchanged.
 
 The sections below retain the original P1 acceptance and software-delivery history.
 Their statements about MR8 being open describe the superseded milestone target;
