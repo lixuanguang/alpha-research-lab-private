@@ -1,7 +1,8 @@
 # Platform infrastructure roadmap
 
 Owner: repository founder. Updated 2026-09-22. **MRs 1–7 are implemented; MR 8 has
-scoped causal integration with empirical acceptance open; MRs 9–21 are planned.**
+scoped causal integration with empirical acceptance open; MR 9 has bounded saved-input
+batch parity with runtime qualification open; MRs 10–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -71,7 +72,7 @@ source evidence and researcher access improve independently.
 | 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
 | 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
 | 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — scoped causal integration delivered; acceptance open | MRs 5–6 plus required actual source evidence |
-| 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
+| 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) — saved-input batch slice delivered; runtime acceptance open | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable |
 | 11 | [Trusted deployment artifact](#trusted-deployment-artifact) | Dependency admission and a concrete deployable consumer |
 | 12 | [Paper order lifecycle and recovery](#paper-order-lifecycle-and-recovery) | MR 10; MR 11 before deployment |
@@ -1375,6 +1376,86 @@ Retain which feature version and materialization supplied each decision. A lates
 online store cannot answer arbitrary historical as-of queries. A qualified batch
 candidate does not need an online store, and Feast does not move feature formulas
 out of their existing owner.
+
+MR 9 implementation status (2026-09-22): **bounded saved-input batch parity
+delivered; full runtime acceptance remains open.** The concrete software consumer
+is P1's existing scheduled, unfitted completed-price rule. `research.features`
+owns `CompletedReturn`, `ScheduledFeatures`, versioned state and parity records;
+`research.observations` retains source admission and completed-window semantics.
+`simulation` calls the same formula, and the existing `applications.backtest`
+Python API and `alpha-backtest qualify-features` command compose the comparison.
+There is no incremental engine, online store, new runner or deployment consumer.
+The [owning contract](../../src/research/features/README.md#scheduled-completed-price-parity)
+defines clocks, freshness, missingness, correction freezing, recovery, bounds,
+invocation and reversal.
+
+Prerequisites were checked against `92de67c` (latest main when the isolated branch
+was created), not inferred from merged PR numbers. MR 3's exact feature/label
+contracts, MR 4's model construction/reload and MR 7's offline Feast admission
+remain present: the focused prerequisite command passed **59 tests**. P1 consumes
+completed event-time closes rather than MR 3's query-business trailing window;
+those definitions remain distinct. No accepted candidate needing incremental or
+Feast online retrieval exists. MR 4 prediction/fitted-state parity and Feast
+materialization/freshness/TTL are therefore not activated by this rule-only slice.
+MR 8's historical eligibility, positive coverage and exhaustive revision evidence
+are still missing; neither this parity report nor a native capture witness supplies
+them. Actual runtime source binding and measured cadence/recovery qualification
+remain required before full MR 9 acceptance. MR 10 packaging and MR 11 deployment
+admission are not implemented here.
+
+Verification: focused development checks passed **20 tests**, including independent
+exact ratios, equal-clock and late corrections, ordering, stale/missing/gapped
+windows, fresh-window recovery, BTC/ETH and instance isolation, rejected state,
+failed-call atomicity, full replay parity and first-divergence reporting. Initial
+lint/type failures were corrected; one test originally omitted a complete source
+partition and was corrected after the unchanged admission gate rejected it.
+Final required source lane, `env TMPDIR=/private/tmp make check`: lock,
+Ruff/format (347 files), strict mypy (340 files), native stubtest (1,562 modules),
+engineering rules, dependency admission/audit, architecture links, Bandit and
+secret scan passed; **1,207 tests passed, 3 performance tests deselected, zero
+skips**. The unchanged performance lane is outside this check. Component README
+links were also checked explicitly (2 documents), because the default link checker
+covers only `docs/`.
+
+The command subsequently timed out at the unchanged installed feature-study
+consumer's 60-second cold-start bound. A diagnostic using the same installed wheel
+confirmed Matplotlib font-cache construction and passed. The complete unchanged
+`wheel_layout.py` then passed with a populated cache and fresh output directories,
+retaining every 60-second bound. This includes installed feature API/CLI equality,
+fresh-process feature-state reload and incompatible-reference refusal. The full
+source and installed components passed; the timed-out `make check` invocation is
+not reported as a successful command. No actual ClearML, Feast online, live feed,
+deployment or trading qualification is claimed by this synthetic installed suite.
+
+Wheel SHA-256:
+`3e6eec8f8c0432ae8730853cdbd68d40a2bdde432b3032d5871d16914e5dfaf4`.
+Installed implementation identity:
+`5e22ec59af8931bb897f076f2060a10a921a10527c8c11e60fdccfefa94406b5`.
+Matching wheel, runtime requirements, synthetic saved inputs, reports/checkpoints,
+commands and all validation attempts are retained locally in the primary checkout's
+`logs/scheduled-features/2026-09-22/`; this is local evidence, not a hosted artifact.
+Final roadmap evidence edits do not change the tested package/runtime bytes.
+
+Two earlier full attempts remain recorded: a concurrent default `uv run` replaced
+the noneditable test installation (147 failed, 791 passed, 268 setup errors), then
+a sequential run passed 1,205 tests but failed the existing Unix-socket test because
+the macOS temporary path exceeded its bound. Isolating environment changes and
+using `/private/tmp` resolved those harness/environment failures. A final source-unit
+rejection regression increased the passing count to 1,207. Source/admission gates
+and test timeouts were not weakened.
+
+Exact focused commands (all zero skips/deselections):
+
+```sh
+uv run --frozen --no-editable pytest -q tests/unit/research/test_features.py tests/unit/research/test_models.py tests/unit/research/test_offline_features.py tests/unit/simulation
+# Prerequisite state: 59 passed.
+uv run --frozen --no-editable pytest -q tests/unit/research/test_scheduled_features.py tests/unit/simulation/test_scheduled_parity.py tests/unit/simulation/test_economic_replay.py
+# Final changed-domain state: 20 passed.
+```
+
+Hosted source/macOS/merged-result CI remains a required pre-merge boundary; its
+PR status is reported separately and local checks do not bypass it. Full MR 9 is
+not marked complete while the runtime prerequisites above remain open.
 
 ### Candidate packaging and runtime binding
 

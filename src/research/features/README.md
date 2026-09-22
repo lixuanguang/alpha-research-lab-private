@@ -6,7 +6,8 @@ Owner: repository founder. Implemented bounded research contract, 2026-09-20.
 `research.exploration.FeatureStudy` aligns them with saved inputs and temporal
 partitions. The existing `applications.explore.inspect_experiment` orchestrates
 admission, installed identities, retained attempts and holdout consumption.
-There is no new command, model, strategy, fit, incremental engine or deployment.
+The observed-trade study introduces no model, strategy, fit, incremental engine
+or deployment. The separate scheduled completed-price path is documented below.
 
 ## Compatible implementations and offline reuse
 
@@ -165,3 +166,87 @@ a manifest before ClearML publication. The
 [installed acceptance program](../../../tests/integration/consumers/research/offline_features.py)
 exercises this workflow with the separately locked worker. No holdout, online
 store or remote source is selected by this action.
+
+## Scheduled completed-price parity
+
+Owner: `research.features`, composed by `applications.backtest`; bounded saved-input
+implementation, 2026-09-22. `CompletedReturn` versions the P1 return of two adjacent
+**frozen completed event-time closes**. This differs from `TrailingReturn`'s
+observed-trade query-business window. `SpotSimulation` and `ScheduledFeatures`
+call the same exact formula; existing economic results/checkpoints retain their
+schemas and values. No model is fitted or inferred for this rule-only consumer.
+
+`ScheduledFeatureSpec` pins an instance, source/stream/instrument, price dimensions,
+sample, cadence and maximum event age. Its version fixes the
+`completed-price-return-v1` formula and the existing observation policy. The first
+close is `start + cadence`; closes are strictly before `end`, with at most 1,023
+closes in a sample of at most 1,024 cadences. `ScheduledFeatures.evaluate(t)` accepts
+only the next scheduled UTC close. Skipped/repeated/reversed/end clocks fail;
+explicitly process missed scheduled closes against the same retained input before
+continuing. Each evaluation reconstructs the then-known source prefix through
+`Replay`, then calls `Observations.close` for `[t-cadence,t)`. This deliberately
+bounded batch path rereads admitted history per close; it makes no throughput or
+latency-budget claim and does not acquire or subscribe to data.
+
+Availability at `t` is inclusive, event-window end is exclusive, ties use existing
+causal logical source order, and unknown availability remains excluded. Missing,
+stale, ineligible, invalid or gapped observations stay explicit. Returns are missing
+until two adjacent valid closes exist. A late correction can affect newly evaluated
+windows but cannot change an already frozen endpoint. A disconnect at the exact
+close is retained separately as `has_current_gap`, preserving the economic rule's
+current-decision control even though that event is outside the half-open window.
+Fresh valid adjacent windows restore a return after a gap; this is the existing
+completed-observation policy, not a new source-completeness guarantee.
+
+`ScheduledFeatureCheckpoint` retains the full frozen trace, definition, source
+identity and value digest. Reload rejects changed instance, source bytes, timing,
+units, version, incompatible schedules, stale endpoints or inconsistent exact
+returns. Failed evaluation leaves prior state unchanged. Restore with the same
+`QueryReader`, definition and serialized checkpoint; changing batch size is allowed.
+The digest detects corruption, not hostile forgery. Independent instances have
+independent frozen state; no account or order recovery is provided.
+
+`applications.backtest.qualify_scheduled_features(reader, reference)` verifies the
+retained economic reference's source cursor, compares its full feature trace with
+uninterrupted scheduled batches and reload-only batches, and returns a
+`ScheduledFeatureParity`. It retains all three traces, reference/implementation
+identities and original evidence limitations. Inspect `is_equal` and
+`first_divergence`; disagreement is retained, not converted to success. A fresh
+process is exercised by the installed acceptance consumer. Prediction parity is
+inapplicable to the unfitted rule. These traces qualify saved-input software only;
+actual runtime source/cadence qualification and P1 empirical acceptance remain open.
+
+Use the existing command with a retained configured economic reference and its
+original saved stores:
+
+```sh
+alpha-backtest qualify-features \
+  --config /absolute/path/to/configured.json \
+  --snapshots /absolute/path/to/snapshots \
+  --raw /absolute/path/to/raw \
+  --reference /absolute/path/to/economic-reference.json \
+  --max-bytes 2000000 \
+  --output /absolute/path/to/scheduled-feature-parity.json
+```
+
+The command verifies config/reference agreement and source identity before comparing.
+It atomically exports the report, returns zero for equality and two for divergence
+or invalid inputs (four for execution/I/O failure). It does not rerun economics,
+consume labels/holdout outcomes or publish tracking messages. Keep the report with
+its referenced result, source stores and matching wheel; a digest alone is not
+reproduction evidence. The installed
+[economic consumer](../../../tests/integration/consumers/backtest/economic_workflow.py)
+exercises this exact invocation and rejects an incompatible reference.
+
+[Independent feature examples](../../../tests/unit/research/test_scheduled_features.py)
+cover `100.03 → 100.04 = 1/10003`, delayed and equal-clock corrections, event ties,
+missing/stale/gapped windows, recovery, two instruments, isolated instances,
+failed-call atomicity, corrupt state and incompatible restart.
+[Application parity checks](../../../tests/unit/simulation/test_scheduled_parity.py)
+compare complete replay and batch traces and locate the first differing decision.
+The roadmap records exact validation results. Revert these APIs, their command
+branch and shared formula use together; preserve matching wheels and retained state.
+Older wheels cannot read these new feature-state/parity schemas. Existing study
+and economic schemas are unchanged. Incremental computation, fitted preprocessing,
+Feast online retrieval/materialization, candidate packaging, deployment and trading
+remain conditional or subsequent work.

@@ -5,7 +5,6 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 from datetime import datetime, timedelta
-from fractions import Fraction
 from typing import ClassVar
 
 # project library imports
@@ -13,6 +12,7 @@ from accounting import Fill, Ledger, LedgerBalance, LedgerMark, LedgerState
 from financial_units import ExactRatio, Money, Quantity
 from market_data.query import InputBinding, PointEvent
 from market_data.replay import ReplayCursor, ReplayPhase
+from research.features import CompletedReturn
 from research.observations import Observation, Observations, ObservationState
 from risk import SpotLimits
 from serialization import DomainCodec, WireRecord
@@ -402,11 +402,7 @@ class SpotSimulation:
         completed = self.observations.state.completed
         previous = completed[-1] if completed else None
         current = self.observations.close(instant)
-        ratio = None
-        if previous is not None and previous.point is not None and current.point is not None:
-            ratio = ExactRatio.from_fraction(
-                Fraction(current.point.price.value) / Fraction(previous.point.price.value) - 1
-            )
+        ratio = CompletedReturn(self.spec.cadence_seconds).evaluate(previous, current)
         target = self.rule.target(previous, current, self.spec.quantity, self._cadence)
         has_current_gap = any(known == instant for _, known in self.observations.state.gaps)
         if has_current_gap:

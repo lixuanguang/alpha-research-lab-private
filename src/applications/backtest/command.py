@@ -14,7 +14,10 @@ from lakefs_sdk import ApiClient
 # project library imports
 from applications.backtest.comparison import compare_parameters
 from applications.backtest.configured import _StorageAccess, run_configured, run_worker
-from market_data.storage import DatasetVersion, LakeFSStorage
+from applications.backtest.features import qualify_scheduled_features
+from market_data.adapters.sources import SourceAdapters
+from market_data.query import QueryReader
+from market_data.storage import DatasetVersion, LakeFSStorage, RawStore
 from research.experiments import (
     AttemptStore,
     BacktestRun,
@@ -26,6 +29,7 @@ from research.experiments import (
     ResultManifest,
 )
 from serialization import DomainCodec
+from simulation import EconomicResult
 
 
 class _Arguments(argparse.Namespace):
@@ -52,6 +56,7 @@ class _Arguments(argparse.Namespace):
     journal: Path
     max_trials: int | None
     comparison_config: Path | None
+    reference: Path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -69,6 +74,10 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(prog="alpha-backtest", description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
+    features = commands.add_parser("qualify-features")
+    for option in ("config", "snapshots", "raw", "reference", "output"):
+        features.add_argument(f"--{option}", type=Path, required=True)
+    features.add_argument("--max-bytes", type=int, required=True)
     comparison = commands.add_parser("compare")
     for option in ("config", "snapshots", "raw", "attempts", "tracking", "journal"):
         comparison.add_argument(f"--{option}", type=Path, required=True)
@@ -105,7 +114,25 @@ def main(argv: list[str] | None = None) -> int:
     codec = DomainCodec()
     client: ApiClient | None = None
     try:
-        if args.action == "compare":
+        if args.action == "qualify-features":
+            selected = BacktestRun.read(args.config)
+            reference = codec.decode_json(args.reference.read_bytes(), EconomicResult)
+            if reference.spec != selected.economics:
+                raise ValueError("feature reference differs from configured economics")
+            reader = QueryReader.read(
+                args.snapshots,
+                RawStore(args.raw),
+                readers=SourceAdapters(),
+                identity=selected.snapshot_id,
+                precedence=(selected.economics.binding,),
+                max_bytes=args.max_bytes,
+            )
+            parity = qualify_scheduled_features(reader, reference)
+            ResultManifest.export(args.output, codec.encode_json(parity))
+            if not parity.is_equal:
+                raise ValueError(f"scheduled feature divergence: {parity.first_divergence}")
+            print(f"Exact saved-input feature parity: {len(parity.replay.values)} decisions")
+        elif args.action == "compare":
             result = compare_parameters(
                 args.config,
                 args.snapshots,

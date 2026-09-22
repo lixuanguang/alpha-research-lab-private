@@ -1,6 +1,7 @@
-"""Expose versioned trailing-price diagnostics and their explicit window contract."""
+"""Expose exact price features, offline retrieval and scheduled batch parity contracts."""
 
 # project library imports
+from research.features.completed import CompletedReturn
 from research.features.offline import (
     FeastOfflineWorker,
     FeatureAccessError,
@@ -14,6 +15,13 @@ from research.features.offline import (
     OfflineFeatureRequest,
     OfflineFeatureResult,
 )
+from research.features.scheduled import (
+    ScheduledFeatureCheckpoint,
+    ScheduledFeatureParity,
+    ScheduledFeatures,
+    ScheduledFeatureSpec,
+    ScheduledFeatureValue,
+)
 from research.features.windows import (
     FeatureDefinition,
     FeatureFactory,
@@ -26,6 +34,7 @@ from research.features.windows import (
 )
 
 __all__ = [
+    "CompletedReturn",
     "FeastOfflineWorker",
     "FeatureAccessError",
     "FeatureDefinition",
@@ -43,6 +52,11 @@ __all__ = [
     "OfflineFeatureResult",
     "PricePoint",
     "PriceWindow",
+    "ScheduledFeatureCheckpoint",
+    "ScheduledFeatureParity",
+    "ScheduledFeatureSpec",
+    "ScheduledFeatureValue",
+    "ScheduledFeatures",
     "TrailingReturn",
     "WindowPolicy",
 ]

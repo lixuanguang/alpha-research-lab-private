@@ -74,7 +74,7 @@ src/
   research/
     exploration/            EDA and pinned multi-input saved-data selections
     observations/           Frozen completed decision observations and scoped controls
-    features/               Versioned trailing-price diagnostics; future fitted transforms
+    features/               Versioned price diagnostics and scheduled saved-input parity; future fitted transforms
     labels/                 Separate forward-return outcomes and availability
     models/                 Exact linear construction, retained state and inference
     experiments/            Attempts, splits, evaluation, reports and local ClearML pipelines; FUTURE: candidates
@@ -486,7 +486,12 @@ has its own knowledge cutoff; labels cannot enter earlier feature values. The
 [public contract](../../src/research/features/README.md) defines the query business
 clock, cadence, warm-up, missing/stale policy, exact rational units, input lineage
 and bounded execution. This does not implement the economic baseline's completed
-observations, runtime features, fitted models or a book/macro formula.
+observations or a book/macro formula. The separate completed-price feature now
+reuses `research.observations` and one `CompletedReturn` formula across simulation
+and a bounded scheduled batch path. `applications.backtest.qualify_scheduled_features`
+and its `qualify-features` subcommand retain exact replay/batch/restart traces.
+This qualifies saved-input software only; runtime source/cadence qualification,
+conditional incremental/online retrieval and candidate promotion remain open.
 
 An experiment identity includes source and dataset manifests, code/artifact revision, resolved non-secret configuration,
 environment/toolchain identity, component versions, split rules, and random seeds. Wall-clock creation time is metadata,
