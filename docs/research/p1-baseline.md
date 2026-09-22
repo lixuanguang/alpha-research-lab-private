@@ -327,6 +327,13 @@ authority follows from this work.
 
 ## Source investigation continuation
 
+The [QR live notebook](../../examples/research-foundations-live.ipynb) provides a
+`p1-evidence` route for reopening the exact saved sample, attaching provider records,
+retaining strict admission results and reproducing the evidence handoff. Follow its
+[operating instructions](../../examples/notebook-operations.md#frozen-source-evidence).
+Completing this source investigation does not establish economic acceptance or
+change the frozen requirements below.
+
 Owner: repository founder. Updated 2026-09-22. **MR 8 acceptance remains open.**
 Continuation starts at `2c93536`; fetched `origin/main` was still `86835ee80a4f420133416d6148886b9a1fbc0150`,
 already its parent. No merge or replacement PR was needed. The original ZIP,
