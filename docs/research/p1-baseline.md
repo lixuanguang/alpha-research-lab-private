@@ -5,6 +5,13 @@ Owner: repository founder. Frozen specification date: 2026-09-11; source amendme
 dataset publication are implemented; empirical causal acceptance remains open.
 This page owns the sample, timing, economic assumptions and acceptance criteria.
 
+The [saved-source verification record](#saved-source-verification) records the
+2026-09-21/22 acceptance attempt and the exact evidence still needed. The frozen
+economics now have explicit [momentum](../../configs/backtests/p1-btcusdt-return-v1.json)
+and [no-trade](../../configs/backtests/p1-btcusdt-no-trade-v1.json) configurations
+for the existing `applications.backtest.run_backtest` consumer. These are
+`BacktestSpec` inputs, not `alpha-backtest run`'s validation-study configuration.
+
 The selected source is Binance public spot-trade archives, authorized before any
 comparative strategy result. The source policy, exact arithmetic and chronological
 ordering below participate in future run identities. Earlier synthetic Tardis
@@ -237,3 +244,81 @@ The [reusable research workflow](../roadmap/README.md#research-comparison-and-ex
 separately requires comparison, EDA/replay integration and instance-isolation
 acceptance. A synthetic slice or an installed development wheel establishes
 neither complete outcome. Completing one does not retire the other's requirements.
+
+## Saved-source verification
+
+Owner: repository founder. Status: **acceptance open; source refusal verification
+implemented**, 2026-09-22. The implementation starts from main `86835ee8`. No
+sample, strategy, timing, fee, rounding, size or capital parameter has changed.
+The original acquisition and receipt clocks remain intact.
+
+The actual retained daily ZIP has SHA-256
+`c9c333f58fe33faaa0a34d526c61b13f5648b908c4ad341dd6556e15c5bcc46a`.
+The publisher's current checksum fetched on 2026-09-21 UTC matches those bytes.
+Independent ZIP/CRC and CSV inspection found 7,308,819 compressed bytes,
+47,193,701 expanded bytes, 638,484 daily rows and 27,480 selected-hour rows.
+All rows have seven columns; observed trade IDs are consecutive and timestamps
+do not regress. These observations establish byte/row integrity, not uninterrupted
+capture. The publisher sidecar's observed Last-Modified is
+`2024-06-02T04:01:16Z`; it cannot establish minute-by-minute knowledge on June 1.
+
+| Required fact | Available evidence and remaining boundary |
+| --- | --- |
+| Permitted retained source | Existing private-research acquisition, complete daily ZIP, original manifest and fresh matching publisher checksum are available. Long-term retention and redistribution rights remain unestablished. |
+| Historical eligibility | The [official listing announcement](https://www.binance.com/en/support/announcement/detail/115001094331) announces BTC/USDT trading in August 2017. It does not establish continuous eligibility or applicable rules during the frozen hour. The 2026 authored catalog is unchanged; the acceptance input records an empty assertion history, preserving unknown membership. |
+| Historical receipt/availability | The [pinned archive documentation](https://github.com/binance/binance-public-data/blob/5c7f3197591c0d54d85dc43066226bc4c671d47a/README.md) describes exchange-event timestamps and later daily publication. It supplies no recorder receipt timestamp for the selected trades. Event-time availability would remain an assumption. |
+| Revision availability | One retained archive and its current checksum do not establish the sequence and availability of previous economic versions. The published update listing supplies no per-trade history for this sample. |
+| Coverage | Native full-file decoding and observed continuity checks cannot prove that no trade was omitted upstream. There is no retained recorder health/disconnect evidence for this hour. |
+| Causal publication support | `QualityPolicy` currently supports only degraded exploratory publication and rejects causal use. Evidence-backed causal admission needs its own concrete input contract and verification after the required source evidence is obtained; a caller-supplied completeness flag is insufficient. |
+| Frozen retained economic reports | MR 6's configured attempt/report path requires validation and holdout windows. P1 has neither. An explicit unfitted engineering-sample representation is still needed before a qualified P1 result can use that retained workflow; inventing split windows would change the frozen specification. |
+
+The [installed source consumer](../../tests/integration/consumers/backtest/source_acceptance.py)
+exhausts the saved native reader, retains the real causal quality refusal, verifies
+that rejection publishes no snapshot, and reopens a separate explicitly degraded
+snapshot. It composes the existing backtest application with both frozen configs.
+Unknown clocks and membership must produce no valid observations or fills; unchanged
+cash is a non-admission check, **not a measured zero-return strategy result**.
+The consumer does not create synthetic corrections, backdate eligibility or substitute
+an event-time availability policy. A fresh invocation can reopen the first snapshot
+and complete checkpoint and compare all deterministic evidence bytes.
+
+Use an isolated installed wheel outside the checkout. Copy the consumer and both
+configs there, and supply the original saved manifest and raw store explicitly:
+
+```sh
+/absolute/installed/bin/python -I /absolute/copied/source_acceptance.py \
+  --manifest /absolute/saved/acquisition/manifest.json \
+  --raw /absolute/saved/raw \
+  --spec /absolute/copied/p1-btcusdt-return-v1.json \
+  --control /absolute/copied/p1-btcusdt-no-trade-v1.json \
+  --max-bytes 134217728 --output /absolute/new/attempt
+```
+
+Repeat in a fresh process with another new `--output` and
+`--reopen /absolute/first/attempt`. **Exit 3** means the expected source refusal
+and non-admission assertions passed while baseline acceptance stays open; an
+exception means the verification itself failed. `inventory.json` appears only
+after all assertions pass. Interrupted directories remain partial evidence and
+must not be relabeled as successful. This manual program is not automatically
+discovered by pytest and never downloads data or changes the source store.
+
+Source documentation, checksum/headers, independent byte audit and review summary
+are retained in ignored `logs/frozen-baseline/2026-09-21/source-evidence/` in the
+founder's primary checkout. The direct announcement download returned empty bytes;
+the separately labeled web review summary is not a retained official page capture.
+The adjacent `installed-source/` directory retains the failed first invocation,
+the corrected refusal check, and its fresh-process reproduction. Both corrected
+processes exit 3. Their 11 deterministic artifact digests agree, and the resumed
+halfway checkpoint reproduces the complete non-admission trace. The matching wheel,
+runtime lock and full validation logs are retained alongside that directory.
+Keep source bytes and bulky output outside Git. Original raw data remains in the
+selected `data/binance-archives/` store.
+
+Validation results are recorded in the
+[roadmap acceptance attempt](../roadmap/README.md#frozen-baseline-acceptance).
+Existing synthetic MR 5/6 evidence remains valid for exact accounting, delays,
+recovery and report atomicity because their runtime implementations are unchanged.
+It cannot fill the empirical gaps above. Reversal removes the consumer/configs and
+reverts these acceptance notes together while preserving original raw data,
+failed attempts, matching wheels and verification output. No deployment or trading
+authority follows from this work.

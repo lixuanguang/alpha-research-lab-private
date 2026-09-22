@@ -58,6 +58,16 @@ invoke them through their test or consumer, never in the pytest process itself.
 The package's real orchestration stays in `src/applications/`;
 consumers compose it with synthetic transports, failure injection and assertions.
 
+The manual [saved-source consumer](integration/consumers/backtest/source_acceptance.py)
+uses the existing actual Binance archive and frozen economic configs, with no
+synthetic eligibility or availability. It retains causal-publication refusal and
+non-admission through the installed backtest application. Exit 3 means the
+refusal checks passed and empirical acceptance remains open; it is not a passing
+baseline result. The [P1 verification contract](../docs/research/p1-baseline.md#saved-source-verification)
+owns the explicit inputs, new output directories, fresh-process reopen invocation
+and precise remaining evidence. This source-dependent program is not a pytest
+or ordinary wheel-smoke test.
+
 `make wheel-smoke` compiles the hash-locked installation's bytecode and gives its
 child processes one writable run-local Matplotlib cache. This avoids repeated
 font discovery when the user's cache is unavailable. The feature and later

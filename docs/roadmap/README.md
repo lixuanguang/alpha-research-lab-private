@@ -1,6 +1,7 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-21. **MRs 1–7 are implemented; MRs 8–21 are planned.**
+Owner: repository founder. Updated 2026-09-22. **MRs 1–7 are implemented; MR 8 has
+source verification with acceptance open; MRs 9–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -69,7 +70,7 @@ source evidence and researcher access improve independently.
 | 5 | [First economic backtest and vectorbt research adapter](#first-economic-backtest) | Existing replay and financial contracts; MR 4 for tracked vectorbt runs; no fitted-model dependency |
 | 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
 | 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
-| 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) | MRs 5–6 plus required actual source evidence |
+| 8 | [Frozen baseline acceptance](#frozen-baseline-acceptance) — source verification delivered; acceptance open | MRs 5–6 plus required actual source evidence |
 | 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable |
 | 11 | [Trusted deployment artifact](#trusted-deployment-artifact) | Dependency admission and a concrete deployable consumer |
@@ -1214,7 +1215,7 @@ model/source artifacts, failed evidence and matching wheels when reversing.
 
 ### Frozen baseline acceptance
 
-**MR 8.** Run `p1-btcusdt-return-v1` unchanged against the permitted actual source
+**MR 8 — source verification implemented; empirical acceptance open.** Run `p1-btcusdt-return-v1` unchanged against the permitted actual source
 and an isolated installed candidate. Resolve or explicitly leave unresolved the
 [experiment's source and acceptance requirements](../research/p1-baseline.md#acceptance-and-research-discipline).
 Saved ZIP integrity does not prove historical membership, coverage or revision
@@ -1226,6 +1227,84 @@ and fresh-process reproduction. Synthetic software evidence is reusable for its
 scope but cannot supply missing empirical source evidence. A negative costed result
 can satisfy the engineering criterion; tuning the frozen experiment to pass cannot.
 If a required source fact is unavailable, record the gap and leave acceptance open.
+
+Acceptance attempt, 2026-09-22, from main `86835ee8`: the
+[frozen specification and source record](../research/p1-baseline.md#saved-source-verification)
+now link explicit momentum/control `BacktestSpec` configurations and a manual
+installed consumer. Existing `market_data` readers, quality/publication/query
+owners and `applications.backtest.run_backtest` compose the actual saved-source
+check. Reusable domain behavior, curated APIs and application entrypoints remain
+unchanged; no alternate economic runner or synthetic source-evidence adapter was
+introduced.
+
+The founder requested setup of obtainable data/evidence. The original daily ZIP
+is retained and matches the freshly fetched publisher checksum. Independent
+ZIP/CRC/CSV inspection found 638,484 daily rows and 27,480 selected-hour rows,
+seven fields, consecutive observed trade IDs and no timestamp regression.
+Pinned official archive documentation, checksum headers and a historical listing
+announcement review are retained with explicit evidence limits. A 2017 listing
+announcement does not establish continuous 2024-hour eligibility; checksum and
+row continuity do not establish recorder coverage or historical receipt/revisions.
+
+Required completion remains blocked on those source facts and their causal
+admission contract. Current quality admission rejects causal use; current
+configured economic attempts require validation/holdout windows that frozen P1
+does not define. Do not backdate assertions, invent split windows, or report
+unchanged cash from unavailable observations as a costed strategy result. Fitted
+models, online features, shared services and deployment remain outside this slice.
+
+Verification on CPython 3.14.7 / Darwin arm64:
+
+- `uv run --frozen --no-editable pytest -q tests/unit/simulation/test_economic_replay.py
+  tests/unit/accounting/test_ledger.py tests/unit/financial_units/test_p1_hand_ledger.py`:
+  **15 passed**, including the independent hand ledger and fee-rounding distinction.
+- `uv run --frozen --no-editable pytest -q tests/unit/data/test_quality.py
+  tests/unit/data/providers/binance/test_archive_occurrences.py`: **18 passed**.
+- `TMPDIR=/private/tmp
+  PYTEST_ADDOPTS=--basetemp=/private/tmp/alpha-mr08-final-pytest make check`:
+  **1,196 passed, three performance tests deselected, no skips**. Ruff, strict
+  typing, stub conformance, engineering/architecture checks, Bandit, secret scan,
+  admission of 179 locked packages and vulnerability coverage passed. The isolated
+  installed-wheel smoke passed; all 135 installed distributions were compatible.
+- The installed actual-source consumer exhausted the full daily reader and selected
+  **27,480 rows**. Causal publication was rejected with zero observed invalid rows,
+  duplicates or gaps; unknown eligibility, original availability and recorder
+  coverage remained explicit. No causal snapshot was published. The exploratory
+  snapshot is `f08458988126c3402655b336eeeee741411e3f143332e26dba7f93b083b6226b`.
+  Both frozen instances retained 59 missing completed observations, zero fills and
+  NAV `1000 USDT`. These are source non-admission results, not measured performance.
+  The successful refusal scenario exits **3**, keeping baseline acceptance open.
+- A second isolated process rebuilt the same snapshot, reopened the first saved
+  snapshot and checkpoint, and reproduced all 11 deterministic artifact digests.
+  Resuming at the halfway checkpoint with batch size one reproduced the complete
+  momentum trace exactly. It also exited **3**; reproduction proves the retained
+  non-admission outcome, not an economic run with historically available inputs.
+- The first manual invocation failed because the consumer omitted the required
+  empty correction map. Its script, partial output and log are preserved. After
+  supplying the explicit empty map, focused Ruff/mypy and the complete engineering
+  checker passed before rerunning. Runtime, package, dependency and ordinary-test
+  inputs are unchanged, so the full-lane and wheel evidence remains applicable;
+  manual installed execution covers the changed consumer integration.
+
+The wheel SHA-256 is
+`2f448a87f6bd73eb6609329609ae02f968d7b891690cf3534e35285d9d6ad0fe`;
+installed implementation identity is
+`4ec2e0eb245e81ca5ce82632ed7fef21650dafa9e3b717bd4cd1db9378e3394d`.
+The isolated environment and original smoke outputs remain under
+`/private/tmp/alpha-research-wheel-smoke-ha38ceas/`. The matching wheel, locked
+runtime requirements, test logs and source research are also retained in ignored
+`logs/frozen-baseline/2026-09-21/` in the primary checkout. Its `installed-source/`
+directory preserves the failed first invocation, successful refusal run and
+fresh-process reproduction with configs, script, outputs and inventories. Final
+architecture/link checks and `git diff --check` passed after the evidence update.
+Live ClearML/lakeFS services were not restarted: this change does not alter their
+MR 6/7 contracts and cannot produce a source-qualified economic report to publish.
+QuantLib's existing development-only release restriction remains. Hosted CI is
+not established by this local lane.
+
+The source record owns reproduction, retained local evidence and reversal. Preserve
+matching artifacts and partial attempts when reverting the new consumer/configs.
+This work grants no deployment or trading authority. **MR 8 is not complete.**
 
 ## Candidate promotion and operation
 
