@@ -1,4 +1,4 @@
-# Versioned observed-price diagnostics
+# Versioned features and research lifecycle
 
 Owner: repository founder. Implemented bounded research contract, 2026-09-20.
 `research.features` owns `TrailingReturn` and its shared `WindowPolicy`;
@@ -8,6 +8,83 @@ partitions. The existing `applications.explore.inspect_experiment` orchestrates
 admission, installed identities, retained attempts and holdout consumption.
 The observed-trade study introduces no model, strategy, fit, incremental engine
 or deployment. The separate scheduled completed-price path is documented below.
+
+## Generalized feature lifecycle
+
+Owner: quant development. Implemented research SDK, 2026-09-24. The original
+observed-return, completed-price, scheduled and Feast bridge contracts below
+remain supported. `FeatureSchema`, `FeatureKernel`, `FeatureSession` and
+`FeatureVector` add an independent generalized schema; they do not force custom
+implementations into `TrailingReturn` settings.
+
+A definition pins implementation/version, ordered named input requirements,
+ordered output names/units, parameters, batch/incremental mode and TTL. Inputs
+arrive through the [named observation boundary](../observations/README.md).
+An exact vector carries entity, definition/schema, value/missing reasons, event,
+information-start, availability and expiry clocks, admitted input/state digest,
+and optional fitted-transform identity. Availability and TTL are inclusive.
+Incremental information intervals conservatively retain the earliest consumed
+input, including across missing resets, for temporal purge admission. Outputs
+are available at the authored decision clock; this is a research processing
+assumption, not a measured runtime latency.
+
+Kernels implement a pure `step(inputs, state)` returning values and successor
+bytes. `FeatureSession` owns state per instance/entity and validates all outputs
+before advancing. Decisions must strictly increase; an emitted cutoff cannot be
+revisited. Batch kernels start with empty state at each decision; incremental
+kernels receive the committed state. Checkpoints retain version, instance, entity,
+cutoff, information interval and state digest. Changed definitions, wrong instances,
+corrupt or incompatible state fail; inference/restart never silently refits.
+
+`ProjectionFeature` retains arbitrary named scalar inputs in declared order.
+`RunningMeanFeature` computes exact expanding means per column, resetting a column
+on missing input. Batch application iteration and checkpoint continuation use
+these same transitions. Fresh kernels can change formulas and output width through
+the public protocol without adding branches to shared runners.
+
+`FittedTransform` admits only `TemporalSplit.fitting_rows()` via actual vector
+identities and clocks. `TransformAdapter` supplies its own state/semantics;
+`CenterColumns` is the exact train-only centering reference. `TransformVersion`
+retains implementation, input/output signatures, split, fit rows/cutoff, availability and actual
+state bytes. `apply` refuses future fitted state. `training_apply` is explicitly
+retrospective and restricted to admitted fitting rows before model availability;
+its later availability prevents those transformed rows from posing as historical
+decision inputs. Missing inference values stay missing; missing training values
+are refused. Adapters explicitly declare fitted output names/units and may select columns or
+normalize dimensions; the returned values must match that retained output schema.
+The regression consumer selects and normalizes one column using only training data.
+
+The store-facing `FeatureVector`/`VectorSignature` contracts bind entity,
+feature/schema and fitted version, source/revision lineage, clocks, TTL and
+missingness. MR04 still owns generalized Feast registration, offline/online
+serving, materialization, rollback and service recovery. The current offline
+Feast bridge is retained unchanged and is not presented as accepting these new
+vector schemas automatically.
+
+`applications.explore.run_decisions` and `inspect_decisions` are the first
+integrated consumers; the [strategy guide](../../strategies/README.md) owns
+configuration, intent and retained-attempt semantics. Execute the complete fresh
+extension example outside the checkout with the installed interpreter:
+
+```sh
+cp tests/integration/consumers/research/decision_extensions.py /private/tmp/decision_extensions.py
+uv run --frozen --no-editable python -I /private/tmp/decision_extensions.py \
+  /private/tmp/decision-reference-output
+```
+
+The [consumer source](../../../tests/integration/consumers/research/decision_extensions.py)
+shows typed configuration, independent exact expectations, generic label/estimator
+implementations, retained transform/model bytes and reload-only continuation.
+The installed integration test performs this copy in an isolated temporary root.
+No service or profitable strategy is required. Keep result/config/state bytes,
+source inputs, custom implementation code and matching wheel for reproduction.
+The caller owns explicit retention and the bounded in-memory schedule; MR15
+capacity qualification and MR03 full study/report integration remain open.
+
+Reversal removes these additive exports and consumers together. Existing retained
+schemas need no migration. Preserve the matching new wheel for new vector/state
+records; prior wheels cannot interpret them. Checkpoint digests are integrity
+checks, not a trust or signing boundary.
 
 ## Compatible implementations and offline reuse
 
@@ -248,6 +325,6 @@ compare complete replay and batch traces and locate the first differing decision
 The roadmap records exact validation results. Revert these APIs, their command
 branch and shared formula use together; preserve matching wheels and retained state.
 Older wheels cannot read these new feature-state/parity schemas. Existing study
-and economic schemas are unchanged. Incremental computation, fitted preprocessing,
-Feast online retrieval/materialization, candidate packaging, deployment and trading
-remain conditional or subsequent work.
+and economic schemas are unchanged. For this completed-price consumer, incremental execution remains separate from
+the generalized feature lifecycle above. Feast online retrieval/materialization,
+candidate packaging, deployment and trading remain subsequent work.

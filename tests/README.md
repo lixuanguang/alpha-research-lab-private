@@ -51,6 +51,7 @@ children. Real orchestration belongs to `src/applications/`.
 | [Capture recovery tests](unit/data/live/test_recovery.py) | Pending snapshots, duplicates, stale responses, recovery and installed replay CLI/API equality |
 | Component tests under `unit/data/` | Installed book, health and parity consumers alongside their domain regressions |
 | [Public data tests](unit/data/test_public_data.py) | Both public source parsers, pending-response recovery, four scopes, PIT venue rules, source integrity and configuration-only onboarding |
+| [Decision workflow](integration/test_decision_workflow.py) | Fresh feature/label/estimator/quote implementations, retained fit bytes and fresh-process restart through installed public APIs |
 | [Public data consumer](integration/consumers/datasets/public_data.py) | Installed CLI publication/discovery/read, named public-trade/book/reference assembly and replay continuation; accepts completed actual captures |
 
 Wheel smoke installs the hash-locked runtime without governance, checks every
@@ -114,3 +115,21 @@ explicit retained external inputs. Their source identity, clocks and quality mus
 satisfy the [market-data contracts](../src/market_data/README.md). They do not
 implicitly download provider data. The [notebook guide](../examples/notebook-operations.md)
 owns execution of the research worksheets.
+
+The [decision source consumer](integration/consumers/research/decision_sources.py)
+reuses retained MR01 publications and originals without downloads. Copy it outside
+the checkout and run with the installed interpreter:
+
+```sh
+python -I /absolute/decision_sources.py \
+  --selection /absolute/data/selection.json \
+  --snapshots /absolute/data/snapshots --raw /absolute/data/raw \
+  --output /absolute/fresh-decision-source-output
+```
+
+It selects an observed book cutoff per instrument, carries public-trade size,
+reference minimum quantity and visible book imbalance into generic features and
+rule decisions, and retains the actual source/config/result identities in the
+existing attempt store. It requires retained eligible book states for both supplied
+venue listings. It establishes source reopening and decision composition, not
+simulated fills, execution qualification or empirical research acceptance.

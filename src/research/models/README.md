@@ -21,6 +21,37 @@ contract remain authoritative. Unregistered/duplicate IDs fail explicitly.
 This seam does not imply support for arbitrary model schemas, SHAP explanations
 or prediction-to-order binding; those require their own working consumers.
 
+## Generalized estimator lifecycle
+
+Owner: quant development. Implemented 2026-09-24 alongside the retained linear
+study API. `EstimatorAdapter` accepts arbitrary ordered `FeatureVector` schemas
+and immutable state bytes; it does not subclass `LinearModel` or receive
+`LinearDefinition`. `EstimatorLifecycle` passes only admitted rows/labels to the
+selected adapter. It verifies each `Outcome.sample(vector)` against the existing
+`TemporalSplit`, including actual input digests, label availability, purge and
+embargo. Optional preprocessing must bind the same admitted rows and split.
+Held-out or future values cannot enter either fit. Inference receives no labels.
+
+`EstimatorVersion` retains the input feature/fitted-transform signature, label
+schema and units, split/fit rows, fit-input digest, cutoff, authored availability,
+actual immutable state bytes and digest. `predict` is reload-only and checks
+implementation, schema/order/units, availability and missing values. The retained
+`research.results.Prediction` binds the exact model/vector/entity/clock and units.
+A [decision policy](../../strategies/README.md) turns it into an intent; the model
+owns no portfolio, risk or order execution.
+
+`NearestExample` is a nonlinear multi-feature reference: exact squared distance
+with equal input units, and first admitted row winning an exact tie. Its state
+contains portable points/outcomes, with no executable pickle. The installed
+[fresh consumer](../../../tests/integration/consumers/research/decision_extensions.py)
+uses a different external estimator and custom label/feature/quote policy;
+shared orchestration does not substitute a built-in implementation.
+
+These APIs provide MR02 research/decision contracts. The older `evaluate_model`
+workflow below still owns its original linear report schema. Generalized formal
+study evaluation, search, reports and candidate/runtime promotion remain MR03/MR05.
+No external learned-model deployment or empirical success is established.
+
 ## Inputs and construction
 
 `ModelStudy` is strict versioned JSON. It pins completed
