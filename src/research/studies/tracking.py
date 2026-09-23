@@ -9,13 +9,12 @@ import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 # third party library imports
 import msgspec
-from clearml import Model, OutputModel, Task
-from clearml.backend_api import Session
 
 # project library imports
 from research.experiments import AttemptStore, Fingerprint
@@ -23,6 +22,10 @@ from research.studies.configuration import BacktestRun
 from research.studies.diagnostics import AlphalensReport
 from research.studies.evaluation import EvaluationRecord, TrialEvaluation
 from serialization import DomainCodec, WireRecord
+
+if TYPE_CHECKING:
+    # third party library imports
+    from clearml import Task
 
 
 class ClearMLDestination(WireRecord, frozen=True, kw_only=True):
@@ -171,6 +174,9 @@ class ClearMLPublication:
             if receipt.history_sha256 != hashlib.sha256(history_bytes).hexdigest():
                 raise ValueError("receipt differs from retained terminal history")
             return receipt
+        # third party library imports
+        from clearml.backend_api import Session
+
         if Session.get_api_server_host().rstrip("/") != self._destination.api_uri.rstrip("/"):
             raise ValueError("SDK API server differs from the retained publication destination")
         task = self._task(attempt_id)
@@ -309,6 +315,9 @@ class ClearMLPublication:
 
     def _task(self, attempt_id: str) -> Task:
         """Resolve uncertain creation by unique exact name before any create request."""
+        # third party library imports
+        from clearml import Task
+
         name = f"attempt-{attempt_id}"
         tasks = Task.get_tasks(
             project_name=self._destination.project, task_name=f"^{name}$", allow_archived=True
@@ -333,6 +342,9 @@ class ClearMLPublication:
 
     def _model(self, task: Task, attempt_id: str, model: TrackedModel, staging: Path) -> str:
         """Reconcile an immutable version before linking its input or output model record."""
+        # third party library imports
+        from clearml import Model, OutputModel
+
         model.__post_init__()
         matches = Model.query_models(
             project_name=self._destination.project,

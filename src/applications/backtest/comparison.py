@@ -4,10 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 from pathlib import Path
-
-# third party library imports
-from optuna import TrialPruned
-from optuna.trial import Trial
+from typing import TYPE_CHECKING
 
 # project library imports
 from applications.backtest.workflow import run_backtest
@@ -28,6 +25,10 @@ from research.studies import (
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 from simulation import EconomicResult, VectorbtAdapter
+
+if TYPE_CHECKING:
+    # third party library imports
+    from optuna.trial import Trial
 
 
 class EconomicComparison:
@@ -74,6 +75,9 @@ class EconomicComparison:
             ValueError: Selection differs or reference economics cannot yield a complete objective.
             TrialPruned: The declared Optuna threshold stops the remaining comparison work.
         """
+        # third party library imports
+        from optuna import TrialPruned
+
         item = self._selection.inputs[0]
         if not isinstance(item, TradeSelection):
             raise ValueError("economic comparison requires a trade selection")

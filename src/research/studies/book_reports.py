@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 import html
 import re
 from fractions import Fraction
+from pathlib import Path
+
+# third party library imports
+import msgspec
 
 # project library imports
 from configuration import BookRun
@@ -13,6 +18,72 @@ from research.observations import BookFeature
 from research.studies.reports import QuantStatsReport
 from serialization import DomainCodec, WireRecord
 from simulation import BookCheckpoint
+
+
+class _BookReportManifest(WireRecord, frozen=True):
+    """Bind one report to its adjacent configuration, EDA and ordered account files."""
+
+    run_identity: str
+    implementation: str
+    environment: str
+    raw_sha256: str
+    request_identity: str
+    configuration_sha256: str
+    features_sha256: str
+    accounts_sha256: tuple[str, ...]
+    limitations: tuple[str, ...]
+    schema_version: str = "l2-book-report-v2"
+
+    def __post_init__(self) -> None:
+        """Reject unsupported versions and malformed content references."""
+        if self.schema_version != "l2-book-report-v2":
+            raise ValueError("unsupported book report schema")
+        if not self.accounts_sha256 or any(
+            type(value) is not str or not re.fullmatch(r"[a-f0-9]{64}", value)
+            for value in (
+                self.configuration_sha256,
+                self.features_sha256,
+                *self.accounts_sha256,
+            )
+        ):
+            raise ValueError("invalid book report artifact references")
+
+    @staticmethod
+    def _artifact(path: Path, digest: str) -> bytes:
+        """Verify retained bytes before decoding them into the report."""
+        payload = path.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != digest:
+            raise ValueError(f"book report artifact digest mismatch: {path.name}")
+        return payload
+
+    def resolve(self, directory: Path) -> BookReport:
+        """Load fixed sibling filenames and apply the complete report's domain validation."""
+        codec = DomainCodec()
+        configuration = codec.decode_json(
+            self._artifact(directory / "configuration.json", self.configuration_sha256), BookRun
+        )
+        if len(self.accounts_sha256) != len(configuration.instances):
+            raise ValueError("incomplete book report account references")
+        return BookReport(
+            run_identity=self.run_identity,
+            implementation=self.implementation,
+            environment=self.environment,
+            raw_sha256=self.raw_sha256,
+            request_identity=self.request_identity,
+            configuration=configuration,
+            features=msgspec.json.decode(
+                self._artifact(directory / "eda.json", self.features_sha256),
+                type=tuple[BookFeature, ...],
+                dec_hook=DomainCodec.decode_domain,
+            ),
+            accounts=tuple(
+                codec.decode_json(
+                    self._artifact(directory / f"checkpoint-{index}.json", digest), BookCheckpoint
+                )
+                for index, digest in enumerate(self.accounts_sha256)
+            ),
+            limitations=self.limitations,
+        )
 
 
 class BookReport(WireRecord, frozen=True):
@@ -98,6 +169,63 @@ class BookReport(WireRecord, frozen=True):
                 or account.state.valuations[-1].mark is None
             ):
                 raise ValueError("book report account is not complete")
+
+    @classmethod
+    def read(cls, path: Path) -> BookReport:
+        """Read a legacy embedded report or verify and resolve a v2 report bundle.
+
+        Keep v2 report.json beside configuration.json, eda.json and checkpoint-N.json.
+        Companion bytes must match their recorded SHA-256 digests. Existing standalone
+        v1 reports need no companion files and retain their original decoding contract.
+
+        Raises:
+            OSError: The report or one of its companion files cannot be read.
+            ValueError: A schema, digest or complete-report invariant is invalid.
+        """
+        payload = path.read_bytes()
+        fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
+        version = msgspec.json.decode(
+            fields.get("schema_version", b'"l2-book-report-v1"'), type=str
+        )
+        codec = DomainCodec()
+        if version == "l2-book-report-v1":
+            return codec.decode_json(payload, cls)
+        if version == "l2-book-report-v2":
+            return codec.decode_json(payload, _BookReportManifest).resolve(path.parent)
+        raise ValueError("unsupported book report schema")
+
+    def encode_references(
+        self,
+        *,
+        configuration_sha256: str,
+        features_sha256: str,
+        accounts_sha256: tuple[str, ...],
+    ) -> bytes:
+        """Encode a v2 report referencing the exact artifacts retained by its producer.
+
+        Args:
+            configuration_sha256: Digest of the adjacent configuration.json bytes.
+            features_sha256: Digest of the adjacent eda.json bytes.
+            accounts_sha256: Digests of checkpoint-N.json in configuration instance order.
+
+        Raises:
+            ValueError: Artifact digests are malformed or the account count differs.
+        """
+        if len(accounts_sha256) != len(self.accounts):
+            raise ValueError("incomplete book report account references")
+        return DomainCodec().encode_json(
+            _BookReportManifest(
+                run_identity=self.run_identity,
+                implementation=self.implementation,
+                environment=self.environment,
+                raw_sha256=self.raw_sha256,
+                request_identity=self.request_identity,
+                configuration_sha256=configuration_sha256,
+                features_sha256=features_sha256,
+                accounts_sha256=accounts_sha256,
+                limitations=self.limitations,
+            )
+        )
 
     def render(self) -> bytes:
         """Render a self-contained report with exact account metrics and limited analytical returns.

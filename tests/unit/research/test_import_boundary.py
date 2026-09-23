@@ -7,6 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# third party library imports
+import pytest
+
 
 class TestExperimentImportBoundary:
     """Exercise the core package import in a clean installed interpreter."""
@@ -39,6 +42,41 @@ assert not optional_modules, sorted(optional_modules)
 """
         result = subprocess.run(
             [sys.executable, "-I", "-c", script],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+
+    @pytest.mark.parametrize(
+        "statement",
+        (
+            "from research.results import FeatureStudyResult",
+            "from research.studies import BookReport, ClearMLDestination, ComparisonStudy",
+            "from research.exploration import ResearchSelection, DuckDBFeatureAnalysis, "
+            "PolarsFeatureAnalysis",
+            "from applications.backtest import run_books",
+            "from applications.explore import inspect_eda",
+        ),
+    )
+    def test_local_apis_do_not_import_unused_sdks(self, tmp_path: Path, statement: str) -> None:
+        """Keep local records and workflows usable when optional SDK imports are unavailable."""
+        script = """
+import importlib.abc
+import sys
+
+class RejectUnusedSDKs(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] in {"clearml", "optuna", "duckdb", "polars"}:
+            raise AssertionError(f"Unused SDK imported: {fullname}")
+        return None
+
+sys.meta_path.insert(0, RejectUnusedSDKs())
+"""
+        result = subprocess.run(
+            [sys.executable, "-I", "-c", script + statement],
             cwd=tmp_path,
             capture_output=True,
             text=True,

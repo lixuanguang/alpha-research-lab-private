@@ -509,6 +509,9 @@ this core with the existing pinned selection reader for unfitted inspections.
 `research.studies` owns the existing report, diagnostic, comparison and tracking
 implementations behind a separate curated API. Core record access does not import
 those integrations; both owners retain the existing serialized record contracts.
+Study and exploration APIs import ClearML, Optuna, DuckDB and Polars only when
+their corresponding operations run. `research.results.FeatureStudyResult` owns
+the shared retained feature-result schema used by production and admission.
 The [public contract](../../src/research/experiments/README.md) owns clocks,
 identity, retention, concurrency, recovery and supported evaluation boundaries.
 The [bounded model consumer](../../src/research/models/README.md) now adds configured
@@ -538,7 +541,7 @@ consumer now belongs to `research.studies.WindowDiagnostics` and
 `WindowDiagnosticRun`, composed by `applications.explore.compare_windows` and
 published through the existing ClearML outbox. It uses admitted SciPy for explicit
 reference/current tests and exact rational predictive errors with delayed-label
-admission. Its [contract](../../src/research/experiments/README.md#offline-window-diagnostics)
+admission. Its [contract](../../src/research/studies/README.md#offline-window-diagnostics)
 retains reproducible reports and failure/retry semantics. Evidently's reviewed
 closure still fails admission; it is not installed. The roadmap owns verification
 and acceptance status. No comparison grants candidate, deployment or trading authority.
@@ -563,7 +566,8 @@ These contracts serve model-free studies and future learned candidates alike.
 
 Reusable transforms belong to `research/features/`; labels to `research/labels/`;
 trainers/inference to `research/models/`; split/attempt/candidate records to
-`research/experiments/`; retained study/report integrations to `research/studies/`.
+`research/experiments/`; retained feature-result contracts to `research/results/`;
+study/report integrations to `research/studies/`.
 The attempt/split owner now serves exploration; the
 model owner now serves the same application; other future owners appear only
 with working consumers.

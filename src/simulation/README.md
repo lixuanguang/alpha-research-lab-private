@@ -49,7 +49,7 @@ The same path is exercised for BTC and ETH without asset-specific code.
 These owners expose one curated `__init__.py` API each. The sole installed
 `alpha-backtest` application command now exposes configured execution, atomic
 report publication and local serial pipelines through the
-[experiment owner](../research/experiments/README.md#configured-economics-reports-and-serial-pipelines).
+[study owner](../research/studies/README.md#configured-economics-reports-and-serial-pipelines).
 The current installed Python workflow is the application consumer. The same
 command also exposes `qualify-features` over an existing configured result. It
 compares shared completed-price features across replay, scheduled batch calls and
@@ -164,7 +164,7 @@ no deployment, account state or trading activity to reverse.
 
 
 Frozen engineering-sample execution now uses the same runner through the
-[configured experiment mode](../research/experiments/README.md#unfitted-engineering-samples).
+[configured experiment mode](../research/studies/README.md#unfitted-engineering-samples).
 Native archive witnesses carry their effective availability through observations,
 delayed fills, terminal marking and complete checkpoint recovery. Economic reports
 preserve admission scope and unknown coverage; completed accounting does not itself

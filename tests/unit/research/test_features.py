@@ -26,7 +26,7 @@ from market_data.storage import RawStore
 from market_data.validation import Correction, QualityPolicy, TradeRevision
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import EligibilityAssertions
-from research.experiments import AttemptStore, TemporalSplit, TimeWindow
+from research.experiments import AttemptStore, SampleInterval, TemporalSplit, TimeWindow
 from research.exploration import (
     BookSelection,
     EdaQuery,
@@ -46,6 +46,9 @@ from research.features import (
     WindowPolicy,
 )
 from research.labels import ForwardReturn
+from research.models import ModelDataset
+from research.results import FeatureStudyResult
+from research.studies import FeatureLabelPayload
 from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
@@ -538,9 +541,6 @@ class TestFeatureStudies:
         import msgspec
 
         fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
-        # project library imports
-        from research.experiments import SampleInterval
-
         samples = msgspec.json.decode(fields["samples"], type=tuple[SampleInterval, ...])
         assert [row.label_available_at for row in samples] == [_START + timedelta(seconds=21), None]
         assert [row.information_end for row in samples] == [
@@ -556,6 +556,53 @@ class TestFeatureStudies:
             == fields["features"]
         )
         assert admitted.cutoffs == [_START + timedelta(seconds=n) for n in (10, 20)]
+
+    def test_result_wire_compatibility_and_model_admission(self) -> None:
+        """Preserve saved bytes and diagnostic ordering while models require aligned inputs."""
+        study = self._study()
+        request = TestPriceDiagnostics._request()
+        reader = TestPriceDiagnostics._reader(
+            request,
+            (
+                TestPriceDiagnostics._item(request, 0, 1, "100", 1, 0),
+                TestPriceDiagnostics._item(request, 8, 9, "110", 2, 1),
+                TestPriceDiagnostics._item(request, 11, 11, "111", 3, 2),
+                TestPriceDiagnostics._item(request, 19, 19, "121", 4, 3),
+            ),
+        )
+        payload = study.evaluate(_AdmittedPrices(reader, request))
+        result = FeatureStudyResult.decode(payload)
+        assert FeatureLabelPayload is FeatureStudyResult
+        legacy_fields = {
+            "schema_version": "feature-study-result-v1",
+            "selection_identity": study.selection.identity,
+            "feature_definition": study.feature,
+            "label_definition": study.label,
+            "features": result.features,
+            "labels": result.labels,
+            "samples": result.samples,
+            "split_identity": study.split.identity,
+            "fitting": "not applicable: fixed diagnostic has no fitted state",
+            "scope": "exploratory_degraded",
+        }
+        assert _CODEC.encode_json(legacy_fields) == payload
+        assert _CODEC.encode_json(FeatureLabelPayload.decode(payload)) == payload
+        model = ModelDataset.from_results((payload,))
+        assert model.rows[0].sample == result.samples[0]
+        assert model.rows[1].label is None
+
+        reordered_samples: tuple[SampleInterval, ...] = tuple(reversed(result.samples))
+        reordered = replace(result, samples=reordered_samples)
+        assert reordered.aligned_rows() == result.aligned_rows()
+        with pytest.raises(ValueError, match="model input rows are not aligned"):
+            ModelDataset.from_results((_CODEC.encode_json(reordered),))
+        tampered_sample = replace(result.samples[0], input_sha256="0" * 64)
+        tampered_samples: tuple[SampleInterval, ...] = (tampered_sample, *result.samples[1:])
+        tampered = replace(result, samples=tampered_samples)
+        with pytest.raises(ValueError, match="model input digest, definition or interval mismatch"):
+            ModelDataset.from_results((_CODEC.encode_json(tampered),))
+        with pytest.raises(ValueError, match="unknown field"):
+            FeatureStudyResult.decode(_CODEC.encode_json({**legacy_fields, "unexpected": True}))
 
     def test_formal_inspector_passes_registered_feature_engine(self, tmp_path: Path) -> None:
         """Resolve an injected feature engine through the formal retained workflow."""

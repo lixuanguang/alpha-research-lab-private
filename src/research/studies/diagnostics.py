@@ -11,19 +11,17 @@ from __future__ import annotations
 
 # standard library imports
 import html
-import importlib
 import math
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from fractions import Fraction
 from numbers import Real
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 # project library imports
 from financial_units import ExactRatio
-from research.experiments import SampleInterval
-from research.features import FeatureValue, PriceWindow, TrailingReturn
-from research.labels import ForwardReturn, LabelValue
+from research.labels import LabelValue
+from research.results import FeatureStudyResult
 from serialization import DomainCodec, WireRecord
 
 if TYPE_CHECKING:
@@ -36,84 +34,6 @@ type QuantileRule = Literal["equal-frequency-qcut-v1"]
 type PriceConvention = Literal["forward-last-over-frozen-base-v1"]
 
 _PRICE_CONVENTION: PriceConvention = "forward-last-over-frozen-base-v1"
-
-
-class _PerformanceAPI(Protocol):
-    """Describe the Alphalens performance calls used by the adapter."""
-
-    def factor_information_coefficient(
-        self, factor_data: pd.DataFrame, group_adjust: bool = ..., by_group: bool = ...
-    ) -> pd.DataFrame:
-        """Calculate date-level rank information coefficients."""
-        ...
-
-    def mean_return_by_quantile(
-        self,
-        factor_data: pd.DataFrame,
-        by_date: bool = ...,
-        by_group: bool = ...,
-        demeaned: bool = ...,
-        group_adjust: bool = ...,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Calculate mean forward returns by factor quantile."""
-        ...
-
-    def quantile_turnover(
-        self, quantile_factor: pd.Series, quantile: int, period: int = ...
-    ) -> pd.Series:
-        """Calculate the proportion of names entering one quantile."""
-        ...
-
-
-class _UtilityAPI(Protocol):
-    """Describe Alphalens' quantile assignment operation."""
-
-    def quantize_factor(
-        self,
-        factor_data: pd.DataFrame,
-        quantiles: int,
-        bins: None = ...,
-        by_group: bool = ...,
-        no_raise: bool = ...,
-        zero_aware: bool = ...,
-    ) -> pd.Series:
-        """Assign cross-sectional quantiles without deriving a return."""
-        ...
-
-
-class _AlphalensModule(Protocol):
-    """Describe the lazy Alphalens module boundary."""
-
-    performance: _PerformanceAPI
-    utils: _UtilityAPI
-
-
-class _DataFrameLike(Protocol):
-    """Expose the native frame projection used for typed metric rows."""
-
-    @property
-    def empty(self) -> bool:
-        """Whether the frame has no rows."""
-        ...
-
-    def to_dict(self, orient: str = ...) -> object:
-        """Return a native frame mapping."""
-        ...
-
-
-class _SeriesLike(Protocol):
-    """Expose the native series projection used for typed metric rows."""
-
-    def to_dict(self) -> object:
-        """Return a native series mapping."""
-        ...
-
-
-class _PandasModule(Protocol):
-    """Describe the small pandas construction boundary used by Alphalens."""
-
-    DataFrame: type[pd.DataFrame]
-    MultiIndex: type[pd.MultiIndex]
 
 
 class DiagnosticDrop(WireRecord, frozen=True, kw_only=True):
@@ -162,209 +82,8 @@ class DiagnosticMetric(WireRecord, frozen=True, kw_only=True):
             raise ValueError("diagnostic metric value must be finite")
 
 
-class FeatureLabelPayload(WireRecord, frozen=True, kw_only=True):
-    """Decode and verify the retained MR3 feature/label result contract.
-
-    This local wire type intentionally mirrors the producer's closed result
-    schema.  Importing the model package here would re-enter ``experiments``
-    while that package is being initialized, so the consumer keeps the wire
-    records and their validation in this module.
-    """
-
-    schema_version: Literal["feature-study-result-v1"]
-    selection_identity: str
-    feature_definition: TrailingReturn
-    label_definition: ForwardReturn | None
-    features: tuple[tuple[str, FeatureValue], ...]
-    labels: tuple[tuple[str, LabelValue], ...]
-    samples: tuple[SampleInterval, ...]
-    split_identity: str
-    fitting: str
-    scope: Literal["exploratory_degraded"]
-
-    def __post_init__(self) -> None:
-        """Verify definitions, clocks and aligned row identities before dataframe use."""
-        if (
-            self.schema_version != "feature-study-result-v1"
-            or self.scope != "exploratory_degraded"
-            or type(self.fitting) is not str
-            or not self.fitting.strip()
-            or not self._fingerprint(self.selection_identity)
-            or not self._fingerprint(self.split_identity)
-        ):
-            raise ValueError("unsupported or malformed feature-study result payload")
-        self.feature_definition.__post_init__()
-        if self.label_definition is not None:
-            self.label_definition.__post_init__()
-        feature_ids = self._validate_features()
-        label_ids = self._validate_labels()
-        sample_ids = self._validate_samples()
-        if not 1 <= len(feature_ids) <= 1024:
-            raise ValueError("feature-study result must contain 1 to 1024 rows")
-        if set(label_ids) - set(feature_ids) or set(sample_ids) != set(feature_ids):
-            raise ValueError("feature, label and sample row identities are not aligned")
-        if self.label_definition is None and label_ids:
-            raise ValueError("labels require a forward-return definition")
-        if self.label_definition is not None and set(label_ids) != set(feature_ids):
-            raise ValueError("forward-return payload must retain one label per feature row")
-        labels = dict(self.labels)
-        samples = {sample.row_id: sample for sample in self.samples}
-        for row_id, feature in self.features:
-            if feature.definition_identity != self.feature_definition.identity:
-                raise ValueError("feature row uses a different feature definition")
-            sample = samples[row_id]
-            if sample.decision_at != feature.decision_at:
-                raise ValueError("sample and feature decision clocks differ")
-            if sample.features_available_at != feature.available_at:
-                raise ValueError("sample and feature availability clocks differ")
-            label = labels.get(row_id)
-            if label is None:
-                if sample.label_available_at is not None:
-                    raise ValueError("unlabeled sample cannot declare label availability")
-                continue
-            if (
-                self.label_definition is None
-                or label.definition_identity != self.label_definition.identity
-            ):
-                raise ValueError("label row uses a different forward-return definition")
-            if label.decision_at != feature.decision_at:
-                raise ValueError("feature and label decision clocks differ")
-            if sample.label_available_at != label.available_at:
-                raise ValueError("sample and label availability clocks differ")
-            if (
-                sample.information_start != label.information_start
-                or sample.information_end != label.information_end
-            ):
-                raise ValueError("sample and label information intervals differ")
-
-    @classmethod
-    def decode(cls, payload: bytes) -> FeatureLabelPayload:
-        """Decode one retained result through the repository's strict JSON codec.
-
-        Args:
-            payload: Complete UTF-8 ``feature-study-result-v1`` bytes.
-
-        Returns:
-            A verified immutable feature/label payload.
-
-        Raises:
-            ValueError: The bytes are malformed, unknown-fielded or misaligned.
-        """
-        if type(payload) is not bytes or not payload:
-            raise ValueError("feature-label payload requires nonempty bytes")
-        return DomainCodec().decode_json(payload, cls)
-
-    @property
-    def universe(self) -> tuple[str, ...]:
-        """Return stable instrument identities represented by the feature rows.
-
-        Returns:
-            Sorted instrument identities retained in the feature rows.
-        """
-        assets = {self._asset_name(feature.window.binding) for _, feature in self.features}
-        return tuple(sorted(assets))
-
-    def aligned_rows(
-        self,
-    ) -> tuple[tuple[str, FeatureValue, LabelValue | None, SampleInterval], ...]:
-        """Join retained feature, optional label and sample records by row identity.
-
-        Returns:
-            Ordered rows with the feature, optional label and verified sample interval.
-        """
-        self.__post_init__()
-        labels = dict(self.labels)
-        samples = {sample.row_id: sample for sample in self.samples}
-        return tuple(
-            (row_id, feature, labels.get(row_id), samples[row_id])
-            for row_id, feature in self.features
-        )
-
-    @staticmethod
-    def _fingerprint(value: str) -> bool:
-        """Check a repository SHA-256 identity without normalizing authored text."""
-        return (
-            type(value) is str
-            and len(value) == 64
-            and all(character in "0123456789abcdef" for character in value)
-        )
-
-    @staticmethod
-    def _asset_name(binding: tuple[object, object, object]) -> str:
-        """Project one source binding to the stable instrument identity."""
-        if type(binding) is not tuple or len(binding) != 3:
-            raise ValueError("feature binding must contain source, stream and instrument")
-        asset = str(binding[2])
-        if not asset.strip():
-            raise ValueError("feature binding instrument must be nonempty")
-        return asset
-
-    def _validate_features(self) -> tuple[str, ...]:
-        """Validate feature rows and return their ordered identities."""
-        if type(self.features) is not tuple:
-            raise TypeError("features must be an immutable tuple")
-        identities: list[str] = []
-        for row_id, feature in self.features:
-            if type(row_id) is not str or not row_id.strip() or type(feature) is not FeatureValue:
-                raise TypeError("features require row identities and FeatureValue records")
-            if type(feature.window) is not PriceWindow:
-                raise TypeError("feature rows require PriceWindow records")
-            if feature.value is not None:
-                if type(feature.value) is not ExactRatio:
-                    raise TypeError("feature values must be ExactRatio or None")
-                feature.value.__post_init__()
-            self._require_utc(feature.decision_at, field_name="feature.decision_at")
-            self._require_utc(feature.available_at, field_name="feature.available_at")
-            if feature.decision_at != feature.available_at:
-                raise ValueError("feature availability must equal its decision clock")
-            identities.append(row_id)
-        if len(set(identities)) != len(identities):
-            raise ValueError("feature row identities must be unique")
-        return tuple(identities)
-
-    def _validate_labels(self) -> tuple[str, ...]:
-        """Validate labels and return their ordered identities."""
-        if type(self.labels) is not tuple:
-            raise TypeError("labels must be an immutable tuple")
-        identities: list[str] = []
-        for row_id, label in self.labels:
-            if type(row_id) is not str or not row_id.strip() or type(label) is not LabelValue:
-                raise TypeError("labels require row identities and LabelValue records")
-            self._require_utc(label.decision_at, field_name="label.decision_at")
-            self._require_utc(label.outcome_at, field_name="label.outcome_at")
-            self._require_utc(label.information_start, field_name="label.information_start")
-            self._require_utc(label.information_end, field_name="label.information_end")
-            if label.available_at is not None:
-                self._require_utc(label.available_at, field_name="label.available_at")
-            if label.window is not None and type(label.window) is not PriceWindow:
-                raise TypeError("label rows require PriceWindow or None")
-            if label.value is not None:
-                if type(label.value) is not ExactRatio:
-                    raise TypeError("label values must be ExactRatio or None")
-                label.value.__post_init__()
-            identities.append(row_id)
-        if len(set(identities)) != len(identities):
-            raise ValueError("label row identities must be unique")
-        return tuple(identities)
-
-    def _validate_samples(self) -> tuple[str, ...]:
-        """Validate sample intervals and return their ordered identities."""
-        if type(self.samples) is not tuple:
-            raise TypeError("samples must be an immutable tuple")
-        identities: list[str] = []
-        for sample in self.samples:
-            if type(sample) is not SampleInterval:
-                raise TypeError("samples require SampleInterval records")
-            sample.__post_init__()
-            identities.append(sample.row_id)
-        if len(set(identities)) != len(identities):
-            raise ValueError("sample row identities must be unique")
-        return tuple(identities)
-
-
-# This alias makes the producer's result terminology available to callers
-# without inventing a second wire schema or importing the model package.
-FeatureStudyResult = FeatureLabelPayload
+# Preserve the established reporting name while sharing the canonical result type.
+FeatureLabelPayload = FeatureStudyResult
 
 
 class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
@@ -387,7 +106,7 @@ class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
         """Validate source, universe, factor, horizon and quantile choices."""
         if (
             self.schema_version != "alphalens-study-v1"
-            or not FeatureLabelPayload._fingerprint(self.selection_identity)
+            or not FeatureLabelPayload.is_fingerprint(self.selection_identity)
             or self.factor_direction not in ("ascending", "descending")
             or type(self.horizon_us) is not int
             or not 0 <= self.horizon_us <= 31_536_000_000_000
@@ -457,7 +176,7 @@ class AlphalensReport(WireRecord, frozen=True, kw_only=True):
         """Validate immutable metadata, metrics and nonempty report artifacts."""
         if (
             self.schema_version != "alphalens-report-v1"
-            or not FeatureLabelPayload._fingerprint(self.selection_identity)
+            or not FeatureLabelPayload.is_fingerprint(self.selection_identity)
             or type(self.report_json) is not bytes
             or not self.report_json
             or type(self.report_html) is not bytes
@@ -582,10 +301,12 @@ class AlphalensDiagnostics:
                 "cross-sectional statistics require at least two assets at one decision",
             )
         try:
-            pandas = cast(_PandasModule, importlib.import_module("pandas"))
-            alphalens = self._load_alphalens()
-            frame, _ = self._frame(pandas, study, observations, horizon)
-            quantile = alphalens.utils.quantize_factor(
+            # third party library imports
+            import pandas as pd
+            from alphalens import performance, utils
+
+            frame, _ = self._frame(pd.DataFrame, pd.MultiIndex, study, observations, horizon)
+            quantile = utils.quantize_factor(
                 frame,
                 quantiles=study.quantiles,
                 by_group=bool(study.groups),
@@ -617,10 +338,10 @@ class AlphalensDiagnostics:
                     "the selected quantile rule produced no eligible rows",
                 )
             grouped = bool(study.groups)
-            ic_native = alphalens.performance.factor_information_coefficient(
+            ic_native = performance.factor_information_coefficient(
                 frame, group_adjust=study.group_adjust, by_group=grouped
             )
-            mean_native, _ = alphalens.performance.mean_return_by_quantile(
+            mean_native, _ = performance.mean_return_by_quantile(
                 frame,
                 by_date=False,
                 by_group=grouped,
@@ -634,7 +355,10 @@ class AlphalensDiagnostics:
                 "quantile_return", mean_native, self._quantile_counts(frame)
             )
             turnover = self._turnover_metrics(
-                alphalens.performance, frame["factor_quantile"], study.quantiles
+                tuple(
+                    performance.quantile_turnover(frame["factor_quantile"], quantile, period=1)
+                    for quantile in range(1, study.quantiles + 1)
+                )
             )
         except ModuleNotFoundError as error:
             raise RuntimeError(
@@ -656,11 +380,6 @@ class AlphalensDiagnostics:
             turnover,
             None,
         )
-
-    @staticmethod
-    def _load_alphalens() -> _AlphalensModule:
-        """Load and type the pinned Alphalens modules only at evaluation time."""
-        return cast(_AlphalensModule, importlib.import_module("alphalens"))
 
     @staticmethod
     def _effective_horizon(study: AlphalensStudy, payload: FeatureLabelPayload) -> int:
@@ -695,7 +414,7 @@ class AlphalensDiagnostics:
         late: list[DiagnosticDrop] = []
         groups = dict(study.groups)
         for row_id, feature, label, sample in payload.aligned_rows():
-            asset = FeatureLabelPayload._asset_name(feature.window.binding)
+            asset = FeatureLabelPayload.asset_name(feature.window.binding)
             if study.universe and asset not in study.universe:
                 dropped.append(
                     DiagnosticDrop(
@@ -807,14 +526,15 @@ class AlphalensDiagnostics:
 
     def _frame(
         self,
-        pandas: _PandasModule,
+        data_frame: type[pd.DataFrame],
+        multi_index: type[pd.MultiIndex],
         study: AlphalensStudy,
         observations: tuple[_Observation, ...],
         horizon: int,
     ) -> tuple[pd.DataFrame, str]:
         """Build Alphalens' expected factor/forward-return MultiIndex frame."""
         period = self._period_name(horizon)
-        index = pandas.MultiIndex.from_tuples(
+        index = multi_index.from_tuples(
             [(item.decision_at, item.asset) for item in observations], names=("date", "asset")
         )
         values: dict[str, list[float] | list[str | None]] = {
@@ -823,7 +543,7 @@ class AlphalensDiagnostics:
         }
         if any(item.group is not None for item in observations):
             values["group"] = [item.group for item in observations]
-        return pandas.DataFrame(values, index=index), period
+        return data_frame(values, index=index), period
 
     @staticmethod
     def _period_name(horizon_us: int) -> str:
@@ -859,7 +579,7 @@ class AlphalensDiagnostics:
     @staticmethod
     def _series_values(series: pd.Series) -> dict[object, object]:
         """Read a native quantile series without importing pandas types eagerly."""
-        raw = cast(_SeriesLike, series).to_dict()
+        raw: object = series.to_dict()
         return AlphalensDiagnostics._mapping(raw) or {}
 
     @staticmethod
@@ -879,7 +599,7 @@ class AlphalensDiagnostics:
     @classmethod
     def _index_counts(cls, frame: pd.DataFrame) -> dict[str, int]:
         """Count source rows by the exact index key returned by Alphalens."""
-        raw = cast(_DataFrameLike, frame).to_dict(orient="split")
+        raw = frame.to_dict(orient="split")
         counts: dict[str, int] = {}
         mapping = cls._mapping(raw)
         if mapping is None:
@@ -906,7 +626,7 @@ class AlphalensDiagnostics:
     def _quantile_counts(cls, frame: pd.DataFrame) -> dict[str, int]:
         """Count source rows by the factor quantile index used in mean returns."""
         counts: dict[str, int] = {}
-        raw = cast(_DataFrameLike, frame).to_dict(orient="split")
+        raw = frame.to_dict(orient="split")
         mapping = cls._mapping(raw)
         if mapping is None:
             return counts
@@ -939,7 +659,7 @@ class AlphalensDiagnostics:
         cls, name: str, result: pd.DataFrame, counts: Mapping[str, int]
     ) -> tuple[DiagnosticMetric, ...]:
         """Project one Alphalens DataFrame result into typed metric rows."""
-        raw = cast(_DataFrameLike, result).to_dict(orient="split")
+        raw = result.to_dict(orient="split")
         mapping = cls._mapping(raw)
         if mapping is None:
             return ()
@@ -972,13 +692,12 @@ class AlphalensDiagnostics:
 
     @classmethod
     def _turnover_metrics(
-        cls, performance: _PerformanceAPI, quantile_factor: pd.Series, quantiles: int
+        cls, series_by_quantile: tuple[pd.Series, ...]
     ) -> tuple[DiagnosticMetric, ...]:
         """Calculate turnover for every configured quantile with real Alphalens code."""
         output: list[DiagnosticMetric] = []
-        for quantile in range(1, quantiles + 1):
-            series = performance.quantile_turnover(quantile_factor, quantile, period=1)
-            raw = cast(_SeriesLike, series).to_dict()
+        for quantile, series in enumerate(series_by_quantile, start=1):
+            raw: object = series.to_dict()
             mapping = cls._mapping(raw)
             if mapping is None:
                 continue

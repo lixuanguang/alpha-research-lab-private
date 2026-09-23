@@ -14,8 +14,7 @@ import pandera.pandas as pa
 # project library imports
 from financial_units import ExactRatio
 from research.experiments import Fingerprint, SampleInterval
-from research.features import FeatureValue, TrailingReturn
-from research.labels import ForwardReturn, LabelValue
+from research.results import FeatureStudyResult
 from serialization import DomainCodec, WireRecord
 
 
@@ -59,21 +58,6 @@ class ModelRow(WireRecord, frozen=True, kw_only=True):
                 value.__post_init__()
         if self.label is not None and self.sample.label_available_at is None:
             raise ValueError("present label requires known availability")
-
-
-class _FeatureResult(WireRecord, frozen=True, kw_only=True):
-    """Decode the existing diagnostic result without inventing a new feature format."""
-
-    schema_version: Literal["feature-study-result-v1"]
-    selection_identity: str
-    feature_definition: TrailingReturn
-    label_definition: ForwardReturn | None
-    features: tuple[tuple[str, FeatureValue], ...]
-    labels: tuple[tuple[str, LabelValue], ...]
-    samples: tuple[SampleInterval, ...]
-    split_identity: str
-    fitting: str
-    scope: Literal["exploratory_degraded"]
 
 
 class ModelFrame:
@@ -235,7 +219,7 @@ class ModelDataset(WireRecord, frozen=True, kw_only=True):
         rows: list[ModelRow] = []
         signature: ModelSignature | None = None
         for payload in payloads:
-            result = codec.decode_json(payload, _FeatureResult)
+            result = codec.decode_json(payload, FeatureStudyResult)
             if result.label_definition is None:
                 raise ValueError("model consumer requires a declared forward label")
             current = ModelSignature(

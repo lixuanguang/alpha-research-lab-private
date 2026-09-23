@@ -108,9 +108,26 @@ class TestPythonSourceChecker:
             assert any("import" not in finding.detail for finding in findings), source
         assert not self._rule(self._scan('"""Module."""\n# Any is banned.\n'), "PYT001")
 
-    def test_new_parameter_cannot_reuse_a_missing_args_allowance(self) -> None:
-        """Assign a separate obligation to each undocumented parameter."""
-        source = '"""Module."""\ndef f(first: int) -> None:\n    """Process inputs."""\n'
+    def test_summary_only_public_functions_do_not_need_structured_sections(self) -> None:
+        """Keep structured Google sections optional when the summary is meaningful."""
+        source = (
+            '"""Module."""\n'
+            "def f(first: int, second: str) -> int:\n"
+            '    """Process inputs."""\n'
+            "    return first\n"
+        )
+        assert self._rule(self._scan(source), "PYD002") == ()
+
+    def test_new_parameter_cannot_reuse_a_present_args_allowance(self) -> None:
+        """Assign a separate obligation to each undocumented present Args entry."""
+        source = (
+            '"""Module."""\n'
+            "def f(first: int) -> None:\n"
+            '    """Process inputs.\n\n'
+            "    Args:\n"
+            "        first: First input.\n"
+            '    """\n'
+        )
         old = {item.key for item in self._rule(self._scan(source), "PYD002")}
         changed = source.replace("first: int", "first: int, second: str")
         new = {item.key for item in self._rule(self._scan(changed), "PYD002")}
@@ -164,15 +181,56 @@ class TestPythonSourceChecker:
         assert any(item.detail == "variable:value" for item in findings)
         assert sum(item.detail == "type-bound:T" for item in findings) == 3
 
-    def test_missing_summary_cannot_hide_new_argument_debt(self) -> None:
-        """Track API arguments even when the whole docstring is still missing."""
-        old_source = '"""Module."""\ndef f(first: int) -> None:\n    pass\n'
-        old = {item.key for item in self._scan(old_source)}
-        changed = old_source.replace("first: int", "first: int, second: str")
-        assert any(
-            item.detail == "parameter:second" and item.key not in old
-            for item in self._scan(changed)
+    def test_missing_summary_remains_a_summary_finding(self) -> None:
+        """Keep missing summaries distinct from optional structured sections."""
+        source = '"""Module."""\ndef f(first: int) -> None:\n    pass\n'
+        findings = self._scan(source)
+        assert any(item.rule == "PYD001" and item.symbol == "f" for item in findings)
+        assert self._rule(findings, "PYD002") == ()
+
+    def test_overload_signatures_inherit_concrete_implementation_documentation(self) -> None:
+        """Skip repeated overload summaries while requiring the implementation summary."""
+        source = '''
+        """Overload documentation fixture."""
+
+        # standard library imports
+        import typing as typing_alias
+        from typing import overload as overloaded
+
+        @overloaded
+        def convert(value: int) -> int:
+            ...
+
+        @typing_alias.overload
+        def convert(value: str) -> str:
+            ...
+
+        def convert(value: int | str) -> int | str:
+            """Convert one supported value.
+
+            Args:
+                value: Integer or string value to convert.
+
+            Returns:
+                The unchanged value with its concrete overload type.
+
+            """
+            return value
+        '''
+        assert self._scan(source) == ()
+
+        implementation_without_summary = source.replace(
+            "        def convert(value: int | str) -> int | str:\n"
+            '            """Convert one supported value.\n\n'
+            "            Args:\n"
+            "                value: Integer or string value to convert.\n\n"
+            "            Returns:\n"
+            "                The unchanged value with its concrete overload type.\n\n"
+            '            """\n',
+            "        def convert(value: int | str) -> int | str:\n",
         )
+        findings = self._scan(implementation_without_summary)
+        assert any(finding.rule == "PYD001" and finding.symbol == "convert" for finding in findings)
 
     def test_google_sections_require_indented_content(self) -> None:
         """Reject flush-left prose pretending to document an argument or result."""
@@ -193,14 +251,18 @@ class TestPythonSourceChecker:
         assert {"Args", "parameter:value", "Returns"} <= details
 
     def test_test_name_only_exempts_functions_in_test_sources(self) -> None:
-        """Prevent a production API from bypassing sections by adopting a test prefix."""
+        """Keep test-path summary exemptions separate from production summaries."""
         source = '''
         """Module."""
         def test_connection(endpoint: str) -> bool:
-            """Check connectivity."""
+            """Check connectivity.
+
+            Returns:
+
+            """
             return bool(endpoint)
         '''
-        assert not self._rule(self._scan(source, "tests/test_connection.py"), "PYD002")
+        assert self._rule(self._scan(source, "tests/test_connection.py"), "PYD002") == ()
         assert self._rule(self._scan(source, "src/connection.py"), "PYD002")
 
     def test_compliant_typed_class_with_google_docs_has_no_findings(self) -> None:
@@ -559,8 +621,8 @@ class TestPythonSourceChecker:
         assert any(finding.symbol == "<module>" for finding in doc_findings)
         assert any("summary" in finding.detail.lower() for finding in doc_findings)
 
-    def test_public_api_requires_google_sections_and_argument_descriptions(self) -> None:
-        """Require Args and Returns sections for a public function contract."""
+    def test_public_api_summary_does_not_require_google_sections(self) -> None:
+        """Keep public structured sections available for meaningful contracts."""
         findings = self._scan(
             '''
             """Public API fixture."""
@@ -571,11 +633,24 @@ class TestPythonSourceChecker:
             '''
         )
 
-        details = tuple(finding.detail.lower() for finding in self._rule(findings, "PYD002"))
-        assert details
-        assert any("args" in detail for detail in details)
-        assert any("returns" in detail for detail in details)
-        assert any("enabled" in detail for detail in details)
+        assert self._rule(findings, "PYD002") == ()
+
+    def test_structured_sections_are_optional_for_return_yield_and_raise_facts(self) -> None:
+        """Avoid inferring documentation obligations from syntax alone."""
+        findings = self._scan(
+            '''
+            """Derived facts fixture."""
+
+            def values(items: list[int]) -> list[int]:
+                """Yield items or reject an empty input."""
+                if not items:
+                    raise ValueError("items must not be empty")
+                for item in items:
+                    yield item
+            '''
+        )
+
+        assert self._rule(findings, "PYD002") == ()
 
     def test_empty_args_returns_and_raises_sections_are_rejected(self) -> None:
         """Reject empty Google sections on a validating public API."""
@@ -605,8 +680,8 @@ class TestPythonSourceChecker:
         assert any("returns" in detail for detail in details)
         assert any("raises" in detail for detail in details)
 
-    def test_yielding_public_api_requires_a_nonempty_yields_section(self) -> None:
-        """Require a Yields section when a public function yields values."""
+    def test_present_empty_yields_section_is_rejected(self) -> None:
+        """Reject an explicitly empty Yields section without requiring it syntactically."""
         findings = self._scan(
             '''
             """Generator documentation fixture."""
@@ -617,6 +692,8 @@ class TestPythonSourceChecker:
                 Args:
                     items: Values to yield.
 
+                Yields:
+
                 """
                 for item in items:
                     yield item
@@ -625,6 +702,30 @@ class TestPythonSourceChecker:
 
         details = tuple(finding.detail.lower() for finding in self._rule(findings, "PYD002"))
         assert details and any("yields" in detail for detail in details)
+
+    def test_present_args_section_rejects_unknown_parameter_names(self) -> None:
+        """Reject an Args entry that is absent from the function signature."""
+        findings = self._scan(
+            '''
+            """Argument names fixture."""
+
+            def build(name: str) -> int:
+                """Build one name.
+
+                Args:
+                    name: Name to build.
+                    count: Unknown count parameter.
+
+                Returns:
+                    Built count.
+
+                """
+                return len(name)
+            '''
+        )
+
+        details = tuple(finding.detail.lower() for finding in self._rule(findings, "PYD002"))
+        assert details and any("count" in detail for detail in details)
 
     def test_public_args_section_must_describe_every_argument(self) -> None:
         """Reject a public Args section that omits one parameter."""
@@ -753,7 +854,7 @@ class TestPythonSourceChecker:
         assert any(finding.rule == "PYT001" and finding.symbol == "invalid" for finding in findings)
         assert any(finding.rule == "PYI001" and finding.symbol == "invalid" for finding in findings)
         assert any(finding.rule == "PYD001" and finding.symbol == "invalid" for finding in findings)
-        assert any(finding.rule == "PYD002" and finding.symbol == "invalid" for finding in findings)
+        assert self._rule(findings, "PYD002") == ()
 
     def test_private_and_test_functions_need_only_summary_docstrings(self) -> None:
         """Accept summary-only docs for private and test functions."""

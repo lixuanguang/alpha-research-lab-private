@@ -8,17 +8,10 @@ import math
 from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 # third party library imports
-import optuna
 from msgspec.structs import replace
-from optuna import TrialPruned
-from optuna.pruners import NopPruner, ThresholdPruner
-from optuna.samplers import GridSampler, RandomSampler
-from optuna.storages import JournalStorage
-from optuna.storages.journal import JournalFileBackend
-from optuna.trial import Trial, TrialState
 
 # project library imports
 from financial_units import ExactRatio
@@ -28,6 +21,10 @@ from research.studies.evaluation import TrialEvaluation
 from research.studies.results import ResultManifest
 from research.studies.tracking import ClearMLDestination, ClearMLPublication
 from serialization import DomainCodec, WireRecord
+
+if TYPE_CHECKING:
+    # third party library imports
+    from optuna.trial import Trial
 
 
 class ComparisonStudy(WireRecord, frozen=True):
@@ -225,6 +222,14 @@ class ParameterComparison:
             ValueError: Journal identity or retained mappings differ, or chunk size is invalid.
             Exception: Publication or storage fails; prior trial history remains authoritative.
         """
+        # third party library imports
+        import optuna
+        from optuna.pruners import NopPruner, ThresholdPruner
+        from optuna.samplers import GridSampler, RandomSampler
+        from optuna.storages import JournalStorage
+        from optuna.storages.journal import JournalFileBackend
+        from optuna.trial import TrialState
+
         if max_trials is not None and (type(max_trials) is not int or max_trials < 1):
             raise ValueError("max_trials must be a positive invocation bound")
         self._journal.parent.mkdir(parents=True, exist_ok=True)
@@ -327,6 +332,9 @@ class _ComparisonObjective:
 
     def __call__(self, trial: Trial) -> float:
         """Retain every evaluated combination before invoking application code."""
+        # third party library imports
+        from optuna import TrialPruned
+
         selected = trial.suggest_int("variant", 0, len(self._definition.variants) - 1)
         run = self._definition.variants[selected]
         inputs: tuple[Fingerprint, ...] = (

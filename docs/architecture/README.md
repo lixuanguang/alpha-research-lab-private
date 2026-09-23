@@ -102,9 +102,13 @@ Current dependency direction is organized by functional owner:
   validation, datasets, query and replay implement their respective capabilities
   through explicit public APIs and injected reader/verifier operations.
 - `research/experiments/` owns semantic identities, temporal split admission and
-  atomic attempt history, economic reports and local pipeline metadata. [Its contract](../../src/research/experiments/README.md)
+  atomic attempt history. [Its contract](../../src/research/experiments/README.md)
   defines the local writer and holdout boundaries.
+- `research/studies/` owns comparisons, diagnostics, economic reports, tracking
+  and pipeline metadata through its [study contract](../../src/research/studies/README.md).
 - `research/exploration/` consumes admitted data for EDA and retained unfitted studies.
+  `research/results/` owns the retained feature-result wire contract shared with
+  model admission and diagnostics, preserving its existing serialized schema.
   `research/features/` owns versioned trailing-price diagnostics; `research/labels/`
   owns separate forward outcomes. `research/models/`, `strategies/`, `simulation/`,
   `accounting/` and `risk/` provide the bounded spot research path. The sole

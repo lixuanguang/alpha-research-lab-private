@@ -83,6 +83,8 @@ class PythonSourceChecker:
     _path: str
     _lines: tuple[str, ...]
     _findings: list[PythonFinding]
+    _overload_aliases: set[str]
+    _overload_modules: set[str]
 
     _HEADINGS: ClassVar[dict[str, str]] = {
         "standard": "# standard library imports",
@@ -126,6 +128,8 @@ class PythonSourceChecker:
         self._path = path
         self._lines = tuple(source.splitlines())
         self._findings = []
+        self._overload_aliases = {"overload"}
+        self._overload_modules = set()
         self._import_counters.clear()
         try:
             list(tokenize.generate_tokens(io.StringIO(source).readline))
@@ -150,6 +154,7 @@ class PythonSourceChecker:
         try:
             self._check_imports(module)
             self._check_any(module)
+            self._collect_overload_bindings(module)
             self._check_docs(module)
             return tuple(sorted(self._findings, key=_finding_sort_key))
         finally:
@@ -160,6 +165,8 @@ class PythonSourceChecker:
         self._path = ""
         self._lines = ()
         self._findings = []
+        self._overload_aliases = set()
+        self._overload_modules = set()
         self._import_counters.clear()
 
     def _add(self, symbol: str, rule: str, detail: str, line: int) -> None:
@@ -684,6 +691,35 @@ class PythonSourceChecker:
             return f"{detail}:{ast.dump(node, annotate_fields=True, include_attributes=False)}"
         return detail
 
+    def _collect_overload_bindings(self, module: ast.Module) -> None:
+        """Collect typing overload aliases used by decorators in the source tree."""
+        for node in ast.walk(module):
+            if isinstance(node, ast.ImportFrom) and node.module in {
+                "typing",
+                "typing_extensions",
+            }:
+                for item in node.names:
+                    if item.name == "overload":
+                        self._overload_aliases.add(item.asname or item.name)
+            elif isinstance(node, ast.Import):
+                for item in node.names:
+                    if item.name in {"typing", "typing_extensions"}:
+                        self._overload_modules.add(item.asname or item.name)
+
+    def _is_overload(self, function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """Return whether a function is a typing overload signature."""
+        for decorator in function.decorator_list:
+            if isinstance(decorator, ast.Name) and decorator.id in self._overload_aliases:
+                return True
+            if (
+                isinstance(decorator, ast.Attribute)
+                and decorator.attr == "overload"
+                and isinstance(decorator.value, ast.Name)
+                and decorator.value.id in self._overload_modules
+            ):
+                return True
+        return False
+
     def _check_docs(self, module: ast.Module) -> None:
         """Check module, class, and named-function documentation contracts."""
         self._definition_doc(module, "<module>")
@@ -729,7 +765,9 @@ class PythonSourceChecker:
         return value
 
     def _function_doc(self, function: ast.FunctionDef | ast.AsyncFunctionDef, symbol: str) -> None:
-        """Check summary and required Google-style sections for one function."""
+        """Check summary and any present Google-style sections for one function."""
+        if self._is_overload(function):
+            return
         value = self._definition_doc(function, symbol)
         if self._path.startswith("tests/") and function.name.startswith("test_"):
             return
@@ -741,46 +779,23 @@ class PythonSourceChecker:
         arguments = tuple(
             item.arg for item in self._arguments(function.args) if item.arg not in {"self", "cls"}
         )
+        for name, body in sections.items():
+            if any(line.strip() for line in body):
+                continue
+            self._add(symbol, "PYD002", name, function.lineno)
+            if name == "Args":
+                for argument in arguments:
+                    self._add(symbol, "PYD002", f"parameter:{argument}", function.lineno)
+
         args_section = sections.get("Args")
-        if arguments and (args_section is None or not any(line.strip() for line in args_section)):
-            self._add(symbol, "PYD002", "Args", function.lineno)
-            for name in arguments:
-                self._add(symbol, "PYD002", f"parameter:{name}", function.lineno)
-        elif args_section is not None:
+        if args_section is not None and any(line.strip() for line in args_section):
             described = self._described_arguments(args_section)
             for name in arguments:
                 if name not in described:
                     self._add(symbol, "PYD002", f"parameter:{name}", function.lineno)
-        has_return, has_yield, has_raise = self._function_facts(function.body)
-        annotated_return = function.returns is not None and not (
-            isinstance(function.returns, ast.Constant) and function.returns.value in {None, "None"}
-        )
-        required = "Yields" if has_yield else "Returns" if has_return or annotated_return else None
-        if required is not None and not any(line.strip() for line in sections.get(required, ())):
-            self._add(symbol, "PYD002", required, function.lineno)
-        if has_raise and not any(line.strip() for line in sections.get("Raises", ())):
-            self._add(symbol, "PYD002", "Raises", function.lineno)
-
-    def _function_facts(self, statements: list[ast.stmt]) -> tuple[bool, bool, bool]:
-        """Collect value-return, yield, and raise facts without nested definitions."""
-        values = [False, False, False]
-
-        def visit(node: ast.AST) -> None:
-            """Visit one function-body node without entering nested definitions."""
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
-                return
-            if isinstance(node, ast.Return) and node.value is not None:
-                values[0] = True
-            elif isinstance(node, (ast.Yield, ast.YieldFrom)):
-                values[1] = True
-            elif isinstance(node, ast.Raise):
-                values[2] = True
-            for child in ast.iter_child_nodes(node):
-                visit(child)
-
-        for statement in statements:
-            visit(statement)
-        return values[0], values[1], values[2]
+            for name in described:
+                if name not in arguments:
+                    self._add(symbol, "PYD002", f"parameter:{name}", function.lineno)
 
     def _sections(self, docstring: str) -> dict[str, tuple[str, ...]]:
         """Parse top-level Google section headers and their indented bodies."""

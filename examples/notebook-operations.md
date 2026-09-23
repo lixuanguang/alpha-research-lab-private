@@ -179,7 +179,10 @@ uv run --frozen --no-editable alpha-backtest books \
 
 The command prints a unique directory containing `report.html`, `report.json`,
 `eda.json`, `configuration.json`, both complete checkpoints and the attempt record.
-The notebook adds book/NAV charts. Use `--stop-at` and `--resume` as described in the
+Current `report.json` is the v2 bundle report with SHA-256 references to the
+sibling configuration, EDA and checkpoint artifacts. `BookReport.read` accepts
+that bundle and also reads historical standalone v1 reports without changing
+their semantics. The notebook adds book/NAV charts. Use `--stop-at` and `--resume` as described in the
 [acceptance and recovery guide](../docs/research/l2-book-backtest.md#interrupt-and-resume).
 Failed attempts remain retained; a missing or corrupt archive never falls back
 to a synthetic source.
@@ -216,132 +219,27 @@ consumer and implementation together while preserving saved inputs and attempts.
 
 ## Frozen source evidence
 
-**Deferred legacy investigation.** Binance and Tardis are deprioritised by the
-founder. These instructions preserve reproduction of P1; they are not a requirement
-to obtain provider records or contact either provider. For current L2 research use
-the [saved OKX order-book study](#historical-order-book-study), or use the maintained
-[Bitfinex live route](research-foundations-live.ipynb) with an explicit capture opt-in.
+The Binance/Tardis investigation is a deferred historical reproduction. Its
+instructions now live in the [legacy P1 reproduction guide](../docs/research/legacy-p1-reproduction.md),
+which preserves the old `#frozen-source-evidence` link target through this
+pointer. Current work starts with the saved OKX study or the maintained Bitfinex
+route above; no P1 provider refresh is required for either journey.
 
-The [historical P1 notebook](research-foundations-live-p1-evidence.ipynb) reopens
-the explicitly pinned P1 Binance archive and auxiliary native capture, without
-initiating a network call in saved mode. Its deliverable is a reproducible
-source-evidence handoff for the
-[frozen acceptance requirements](../docs/research/p1-baseline.md#acceptance-and-research-discipline).
-The archived file is byte-identical to the tested historical checkout and keeps
-its original imports and source identity. If that deferred investigation is ever
-resumed, use its recorded checkout/environment and the historical commands below;
-the maintained Bitfinex notebook follows the current package exports.
+The remaining reproduction details, evidence checks and historical commands are
+maintained in that linked page.
 
-The default paths name the retained acquisition
-`data/binance-archives/runs/acb948277201cc169d32c2bb874fb40ce9e9c33c893e56a992faa47853147f80/manifest.json`,
-its `data/binance-archives/raw/` store, and
-`logs/frozen-baseline/2026-09-22/source-evidence/archive-capture.json`.
-These ignored inputs are local; a clean checkout does not contain them. Supply
-explicit paths using `ALPHA_P1_MANIFEST`, `ALPHA_P1_RAW` and `ALPHA_P1_CAPTURE`
-when reopening retained inputs elsewhere. A nonempty missing selector fails.
-Set `ALPHA_P1_CAPTURE=''` deliberately for an archive-only investigation.
-The notebook verifies the frozen archive/configuration digests, source, instrument,
-interval and capture binding. It never selects a latest run or substitutes a fixture.
+The legacy page owns the saved/refresh modes and historical source records. Use
+this guide for current notebook setup and Bitfinex/OKX workflows.
 
-Each execution creates an exclusive `data/notebooks/p1-evidence/<uuid>/` study
-containing the verified archive, acquisition, both unchanged economic configurations,
-supplied capture/eligibility, source summary, measured trading-status/coverage/correction
-checks, public source records and receipts, actual strict publication report,
-document review, semantic hash inventory and `handoff.json`/`handoff.md`.
-Restart from setup to repeat cells that retain immutable outputs. The existing
-notebook runner archives successful and failed executions separately.
+The legacy page owns evidence attachments and review-template fields.
+
+The legacy page owns reproduction verification, strict publication refusal and
+the remaining deferred provider evidence.
 
 ### Investigate the three questions
 
-The notebook now performs the investigation before asking for additional records:
-
-| Question | Executed checks | Retained output |
-| --- | --- | --- |
-| Could this pair trade during the hour? | Provider symbol inventory and each interval of supplied eligibility, with the source facts available at the frozen sample's start | `trading-status.json` |
-| Does the recording cover the hour? | Missing/repeated IDs, timestamp ordering, quiet intervals including boundaries, native disconnect markers, overlapping provider incidents and a minute-count plot | `coverage-checks.json` |
-| Were trade values changed later? | Exact native/archive comparison, conflicting native versions, capture delays, late captures and the provider's published archive-update table | `correction-checks.json` |
-
-The last cell displays a plain-language three-row summary and writes
-`findings.json`, `handoff.md` and `provider-questions.md`. The questions are a draft
-for the remaining provider evidence; the notebook sends no message. Matching
-records and missing incident reports never become a completeness guarantee.
-Archive-only investigations report native measurements as unknown, not zero.
-
-Saved mode is the default. `ALPHA_P1_PUBLIC_DIRECTORY` selects a bundle containing
-`binance-public-readme.md`, `tardis-exchange.json`, `tardis-metadata.md` and
-`tardis-data-faq.md`, each with its original `.receipt.json`. The default bundle is
-the retained `logs/frozen-baseline/2026-09-22/source-evidence/`. The notebook verifies
-source URLs, successful HTTP status, hashes, lengths and acquisition clocks before
-using these records. It preserves compressed original bytes and bounds decoding.
-Missing or altered selected files fail; there is no online fallback.
-
-For a deliberate refresh, fetch only those four small public provider records:
-
-```sh
-uv run --frozen --no-editable python -c 'from market_data.adapters.sources import SourceOccurrenceVerifier'
-ALPHA_P1_PUBLIC_MODE=refresh uv run --frozen --no-sync \
-  --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
-  python examples/run_notebook.py examples/research-foundations-live-p1-evidence.ipynb \
-  --kernel-python .venv/bin/python
-```
-
-The existing kernel setup below supplies `ipykernel`. Refresh permits one request
-per record, with a 15-second socket timeout and an 8 MiB raw/decoded byte limit.
-It retains failures and stops, and does not purchase data, use credentials,
-download the archive again or change the frozen sample. Each successful response
-and its actual receipt is copied under the new study's `public/`. A new retrieval
-does not establish when a fact was known during the historical hour.
-
-To reproduce that investigation without network access, set
-`ALPHA_P1_PUBLIC_MODE=saved`, `ALPHA_P1_PUBLIC_DIRECTORY` to its exact `public/`
-directory, and `ALPHA_P1_REOPEN` to the study directory, then rerun the command
-without the refresh assignment. The notebook prints both paths. Refreshing again
-creates a new investigation because retrieval records change.
-
-To add evidence, copy the generated `review-template.json` to a separate working
-file. Keep its exact `scope`, and add objects to `documents` with:
-
-- `requirement`: `historical_eligibility`, `coverage` or `revisions`;
-- `path`: an absolute path to a retained provider record;
-- `source_reference`: provider provenance or reference;
-- `claim`: the precise fact and interval the record supports;
-- `limitations`: what remains unproven.
-
-Set `ALPHA_P1_DOCUMENTS` to that working file and rerun. At most 20 documents,
-each at most 8 MiB, are copied and hashed. They remain candidate evidence requiring
-review; no attachment or authored status upgrades quality. If actual historical
-eligibility evidence is available, provide its existing typed
-`EligibilityAssertions` JSON through `ALPHA_P1_ELIGIBILITY`. Otherwise the notebook
-passes an empty history, preserving unknown eligibility.
-
-Run with the pinned tooling command above. To verify reproduction,
-restart through the runner with `ALPHA_P1_REOPEN` set to the exact earlier study.
-It verifies the earlier retained bytes and compares deterministic input, code,
-configuration and quality digests. Changing inputs or notebook source is a new
-investigation and fails this reproduction comparison. UUIDs and execution clocks
-are excluded from semantic comparison.
-
-Strict publication currently refuses the source: historical eligibility and
-positive coverage/complete revision evidence remain unresolved. The shared strict
-contract now accepts a completed externally reviewed `SourceQualification` inside a
-`DatasetInput`. Supply that JSON through `ALPHA_P1_ADMISSION_INPUT`; retain every
-referenced current/prior archive under `ALPHA_P1_RAW`. The primary acquisition and
-causal policy must match the frozen selection exactly. Optional separate eligibility
-must agree with the input's embedded history. See the
-[contract and preparation requirements](../src/market_data/README.md#reviewed-provider-qualification).
-The notebook records the complete input and original payload identities without
-filling unknown clocks. Hash verification cannot authenticate provider claims.
-
-Expected source refusal
-completes the evidence handoff with its original **MR 8 OPEN** label, without
-running economics. That retained label refers to the superseded P1 milestone
-target; P1 remains deferred and unaccepted. The current MR8 specification is the
-separate [saved-OKX simulation scope](../docs/research/saved-baseline-acceptance.md).
-A completed notebook is not empirical acceptance. Unexpected input/runtime errors
-fail the run. The legacy handoff records the remaining source investigation, external
-provider review, and subsequent actual-source economic/report/recovery proof only
-for an explicitly resumed P1 case. It does not change the frozen sample or its
-acceptance standard; those actions remain deferred.
+The historical trading-status, coverage and correction checks are described in
+the [legacy P1 reproduction guide](../docs/research/legacy-p1-reproduction.md#investigate-the-three-questions).
 
 ## Live versions
 

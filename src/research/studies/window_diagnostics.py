@@ -17,7 +17,7 @@ from typing import Literal, Protocol, cast
 # project library imports
 from financial_units import ExactRatio
 from research.experiments import ExperimentSpec, Fingerprint, TemporalSplit, TimeWindow
-from research.studies.diagnostics import FeatureLabelPayload
+from research.results import FeatureStudyResult
 from research.studies.evaluation import EvaluationRecord
 from serialization import DomainCodec, WireRecord
 
@@ -366,7 +366,7 @@ class WindowDiagnostics:
     def evaluate(
         self,
         study: WindowDiagnosticStudy,
-        features: tuple[FeatureLabelPayload, ...],
+        features: tuple[FeatureStudyResult, ...],
         predictions: tuple[EvaluationRecord, ...],
     ) -> WindowDiagnosticReport:
         """Compare explicit windows without constructing features, predictions or labels.
@@ -412,7 +412,7 @@ class WindowDiagnostics:
     def _observations(
         self,
         study: WindowDiagnosticStudy,
-        payloads: tuple[FeatureLabelPayload, ...],
+        payloads: tuple[FeatureStudyResult, ...],
         evaluations: tuple[EvaluationRecord, ...],
     ) -> tuple[DiagnosticObservation, ...]:
         """Join by immutable row identity and retain independent exclusion reasons."""

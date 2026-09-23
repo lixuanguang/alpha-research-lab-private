@@ -480,22 +480,27 @@ evidence, a bounded failure policy and measured need.
 Every module, class, method and orchestrator function must have a meaningful
 Google-style summary. Existing functions pending migration remain subject to
 the same documentation checks. A private helper method or test may use a useful
-one-line summary because it exposes no public structured contract. A public
-function or method must document every parameter (excluding implicit `self` and
-`cls`) with `Args:` entries, and must include an
-applicable nonempty `Returns:`, `Yields:`, or `Raises:` section. The checker
-treats a function as public unless its name or containing owner begins with
-`_`, except that `__init__` remains public; test functions named `test_*` under
-`tests/` are summary-only.
+one-line summary because it exposes no public structured contract. Public
+functions and methods MUST include whichever of `Args:`, `Returns:`, `Yields:`,
+and `Raises:` sections a meaningful contract or review requires; they MAY omit
+sections when the summary is sufficient. The sections are not required solely
+because a signature has parameters, a return annotation, a yield, or a raise.
+The checker treats a function as public unless its name or containing owner
+begins with `_`, except that `__init__` remains public; test functions named
+`test_*` under `tests/` are summary-only.
 
-The checker requires `Returns:` when a function returns a value or has a
-non-`None` return annotation, `Yields:` when it yields, and `Raises:` when its
-body raises. It checks the sections and parameter names syntactically; review
-must still determine whether prose explains intent, units, time semantics,
-mutability, side effects, propagated failures, and non-obvious rationale.
-Use imperative summary lines and top-level Google headings. Implementations of
-inherited protocol contracts follow these same source requirements. Comments
-explain why, invariants, units, external constraints, or numerical reasoning;
+When one of those Google sections is present, it must be nonempty. A present
+`Args:` section must use declared parameter names (excluding implicit `self`
+and `cls`) and describe each declared parameter; an optional section does not
+replace review of the underlying contract. Review must determine whether prose
+explains intent, units, time semantics, mutability, side effects, propagated
+failures, and non-obvious rationale.
+Overload signatures inherit the concrete implementation's documentation; write
+the structured contract once on that implementation. Use imperative summary
+lines and top-level Google headings. Implementations of inherited protocol
+contracts may refer to the unchanged owning contract rather than reproduce its
+structured sections, while retaining any local units, time, error, or side-effect
+semantics. Comments explain why, invariants, units, external constraints, or numerical reasoning;
 they do not narrate syntax. Non-obvious algorithms should cite a stable source
 or issue and document deviations.
 

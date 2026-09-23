@@ -108,7 +108,7 @@ class TestExperiments:
             patch.object(ClearMLPublication, "_task", return_value=task),
             patch.object(ClearMLPublication, "_upload"),
             patch(
-                "research.studies.tracking.Session.get_api_server_host",
+                "clearml.backend_api.Session.get_api_server_host",
                 return_value=destination.api_uri,
             ),
         ):

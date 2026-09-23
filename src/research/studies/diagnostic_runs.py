@@ -11,7 +11,7 @@ import msgspec
 
 # project library imports
 from research.experiments import AttemptHistory, AttemptStore
-from research.studies.diagnostics import FeatureLabelPayload
+from research.results import FeatureStudyResult
 from research.studies.evaluation import EvaluationRecord
 from research.studies.results import ResultManifest
 from research.studies.tracking import TrackedModel
@@ -114,14 +114,14 @@ class WindowDiagnosticRun:
 
     def _feature(
         self, source: DiagnosticSource, inputs: dict[str, bytes], index: int
-    ) -> FeatureLabelPayload:
+    ) -> FeatureStudyResult:
         """Reopen an exact completed feature result and retain its full upstream history."""
         history = self._history(source)
         payload = history.events[-1].result
         if history.status != "completed" or payload is None:
             raise ValueError("diagnostics require completed retained feature bytes")
         self._verify(payload, source)
-        feature = FeatureLabelPayload.decode(payload)
+        feature = FeatureStudyResult.decode(payload)
         split = history.start.spec.split
         if split is None:
             raise ValueError("feature diagnostics require a temporal split")
@@ -139,7 +139,7 @@ class WindowDiagnosticRun:
         source: DiagnosticSource,
         inputs: dict[str, bytes],
         index: int,
-        features: tuple[FeatureLabelPayload, ...],
+        features: tuple[FeatureStudyResult, ...],
     ) -> EvaluationRecord:
         """Bind retained predictions to their feature sources, sample intervals and models."""
         codec = DomainCodec()

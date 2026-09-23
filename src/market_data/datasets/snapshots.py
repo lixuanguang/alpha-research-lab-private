@@ -33,31 +33,14 @@ class SnapshotStore[Manifest: DatasetManifest | BookDatasetManifest = DatasetMan
     _codec: ClassVar[DomainCodec] = DomainCodec()
 
     @overload
-    def __init__(  # noqa: D418 [owner=founder; rationale=repository checker requires documentation on overload signatures; expires=2026-12-17]
+    def __init__(
         self: SnapshotStore[DatasetManifest], root: Path, raw: RawStore, *, readers: DatasetReaders
-    ) -> None:
-        """Bind the original trade snapshot format.
-
-        Args:
-            readers: Selected readers and native re-decoders for complete verification.
-            root: Provisioned snapshot directory.
-            raw: Retained immutable originals.
-        """
-        ...
+    ) -> None: ...
 
     @overload
-    def __init__(  # noqa: D418 [owner=founder; rationale=repository checker requires documentation on overload signatures; expires=2026-12-17]
+    def __init__(
         self, root: Path, raw: RawStore, *, readers: DatasetReaders, manifest_type: type[Manifest]
-    ) -> None:
-        """Bind the explicitly selected snapshot format.
-
-        Args:
-            readers: Selected readers and native re-decoders for complete verification.
-            root: Provisioned snapshot directory.
-            raw: Retained immutable originals.
-            manifest_type: Supported manifest reader used for complete verification.
-        """
-        ...
+    ) -> None: ...
 
     def __init__(
         self,

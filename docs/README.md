@@ -25,11 +25,12 @@ portfolio infrastructure and independently operated strategies are the destinati
 
 The [saved-data baseline specification and report](research/saved-baseline-acceptance.md)
 revises MR8 to bounded reproducible simulation using the saved OKX ETH-USDT L2
-archive, the existing imbalance rule and no-trade control. Run it through
-`alpha-backtest books` or the [maintained notebook](../examples/orderbook-research.ipynb).
+archive, the existing imbalance rule and no-trade control. Run it through the
+[saved L2 workflow](research/l2-book-backtest.md) or the [maintained notebook](../examples/orderbook-research.ipynb).
 Historical causal qualification remains unproven. The separate
 [P1 experiment](research/p1-baseline.md), configurations and results remain frozen,
-deferred and unaccepted; no further Binance/Tardis investigation is required.
+deferred and unaccepted; its retained reproduction steps are in the [legacy P1
+guide](research/legacy-p1-reproduction.md).
 
 The [platform infrastructure roadmap](roadmap/README.md) begins with researcher
 dataset access. It owns future capability delivery, dependencies and acceptance.
@@ -111,6 +112,9 @@ the QuantLib release restriction.
 | [Operations runbook](governance/operations.md) | Security, monitoring, stop and recovery requirements for a future deployment |
 | [Platform infrastructure roadmap](roadmap/README.md) | One backlog for reusable capabilities, MR dependencies, functional ownership and acceptance |
 | [QR implementation guide](../examples/README.md) | Research activities: data selection/onboarding, features/labels, models/rules, backtesting, candidate promotion and monitoring; current versus planned support |
+| [Research studies and reports](../src/research/studies/README.md) | Retained saved studies, comparisons, diagnostics, configured reports, publication and serial pipelines |
+| [Experiment attempts and temporal splits](../src/research/experiments/README.md) | Semantic run identity, temporal fitting/holdout rules and append-only attempt history |
+| [Legacy P1 reproduction](research/legacy-p1-reproduction.md) | Deferred Binance/Tardis source-evidence reopening and unresolved historical limits |
 | [Saved L2 workflow](research/l2-book-backtest.md) | Configured book simulation, real-source results and offline recovery |
 | [Frozen P1 experiment](research/p1-baseline.md) | Selected sample, strategy, timing, cost assumptions and experiment acceptance requirements |
 | [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |

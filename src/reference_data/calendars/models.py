@@ -164,9 +164,6 @@ class VenueId(_VenueCalendarModel):
     def model_post_init(self, _context: object, /) -> None:
         """Validate the opaque identity after strict field validation.
 
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
-
         Raises:
             VenueCalendarValidationError: The stored UUID is invalid or all-zero.
         """
@@ -226,9 +223,6 @@ class MarketIdentifierCode(_VenueCalendarModel):
 
     def model_post_init(self, _context: object, /) -> None:
         """Validate the exact MIC shape without normalization.
-
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
 
         Raises:
             VenueCalendarValidationError: The value is not exactly four uppercase ASCII letters
@@ -291,9 +285,6 @@ class Venue(_VenueCalendarModel):
 
     def model_post_init(self, _context: object, /) -> None:
         """Validate owned venue metadata after strict field validation.
-
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
 
         Raises:
             VenueCalendarValidationError: An identity type, bounded name or available IANA
@@ -363,9 +354,6 @@ class CalendarSourceVersion(_VenueCalendarModel):
     def model_post_init(self, _context: object, /) -> None:
         """Require exact source identity and paired override attribution.
 
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
-
         Raises:
             VenueCalendarValidationError: A source token or authority is invalid, or override
                 source and revision are unpaired.
@@ -431,9 +419,6 @@ class AuctionWindow(_VenueCalendarModel):
 
     def model_post_init(self, _context: object, /) -> None:
         """Validate the non-empty UTC auction interval.
-
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
 
         Raises:
             VenueCalendarValidationError: The auction kind is invalid or bounds are not aware
@@ -516,9 +501,6 @@ class TradingSession(_VenueCalendarModel):
 
     def model_post_init(self, _context: object, /) -> None:
         """Validate ordered session, break, and auction boundaries.
-
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
 
         Raises:
             VenueCalendarValidationError: The label, kind or UTC bounds are invalid; a break is
@@ -617,9 +599,6 @@ class CalendarClosure(_VenueCalendarModel):
     def model_post_init(self, _context: object, /) -> None:
         """Require an attributed closure date and bounded description.
 
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
-
         Raises:
             VenueCalendarValidationError: The date, closure kind, bounded name or attribution
                 token is invalid.
@@ -668,9 +647,6 @@ class MarketInterruption(_VenueCalendarModel):
 
     def model_post_init(self, _context: object, /) -> None:
         """Validate the halt interval and its source attribution.
-
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
 
         Raises:
             VenueCalendarValidationError: An ID, kind, bounded reason, attribution token or
@@ -749,9 +725,6 @@ class PriceLimitWindow(_VenueCalendarModel):
     def model_post_init(self, _context: object, /) -> None:
         """Require a non-normal attributed price-limit interval.
 
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
-
         Raises:
             VenueCalendarValidationError: An ID or attribution token is invalid, state is
                 untyped or NONE, or UTC bounds are invalid.
@@ -822,9 +795,6 @@ class MarketState(_VenueCalendarModel):
 
     def model_post_init(self, _context: object, /) -> None:
         """Reject incoherent schedule, auction, halt, or limit state.
-
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
 
         Raises:
             VenueCalendarValidationError: Types or metadata violate the CLOSED, session-label,
@@ -923,9 +893,6 @@ class SessionOverride(_VenueCalendarModel):
     def model_post_init(self, _context: object, /) -> None:
         """Validate action, replacement label, and override attribution.
 
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
-
         Raises:
             VenueCalendarValidationError: An ID, date, reason, action or attribution is invalid;
                 or replacement presence or label disagrees with the action.
@@ -988,9 +955,6 @@ class SettlementCalendar(_VenueCalendarModel):
 
     def model_post_init(self, _context: object, /) -> None:
         """Validate exact settlement dates and finite source coverage.
-
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
 
         Raises:
             VenueCalendarValidationError: Metadata or coverage is invalid, or eligible dates are
@@ -1204,9 +1168,6 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
 
     def model_post_init(self, _context: object, /) -> None:
         """Validate the complete immutable snapshot before publication.
-
-        Args:
-            _context: Pydantic initialization context; unused by this invariant check.
 
         Raises:
             VenueCalendarValidationError: Owned types, coverage, session ordering,

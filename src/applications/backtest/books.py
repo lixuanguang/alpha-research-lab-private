@@ -138,7 +138,15 @@ def run_books(
                     accounts=tuple(accounts),
                 )
                 artifacts["report"] = store.retain(
-                    attempt.attempt_id, "report", codec.encode_json(report)
+                    attempt.attempt_id,
+                    "report",
+                    report.encode_references(
+                        configuration_sha256=artifacts["resolved-configuration"],
+                        features_sha256=artifacts["eda"],
+                        accounts_sha256=tuple(
+                            artifacts[f"checkpoint-{index}"] for index in range(len(accounts))
+                        ),
+                    ),
                 )
                 artifacts["report-html"] = store.retain(
                     attempt.attempt_id, "report-html", report.render()
