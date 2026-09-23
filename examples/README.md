@@ -24,12 +24,17 @@ This saved OKX workflow is the current starting point for L2 research. Binance a
 Tardis are deprioritised; the frozen P1 evidence notebook is a retained legacy
 investigation whose empirical acceptance is deferred. Its missing provider records
 do not block OKX/Bitfinex work or require provider outreach.
+The maintained live QR notebook now covers the supported Bitfinex book route and
+does not contact a venue unless `ALPHA_QR_CAPTURE=1` is explicitly set. The
+original P1 notebook is preserved at
+[research-foundations-live-p1-evidence.ipynb](research-foundations-live-p1-evidence.ipynb)
+with its historical source and output identity.
 The research comparison workflow adds compatible implementation registration, a distinct
 reversal rule, retained Alphalens diagnostics and fixed-budget Optuna comparisons.
 The [offline activity notebook](research-foundations.ipynb) includes a rule-only
 comparison; the [marimo example](research-comparison.py) separates verified
 DuckDB/Polars previews from an explicit formal factor run. The
-[accepted tool amendment](../docs/roadmap/README.md#diagnostic-tool-requirement-amendment)
+[accepted tool amendment](../docs/roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
 requires offline reference/current diagnostics using admitted computation
 dependencies; Evidently is optional. The [window diagnostic consumer](#compare-reference-and-current-windows)
 compares retained features/predictions with separate label-availability and
@@ -90,7 +95,7 @@ request from the installed environment:
 ```python
 from pathlib import Path
 from applications.explore import compare_windows, publish_experiments
-from research.experiments import ClearMLDestination, WindowDiagnosticStudy
+from research.studies import ClearMLDestination, WindowDiagnosticStudy
 from serialization import DomainCodec
 
 root = Path("/absolute/path/to/feature-consumer/models")
@@ -175,9 +180,10 @@ The index describes sources; it is not an executable catalog of implemented
 adapters. Use the existing acquisition/publication commands in the
 [data command reference](../src/market_data/README.md), or the current notebooks.
 Choose the explicitly offline or live notebook in the [catalog](#start-with-your-research-question).
-Offline versions use synthetic or selected saved inputs. The QR live notebook defaults
-to a saved P1 source-evidence investigation; its explicit `book-capture` route and
-the engineer live notebook initiate a bounded public recording. See the
+Offline versions use synthetic or selected saved inputs. The QR live notebook
+defaults to a local-only skipped Bitfinex workflow; `ALPHA_QR_CAPTURE=1` is the
+explicit opt-in for one bounded public recording, while
+`ALPHA_BITFINEX_CAPTURE_DIRECTORY` reopens a saved recording. See the
 [operations guide](notebook-operations.md#live-versions) for effects and retention.
 
 Select instruments, business interval, requested fields and the decision/knowledge
@@ -288,7 +294,7 @@ when a retained consumer needs reproducible execution: put its logic behind the
 supported feature interface, add decisive causal/window examples and let formal
 notebook results call that implementation. Retain feature/label versions and
 input identities. The [promotion methodology](../docs/roadmap/research-program.md#notebook-research-and-package-promotion)
-and [delivered interface](../docs/roadmap/README.md#versioned-features-and-labels)
+and [delivered interface](../docs/roadmap/history-mr1-to-mr9a.md#versioned-features-and-labels)
 define the boundary; no feature registry service is required.
 
 ### Compare models or deterministic rules
@@ -340,7 +346,7 @@ preprocessing state that could have been fitted by then, including label
 availability and declared fit/deployment timing. Never apply a final full-history
 fit to earlier decisions. Record model transitions and warm-up/reset behavior.
 
-The [shared backtest](../docs/roadmap/README.md#first-economic-backtest)
+The [shared backtest](../docs/roadmap/history-mr1-to-mr9a.md#first-economic-backtest)
 retains a reconciled gross-to-net trace and complete resumable state. Its
 [installed consumer](../tests/integration/consumers/backtest/economic_workflow.py)
 demonstrates saved-input reopening, fresh-process resume and tracked vectorbt comparison. The existing
@@ -417,32 +423,19 @@ remain the offline entry points so saved commands and links continue to work.
 
 | Reader | Offline version | Live version |
 | --- | --- | --- |
-| QR: question → data → quality → features/models → costed rules → handoff | [Research workflow — offline](research-foundations.ipynb): saved-input inspection plus a connected retained trade study through exact economics | [Research workflow — live](research-foundations-live.ipynb): frozen P1 source-evidence handoff by default; explicit Bitfinex book-capture route for pinned EDA and visible-size diagnostics |
+| QR: question → data → quality → features/models → costed rules → handoff | [Research workflow — offline](research-foundations.ipynb): saved-input inspection plus a connected retained trade study through exact economics | [Research workflow — live](research-foundations-live.ipynb): explicit Bitfinex book capture or local saved-recording replay; no source call by default |
 | Engineer: inspect infrastructure and diagnose failures | [Infrastructure diagnostics — offline](infrastructure-diagnostics.ipynb): installed data/feature/model/economic consumers, fresh-process recovery and health diagnostics | [Infrastructure diagnostics — live](infrastructure-diagnostics-live.ipynb): one public Bitfinex capture, durable/native/canonical replay parity and observed quality |
 
 Restart the kernel and **Run All in order**. Each version runs independently.
-The `p1-evidence` default described below is retained legacy behavior, not the
-recommended next research activity. Use the [order-book notebook](orderbook-research.ipynb)
-for the current saved OKX backtest; select `book-capture` explicitly for Bitfinex.
-The QR live notebook's default `p1-evidence` route reads explicitly pinned saved
-Binance inputs, verifies the unchanged frozen configurations, collects supporting
-documents and retains the strict admission outcome plus a QR/developer handoff.
-It measures trading-status evidence, ID/time continuity, provider incidents,
-exact archive/capture agreement and correction-availability limits. A minute-count
-plot and plain-language findings show what is observed and what the provider still
-needs to establish. Saved mode makes no network call; an explicit refresh retrieves
-four small official provider records with retained receipts. Follow the
-[source-evidence instructions](notebook-operations.md#frozen-source-evidence) to
-attach provider records and reproduce the retained evidence in a fresh kernel.
-A reviewed `DatasetInput` supplied through `ALPHA_P1_ADMISSION_INPUT` now exercises
-strict provider qualification, including retained earlier archives and correction
-availability. The [implementation report](../docs/research/source-qualification.md)
-records its tested scope and remaining actual-source prerequisite.
-**A completed legacy evidence handoff does not accept P1.** Source qualification and
-actual-source economic/report/recovery proof remain required.
+Use the [order-book notebook](orderbook-research.ipynb) for the current saved OKX
+backtest. The maintained QR live notebook selects the Bitfinex book route and
+defaults to a safe skipped state. Set `ALPHA_QR_CAPTURE=1` to opt in to one
+bounded public capture, or set `ALPHA_BITFINEX_CAPTURE_DIRECTORY` to inspect a
+retained recording without a network call. The [historical P1 notebook](research-foundations-live-p1-evidence.ipynb)
+retains the deferred Binance/Tardis source-evidence handoff and is not part of the
+current reader journey.
 
-Set `ALPHA_QR_WORKFLOW=book-capture` for the original QR live recording workflow.
-The book-capture routes create `raw/`, `snapshots/` and `selection.json` that the
+The Bitfinex route creates `raw/`, `snapshots/` and `selection.json` that the
 offline QR version can reopen, plus a recording directory for offline engineering.
 Use the [operations guide](notebook-operations.md#live-versions) for exact commands,
 source budgets, failures and saved-input handoff.

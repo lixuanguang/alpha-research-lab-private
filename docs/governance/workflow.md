@@ -13,7 +13,7 @@ institutional approval is not a prerequisite for ordinary development.
    [orchestrator pipeline and library boundary](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
    Review class ownership and reserve bare functions for actual orchestration;
    the checker does not yet enforce this rule. Migrate affected APIs with their
-   callers and follow the [remaining OOP work](../roadmap/README.md#python-ownership-and-enforcement).
+   callers and follow the [remaining OOP work](../roadmap/future-mr10-to-mr21.md#python-ownership-and-enforcement).
 3. Use the four sections in the pull-request template: problem/change,
    affected scope, validation result, and risks/reversal. Add migration,
    benchmark, or operational detail only when the change needs it.
@@ -88,5 +88,5 @@ technical stage; it does not wait for every platform capability to finish.
 Data correctness, accounting, runtime limits, reconciliation and recovery remain
 part of the features they protect, including during founder-only operation.
 Concrete external obligations apply when encountered. The
-[organizational workstream](../roadmap/README.md#further-scope-needs-a-consumer)
+[organizational workstream](../roadmap/future-mr10-to-mr21.md#further-scope-needs-a-consumer)
 records the triggers without requiring fictitious roles today.

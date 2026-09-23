@@ -21,7 +21,8 @@ from configuration import BookRun, OKXHistoryConfig
 from financial_units import Quantity
 from market_data.adapters.venues.okx import OKXArchiveDiscovery, OKXArchiveStore
 from market_data.contracts import OKXArchiveRequest
-from research.experiments import AttemptStore, BookReport
+from research.experiments import AttemptStore
+from research.studies import BookReport, ResultManifest
 from serialization import DomainCodec
 
 
@@ -173,6 +174,19 @@ def main() -> None:
     config.write_bytes(codec.encode_json(selected))
     archive = _SavedBooks.create(root, selected.history)
     complete = _SavedBooks.command(config, archive, root / "runs")
+    retained = AttemptStore(root / "runs/attempts")
+    manifest = ResultManifest.read(retained, complete.name)
+    for name, filename in (
+        ("resolved-configuration", "configuration.json"),
+        ("eda", "eda.json"),
+        ("report", "report.json"),
+        ("report-html", "report.html"),
+        *((f"checkpoint-{i}", f"checkpoint-{i}.json") for i in range(3)),
+    ):
+        assert name in {artifact.name for artifact in manifest.artifacts}
+        assert (complete / filename).samefile(
+            root / "runs/attempts" / complete.name / f"artifact-{name}.bin"
+        )
     report = codec.decode_json((complete / "report.json").read_bytes(), BookReport)
     assert len(report.features) == 5 and all(
         row.received_ns is None and row.sequence is None for row in report.features

@@ -18,11 +18,10 @@ from clearml import Model, OutputModel, Task
 from clearml.backend_api import Session
 
 # project library imports
-from research.experiments.configuration import BacktestRun
-from research.experiments.diagnostics import AlphalensReport
-from research.experiments.evaluation import EvaluationRecord, TrialEvaluation
-from research.experiments.identity import Fingerprint
-from research.experiments.store import AttemptStore
+from research.experiments import AttemptStore, Fingerprint
+from research.studies.configuration import BacktestRun
+from research.studies.diagnostics import AlphalensReport
+from research.studies.evaluation import EvaluationRecord, TrialEvaluation
 from serialization import DomainCodec, WireRecord
 
 

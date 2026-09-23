@@ -15,10 +15,10 @@ from clearml.automation import PipelineController
 
 # project library imports
 from market_data.storage import DatasetVersion
-from research.experiments.comparison import ComparisonStudy
-from research.experiments.configuration import BacktestRun
-from research.experiments.identity import ExperimentSpec, Fingerprint
-from research.experiments.tracking import ClearMLDestination
+from research.experiments import ExperimentSpec, Fingerprint
+from research.studies.comparison import ComparisonStudy
+from research.studies.configuration import BacktestRun
+from research.studies.tracking import ClearMLDestination
 from runtime import ImplementationIdentity, RuntimeFiles
 from serialization import DomainCodec, WireRecord
 

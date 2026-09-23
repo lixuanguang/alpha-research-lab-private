@@ -24,6 +24,13 @@ kernels remain ignored. Former notebook source/outputs remain retrievable from G
 history; their removal from the current catalog does not delete saved data or runs.
 The existing runner remains the only notebook execution wrapper.
 
+The maintained QR live notebook is the explicit Bitfinex book journey. It opens in
+a skipped local-only state, reads a supplied recording through
+`ALPHA_BITFINEX_CAPTURE_DIRECTORY`, or starts one public capture only when
+`ALPHA_QR_CAPTURE=1` is set. The deferred P1 source-evidence notebook is preserved
+as [research-foundations-live-p1-evidence.ipynb](research-foundations-live-p1-evidence.ipynb)
+with its historical source identity and instructions below.
+
 1. Import the installed candidate from the pinned interpreter. Keep notebook
    tooling in an explicitly identified development environment/kernel; do not
    silently change `uv.lock`, add runtime Jupyter dependencies or patch `sys.path`.
@@ -212,16 +219,18 @@ consumer and implementation together while preserving saved inputs and attempts.
 **Deferred legacy investigation.** Binance and Tardis are deprioritised by the
 founder. These instructions preserve reproduction of P1; they are not a requirement
 to obtain provider records or contact either provider. For current L2 research use
-the [saved OKX order-book study](#historical-order-book-study), or explicitly select
-`book-capture` for the existing Bitfinex route.
+the [saved OKX order-book study](#historical-order-book-study), or use the maintained
+[Bitfinex live route](research-foundations-live.ipynb) with an explicit capture opt-in.
 
-The [QR live notebook](research-foundations-live.ipynb) now defaults to
-`ALPHA_QR_WORKFLOW=p1-evidence`. It reopens the explicitly pinned P1 Binance
-archive and auxiliary native capture, without initiating a network call. Its
-deliverable is a reproducible source-evidence handoff for the
+The [historical P1 notebook](research-foundations-live-p1-evidence.ipynb) reopens
+the explicitly pinned P1 Binance archive and auxiliary native capture, without
+initiating a network call in saved mode. Its deliverable is a reproducible
+source-evidence handoff for the
 [frozen acceptance requirements](../docs/research/p1-baseline.md#acceptance-and-research-discipline).
-The separate Bitfinex workflow remains available with
-`ALPHA_QR_WORKFLOW=book-capture`.
+The archived file is byte-identical to the tested historical checkout and keeps
+its original imports and source identity. If that deferred investigation is ever
+resumed, use its recorded checkout/environment and the historical commands below;
+the maintained Bitfinex notebook follows the current package exports.
 
 The default paths name the retained acquisition
 `data/binance-archives/runs/acb948277201cc169d32c2bb874fb40ce9e9c33c893e56a992faa47853147f80/manifest.json`,
@@ -272,7 +281,7 @@ For a deliberate refresh, fetch only those four small public provider records:
 uv run --frozen --no-editable python -c 'from market_data.adapters.sources import SourceOccurrenceVerifier'
 ALPHA_P1_PUBLIC_MODE=refresh uv run --frozen --no-sync \
   --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
-  python examples/run_notebook.py examples/research-foundations-live.ipynb \
+  python examples/run_notebook.py examples/research-foundations-live-p1-evidence.ipynb \
   --kernel-python .venv/bin/python
 ```
 
@@ -336,9 +345,11 @@ acceptance standard; those actions remain deferred.
 
 ## Live versions
 
-[QR live](research-foundations-live.ipynb) with `ALPHA_QR_WORKFLOW=book-capture` and
-[engineer live](infrastructure-diagnostics-live.ipynb) each initiate one new public
-Bitfinex R0 capture when run. The selected [configuration](../configs/live/bitfinex-btc-usd.json)
+[QR live](research-foundations-live.ipynb) with `ALPHA_QR_CAPTURE=1` and
+[engineer live](infrastructure-diagnostics-live.ipynb) with its live capture route can
+initiate one new public Bitfinex R0 capture. The maintained QR notebook otherwise
+skips source access, or reads an existing recording from
+`ALPHA_BITFINEX_CAPTURE_DIRECTORY`. The selected [configuration](../configs/live/bitfinex-btc-usd.json)
 allows 20 seconds of receipt, 10,000 messages, a 32 MB journal, 8 MB frames, queue
 capacity 1,024, 100,000 visible orders, a 15-second idle bound and two retries.
 The cells reject a different venue/channel or a receive interval above 20 seconds.
@@ -397,12 +408,12 @@ uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0
 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/infrastructure-diagnostics.ipynb
 ```
 
-The QR evidence route reads saved real inputs; the explicit book routes contact
-the public source and retain new local recordings:
+The QR offline route reads saved synthetic inputs. The maintained QR live notebook
+does not contact a source by default; opt in to one public recording explicitly:
 
 ```sh
 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations-live.ipynb
-ALPHA_QR_WORKFLOW=book-capture uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations-live.ipynb
+ALPHA_QR_CAPTURE=1 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations-live.ipynb
 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/infrastructure-diagnostics-live.ipynb
 ```
 

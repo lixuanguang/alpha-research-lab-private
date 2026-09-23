@@ -34,7 +34,7 @@ they cannot establish document authenticity or prove a provider's statements tru
   reproduce admission; evidence failure publishes no partial snapshot. Version-1/2
   bytes retain their old identities when new optional fields are absent.
 
-The [QR notebook](../../examples/research-foundations-live.ipynb) accepts
+The [preserved P1 notebook](../../examples/research-foundations-live-p1-evidence.ipynb) accepts
 `ALPHA_P1_ADMISSION_INPUT=/absolute/reviewed/dataset-input.json`, preserves its
 frozen primary acquisition and causal policy, copies explicitly selected prior raw
 archives, and invokes the shared publisher. It also retains the original payload
@@ -159,7 +159,7 @@ retained refusal, not an empirical backtest.
 ALPHA_P1_PUBLIC_MODE=saved \
 ALPHA_P1_PUBLIC_DIRECTORY=data/notebooks/p1-evidence/fa8aec4f-cf2a-4f9d-8f89-cd3dac2ebe4c/public \
 uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
-  python examples/run_notebook.py examples/research-foundations-live.ipynb \
+  python examples/run_notebook.py examples/research-foundations-live-p1-evidence.ipynb \
   --kernel-python .venv/bin/python
 ```
 

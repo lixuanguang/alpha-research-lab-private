@@ -45,7 +45,7 @@ children. Real orchestration belongs to `src/applications/`.
 
 | Maintained caller | Behavior retained |
 | --- | --- |
-| [Ingestion/feature tests](integration/test_ingestion_workflow.py) | Acquisition resume, publication, EDA, feature/label reproduction, models and diagnostics |
+| [Ingestion/feature tests](integration/test_ingestion_workflow.py) | Acquisition resume, publication, EDA, installed feature/label reproduction and model recovery |
 | [Economic tests](integration/test_economic_workflow.py) | Exact trade-price economics, vectorbt/comparison reports, feature parity, publication failure and fresh-process resume |
 | [Book tests](integration/test_book_backtest.py) | Saved OKX L2 CLI, independent accounts, second spot configuration, checkpoint restart and corrupt-source refusal |
 | [Capture recovery tests](unit/data/live/test_recovery.py) | Pending snapshots, duplicates, stale responses, recovery and installed replay CLI/API equality |
@@ -76,8 +76,11 @@ data, experiment and simulation regressions.
 
 ## Explicit service and saved-source checks
 
-Feature/model, economic and offline-feature consumers exercise domain behavior
-with unavailable/fake publication transports. Their output stores can be passed
+The installed feature consumer exercises the copied feature/label boundary and
+fresh-process model recovery with an unavailable publication transport. Factor,
+model-lifecycle and window-diagnostic assertions run as discovered domain tests
+under `unit/research`; it still writes the frozen factor/window configuration
+handoffs used by the manual comparison notebook. The output stores can be passed
 to the single [ClearML verifier](integration/consumers/research/clearml_publication.py)
 for actual publication, fresh-process receipt recovery and remote byte checks.
 The verifier reads `ALPHA_CLEARML_LOCAL_ENV`; ordinary domain

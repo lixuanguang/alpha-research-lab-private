@@ -16,7 +16,8 @@ from clearml import Task
 from msgspec.structs import replace
 
 # project library imports
-from research.experiments import AttemptStore, BacktestRun, PublicationReceipt, ResultManifest
+from research.experiments import AttemptStore
+from research.studies import BacktestRun, PublicationReceipt, ResultManifest
 from serialization import DomainCodec
 
 

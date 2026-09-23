@@ -9,8 +9,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 # project library imports
-from research.experiments.identity import Fingerprint
-from research.experiments.store import AttemptStore
+from research.experiments import AttemptStore, Fingerprint
 from serialization import DomainCodec, WireRecord
 from simulation import EconomicCheckpoint
 

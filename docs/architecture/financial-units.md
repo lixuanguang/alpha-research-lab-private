@@ -100,7 +100,7 @@ now supplies currency-bearing rational basis/P&L and exact spot postings. C03
 financial-unit conventions and grids remain unchanged.
 
 Decision date: 2026-09-14. This originally resolved the P1 consumer contract before observations and ledger
-implementation. The consumer now implements it without widening C03's decimal grid. The [P1 plan](../roadmap/README.md#first-economic-backtest)
+implementation. The consumer now implements it without widening C03's decimal grid. The [P1 plan](../roadmap/history-mr1-to-mr9a.md#first-economic-backtest)
 owns delivery with the first consuming operations.
 
 | Quantity | Representation and boundary |

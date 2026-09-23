@@ -2,7 +2,7 @@
 
 Owner: repository founder. Status: implemented for bounded offline spot research.
 Acceptance date: 2026-09-22. Scope and original acceptance criteria:
-[MR 9A](../roadmap/README.md#l2-order-book-backtesting). This is an engineering
+[MR 9A](../roadmap/history-mr1-to-mr9a.md#l2-order-book-backtesting). This is an engineering
 example, not a selected alpha strategy or a live-execution qualification.
 
 The [replacement MR8 specification and acceptance record](saved-baseline-acceptance.md)
@@ -34,6 +34,16 @@ fills, valuations, original source coordinates, both book information sets,
 pending deliveries/responses and consumed liquidity. `attempt.json` identifies
 that execution. The existing `AttemptStore` retains completed, failed and
 intentionally interrupted attempts under the output root's `attempts/` directory.
+
+New runs serialize each named artifact once. The configuration, EDA, checkpoints
+and report exports are read-only hard links to their retained artifact in the
+same output filesystem. Their existing filenames and JSON schemas are unchanged;
+old independent exports remain readable, subject to the existing identity checks
+for resumption. `AttemptStore` shares byte-identical content across attempts in
+that store using content digests while retaining each attempt's named artifact
+paths. Copy an export to a separate working file before editing it. Deleting an
+export does not delete the retained artifact. The full report still embeds
+observations and account state so historical report readers remain compatible.
 
 The [order-book notebook](../../examples/orderbook-research.ipynb) calls
 `applications.backtest.run_books`, the same shared orchestrator as the command,

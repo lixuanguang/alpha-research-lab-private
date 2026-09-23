@@ -22,14 +22,12 @@ from applications.backtest.workflow import run_backtest
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
 from market_data.storage import DatasetVersion, LakeFSStorage, RawStore
-from research.experiments import (
-    AttemptHistory,
-    AttemptStore,
+from research.experiments import AttemptHistory, AttemptStore, ExperimentSpec
+from research.studies import (
     BacktestRun,
     ClearMLDestination,
     ClearMLPublication,
     ComparisonStudy,
-    ExperimentSpec,
     PipelineRun,
     QuantStatsReport,
     ResearchInputs,

@@ -70,4 +70,4 @@ diagnostic. The engineering-standards checker enforces source typing, import
 headings and applicable docstrings directly, with no source-rule waiver
 mechanism. Class ownership and orchestrator-only bare functions require review;
 automated enforcement remains part of the
-[pending OOP migration](../../docs/roadmap/README.md#python-ownership-and-enforcement).
+[pending OOP migration](../../docs/roadmap/future-mr10-to-mr21.md#python-ownership-and-enforcement).

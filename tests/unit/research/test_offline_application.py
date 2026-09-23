@@ -17,11 +17,8 @@ from market_data.query import InputBinding
 from reference_data.instruments import InstrumentId
 from research.experiments import (
     AttemptStore,
-    ClearMLDestination,
     ExperimentSpec,
-    FeatureLabelPayload,
     Fingerprint,
-    ResultManifest,
     SampleInterval,
     TemporalSplit,
     TimeWindow,
@@ -40,6 +37,7 @@ from research.features import (
     TrailingReturn,
     WindowPolicy,
 )
+from research.studies import ClearMLDestination, FeatureLabelPayload, ResultManifest
 from serialization import DomainCodec
 
 _CODEC = DomainCodec()

@@ -12,15 +12,9 @@ from configuration import BookRun
 from market_data.adapters.sources import SourceAdapters
 from market_data.datasets import BookInput
 from market_data.storage import RawStore
-from research.experiments import (
-    AttemptStore,
-    BookReport,
-    ExperimentSpec,
-    Fingerprint,
-    ResultManifest,
-    TimeWindow,
-)
+from research.experiments import AttemptStore, ExperimentSpec, Fingerprint, TimeWindow
 from research.observations import BookFeatures
+from research.studies import BookReport, ResultManifest
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 from simulation import BookCheckpoint, BookSimulation
@@ -73,26 +67,36 @@ def run_books(
         engineering_sample=TimeWindow(start=selected.start, end=selected.end),
     )
     output.mkdir(parents=True, exist_ok=True)
+    configuration = codec.encode_json(selected)
     with AttemptStore(output / "attempts") as store:
         attempt = store.start(
             spec,
             at=datetime.now(UTC),
             invocation="alpha-backtest books",
-            request=codec.encode_json(selected),
+            request=configuration,
         )
         destination = output / attempt.attempt_id
         destination.mkdir()
         try:
-            ResultManifest.export(destination / "configuration.json", codec.encode_json(selected))
-            store.retain(attempt.attempt_id, "source-evidence", codec.encode_json(source))
+            artifacts = {
+                "resolved-configuration": store.retain(
+                    attempt.attempt_id, "resolved-configuration", configuration
+                ),
+                "source-evidence": store.retain(
+                    attempt.attempt_id, "source-evidence", codec.encode_json(source)
+                ),
+            }
+            store.export(
+                attempt.attempt_id, "resolved-configuration", destination / "configuration.json"
+            )
             features = tuple(
                 BookFeatures.inspect(row, selected.instances[0].depth)
                 for row in SourceAdapters.books(source, RawStore(archive))
             )
             if len(features) != selected.history.max_records:
                 raise ValueError("saved archive shorter than configured message prefix")
-            ResultManifest.export(destination / "eda.json", codec.encode_json(features))
-            store.retain(attempt.attempt_id, "eda", codec.encode_json(features))
+            artifacts["eda"] = store.retain(attempt.attempt_id, "eda", codec.encode_json(features))
+            store.export(attempt.attempt_id, "eda", destination / "eda.json")
             accounts: list[BookCheckpoint] = []
             for index, (instance, rule) in enumerate(zip(selected.instances, rules, strict=True)):
                 identity = hashlib.sha256(
@@ -112,9 +116,9 @@ def run_books(
                     stop_at=stop_at,
                 )
                 accounts.append(account)
-                payload = codec.encode_json(account)
-                store.retain(attempt.attempt_id, f"checkpoint-{index}", payload)
-                ResultManifest.export(destination / f"checkpoint-{index}.json", payload)
+                name = f"checkpoint-{index}"
+                artifacts[name] = store.retain(attempt.attempt_id, name, codec.encode_json(account))
+                store.export(attempt.attempt_id, name, destination / f"{name}.json")
             if stop_at is not None and stop_at < selected.end:
                 store.finish(
                     attempt.attempt_id,
@@ -133,24 +137,20 @@ def run_books(
                     features=features,
                     accounts=tuple(accounts),
                 )
-                rendered = report.render()
-                manifest = ResultManifest.retain(
-                    store,
-                    attempt.attempt_id,
-                    {
-                        "report": codec.encode_json(report),
-                        "report-html": rendered,
-                        "resolved-configuration": codec.encode_json(selected),
-                        "source-evidence": codec.encode_json(source),
-                        "eda": codec.encode_json(features),
-                        **{
-                            f"checkpoint-{i}": codec.encode_json(account)
-                            for i, account in enumerate(accounts)
-                        },
-                    },
+                artifacts["report"] = store.retain(
+                    attempt.attempt_id, "report", codec.encode_json(report)
                 )
-                ResultManifest.export(destination / "report.json", codec.encode_json(report))
-                ResultManifest.export(destination / "report.html", rendered)
+                artifacts["report-html"] = store.retain(
+                    attempt.attempt_id, "report-html", report.render()
+                )
+                manifest = ResultManifest(
+                    artifacts=tuple(
+                        Fingerprint(name=name, sha256=digest)
+                        for name, digest in sorted(artifacts.items())
+                    )
+                )
+                store.export(attempt.attempt_id, "report", destination / "report.json")
+                store.export(attempt.attempt_id, "report-html", destination / "report.html")
                 store.finish(
                     attempt.attempt_id,
                     status="completed",

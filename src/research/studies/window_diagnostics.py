@@ -16,10 +16,9 @@ from typing import Literal, Protocol, cast
 
 # project library imports
 from financial_units import ExactRatio
-from research.experiments.diagnostics import FeatureLabelPayload
-from research.experiments.evaluation import EvaluationRecord
-from research.experiments.identity import ExperimentSpec, Fingerprint
-from research.experiments.splits import TemporalSplit, TimeWindow
+from research.experiments import ExperimentSpec, Fingerprint, TemporalSplit, TimeWindow
+from research.studies.diagnostics import FeatureLabelPayload
+from research.studies.evaluation import EvaluationRecord
 from serialization import DomainCodec, WireRecord
 
 

@@ -22,12 +22,11 @@ from optuna.trial import Trial, TrialState
 
 # project library imports
 from financial_units import ExactRatio
-from research.experiments.configuration import BacktestRun
-from research.experiments.evaluation import TrialEvaluation
-from research.experiments.identity import ExperimentSpec, Fingerprint
-from research.experiments.results import ResultManifest
-from research.experiments.store import AttemptStore
-from research.experiments.tracking import ClearMLDestination, ClearMLPublication
+from research.experiments import AttemptStore, ExperimentSpec, Fingerprint
+from research.studies.configuration import BacktestRun
+from research.studies.evaluation import TrialEvaluation
+from research.studies.results import ResultManifest
+from research.studies.tracking import ClearMLDestination, ClearMLPublication
 from serialization import DomainCodec, WireRecord
 
 

@@ -18,13 +18,7 @@ import msgspec
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryBatch, QueryReader
 from market_data.storage import RawStore
-from research.experiments import (
-    AttemptHistory,
-    AttemptStore,
-    ClearMLDestination,
-    ClearMLPublication,
-    ExperimentSpec,
-)
+from research.experiments import AttemptHistory, AttemptStore, ExperimentSpec
 from research.exploration import (
     EdaQuery,
     ExplorationStudy,
@@ -35,6 +29,7 @@ from research.exploration import (
     TradeResearchInput,
 )
 from research.features import FeatureRegistry
+from research.studies import ClearMLDestination, ClearMLPublication
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 

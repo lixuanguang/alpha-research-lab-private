@@ -19,12 +19,10 @@ def imports():
 
     # project library imports
     from applications.explore import compare_factors, compare_windows
-    from research.experiments import (
-        AlphalensStudy,
-        AttemptStore,
-        ClearMLDestination,
-        WindowDiagnosticStudy,
-    )
+    from research.experiments import AttemptStore
+    from research.studies import AlphalensStudy
+    from research.studies import ClearMLDestination
+    from research.studies import WindowDiagnosticStudy
     from research.exploration import (
         AnalysisQuery,
         BoundedFeatureAnalysis,

@@ -22,13 +22,7 @@ import msgspec
 # project library imports
 import applications.explore as explore_application
 from applications.explore import compare_offline_features
-from research.experiments import (
-    AttemptHistory,
-    AttemptStore,
-    ClearMLDestination,
-    ClearMLPublication,
-    ResultManifest,
-)
+from research.experiments import AttemptHistory, AttemptStore
 from research.exploration import VerifiedFeatureRows
 from research.features import (
     FeastOfflineWorker,
@@ -39,6 +33,7 @@ from research.features import (
     OfflineFeatureDefinition,
     OfflineFeatureRequest,
 )
+from research.studies import ClearMLDestination, ClearMLPublication, ResultManifest
 from serialization import DomainCodec
 
 _SDK_VERSION = "0.66.0"

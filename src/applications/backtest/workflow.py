@@ -13,13 +13,12 @@ from market_data.replay import Replay
 from research.experiments import (
     AttemptHistory,
     AttemptStore,
-    ClearMLDestination,
-    ClearMLPublication,
     ExperimentSpec,
     Fingerprint,
     TemporalSplit,
 )
 from research.observations import Observations
+from research.studies import ClearMLDestination, ClearMLPublication
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 from simulation import (

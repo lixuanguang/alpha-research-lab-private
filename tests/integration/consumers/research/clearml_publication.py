@@ -14,7 +14,8 @@ from unittest.mock import patch
 from clearml import Task
 
 # project library imports
-from research.experiments import AttemptStore, ClearMLDestination, ClearMLPublication
+from research.experiments import AttemptStore
+from research.studies import ClearMLDestination, ClearMLPublication
 from serialization import DomainCodec
 
 _CODEC = DomainCodec()

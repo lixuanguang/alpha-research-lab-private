@@ -59,7 +59,7 @@ that Git does not track. A missing root, unreadable source, malformed
 configuration, or finding fails closed. It has no source-rule waiver or
 function-registration mechanism. The checker does not yet enforce the
 orchestrator-only function rule or assess class cohesion; those are review
-requirements pending the [OOP migration](../roadmap/README.md#python-ownership-and-enforcement).
+requirements pending the [OOP migration](../roadmap/future-mr10-to-mr21.md#python-ownership-and-enforcement).
 A passing check does not establish OOP compliance. Line-scoped tool suppressions
 are separate and must carry the owner, rationale, and expiry metadata described
 below.
@@ -220,7 +220,7 @@ Existing non-orchestrator functions remain migration work, not a permanent
 exception or evidence that migration is complete. New and materially changed
 implementation MUST follow this rule. Migrate each affected API with its callers,
 exports, tests and documentation; retain current API descriptions until the code
-changes. The [roadmap](../roadmap/README.md#python-ownership-and-enforcement) owns the remaining
+changes. The [roadmap](../roadmap/future-mr10-to-mr21.md#python-ownership-and-enforcement) owns the remaining
 implementation and enforcement work. This policy update changes no runtime API
 or checker behavior by itself.
 

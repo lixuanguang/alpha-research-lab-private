@@ -21,8 +21,8 @@ from applications.backtest import run_backtest, run_configured
 from financial_units import ExactRatio
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
-from research.experiments import (
-    AttemptStore,
+from research.experiments import AttemptStore, TimeWindow
+from research.studies import (
     BacktestRun,
     BenchmarkPeriod,
     ClearMLDestination,
@@ -30,7 +30,6 @@ from research.experiments import (
     EconomicReport,
     QuantStatsReport,
     ReportPolicy,
-    TimeWindow,
 )
 from simulation import (
     EconomicCheckpoint,

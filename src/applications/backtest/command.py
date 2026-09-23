@@ -19,8 +19,8 @@ from applications.backtest.features import qualify_scheduled_features
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
 from market_data.storage import DatasetVersion, LakeFSStorage, RawStore
-from research.experiments import (
-    AttemptStore,
+from research.experiments import AttemptStore
+from research.studies import (
     BacktestRun,
     ClearMLDestination,
     ClearMLPublication,

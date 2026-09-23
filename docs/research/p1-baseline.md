@@ -52,7 +52,7 @@ requirement to contact Binance or Tardis or to continue prioritising these sourc
 
 For each item, retain the actual supporting files, their source URLs or provider
 references, retrieval times, and the dates/instrument they cover. Attach them to
-the existing [P1 evidence notebook](../../examples/research-foundations-live.ipynb)
+the preserved [P1 evidence notebook](../../examples/research-foundations-live-p1-evidence.ipynb)
 using its [handoff instructions](../../examples/notebook-operations.md#frozen-source-evidence).
 The notebook's investigation cells check the saved trade stream and provider records,
 display the three findings, and write a draft `provider-questions.md` for facts still
@@ -270,7 +270,7 @@ remains open.
 The specification fixes scope and assumptions; it does not complete data
 feasibility or baseline acceptance. Actual endpoint/framing/timestamp/retention
 feasibility, historical eligibility, coverage and revision availability each need
-their applicable evidence. The [baseline delivery](../roadmap/README.md#frozen-baseline-acceptance)
+their applicable evidence. The [baseline delivery](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance)
 owns assembled saved-source and fresh-process acceptance. Investigate missing source
 evidence early; successful download cannot establish historical knowability.
 Absent evidence leaves the empirical causal baseline incomplete even when archive
@@ -294,8 +294,8 @@ retain the frozen values and disclose poor results rather than tune to pass.
 
 “Frozen P1 baseline accepted” means the assembled candidate meets every source,
 causal, quality, economic and reproduction requirement above, including the
-permitted-source and fresh-process proof in [baseline acceptance](../roadmap/README.md#frozen-baseline-acceptance).
-The [reusable research workflow](../roadmap/README.md#research-comparison-and-extension)
+permitted-source and fresh-process proof in [baseline acceptance](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance).
+The [reusable research workflow](../roadmap/history-mr1-to-mr9a.md#research-comparison-and-extension)
 separately requires comparison, EDA/replay integration and instance-isolation
 acceptance. A synthetic slice or an installed development wheel establishes
 neither complete outcome. Completing one does not retire the other's requirements.
@@ -370,7 +370,7 @@ Keep source bytes and bulky output outside Git. Original raw data remains in the
 selected `data/binance-archives/` store.
 
 Validation results are recorded in the
-[roadmap acceptance attempt](../roadmap/README.md#frozen-baseline-acceptance).
+[roadmap acceptance attempt](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance).
 Existing synthetic MR 5/6 evidence remains valid for exact accounting, delays,
 recovery and report atomicity because their runtime implementations are unchanged.
 It cannot fill the empirical gaps above. Reversal removes the consumer/configs and
@@ -381,7 +381,7 @@ authority follows from this work.
 
 ## Source investigation continuation
 
-The [QR live notebook](../../examples/research-foundations-live.ipynb) provides a
+The [preserved P1 notebook](../../examples/research-foundations-live-p1-evidence.ipynb) provides a
 `p1-evidence` route for reopening the exact saved sample, attaching provider records,
 retaining strict admission results and reproducing the evidence handoff. Follow its
 [operating instructions](../../examples/notebook-operations.md#frozen-source-evidence).
@@ -458,7 +458,7 @@ compare complete result manifests; admission failure produces no snapshot.
 The 2026-09-21 refusal output is reused only for its original state and non-admission
 claim. The continuation does not rerun that unchanged actual-source economics merely
 to produce another refusal. New runtime behavior requires new checks and installed
-proof, recorded in the [roadmap continuation](../roadmap/README.md#frozen-baseline-continuation).
+proof, recorded in the [roadmap continuation](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-continuation).
 Original source integrity remains supported because its retained bytes and selection
 are unchanged. Existing independent monetary/rounding oracles remain authoritative.
 
@@ -474,7 +474,7 @@ or later; version-1 readers cannot read them. No deployment or trading follows.
 
 ### Executable QR investigation
 
-The [QR notebook](../../examples/research-foundations-live.ipynb) now measures the
+The [preserved P1 notebook](../../examples/research-foundations-live-p1-evidence.ipynb) now measures the
 three handoff questions directly. Its 2026-09-22 public refresh retained four
 official responses with URLs, hashes and actual retrieval times, then read the
 same archive and native capture through installed decoders. The refresh replaced
@@ -544,7 +544,7 @@ On 2026-09-23 the missing strict coverage/revision admission path was implemente
 The [implementation report](source-qualification.md) supersedes the earlier software
 limitation: `use="causal"` now accepts a fully reviewed `SourceQualification`, retains
 original/revised archives and applies full-payload availability causally. The
-[notebook](../../examples/research-foundations-live.ipynb) consumes the same typed
+[notebook](../../examples/research-foundations-live-p1-evidence.ipynb) consumes the same typed
 input as `alpha-dataset` through `ALPHA_P1_ADMISSION_INPUT`.
 
 This does not supply the missing historical facts for the actual hour. **P1 remains

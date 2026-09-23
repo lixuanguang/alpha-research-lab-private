@@ -8,16 +8,14 @@ from pathlib import Path
 from typing import Literal
 
 # project library imports
-from research.experiments import (
-    AttemptHistory,
-    AttemptStore,
+from research.experiments import AttemptHistory, AttemptStore, ExperimentSpec
+from research.models import EstimatorRegistry, ModelStudy, ModelVersion
+from research.studies import (
     ClearMLDestination,
     ClearMLPublication,
-    ExperimentSpec,
     PublicationReceipt,
     TrackedModel,
 )
-from research.models import EstimatorRegistry, ModelStudy, ModelVersion
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 

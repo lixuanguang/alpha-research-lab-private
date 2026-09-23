@@ -11,10 +11,9 @@ from pathlib import Path
 import msgspec
 
 # project library imports
-from research.experiments.identity import ExperimentSpec, Fingerprint
-from research.experiments.reports import ReportPolicy
-from research.experiments.splits import TemporalSplit, TimeWindow
+from research.experiments import ExperimentSpec, Fingerprint, TemporalSplit, TimeWindow
 from research.features import TrailingReturn
+from research.studies.reports import ReportPolicy
 from serialization import DomainCodec, WireRecord
 from simulation import BacktestSpec
 

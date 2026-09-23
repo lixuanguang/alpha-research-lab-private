@@ -10,12 +10,12 @@ from datetime import UTC, datetime
 import msgspec
 
 # project library imports
-from research.experiments.diagnostics import FeatureLabelPayload
-from research.experiments.evaluation import EvaluationRecord
-from research.experiments.results import ResultManifest
-from research.experiments.store import AttemptHistory, AttemptStore
-from research.experiments.tracking import TrackedModel
-from research.experiments.window_diagnostics import (
+from research.experiments import AttemptHistory, AttemptStore
+from research.studies.diagnostics import FeatureLabelPayload
+from research.studies.evaluation import EvaluationRecord
+from research.studies.results import ResultManifest
+from research.studies.tracking import TrackedModel
+from research.studies.window_diagnostics import (
     DiagnosticSource,
     WindowDiagnostics,
     WindowDiagnosticStudy,

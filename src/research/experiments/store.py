@@ -328,12 +328,26 @@ class AttemptStore:
         path = self._artifact_path(attempt_id, name)
         if type(payload) is not bytes or not payload:
             raise ValueError("artifact requires nonempty bytes")
+        digest = hashlib.sha256(payload).hexdigest()
         if path.exists():
             if path.read_bytes() != payload:
                 raise ValueError("retained artifact cannot be replaced")
         else:
-            self._publish(path, payload)
-        return hashlib.sha256(payload).hexdigest()
+            # Share immutable content within this store while keeping legacy per-attempt paths.
+            content = self._root / "artifacts"
+            if not content.exists():
+                content.mkdir()
+                self._sync(self._root)
+            canonical = content / digest
+            if canonical.exists():
+                if canonical.read_bytes() != payload:
+                    raise ValueError("retained artifact content digest mismatch")
+            else:
+                self._publish(canonical, payload)
+            canonical.chmod(canonical.stat().st_mode & ~0o222)
+            os.link(canonical, path)
+            self._sync(path.parent)
+        return digest
 
     def artifact(self, attempt_id: str, name: str) -> bytes:
         """Read supplemental bytes without changing execution or holdout history.
@@ -347,6 +361,31 @@ class AttemptStore:
         """
         self.read(attempt_id)
         return self._artifact_path(attempt_id, name).read_bytes()
+
+    def export(self, attempt_id: str, name: str, destination: Path) -> None:
+        """Expose retained immutable bytes under another name on the same filesystem.
+
+        Args:
+            attempt_id: Existing execution owning the retained artifact.
+            name: Retained artifact name.
+            destination: Export path whose parent already exists on the store's filesystem.
+
+        Raises:
+            ValueError: An existing export contains different bytes.
+            RuntimeError: This process does not own the writer context.
+            OSError: The artifact is missing or a durable hard link cannot be created.
+        """
+        self._require_writer()
+        self.read(attempt_id)
+        source = self._artifact_path(attempt_id, name)
+        if destination.exists():
+            if destination.read_bytes() != source.read_bytes():
+                raise ValueError("existing export differs; select a new output path")
+            return
+        # Exports share immutable storage; editing requires a separate working copy.
+        source.chmod(source.stat().st_mode & ~0o222)
+        os.link(source, destination)
+        self._sync(destination.parent)
 
     def artifacts(self, attempt_id: str) -> tuple[str, ...]:
         """List committed supplemental artifacts, excluding incomplete staging files.

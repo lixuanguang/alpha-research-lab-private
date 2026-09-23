@@ -18,14 +18,7 @@ from pandera.errors import SchemaError, SchemaErrors
 # project library imports
 from applications.explore import evaluate_model, publish_experiments
 from financial_units import ExactRatio
-from research.experiments import (
-    AttemptStore,
-    ClearMLDestination,
-    ClearMLPublication,
-    SampleInterval,
-    TemporalSplit,
-    TimeWindow,
-)
+from research.experiments import AttemptStore, SampleInterval, TemporalSplit, TimeWindow
 from research.models import (
     LinearDefinition,
     LinearModel,
@@ -37,6 +30,7 @@ from research.models import (
     ModelVersion,
     RetainedResult,
 )
+from research.studies import ClearMLDestination, ClearMLPublication
 from serialization import DomainCodec
 
 _START = datetime(2024, 6, 1, tzinfo=UTC)
@@ -203,6 +197,89 @@ class TestModels:
         )
         assert model.fit_rows == () and model.fit_cutoff is None and model.training is None
         assert model.predict(dataset.rows[3], dataset.signature) == self._ratio(9)
+
+    def test_rejected_failed_and_interrupted_models_retain_distinct_outcomes(
+        self, tmp_path: Path
+    ) -> None:
+        """Retain usable rejected state while failed and interrupted fits stay state-free."""
+        dataset = self._dataset()
+        no_fit_split = replace(
+            self._split(dataset), training=None, fit_cutoff=None, fit_mode="none"
+        )
+        source = RetainedResult(attempt_id="a" * 32, sha256="b" * 64)
+        base = ModelStudy(
+            family="configured-rejection",
+            question="Retain configured outcomes",
+            sources=(source,),
+            split=no_fit_split,
+            partition="validation",
+            known_at=_START + timedelta(hours=15),
+            max_mse=self._ratio(0),
+            selection_reason="Fixed software threshold",
+            definition=LinearDefinition(
+                mode="configured",
+                assumptions="Fixed zero-return analytical comparator",
+                intercept=self._ratio(0),
+                slope=self._ratio(0),
+            ),
+            available_at=_START,
+        )
+        config, attempts = tmp_path / "study.json", tmp_path / "attempts"
+        destination = ClearMLDestination(
+            project="unit-model-outcomes",
+            api_uri="http://127.0.0.1:18008",
+            files_uri="http://127.0.0.1:18081",
+        )
+        with patch.object(ModelStudy, "dataset", return_value=dataset):
+            with patch("runtime.identity.ImplementationIdentity.sha256", return_value="d" * 64):
+                with patch.object(ClearMLPublication, "publish"):
+                    config.write_bytes(_CODEC.encode_json(base))
+                    rejected = evaluate_model(config, attempts=attempts, tracking=destination)
+        assert rejected.status == "rejected"
+        assert "model-version" in AttemptStore(attempts).artifacts(rejected.start.attempt_id)
+
+        failed_study = replace(
+            base,
+            family="failed-fit",
+            definition=LinearDefinition(
+                mode="least-squares", assumptions="Forbidden no-fit calibration"
+            ),
+        )
+        with patch.object(ModelStudy, "dataset", return_value=dataset):
+            with patch("runtime.identity.ImplementationIdentity.sha256", return_value="d" * 64):
+                with patch.object(ClearMLPublication, "publish"):
+                    config.write_bytes(_CODEC.encode_json(failed_study))
+                    with pytest.raises(ValueError, match="supervised label fitting"):
+                        evaluate_model(config, attempts=attempts, tracking=destination)
+        failed = tuple(
+            history
+            for history in AttemptStore(attempts).histories()
+            if history.start.spec.family == "failed-fit"
+        )
+        assert len(failed) == 1 and failed[0].status == "failed"
+        assert "model-version" not in AttemptStore(attempts).artifacts(failed[0].start.attempt_id)
+
+        interrupted = replace(
+            base,
+            family="aborted-fit",
+            split=self._split(dataset),
+            definition=LinearDefinition(
+                mode="least-squares", assumptions="Interrupted supervised fit"
+            ),
+        )
+        with patch.object(ModelStudy, "dataset", return_value=dataset):
+            with patch("runtime.identity.ImplementationIdentity.sha256", return_value="d" * 64):
+                with patch("research.models.LinearModel.construct", side_effect=KeyboardInterrupt):
+                    with patch.object(ClearMLPublication, "publish"):
+                        config.write_bytes(_CODEC.encode_json(interrupted))
+                        with pytest.raises(KeyboardInterrupt):
+                            evaluate_model(config, attempts=attempts, tracking=destination)
+        abandoned = tuple(
+            history
+            for history in AttemptStore(attempts).histories()
+            if history.start.spec.family == "aborted-fit"
+        )
+        assert len(abandoned) == 1 and abandoned[0].status == "abandoned"
 
     def test_incompatible_and_tampered_state_fail_closed(self) -> None:
         """Reject wrong definitions, order, units, unavailable state and mutated bytes."""

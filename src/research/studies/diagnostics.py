@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 # project library imports
 from financial_units import ExactRatio
-from research.experiments.splits import SampleInterval
+from research.experiments import SampleInterval
 from research.features import FeatureValue, PriceWindow, TrailingReturn
 from research.labels import ForwardReturn, LabelValue
 from serialization import DomainCodec, WireRecord

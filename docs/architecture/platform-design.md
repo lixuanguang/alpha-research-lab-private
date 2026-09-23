@@ -77,7 +77,8 @@ src/
     features/               Versioned price diagnostics and scheduled saved-input parity; future fitted transforms
     labels/                 Separate forward-return outcomes and availability
     models/                 Exact linear construction, retained state and inference
-    experiments/            Attempts, splits, evaluation, reports and local ClearML pipelines; FUTURE: candidates
+    experiments/            Attempt storage, semantic identities and temporal splits; FUTURE: candidates
+    studies/                Retained evaluations, diagnostics, reports and local ClearML pipelines
   strategies/               Fixed completed-price momentum and no-trade target rules
   simulation/               Delayed spot fills/costs/checkpoints and bounded vectorbt adapter
   accounting/               Exact spot ledger, rational attribution and reconciliation
@@ -505,6 +506,9 @@ store preserves incomplete, failed, rejected and abandoned attempts; atomic
 completion contains the result bytes. Family holdouts are frozen and consumption
 is retained before access. `applications.explore.inspect_experiment` composes
 this core with the existing pinned selection reader for unfitted inspections.
+`research.studies` owns the existing report, diagnostic, comparison and tracking
+implementations behind a separate curated API. Core record access does not import
+those integrations; both owners retain the existing serialized record contracts.
 The [public contract](../../src/research/experiments/README.md) owns clocks,
 identity, retention, concurrency, recovery and supported evaluation boundaries.
 The [bounded model consumer](../../src/research/models/README.md) now adds configured
@@ -520,7 +524,7 @@ causal admission preserves unresolved coverage and revision-history limits.
 
 **Current comparison owners:** compatible feature and estimator factories extend
 their existing typed definitions, while `strategies.RuleRegistry` creates fresh
-rule instances for each economic run. `research.experiments` owns bounded Optuna
+rule instances for each economic run. `research.studies` owns bounded Optuna
 journals, complete unsuccessful-trial history and Alphalens report contracts;
 `research.exploration` owns verified bounded DuckDB/Polars projections.
 `research.features` owns the offline Feast bridge and causal result admission.
@@ -528,9 +532,9 @@ The existing exploration/backtest applications compose these libraries; no libra
 imports an application or exposes a runnable command. Feast's incompatible pandas
 constraint is isolated in a separately locked local SDK worker, while core pandas
 remains 3.0.5. The
-[accepted diagnostic tool amendment](../roadmap/README.md#diagnostic-tool-requirement-amendment)
+[accepted diagnostic tool amendment](../roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
 makes offline reference/current reports mandatory and Evidently optional. The
-consumer now belongs to `research.experiments.WindowDiagnostics` and
+consumer now belongs to `research.studies.WindowDiagnostics` and
 `WindowDiagnosticRun`, composed by `applications.explore.compare_windows` and
 published through the existing ClearML outbox. It uses admitted SciPy for explicit
 reference/current tests and exact rational predictive errors with delayed-label
@@ -559,7 +563,8 @@ These contracts serve model-free studies and future learned candidates alike.
 
 Reusable transforms belong to `research/features/`; labels to `research/labels/`;
 trainers/inference to `research/models/`; split/attempt/candidate records to
-`research/experiments/`. The attempt/split owner now serves exploration; the
+`research/experiments/`; retained study/report integrations to `research/studies/`.
+The attempt/split owner now serves exploration; the
 model owner now serves the same application; other future owners appear only
 with working consumers.
 Notebooks may explore local variants; formal retained and promoted results call
@@ -681,7 +686,7 @@ or visibly bound unsupported liquidity-taking/capacity claims. A partial-fill
 option alone does not remove this limitation. Keep P1's declared trade-price
 model intact; book-based research needs a separate versioned experiment.
 
-The roadmap owns [capture and paper comparison acceptance](../roadmap/README.md#operations-and-paper-qualification).
+The roadmap owns [capture and paper comparison acceptance](../roadmap/future-mr10-to-mr21.md#operations-and-paper-qualification).
 
 ## Portfolio, accounting, and position state
 
@@ -868,7 +873,7 @@ block an ordinary local calculation by pretending unavailable roles are present.
 ## Scaling triggers and technology choices
 
 Keep the current Python/uv path while it is reproducible and within the workload budget.
-The roadmap's [selected research integrations](../roadmap/README.md#selected-research-integrations)
+The roadmap's [selected research integrations](../roadmap/history-mr1-to-mr9a.md#selected-research-integrations)
 address concrete tracking, orchestration and data/feature-reuse consumers from MR 4 onward;
 their initial bounded integrations do not require a throughput bottleneck. Preserve
 existing source, temporal and numerical contracts through their adapters. Measure before
