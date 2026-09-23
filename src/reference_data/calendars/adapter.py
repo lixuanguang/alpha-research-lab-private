@@ -9,16 +9,6 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as installed_version
 from typing import Protocol, runtime_checkable
 
-# third party library imports
-import exchange_calendars as _exchange_calendars
-import pandas as _pandas
-from exchange_calendars.errors import (
-    CalendarError as _ExchangeCalendarError,
-)
-from exchange_calendars.errors import (
-    NoSessionsError as _NoSessionsError,
-)
-
 # project library imports
 from reference_data.calendars.models import (
     CalendarClosure,
@@ -127,6 +117,20 @@ class ExchangeCalendarsAdapter:
             raise IncompatibleCalendarLibraryError(
                 f"{EXCHANGE_CALENDARS_DISTRIBUTION} must be exactly {EXCHANGE_CALENDARS_VERSION}"
             )
+        try:
+            # third party library imports
+            import exchange_calendars as _exchange_calendars
+            from exchange_calendars.errors import (
+                CalendarError as _ExchangeCalendarError,
+            )
+            from exchange_calendars.errors import (
+                NoSessionsError as _NoSessionsError,
+            )
+        except ImportError as error:
+            raise IncompatibleCalendarLibraryError(
+                f"{EXCHANGE_CALENDARS_DISTRIBUTION} is unavailable"
+            ) from error
+
         if (
             not isinstance(calendar_name, str)
             or not calendar_name
@@ -165,6 +169,9 @@ class ExchangeCalendarsAdapter:
         self, calendar: _ExchangeCalendar, *, session_label: date, kind: SessionKind
     ) -> TradingSession:
         """Query and validate one source session as an owned UTC record."""
+        # third party library imports
+        from exchange_calendars.errors import CalendarError as _ExchangeCalendarError
+
         try:
             source_open = calendar.session_open(session_label)
             source_close = calendar.session_close(session_label)
@@ -435,6 +442,9 @@ class ExchangeCalendarsAdapter:
         candidate: object, *, field_name: str, optional: bool = False
     ) -> datetime | None:
         """Normalize aware source timestamps to UTC, allowing None or NaT only if optional."""
+        # third party library imports
+        import pandas as _pandas
+
         if optional and (candidate is None or candidate is _pandas.NaT):
             return None
         converted: object = candidate

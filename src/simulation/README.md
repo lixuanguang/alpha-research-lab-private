@@ -139,11 +139,11 @@ remain separate from publication success. Existing `ClearMLPublication` retries
 publish the same attempt/task without rerunning economics. A missing server does
 not prevent `run_backtest` or direct analytical projection.
 
-The installed consumer tests unavailable publication first. With explicitly
-selected local-test credentials in `ALPHA_CLEARML_LOCAL_ENV`, it also reconciles
-the retained attempt to the existing local server and compares downloaded artifact
-SHA-256 values. Credentials never enter specs or manifests. See the
-[local server guide](../../configs/development/clearml/README.md).
+The installed economic consumer tests unavailable publication. The separate
+[publication verifier](../../tests/integration/consumers/research/clearml_publication.py)
+uses explicitly selected local-test credentials in `ALPHA_CLEARML_LOCAL_ENV` to
+reconcile retained attempts and compare downloaded artifact bytes. Credentials
+never enter specs or manifests. See the [local server guide](../../configs/development/clearml/README.md).
 
 ## Verification and reversal
 

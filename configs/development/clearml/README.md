@@ -24,6 +24,8 @@ Docker Desktop must be running. Create a private environment file outside Git
 containing fresh values for `CLEARML_LOCAL_ACCESS_KEY` and
 `CLEARML_LOCAL_SECRET_KEY`; restrict its permissions to the owner. These replace
 the upstream public default test-user credentials. Do not use production secrets.
+Both manual consumers accept blank lines and whole-line comments, including
+indented comments, in this `KEY=value` file.
 With its absolute path in `CLEARML_LOCAL_ENV_FILE`:
 
 ```sh

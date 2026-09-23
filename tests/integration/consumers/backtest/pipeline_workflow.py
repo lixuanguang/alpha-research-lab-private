@@ -198,7 +198,7 @@ def main() -> None:
     values = dict(
         line.split("=", 1)
         for line in Path(os.environ["ALPHA_CLEARML_LOCAL_ENV"]).read_text().splitlines()
-        if line and not line.startswith("#")
+        if line.strip() and not line.lstrip().startswith("#")
     )
     os.environ.update(
         CLEARML_API_HOST="http://127.0.0.1:18008",

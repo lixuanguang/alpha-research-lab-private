@@ -19,7 +19,21 @@ class TestExperimentImportBoundary:
     ) -> None:
         """Import core records without loading comparison, tracking or pipeline SDKs."""
         script = """
+import importlib.abc
 import sys
+
+class RejectOperationalDependencies(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".", 1)[0] in {
+            "QuantLib",
+            "exchange_calendars",
+            "numpy",
+            "pandas",
+        }:
+            raise AssertionError(f"Operational dependency imported: {fullname}")
+        return None
+
+sys.meta_path.insert(0, RejectOperationalDependencies())
 
 from research.experiments import AttemptStore, ExperimentSpec, TemporalSplit
 

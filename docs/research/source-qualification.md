@@ -51,8 +51,7 @@ future document claims, damaged prior archives and intrahour trading suspension.
 
 The former installed engineering-sample consumer ran both witnessed and qualified
 synthetic inputs through both unchanged P1 configurations, reports, complete
-checkpoints and fresh-process repeat/resume. That demonstration was retired in the
-[scaffolding cleanup](../roadmap/post-mr9a-maintenance-review.md); qualification,
+checkpoints and fresh-process repeat/resume. That demonstration was retired; qualification,
 CLI publication, engineering scope and economics remain in maintained tests.
 The results below are historical, deliberately fabricated **software fixtures**,
 never evidence for the real hour.
