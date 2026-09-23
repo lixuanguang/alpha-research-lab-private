@@ -27,7 +27,6 @@ from research.experiments import (
     AttemptStore,
     ClearMLDestination,
     ClearMLPublication,
-    PublicationReceipt,
     ResultManifest,
 )
 from research.exploration import VerifiedFeatureRows
@@ -152,31 +151,6 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _configure_clearml() -> bool:
-    """Configure the private local ClearML server when explicitly selected.
-
-    Returns:
-        ``True`` when ``ALPHA_CLEARML_LOCAL_ENV`` supplied server credentials.
-    """
-    location = os.environ.get("ALPHA_CLEARML_LOCAL_ENV")
-    if location is None:
-        return False
-    values = dict(
-        line.split("=", 1)
-        for line in Path(location).read_text(encoding="utf-8").splitlines()
-        if line and not line.startswith("#")
-    )
-    os.environ.update(
-        CLEARML_API_HOST="http://127.0.0.1:18008",
-        CLEARML_WEB_HOST="http://127.0.0.1:18080",
-        CLEARML_FILES_HOST="http://127.0.0.1:18081",
-        CLEARML_API_ACCESS_KEY=values["CLEARML_LOCAL_ACCESS_KEY"],
-        CLEARML_API_SECRET_KEY=values["CLEARML_LOCAL_SECRET_KEY"],
-        CLEARML_CACHE_DIR=str(Path(location).parent / "alpha-clearml-cache"),
-    )
-    return True
-
-
 def _source_history(attempts: Path, payload: bytes) -> AttemptHistory:
     """Select a completed MR3 attempt whose terminal bytes equal the saved payload."""
     candidates = [
@@ -202,8 +176,8 @@ def _formal_comparison(
     payload: bytes,
     attempts: Path,
     destination: ClearMLDestination,
-) -> tuple[AttemptHistory, ResultManifest, str | None]:
-    """Run the retained offline comparison and verify local and optional remote artifacts.
+) -> tuple[AttemptHistory, ResultManifest]:
+    """Run the retained offline comparison with explicitly unavailable publication.
 
     Args:
         request: Bounded entity/decision grid sent through the worker.
@@ -214,46 +188,33 @@ def _formal_comparison(
         destination: ClearML destination retained for the source acceptance.
 
     Returns:
-        The completed comparison history, verified local result manifest and optional task ID.
+        The completed comparison history and verified local result manifest.
 
     Raises:
-        AssertionError: The formal attempt, manifest or optional remote artifacts are invalid.
+        AssertionError: The formal attempt or manifest is invalid, or failed publication is hidden.
     """
     assert source.start.spec.split is not None
-    is_server = _configure_clearml()
     before = {history.start.attempt_id for history in AttemptStore(attempts).histories()}
-    if is_server:
-        compare_offline_features(
-            request,
-            access,
-            family=source.start.spec.family,
-            source_attempt=source.start.attempt_id,
-            source_sha256=hashlib.sha256(payload).hexdigest(),
-            split=source.start.spec.split,
-            attempts=attempts,
-            tracking=destination,
-        )
-    else:
-        with patch.object(
-            ClearMLPublication,
-            "publish",
-            side_effect=ConnectionError("offline feature comparison transport"),
-        ):
-            try:
-                compare_offline_features(
-                    request,
-                    access,
-                    family=source.start.spec.family,
-                    source_attempt=source.start.attempt_id,
-                    source_sha256=hashlib.sha256(payload).hexdigest(),
-                    split=source.start.spec.split,
-                    attempts=attempts,
-                    tracking=destination,
-                )
-            except ConnectionError:
-                pass
-            else:
-                raise AssertionError("unavailable comparison publication must be visible")
+    with patch.object(
+        ClearMLPublication,
+        "publish",
+        side_effect=ConnectionError("offline feature comparison transport"),
+    ):
+        try:
+            compare_offline_features(
+                request,
+                access,
+                family=source.start.spec.family,
+                source_attempt=source.start.attempt_id,
+                source_sha256=hashlib.sha256(payload).hexdigest(),
+                split=source.start.spec.split,
+                attempts=attempts,
+                tracking=destination,
+            )
+        except ConnectionError:
+            pass
+        else:
+            raise AssertionError("unavailable comparison publication must be visible")
     histories = [
         history
         for history in AttemptStore(attempts).histories()
@@ -264,33 +225,9 @@ def _formal_comparison(
     history = histories[0]
     with AttemptStore(attempts) as store:
         manifest = ResultManifest.read(store, history.start.attempt_id)
-        task_id: str | None = None
-        if is_server:
-            receipt = _CODEC.decode_json(
-                store.artifact(history.start.attempt_id, "clearml-receipt"), PublicationReceipt
-            )
-            task_id = receipt.task_id
-            # third party library imports
-            from clearml import Task
-
-            tasks = Task.get_tasks(
-                project_name=destination.project,
-                task_name=f"^attempt-{history.start.attempt_id}$",
-                allow_archived=True,
-            )
-            if len(tasks) != 1 or tasks[0].id != task_id:
-                raise AssertionError("ClearML comparison task identity was not retained")
-            for artifact in manifest.artifacts:
-                remote = tasks[0].artifacts.get(artifact.name)
-                if remote is None:
-                    raise AssertionError(f"ClearML comparison artifact missing: {artifact.name}")
-                downloaded = remote.get_local_copy()
-                if downloaded is None or _sha256(Path(downloaded)) != artifact.sha256:
-                    raise AssertionError(f"ClearML comparison artifact differs: {artifact.name}")
-        else:
-            if "clearml-receipt" in store.artifacts(history.start.attempt_id):
-                raise AssertionError("offline comparison unexpectedly retained a ClearML receipt")
-    return history, manifest, task_id
+        if "clearml-receipt" in store.artifacts(history.start.attempt_id):
+            raise AssertionError("offline comparison unexpectedly retained a ClearML receipt")
+    return history, manifest
 
 
 def _run_fixture_author(
@@ -501,7 +438,7 @@ def _run_acceptance(source: Path, output: Path, worker_python: Path) -> None:
     assert comparison.rows[-1].retrieved_value is None
     source_history = _source_history(attempts, payload)
     destination = _CODEC.decode_json(tracking_path.read_bytes(), ClearMLDestination)
-    formal_history, manifest, task_id = _formal_comparison(
+    formal_history, manifest = _formal_comparison(
         baseline_request,
         access,
         source_history,
@@ -532,7 +469,6 @@ def _run_acceptance(source: Path, output: Path, worker_python: Path) -> None:
         "formal_manifest": [
             {"name": artifact.name, "sha256": artifact.sha256} for artifact in manifest.artifacts
         ],
-        "clearml_task_id": task_id,
         "baseline_matches": len(comparison.matches),
         "missing_entity": missing_key,
         "late_correction_value": corrected.value,

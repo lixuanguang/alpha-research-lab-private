@@ -71,9 +71,10 @@ zeroes. These factor statistics do not measure executable strategy economics.
 
 The [installed feature consumer](../../../tests/integration/consumers/research/feature_study.py)
 and [installed economic consumer](../../../tests/integration/consumers/backtest/economic_workflow.py)
-exercise these paths and optionally round-trip actual ClearML artifact bytes when
-`ALPHA_CLEARML_LOCAL_ENV` is supplied. Without that private configuration the
-transport-failure tests establish local retention only. The maintained
+exercise these paths with unavailable publication, establishing local retention.
+The separate [ClearML verifier](../../../tests/integration/consumers/research/clearml_publication.py)
+round-trips their retained artifacts with the explicit private configuration in
+the [service runbook](../../../configs/development/clearml/README.md). The maintained
 [QR activity notebook](../../../examples/research-foundations.ipynb) retains a
 rule-only comparison without fitting. Exact final verification and blockers are
 owned by [MR 7](../../../docs/roadmap/README.md#research-comparison-and-extension).
@@ -438,11 +439,12 @@ A completed calculation is not empirical baseline acceptance or strategy selecti
 The existing frozen [P1 configurations](../../../configs/backtests/p1-btcusdt-return-v1.json)
 remain `BacktestSpec` inputs. Put the unchanged decoded value in `economics`, pin the
 published snapshot, and explicitly supply `ReportPolicy` (P1's non-interest-bearing
-cash is a zero-return benchmark). The installed
-[engineering consumer](../../../tests/integration/consumers/backtest/engineering_sample.py)
-shows this assembly with clearly synthetic source facts, both frozen configurations,
-exact costed reconciliation and fresh-process resume/repeat parity. It runs in wheel
-smoke; it never labels its fixture results as empirical strategy evidence.
+cash is a zero-return benchmark). Maintained
+[economic regressions](../../../tests/unit/simulation/test_economic_replay.py)
+cover exact cost reconciliation and the no-trade control; the installed
+[economic workflow](../../../tests/integration/consumers/backtest/economic_workflow.py)
+checks report retention and fresh-process resume. Synthetic fixture results are
+software checks, never empirical strategy evidence.
 
 `ExperimentSpec` uses `experiment-engineering-sample-v1` for this mode. Its sample,
 resolved configuration, evidence-bound snapshot, deterministic seed, implementation

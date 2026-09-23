@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal, localcontext
 from fractions import Fraction
+from pathlib import Path
+from unittest.mock import patch
 
 # third party library imports
 import pytest
@@ -15,11 +17,21 @@ from economic_examples import ReplayInputs
 from msgspec.structs import replace
 
 # project library imports
-from applications.backtest import run_backtest
+from applications.backtest import run_backtest, run_configured
 from financial_units import ExactRatio
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
-from research.experiments import BenchmarkPeriod, QuantStatsReport, ReportPolicy
+from research.experiments import (
+    AttemptStore,
+    BacktestRun,
+    BenchmarkPeriod,
+    ClearMLDestination,
+    ClearMLPublication,
+    EconomicReport,
+    QuantStatsReport,
+    ReportPolicy,
+    TimeWindow,
+)
 from simulation import (
     EconomicCheckpoint,
     EconomicResult,
@@ -233,3 +245,61 @@ class TestEconomicReplay(ReplayInputs):
         assert any(period.net_return is None for period in incomplete.periods)
         assert incomplete.quantstats_drawdown is None
         assert incomplete.sampled_max_exposure is None
+
+    def test_configured_engineering_sample_roundtrip_and_report_limitations(
+        self, tmp_path: Path
+    ) -> None:
+        """Run a parsed unfitted configuration and retain its scope limitations."""
+        reader, spec = self._inputs(self.rows)
+        zero = ExactRatio.from_fraction(Fraction(0))
+        policy = ReportPolicy(
+            benchmark_name="explicit-flat-engineering-control",
+            benchmark=tuple(
+                BenchmarkPeriod(end=spec.start + timedelta(minutes=i), value=zero)
+                for i in range(1, 5)
+            ),
+            cadence_seconds=60,
+            periods_per_year=525600,
+            annual_risk_free=zero,
+        )
+        selected = BacktestRun(
+            schema_version="configured-engineering-sample-v1",
+            family="engineering-replay",
+            snapshot_id=reader.identity,
+            economics=spec,
+            report=policy,
+            split=None,
+            engineering_sample=TimeWindow(start=spec.start, end=spec.end),
+        )
+        config = tmp_path / "configured.json"
+        config.write_bytes(_CODEC.encode_json(selected))
+        assert BacktestRun.read(config) == selected
+        attempts = tmp_path / "attempts"
+        with (
+            patch("applications.backtest.configured.QueryReader.read", return_value=reader),
+            patch.object(
+                ClearMLPublication,
+                "publish",
+                side_effect=ConnectionError("offline configured publication"),
+            ),
+            pytest.raises(ConnectionError, match="offline configured publication"),
+        ):
+            run_configured(
+                config,
+                tmp_path / "snapshots",
+                tmp_path / "raw",
+                attempts=attempts,
+                max_bytes=2_000_000,
+                tracking=ClearMLDestination(
+                    project="engineering-replay",
+                    api_uri="http://127.0.0.1:18008",
+                    files_uri="http://127.0.0.1:18081",
+                ),
+            )
+        history = AttemptStore(attempts).histories()[0]
+        report = _CODEC.decode_json(
+            AttemptStore(attempts).artifact(history.start.attempt_id, "report"), EconomicReport
+        )
+        assert history.status == "completed"
+        assert any("Unfitted engineering sample" in item for item in report.limitations)
+        assert any("exploratory_degraded inputs" in item for item in report.limitations)

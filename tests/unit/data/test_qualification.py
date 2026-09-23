@@ -15,6 +15,8 @@ import pytest
 from msgspec.structs import force_setattr, replace
 
 # project library imports
+from applications.backtest import run_backtest
+from applications.publish_dataset import main as dataset_main
 from configuration import Configuration
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.sources import SourceAdapters
@@ -39,6 +41,7 @@ from reference_data.eligibility import (
     EligibilityEvidence,
 )
 from serialization import DomainCodec
+from simulation import BacktestSpec, EconomicResult
 
 _ROOT = Path(__file__).parents[3]
 _START = datetime(2024, 6, 1, tzinfo=UTC)
@@ -204,7 +207,7 @@ class TestSourceQualification:
         return _Inputs(selected, request, raw, publisher, snapshots)
 
     def test_publish_reopen_and_inclusive_correction_cutoffs(
-        self, inputs: _Inputs, tmp_path: Path
+        self, inputs: _Inputs, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Reproduce strict admission and retain the old value until the correction is usable."""
         selected = inputs.selected
@@ -267,10 +270,40 @@ class TestSourceQualification:
                 event = version.occurrences[0].event
                 assert isinstance(event, ArchiveTrade)
                 assert event.ts_source_received is None and event.ts_knowledge is None
+        economic = _CODEC.decode_json(
+            (_ROOT / "configs/backtests/p1-btcusdt-return-v1.json").read_bytes(), BacktestSpec
+        )
+        result = run_backtest(reader, economic)
+        assert isinstance(result, EconomicResult)
+        assert any("causal_qualified inputs" in item for item in result.limitations)
         assert (
             inputs.publisher.publish((selected,), inputs.raw, inputs.snapshots, max_bytes=1_000_000)
             == identity
         )
+        serialized = tmp_path / "qualified-input.json"
+        serialized.write_bytes(_CODEC.encode_json(selected))
+        assert (
+            dataset_main(
+                [
+                    "publish",
+                    "--store",
+                    str(inputs.snapshots.parent / "raw"),
+                    "--snapshots",
+                    str(inputs.snapshots),
+                    "--max-bytes",
+                    "1000000",
+                    "--inputs",
+                    str(serialized),
+                ]
+            )
+            == 0
+        )
+        completion = msgspec.json.decode(
+            capsys.readouterr().out.splitlines()[-1], type=dict[str, str | int | None]
+        )
+        assert isinstance(completion["snapshot_id"], str)
+        assert completion["scope"] == "causal_qualified"
+        assert completion["status"] == "complete"
 
     @pytest.mark.parametrize(
         "change",

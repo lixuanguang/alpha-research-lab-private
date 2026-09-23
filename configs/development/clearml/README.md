@@ -44,11 +44,30 @@ prove a model upload; the installed acceptance consumer exercises that boundary.
 It uses only synthetic data. The feature/model integration test exercises local
 model behavior with an explicitly unavailable transport; wheel smoke checks
 installation and a small OKX book run. Neither requires Docker. For the
-actual server acceptance run, set `ALPHA_CLEARML_LOCAL_ENV` to the private file
-and invoke the installed feature/model consumer with a fresh output directory
-and copied fixture inputs (`binance-archive.json`, `binance-archive-spot.json`,
-`membership-corrections.json`). It retains no-fit, fitted, rejected, failed and
-abandoned attempts and injects a lost publication receipt before reconciliation.
+actual server check, first run the offline feature/model, economic or Feast
+consumer using the [test guide](../../../tests/README.md). The model workflow
+checks fitted, reloaded, rejected, failed and abandoned attempts in ordinary CI.
+Domain consumers no longer read credentials or publish to a server.
+
+Copy the [publication verifier](../../../tests/integration/consumers/research/clearml_publication.py)
+outside the checkout and run it with the same installed interpreter, explicitly
+selecting the generated attempt stores. With `FEATURE_RUN` pointing to fresh
+feature/model output, for example:
+
+```sh
+ALPHA_CLEARML_LOCAL_ENV="$CLEARML_LOCAL_ENV_FILE" \
+  /absolute/core/bin/python -I /absolute/consumers/clearml_publication.py \
+  "$FEATURE_RUN/attempts" "$FEATURE_RUN/models/attempts"
+```
+
+Economic output has `attempts`, `configured-attempts` and `comparison-attempts`;
+Feast output has `attempts`. The verifier uses each attempt's retained destination,
+requires the local endpoints, loses one pending receipt per store, and reconciles
+in a fresh process. It checks unique tasks, terminal outcomes, unchanged local
+histories, idempotent receipts and every uploaded artifact's exact bytes.
+Use fresh outputs for the lost-receipt exercise; `resume` before the store paths
+rechecks existing publication without injecting another interruption. Research
+is not rerun, and the original acceptance records below remain historical.
 
 ## Stop, retain and reopen
 

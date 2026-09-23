@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # standard library imports
-import hashlib
 import os
 import shutil
 import subprocess
@@ -305,23 +304,6 @@ class _SavedEconomy:
             )
             == 1
         )
-        if _SavedEconomy.configure_tracking(output):
-            # third party library imports
-            from clearml import Task
-
-            with AttemptStore(attempts) as writer:
-                for history in writer.histories():
-                    attempt = history.start.attempt_id
-                    receipt = ClearMLPublication(writer, destination).publish(attempt)
-                    task = Task.get_task(task_id=receipt.task_id)
-                    for artifact in ResultManifest.read(writer, attempt).artifacts:
-                        downloaded = task.artifacts[artifact.name].get_local_copy()
-                        assert downloaded is not None
-                        assert (
-                            hashlib.sha256(Path(downloaded).read_bytes()).hexdigest()
-                            == artifact.sha256
-                        )
-            print("Verified comparison tasks and all artifact digests")
 
     @staticmethod
     def configured(
@@ -429,50 +411,6 @@ class _SavedEconomy:
         else:
             raise AssertionError("partial reports became a successful result")
         _SavedEconomy.refusals(output, selected)
-        if _SavedEconomy.configure_tracking(output):
-            command = Path(sys.executable).parent / "alpha-backtest"
-            subprocess.run(
-                [
-                    str(command),
-                    "run",
-                    "--config",
-                    str(config),
-                    "--snapshots",
-                    str(output / "snapshots"),
-                    "--raw",
-                    str(output / "raw"),
-                    "--attempts",
-                    str(attempts),
-                    "--tracking",
-                    str(output / "tracking.json"),
-                    "--max-bytes",
-                    "2000000",
-                ],
-                cwd=output,
-                check=True,
-            )
-            # Third party library imports
-            # third party library imports
-            from clearml import Task
-
-            store = AttemptStore(attempts)
-            newest = next(
-                h
-                for h in store.histories()
-                if h.start.attempt_id not in {old.start.attempt_id for old in histories}
-            )
-            task = Task.get_tasks(
-                project_name=destination.project,
-                task_name=f"^attempt-{newest.start.attempt_id}$",
-                allow_archived=True,
-            )[0]
-            for name in ("report-html", "report-inputs", "economic-reference"):
-                downloaded = task.artifacts[name].get_local_copy()
-                assert downloaded is not None
-                assert Path(downloaded).read_bytes() == store.artifact(
-                    newest.start.attempt_id, name
-                )
-            print("Verified remote configured report artifacts:", task.id)
         print("Configured run, complete report, checkpoint resume and failed publication verified")
 
     @staticmethod
@@ -522,30 +460,9 @@ class _SavedEconomy:
         """Simulate unavailable publication without replacing the retained economic execution."""
         raise ConnectionError("explicitly unavailable test transport")
 
-    @staticmethod
-    def configure_tracking(output: Path) -> bool:
-        """Read the explicitly selected private test credentials without logging them."""
-        location = os.environ.get("ALPHA_CLEARML_LOCAL_ENV")
-        if location is None:
-            return False
-        values = dict(
-            line.split("=", 1)
-            for line in Path(location).read_text().splitlines()
-            if line and not line.startswith("#")
-        )
-        os.environ.update(
-            CLEARML_API_HOST="http://127.0.0.1:18008",
-            CLEARML_WEB_HOST="http://127.0.0.1:18080",
-            CLEARML_FILES_HOST="http://127.0.0.1:18081",
-            CLEARML_API_ACCESS_KEY=values["CLEARML_LOCAL_ACCESS_KEY"],
-            CLEARML_API_SECRET_KEY=values["CLEARML_LOCAL_SECRET_KEY"],
-            CLEARML_CACHE_DIR=str(output / "sdk-cache"),
-        )
-        return True
-
 
 def main() -> None:
-    """Prove installed execution and separately optional actual-server publication/reopen.
+    """Prove installed execution, publication failure and fresh-process reopen offline.
 
     Raises:
         AssertionError: Exact economics, recovery or retained publication differs.
@@ -630,32 +547,6 @@ def main() -> None:
             )
             == vector
         )
-        attempt_id = history.start.attempt_id
-    if _SavedEconomy.configure_tracking(output):
-        with AttemptStore(attempts) as store:
-            publication = ClearMLPublication(store, destination)
-            receipt = publication.publish(attempt_id)
-            assert publication.publish(attempt_id) == receipt
-            # Verify remote bytes through the real SDK after a fresh task lookup.
-            # third party library imports
-            from clearml import Task
-
-            tasks = Task.get_tasks(
-                project_name=destination.project,
-                task_name=f"^attempt-{attempt_id}$",
-                allow_archived=True,
-            )
-            assert len(tasks) == 1 and tasks[0].id == receipt.task_id
-            task = tasks[0]
-            for name in ("economic-reference", "vectorbt-comparison"):
-                downloaded = task.artifacts[name].get_local_copy()
-                assert downloaded is not None
-                assert (
-                    hashlib.sha256(Path(downloaded).read_bytes()).hexdigest()
-                    == hashlib.sha256(store.artifact(attempt_id, name)).hexdigest()
-                )
-            (output / "clearml-receipt.json").write_bytes(codec.encode_json(receipt))
-            print("Verified ClearML task:", receipt.task_id)
     print(
         "Installed economics: exact NAV", exact.terminal.nav.value, "; vectorbt NAV", vector.nav[-1]
     )
