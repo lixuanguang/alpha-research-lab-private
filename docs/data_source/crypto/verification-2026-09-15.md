@@ -107,8 +107,6 @@ From the repository root:
 - `git diff --check`: passed.
 - `git check-ignore data/binance-archives/source-survey-2026-09-15/observations.json`:
   confirmed the probe output is ignored.
-- `shasum -a 256 docs/research/p1-baseline.md`: unchanged at
-  `7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`.
 
 The link checker covers `docs/**/*.md`, including this entire addition, but skips
 external URLs. External facts were reviewed using the linked provider pages; a working

@@ -442,9 +442,9 @@ The decoding boundary is covered by
 [`test_tardis_decoder.py`](../../tests/unit/data/providers/tardis/test_tardis_decoder.py),
 [`test_tardis_binance.py`](../../tests/unit/data/providers/tardis/test_tardis_binance.py),
 and [`test_binance_decoder.py`](../../tests/unit/data/venues/binance/test_binance_decoder.py).
-These tests cover the library boundary; the
-[frozen baseline acceptance](../research/p1-baseline.md#acceptance-and-research-discipline)
-identifies the remaining end-to-end requirements.
+These tests cover the library boundary. A research study must separately establish
+its sample's eligibility, coverage and availability through the
+[qualification contract](../../src/market_data/README.md#reviewed-provider-qualification).
 
 ## Installed dataset command
 

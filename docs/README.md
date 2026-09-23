@@ -1,25 +1,30 @@
 # Alpha Research Platform
 
-Current scope: bounded local research from retained market data to exact spot
-simulation, model studies and reports, including the completed MR09A saved-book
-baseline. The [remaining roadmap](roadmap/README.md#delivery-order-and-dependencies)
-requires quant development to complete the OKX/Bitfinex spot infrastructure stack
-before QR onboarding, including extensible research APIs, runtime, monitoring and
-capacity qualification. QR then supplies strategies, study specifications and
-research metrics/charts through those interfaces. This is planned delivery;
-no paper or live trading service is qualified or activated.
+Research starts with an economic question: can an observable market state improve
+a trading decision after costs, delay and risk? The current agenda investigates
+one execution venue and a narrow product/instrument scope, beginning with an
+opportunity map and pressure/replenishment hypotheses.
 
-Start with the [researcher guide](../examples/README.md). The maintained data
-journeys use [saved OKX L2 backtesting](research/l2-book-backtest.md) and
-[bounded Bitfinex capture/replay](data/l3-collectors.md). The [roadmap](roadmap/README.md)
-owns capability status and the OKX/Bitfinex source policy;
-[architecture](architecture/README.md) owns current package boundaries and
-[research methodology](roadmap/research-program.md) owns evaluation choices.
+Start with the [research guide](../examples/README.md) and
+[ranked agenda](../examples/research-agenda.md). The four study workbooks cover
+economic feasibility, selective liquidity-taking, liquidity shocks and selective
+liquidity provision. They specify experiments and summarize supplied study
+outputs; they do not contain empirical findings or run those strategies.
 
-The accepted [saved-data baseline](research/saved-baseline-acceptance.md) is a
-reproducible simulation, not empirical causal-source or strategy qualification.
-Legacy Binance/Tardis P1 work is deferred and unaccepted; its records are listed
-under [historical evidence](#historical-evidence).
+The platform currently supports bounded local research from retained market data
+to exact spot simulation, model studies and reports. The
+[package guides](architecture/README.md) describe these interfaces. The
+[remaining roadmap](roadmap/README.md#delivery-order-and-dependencies)
+owns completion of the OKX/Bitfinex spot stack before QR onboarding, including
+research extension points, runtime, monitoring and capacity qualification.
+No paper or live trading service is qualified or activated.
+
+The [architecture](architecture/README.md) owns package boundaries;
+[research methodology](roadmap/research-program.md) owns evaluation and trial
+records. Keep empirical research priorities separate from infrastructure delivery.
+
+The [saved L2 command](research/l2-book-backtest.md) provides bounded reproducible
+simulation. It does not establish empirical source coverage or a profitable strategy.
 
 QuantLib's unresolved source-to-wheel binding permits isolated development/CI
 through 2026-10-04 and blocks release use. See the
@@ -89,10 +94,11 @@ the QuantLib release restriction.
 | [Development workflow](governance/workflow.md) | Implementation, validation and founder activation rules |
 | [Operations runbook](governance/operations.md) | Security, monitoring, stop and recovery requirements for a future deployment |
 | [Platform infrastructure roadmap](roadmap/README.md) | Completion status, planned capabilities, dependencies and functional ownership |
-| [QR implementation guide](../examples/README.md) | Research activities: data selection/onboarding, features/labels, models/rules, backtesting, candidate promotion and monitoring; current versus planned support |
+| [Research guide](../examples/README.md) | Economic questions, four study workbooks, baseline comparisons and decision outputs |
+| [Ranked research agenda](../examples/research-agenda.md) | A1–F8 hypotheses, initial MVPs, validation and expansion priorities |
 | [Research studies and reports](../src/research/studies/README.md) | Retained saved studies, comparisons, diagnostics, configured reports, publication and serial pipelines |
 | [Experiment attempts and temporal splits](../src/research/experiments/README.md) | Semantic run identity, temporal fitting/holdout rules and append-only attempt history |
-| [Saved L2 workflow](research/l2-book-backtest.md) | Configured book simulation, real-source results and offline recovery |
+| [Saved L2 workflow](research/l2-book-backtest.md) | Configured book simulation, input limits, accounting and recovery |
 | [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |
 | [Data sources](data_source/README.md) | Sources by asset class and data type, historical coverage, access limits and dated verification evidence |
 | [Engineering guide](coding_standards/README.md) | Enforced clarity and numerical engineering requirements |
@@ -105,16 +111,3 @@ The [data command reference](../src/market_data/README.md) and
 paper trading, deployment, activation and trading stop commands remain planned.
 Keep actual release identities, data provenance and unresolved dependency
 evidence; no current result grants live readiness.
-
-## Historical evidence
-
-These records explain closed milestones or deferred work; they are not current
-quickstarts or additional implementation gates. Their hashes, measured results
-and limitations apply to the revisions and inputs identified in each record.
-
-- [Saved OKX baseline acceptance](research/saved-baseline-acceptance.md).
-- [Frozen P1 specification](research/p1-baseline.md),
-  [qualification evidence](research/source-qualification.md) and
-  [provider investigation](research/provider-records.md). No outreach is pending.
-- [Legacy P1 reproduction](research/legacy-p1-reproduction.md), requiring its
-  matching historical checkout and environment.

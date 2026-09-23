@@ -98,8 +98,6 @@ Commands run from the repository root:
   documents, including every new asset guide. The check covers local Markdown
   links and heading fragments; it skips external URLs.
 - `git diff --check`: passed.
-- `shasum -a 256 docs/research/p1-baseline.md`: unchanged at
-  `7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`.
 
 Temporary import/audit scripts and the original attachments remain local-only;
 the audit command requires those local inputs. The maintained tables and this

@@ -11,7 +11,7 @@ their labels distinguish them from the checks recorded in this guide.
 
 The new native L3 workflow prioritizes **Bitfinex R0** and **Coinbase Exchange
 Level 3**. Start with the [collector commands](../../data/l3-collectors.md#start-here)
-and [notebook operations guide](../../../examples/notebook-operations.md#acquire-and-reopen-permitted-inputs). Bitfinex has real bounded
+and [market-data guide](../../../src/market_data/README.md). Bitfinex has real bounded
 capture/replay evidence; Coinbase authenticated source acceptance awaits local
 Exchange key/secret/passphrase and account eligibility. This is live recording,
 not historical backfill.

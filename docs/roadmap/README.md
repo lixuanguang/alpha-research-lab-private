@@ -23,11 +23,10 @@ inputs → validation and versioned publication → explicit snapshot queries/re
 reports.
 
 The [data command reference](../../src/market_data/README.md) owns current
-invocations. The [saved-baseline acceptance](../research/saved-baseline-acceptance.md)
-owns the accepted OKX simulation scope. The [frozen P1 experiment](../research/p1-baseline.md)
-retains its own source sample and economic assumptions; it remains deferred and
-unaccepted. No empirical strategy, paper deployment or live trading acceptance
-is implied by the current platform.
+invocations. The [saved L2 workflow](../research/l2-book-backtest.md)
+owns the implemented OKX simulation scope and its limitations. No empirical
+strategy, paper deployment or live trading acceptance is implied by the current
+platform.
 
 ## Infrastructure completion before QR onboarding
 

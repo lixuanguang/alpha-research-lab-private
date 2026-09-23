@@ -9,13 +9,10 @@ service or an execution model.
 ## Start here
 
 Use the installed `alpha-collect` command below for deliberate acquisition.
-The [QR notebook](../../examples/research-foundations.ipynb) opens pinned research
-inputs; the [engineer notebook](../../examples/infrastructure-diagnostics.ipynb)
-diagnoses installed infrastructure with synthetic fixtures by default. These are the
-offline versions. [QR live](../../examples/research-foundations-live.ipynb) and
-[engineer live](../../examples/infrastructure-diagnostics-live.ipynb) each initiate one
-bounded public Bitfinex recording and retain its inputs for offline reopening.
-The former capture notebook's source and outputs remain in Git history.
+For pinned dataset inspection, use the [selection interfaces](../../src/market_data/README.md#discover-and-reopen-research-selections).
+The [research workbooks](../../examples/README.md) specify economic studies and
+consume retained results. The former infrastructure/capture notebooks are
+retired from active examples; their source remains in Git history.
 
 [OKX public L2](okx-market-data.md) retains aggregate levels and historical source
 clocks separately from these L3 order feeds. Coinbase remains available through
@@ -312,11 +309,6 @@ Checked 2026-09-15 UTC. Runtime `probe` also verified both configured listings.
   full, nonaggregated snapshot with sequence.
 - [Coinbase WebSocket rate limits](https://docs.cdp.coinbase.com/exchange/websocket-feed/rate-limits):
   subscription and inbound message limits; this collector sends one subscription per epoch.
-
-The Binance historical acquisition command and
-[P1 experiment specification](../research/p1-baseline.md) retain their original
-scope. Earlier notebook attempts retain their historical meaning; current
-researcher examples use OKX and Bitfinex as described above.
 
 ## Continuous quality and bounded publication
 
