@@ -106,7 +106,6 @@ Follow the [engineering guide](../coding_standards/README.md) and
 [development workflow](../governance/workflow.md). Implementation, research
 acceptance, artifact admission, deployment and trading activation remain separate.
 
-The [completed maintenance record](post-mr9a-maintenance-review.md) retains the
-post-MR9A cleanup results. New asset mechanics, scale work or organizational
+New asset mechanics, scale work or organizational
 controls need a concrete consumer; existing spot and saved-book evidence does not
 qualify additional scope.

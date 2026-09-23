@@ -14,7 +14,6 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, ClassVar
 
 # third party library imports
-import QuantLib as _ql
 from pydantic import BeforeValidator
 
 # project library imports
@@ -130,9 +129,12 @@ class QuantLibConventions:
         if end < start:
             raise ConventionError("end cannot precede start")
         try:
+            # third party library imports
+            import QuantLib as _ql
+
             if version("QuantLib") != QUANTLIB_VERSION or _ql.__version__ != QUANTLIB_VERSION:
                 raise ConventionError(f"QuantLib must be exactly {QUANTLIB_VERSION}")
-        except PackageNotFoundError as error:
+        except (ImportError, PackageNotFoundError) as error:
             raise ConventionError("QuantLib distribution is unavailable") from error
         counter: _ql.DayCounter
         try:

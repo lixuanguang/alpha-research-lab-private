@@ -109,8 +109,7 @@ These records explain closed milestones or deferred work; they are not current
 quickstarts or additional implementation gates. Their hashes, measured results
 and limitations apply to the revisions and inputs identified in each record.
 
-- [MR1–MR9A delivery history](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md) and
-  [completed maintenance](roadmap/post-mr9a-maintenance-review.md).
+- [MR1–MR9A delivery history](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md).
 - [Saved OKX baseline acceptance](research/saved-baseline-acceptance.md).
 - [Frozen P1 specification](research/p1-baseline.md),
   [qualification evidence](research/source-qualification.md) and
