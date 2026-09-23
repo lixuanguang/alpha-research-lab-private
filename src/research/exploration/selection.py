@@ -17,11 +17,15 @@ from market_data.query import (
     BookQueryBatch,
     BookQueryReader,
     InputBinding,
+    PublicTradeQuery,
+    PublicTradeReader,
+    PublicTradeResult,
     QueryBatch,
     QueryMarketRow,
     QueryReader,
 )
 from market_data.storage import RawStore
+from reference_data.catalogs import InstrumentDefinition, ReferenceHistory
 from reference_data.instruments import InstrumentId
 from research.exploration.query import EdaQuery
 from serialization import DomainCodec, WireRecord
@@ -66,7 +70,7 @@ class ResearchSelection(WireRecord, frozen=True, kw_only=True):
     """
 
     schema_version: Literal["research-selection-v1"] = "research-selection-v1"
-    inputs: tuple[TradeSelection | BookSelection, ...]
+    inputs: tuple[TradeSelection | BookSelection | PublicTradeSelection | ReferenceSelection, ...]
 
     def __post_init__(self) -> None:
         """Reject ambiguous names, unsupported input types and mixed knowledge cutoffs."""
@@ -74,7 +78,11 @@ class ResearchSelection(WireRecord, frozen=True, kw_only=True):
             self.schema_version != "research-selection-v1"
             or type(self.inputs) is not tuple
             or not self.inputs
-            or any(type(item) not in (TradeSelection, BookSelection) for item in self.inputs)
+            or any(
+                type(item)
+                not in (TradeSelection, BookSelection, PublicTradeSelection, ReferenceSelection)
+                for item in self.inputs
+            )
         ):
             raise ValueError("research selection requires supported named inputs")
         for item in self.inputs:
@@ -110,7 +118,7 @@ class ResearchSelection(WireRecord, frozen=True, kw_only=True):
                         trade.mode,
                     )
                 )
-            else:
+            elif isinstance(item, BookSelection):
                 book = item.query
                 selected.append(
                     (
@@ -124,6 +132,14 @@ class ResearchSelection(WireRecord, frozen=True, kw_only=True):
                         book.known_at,
                         book.columns,
                         book.clock,
+                    )
+                )
+            else:
+                selected.append(
+                    (
+                        item.name,
+                        "public-trades" if isinstance(item, PublicTradeSelection) else "reference",
+                        item.query.identity,
                     )
                 )
         return hashlib.sha256(
@@ -154,12 +170,69 @@ class BookResearchInput(NamedTuple):
     batches: tuple[BookQueryBatch, ...]
 
 
+class PublicTradeSelection(WireRecord, frozen=True, kw_only=True, tag="public-trades"):
+    """Name pinned public trades at their actual local knowledge cutoff."""
+
+    name: str
+    query: PublicTradeQuery
+
+    def __post_init__(self) -> None:
+        """Validate the named source selection before reading any bytes."""
+        if (
+            type(self.name) is not str
+            or re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", self.name) is None
+            or type(self.query) is not PublicTradeQuery
+        ):
+            raise ValueError("invalid named public trade selection")
+        self.query.__post_init__()
+
+
+class ReferenceSelection(WireRecord, frozen=True, kw_only=True, tag="reference"):
+    """Name a non-book input containing venue assertions known at the selected cutoff.
+
+    The query identifies its source snapshot, instruments and permitted purpose.
+    The retained bitemporal history resolves each observation/order's valid time;
+    it is never converted into trade or book rows or backdated to the trade window.
+    """
+
+    name: str
+    query: PublicTradeQuery
+
+    def __post_init__(self) -> None:
+        """Require a named pinned reference input and explicit knowledge cutoff."""
+        if (
+            type(self.name) is not str
+            or re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", self.name) is None
+            or type(self.query) is not PublicTradeQuery
+        ):
+            raise ValueError("invalid named reference selection")
+        self.query.__post_init__()
+
+
+class PublicTradeResearchInput(NamedTuple):
+    """Expose public trades with their own lineage, native units and quality reasons."""
+
+    name: str
+    result: PublicTradeResult
+
+
+class ReferenceResearchInput(NamedTuple):
+    """Expose non-book venue assertions as bitemporal reference records."""
+
+    name: str
+    instruments: tuple[InstrumentDefinition, ...]
+    history: ReferenceHistory
+
+
 class ResearchDataset(NamedTuple):
     """Return a complete bounded assembly with an immutable selection and separate typed inputs."""
 
     selection: ResearchSelection
     identity: str
-    inputs: tuple[TradeResearchInput | BookResearchInput, ...]
+    inputs: tuple[
+        TradeResearchInput | BookResearchInput | PublicTradeResearchInput | ReferenceResearchInput,
+        ...,
+    ]
 
 
 class ResearchReader:
@@ -197,7 +270,12 @@ class ResearchReader:
         """
         selection = deepcopy(selection)
         selection.__post_init__()
-        results: list[TradeResearchInput | BookResearchInput] = []
+        results: list[
+            TradeResearchInput
+            | BookResearchInput
+            | PublicTradeResearchInput
+            | ReferenceResearchInput
+        ] = []
         for item in selection.inputs:
             if isinstance(item, TradeSelection):
                 query = item.query
@@ -223,16 +301,34 @@ class ResearchReader:
                 results.append(
                     TradeResearchInput(item.name, batches, self._coverage(query, batches))
                 )
-            else:
+            elif isinstance(item, BookSelection):
                 book_batches = BookQueryReader.read(
                     self._snapshots, self._raw, readers=self._readers, query=item.query
                 )
                 results.append(BookResearchInput(item.name, book_batches))
+            else:
+                result = PublicTradeReader(self._snapshots, self._raw, readers=self._readers).read(
+                    item.query
+                )
+                if isinstance(item, PublicTradeSelection):
+                    results.append(PublicTradeResearchInput(item.name, result))
+                else:
+                    results.append(
+                        ReferenceResearchInput(item.name, result.instruments, result.references)
+                    )
         self._validate_units(tuple(results))
         return ResearchDataset(selection, selection.identity, tuple(results))
 
     @staticmethod
-    def _validate_units(results: tuple[TradeResearchInput | BookResearchInput, ...]) -> None:
+    def _validate_units(
+        results: tuple[
+            TradeResearchInput
+            | BookResearchInput
+            | PublicTradeResearchInput
+            | ReferenceResearchInput,
+            ...,
+        ],
+    ) -> None:
         """Reject contradictory quote units for the same canonical instrument before assembly."""
         quotes: dict[InstrumentId, str] = {}
         for result in results:
@@ -245,9 +341,16 @@ class ResearchReader:
                     )
                     for item in result.batches[0].evidence
                 )
-            else:
+            elif isinstance(result, BookResearchInput):
                 config = result.batches[0].evidence.request.config
                 bindings = ((config.instrument_id, config.quote_currency),)
+            else:
+                instruments = (
+                    result.result.instruments
+                    if isinstance(result, PublicTradeResearchInput)
+                    else result.instruments
+                )
+                bindings = tuple((i.instrument_id, i.quote_currency) for i in instruments)
             for instrument, quote in bindings:
                 if instrument in quotes and quotes[instrument] != quote:
                     raise ValueError("research inputs disagree on canonical instrument quote units")

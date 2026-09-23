@@ -6,7 +6,9 @@ stack before quant researcher (QR) onboarding.
 
 This page owns delivery status, remaining work and dependencies. The completed
 MR09A saved-book baseline retains its historical identity. The remaining work
-is numbered MR01–MR17 and is planned; this revision completes no capability.
+is numbered MR01–MR17. MR01 is complete for its declared read-only data/reference
+scope; MR02–MR17 remain planned. The [MR01 record](#mr01-delivery-and-acceptance)
+states its bounded support and evidence.
 Component guides own implemented behavior. Historical delivery records remain
 in Git history; P1 stays deferred and unaccepted.
 
@@ -201,6 +203,103 @@ not progress in the [research program](research-program.md).
 | MR02 | **Generalized research and decision contracts.** Extend `research.features`, `labels`, `models`, `observations` and `strategies` beyond fixed return/linear schemas: named trade/book/non-book inputs, multi-feature schemas, fitted transforms, estimator/state adapters, predictions-to-targets or order/quote intents, and batch/incremental lifecycle. Define feature entity/version/availability interfaces for MR04 and declare required capabilities for candidate admission. Run rule-only, learned and stateful reference consumers through the public contracts; future perturbation and restart preserve semantics. | MR01 and existing feature/model/split owners |
 | MR03 | **Complete study/backtest/report APIs.** Extend `research.studies`, `experiments`, `simulation` and applications with typed in-memory and serialized configuration, injected compatible implementations end to end, explicit local/deferred publication, typed result readers, temporal/walk-forward evaluation, parameter search, configurable execution/cost models and custom metrics/charts. Exercise target and order-intent strategies, including declared passive-fill/queue assumptions and sensitivity cases. A fresh feature/rule/model reaches the installed workflow without shared orchestration edits or replacement by a built-in default; attempts, exclusions and holdout history survive failures/publication retries. | MR02; reuse existing accounting/risk and reports; offline order-lifecycle contracts do not wait for a deployed OMS |
 | MR04 | **[Feature store](../architecture/platform-design.md#feature-store-contract), reproducible workspace and job services.** Provision versioned data/artifact/experiment stores and offline/online feature-store paths, with causal historical retrieval, incremental materialization, entity/schema/version validation, freshness/TTL and missingness, idempotent retry, restart and rollback. Extend the isolated Feast integration and pinned lakeFS/ClearML paths while preserving independent compatible environments. Deliver scheduling/cancellation/retry, bounded concurrent workers, secrets references, backup/restore and service health. A clean workspace reopens studies and matched-cutoff features without manual repair or replacing an active worker; job failure cannot duplicate effects. | Start from existing local services and offline bridge; MR02 feature contracts and MR01 inputs; integrate MR03; qualify online consumption with MR05/MR07; MR06 before deployment |
+
+### MR01 delivery and acceptance
+
+Status: **complete for the declared read-only data/reference scope**, 2026-09-23.
+Owner: quant development. This record concerns the current infrastructure MR01,
+not historical deliveries or any QR research milestone.
+
+Delivered through the existing owners and installed applications:
+
+- OKX/Bitfinex public spot trade backfill and bounded recent-trade polling,
+  exact native bytes/units/IDs, checked source-specific pagination, retained
+  pending receipts and restart without refetching acknowledged input.
+- Source-observed, content-versioned venue rules with valid/knowledge-time
+  resolution, explicit corrections and unknown history. Complete rules feed
+  the existing spot order-grid boundary; incomplete rules refuse admission.
+- Four independent universes, saved in public jobs and optional scoped native
+  captures. Data/source/reference/calendar requirements fail before work;
+  current readers enforce the selected collection/research/strategy boundaries.
+- Public-trade publication through the existing `RawStore` / `SnapshotStore`,
+  catalog discovery, pinned CLI reads, cutoff revision selection, typed replay
+  cursors and causal named trade/book/non-book-reference assembly. Historical
+  Binance/Tardis identities, native book formats and selected integrations remain.
+- A configuration-only OKX ETH onboarding case and an installed reference
+  consumer which creates pinned selections from completed inputs without a
+  notebook-created manifest. Negative fixtures reject unsupported products and
+  non-continuous calendars; existing C02 tests retain non-24/7 calendar evidence.
+
+Dependencies are capability slices, not completed later milestones. MR16 owns
+the shared typed admission/interface slice used here; broader package isolation,
+registry enforcement and engineering migration remain MR16/MR06 work. MR08 owns
+the reference-driven order-grid/minimum-size admission slice; independent account
+risk, reservations and reconciliation remain open. Named input assembly belongs
+to MR01; generalized features/models, study APIs and runtime promotion still
+belong to MR02/MR03/MR05. G1 as a whole and G2–G5 are not accepted by this delivery.
+
+The [data guide](../../src/market_data/README.md#public-spot-data-plane) owns commands
+and recovery. The [reference contract](../data/contracts.md#versioned-venue-specifications-and-scoped-universes)
+owns temporal facts and the four universes. Quant development's
+[installed consumer](../../tests/integration/consumers/datasets/public_data.py)
+qualifies the integrated data boundary; it is not an alpha or execution workload.
+
+Observed external evidence is retained locally under ignored `logs/mr01/`:
+
+| Boundary | Observed evidence | Limit |
+| --- | --- | --- |
+| Both public reference endpoints | Exact OKX instrument and Bitfinex exchange-pair/configuration responses | Current observations only; no authenticated historical specification history |
+| Both public historical-trade adapters | Maintained 2026-09-23 12:00:00–12:00:10 UTC job; five responses and 46,266 raw bytes; `public-backfill/acquisition.json` | Scoped endpoint responses, not an exhaustive venue tape or original availability |
+| Both recent-trade polling adapters | Configured 45-second wall interval; eight responses and 71,116 raw bytes; `public-poll/acquisition.json` | Sampled REST observations; polling gaps/completeness remain unknown |
+| OKX native L2 capture | 189 frames, one snapshot, 187 updates, 800 visible levels; no observed gaps; saved replay parity | 20-second `books` sample, 400 levels/side; no full-depth or fill-fidelity claim |
+| Bitfinex native R0 capture | 1,104 frames, one snapshot, 1,099 updates, 50 visible orders; no observed gaps; saved replay parity | 20-second `len=25` sample; no event timestamp or matching-engine completeness claim |
+| Integrated source reopening | `integrated-public-data-wheel/` publishes/reopens public trades, both books and venue specifications as four named inputs; 328 selected trades, 388 replayed observations and 60 repeated observations | Final wheel installed outside the checkout; book admission selects at most 1,000 raw positions and preserves unselected-prefix limits |
+
+Raw capture IDs and response digests remain in their original manifests; no
+historical hashes were rewritten. Failed editable invocation and the subsequent
+non-editable command are retained separately. Live source bytes need no repeat
+download when only reference validation, query projection or documentation changes;
+final readers must re-decode and verify those retained bytes. These local-only
+records are not distributed with Git; the commands and reference consumer reproduce
+the workflow with new observations, not the same market sample.
+
+Software evidence covers lost publication acknowledgement, pending-byte recovery,
+backwards receipt/durable-clock rejection without invented timestamps,
+malformed responses, changed resume configuration, source corruption, duplicate and
+late versions, independent exact amounts, reference corrections/freshness, scoped
+book exclusion, incompatible capabilities, configuration-only onboarding and an
+isolated installed CLI/assembly/replay consumer. The complete local `make check`
+gate covers source/style/typing/native contracts, ownership, dependencies/security,
+unit/integration tests and an isolated wheel installation. The final command is:
+
+```sh
+TMPDIR=/private/tmp PYTEST_ADDOPTS='--basetemp=/private/tmp/ar-mr01-check' \
+  make check > logs/mr01/make-check-final.log 2>&1
+```
+
+`make-check-final.log` retains the final results and installed-wheel location;
+`wheel-sha256.txt` pins the copied wheel under `logs/mr01/wheels/`.
+`integrated-public-data-wheel-command.log` records the final wheel's reopening of
+the retained venue inputs. The earlier full gate remains in `make-check.log`;
+its 1,272 passing tests preceded the final clock-regression test. Earlier focused
+results and source attempts are retained, not replaced by the final run. The
+existing QuantLib source-to-wheel restriction still blocks artifact release
+outside its admitted development use; resolving it belongs to MR06.
+
+Current source limitations are explicit acceptance boundaries, not empirical or
+operating qualification. Current metadata cannot establish earlier tick/lot rules;
+Bitfinex's selected public response does not supply fixed tick/quantity increments,
+so order-rule admission remains closed there. There is no Bitfinex book backfill,
+historical receipt reconstruction, continuous trade WebSocket service or proven
+complete tape in this support declaration. Continuous services/scale, richer
+candidate/runtime admission, venue execution qualification and deployment remain
+with their owning future MRs. No strategy, QR onboarding, production deployment,
+data purchase, live order or capital activation is accepted or authorized here.
+
+Reversal is an uncommitted patch review/revert. Existing snapshot/request families
+remain readable; newly authored public snapshots require the new reader family.
+Retain their exact raw bytes and matching acquisition implementation for resume.
+Do not migrate a checkpoint by editing its identity.
 
 ### Runtime, operations and handoff
 

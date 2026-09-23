@@ -50,6 +50,8 @@ children. Real orchestration belongs to `src/applications/`.
 | [Book tests](integration/test_book_backtest.py) | Saved OKX L2 CLI, independent accounts, second spot configuration, checkpoint restart and corrupt-source refusal |
 | [Capture recovery tests](unit/data/live/test_recovery.py) | Pending snapshots, duplicates, stale responses, recovery and installed replay CLI/API equality |
 | Component tests under `unit/data/` | Installed book, health and parity consumers alongside their domain regressions |
+| [Public data tests](unit/data/test_public_data.py) | Both public source parsers, pending-response recovery, four scopes, PIT venue rules, source integrity and configuration-only onboarding |
+| [Public data consumer](integration/consumers/datasets/public_data.py) | Installed CLI publication/discovery/read, named public-trade/book/reference assembly and replay continuation; accepts completed actual captures |
 
 Wheel smoke installs the hash-locked runtime without governance, checks every
 shipped API/resource and installed identity, reopens the historical snapshot,

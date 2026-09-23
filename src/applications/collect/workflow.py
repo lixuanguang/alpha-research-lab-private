@@ -16,7 +16,7 @@ from uuid import uuid4
 from websockets.exceptions import WebSocketException
 
 # project library imports
-from configuration import CaptureConfig
+from configuration import CaptureConfig, UniverseSelection
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.adapters.transport import VenueTransport
 from market_data.adapters.venues.coinbase import (
@@ -117,6 +117,7 @@ async def collect(
     snapshot_directory: Path | None = None,
     snapshot_records: int | None = None,
     health: HealthMetrics | None = None,
+    universes: UniverseSelection | None = None,
 ) -> dict[str, object]:
     """Collect one finite recording with bounded retry, durable-before-apply and replay parity.
 
@@ -135,6 +136,7 @@ async def collect(
         snapshot_directory: Optional provisioned destination for an exploratory book snapshot.
         snapshot_records: Explicit raw-prefix bound required with snapshot_directory.
         health: Optional shared progress observed by an independent supervisor.
+        universes: Optional independent scope selection retained in the capture request.
 
     Returns:
         Saved-input identity, replay parity, bounded counts and gap summary.
@@ -153,7 +155,10 @@ async def collect(
         raise CoinbaseAccessError("Coinbase Exchange credentials are required before connection")
     transport = transport if transport is not None else VenueTransport(config)
     request = CaptureRequest(
-        config=config, recording_id=str(uuid4()), implementation_identity=implementation_identity
+        config=config,
+        recording_id=str(uuid4()),
+        implementation_identity=implementation_identity,
+        universes=universes,
     )
     root = output / request.recording_id
     journal, codec = CaptureJournal(root, request), DomainCodec()
@@ -457,6 +462,7 @@ class CaptureArguments(argparse.Namespace):
     snapshot_directory: Path | None
     snapshot_records: int | None
     health_config: Path | None
+    universes: Path | None
 
 
 def main() -> None:
@@ -475,6 +481,7 @@ def main() -> None:
     capture_parser.add_argument("--snapshot-directory", type=Path)
     capture_parser.add_argument("--snapshot-records", type=int)
     capture_parser.add_argument("--health-config", type=Path)
+    capture_parser.add_argument("--universes", type=Path)
     probe_parser = commands.add_parser("probe")
     probe_parser.add_argument("--config", type=Path, required=True)
     replay_parser = commands.add_parser("replay")
@@ -507,6 +514,10 @@ def main() -> None:
                         )
                     credentials = CoinbaseCredentials.read(arguments.secrets)
                 if arguments.health_config is not None:
+                    if arguments.universes is not None:
+                        raise ValueError(
+                            "scoped capture currently requires the foreground collector"
+                        )
                     if (
                         arguments.snapshot_directory is not None
                         or arguments.snapshot_records is not None
@@ -529,6 +540,9 @@ def main() -> None:
                             implementation_identity=InstalledIdentity.sha256(),
                             snapshot_directory=arguments.snapshot_directory,
                             snapshot_records=arguments.snapshot_records,
+                            universes=None
+                            if arguments.universes is None
+                            else UniverseSelection.read(arguments.universes),
                         )
                     )
         print(DomainCodec().encode_json(result).decode(), flush=True)

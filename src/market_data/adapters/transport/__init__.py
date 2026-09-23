@@ -2,5 +2,6 @@
 
 # project library imports
 from market_data.adapters.transport.feed import VenueTransport
+from market_data.adapters.transport.public import PublicHTTPS
 
-__all__ = ["VenueTransport"]
+__all__ = ["PublicHTTPS", "VenueTransport"]

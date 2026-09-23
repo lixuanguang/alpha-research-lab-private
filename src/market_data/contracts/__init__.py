@@ -30,6 +30,15 @@ from market_data.contracts.levels import Level
 from market_data.contracts.occurrences import Occurrence
 from market_data.contracts.orders import Order
 from market_data.contracts.provenance import EventProvenance, KnowledgeBasis
+from market_data.contracts.public_trades import (
+    PublicReceipt,
+    PublicRequest,
+    PublicSource,
+    PublicSources,
+    PublicTrade,
+    PublicTransport,
+    TradePage,
+)
 from market_data.contracts.raw import RawObject, RequestBinding
 from market_data.contracts.requests import SourceRequest
 from market_data.contracts.transport import FeedSocket, SnapshotTransport
@@ -64,6 +73,12 @@ __all__ = [
     "Order",
     "PayloadDecoder",
     "PriceLevel",
+    "PublicReceipt",
+    "PublicRequest",
+    "PublicSource",
+    "PublicSources",
+    "PublicTrade",
+    "PublicTransport",
     "RawObject",
     "RequestBinding",
     "SavedPartitionReader",
@@ -72,5 +87,6 @@ __all__ = [
     "Symbol",
     "TaggedEvent",
     "Trade",
+    "TradePage",
     "TransientFetchError",
 ]

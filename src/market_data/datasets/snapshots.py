@@ -15,13 +15,16 @@ from typing import ClassVar, cast, overload
 # project library imports
 from market_data.datasets.books import BookDatasetManifest, BookPartition
 from market_data.datasets.manifests import DatasetManifest, DatasetPartition
+from market_data.datasets.public_trades import PublicTradeManifest, PublicTradePartition
 from market_data.datasets.readers import DatasetReaders
 from market_data.storage import RawStore
 from market_data.validation import QualityReport
 from serialization import DomainCodec
 
 
-class SnapshotStore[Manifest: DatasetManifest | BookDatasetManifest = DatasetManifest]:
+class SnapshotStore[
+    Manifest: DatasetManifest | BookDatasetManifest | PublicTradeManifest = DatasetManifest
+]:
     """Own atomic publication in an existing, durably provisioned local directory.
 
     Callers retain the referenced raw store and exclude external mutation/removal
@@ -62,7 +65,7 @@ class SnapshotStore[Manifest: DatasetManifest | BookDatasetManifest = DatasetMan
             ValueError: The requested snapshot format is unsupported.
         """
         self._root = root
-        if manifest_type not in (DatasetManifest, BookDatasetManifest):
+        if manifest_type not in (DatasetManifest, BookDatasetManifest, PublicTradeManifest):
             raise ValueError("unsupported snapshot manifest type")
         self._raw = raw
         self._readers = readers
@@ -96,7 +99,9 @@ class SnapshotStore[Manifest: DatasetManifest | BookDatasetManifest = DatasetMan
         if not destination.exists():
             with TemporaryDirectory(dir=self._root, prefix=".staging-") as temporary:
                 staging = Path(temporary)
-                selected: tuple[DatasetPartition | BookPartition, ...] = manifest.partitions
+                selected: tuple[DatasetPartition | BookPartition | PublicTradePartition, ...] = (
+                    manifest.partitions
+                )
                 for partition, payload in zip(selected, payloads, strict=True):
                     self._write(staging / partition.sha256, payload, max_bytes)
                 self._write(staging / "manifest.json", self._codec.encode_json(manifest), max_bytes)

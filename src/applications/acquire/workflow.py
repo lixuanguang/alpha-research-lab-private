@@ -24,6 +24,7 @@ import msgspec
 from msgspec.structs import replace
 
 # project library imports
+from applications.acquire.public import acquire_public
 from configuration import Configuration, OKXHistoryConfig, ResolvedManifest
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.providers.binance import BinanceArchiveTransport
@@ -457,8 +458,14 @@ def main(argv: list[str] | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else argv
     if arguments[:1] == ["archive"]:
         return _archive(arguments[1:])
+    if arguments[:1] == ["public"]:
+        return acquire_public(arguments[1:])
     parser = argparse.ArgumentParser(
-        description=__doc__, epilog="For native L2 archives: alpha-acquire archive --help"
+        description=__doc__,
+        epilog=(
+            "For public spot trades/reference: alpha-acquire public --help; "
+            "for native L2 archives: alpha-acquire archive --help"
+        ),
     )
     for option in ("config", "catalog", "manifest", "store"):
         parser.add_argument(f"--{option}", type=Path, required=True)
