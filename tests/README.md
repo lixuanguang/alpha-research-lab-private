@@ -108,8 +108,7 @@ It does not implicitly install Feast in the core CI environment.
 
 The [saved-source consumer](integration/consumers/backtest/source_acceptance.py)
 and [capture recovery probe](integration/consumers/capture/recovery_probe.py) need
-explicit retained external inputs. P1 is deferred; its original
-[verification contract](../docs/research/p1-baseline.md#saved-source-verification)
-and evidence identities remain historical. No provider download or outreach is a
-cleanup prerequisite. The [notebook guide](../examples/notebook-operations.md)
-owns notebook execution; closed-MR results stay in their original evidence records.
+explicit retained external inputs. Their source identity, clocks and quality must
+satisfy the [market-data contracts](../src/market_data/README.md). They do not
+implicitly download provider data. The [notebook guide](../examples/notebook-operations.md)
+owns execution of the research worksheets.

@@ -331,8 +331,8 @@ configuration is introduced. Update a row's evidence label when its primary
 documentation or selected sample is actually checked, retaining earlier results.
 
 The [roadmap](../roadmap/README.md) owns implementation scope and acceptance;
-the [P1 specification](../research/p1-baseline.md) owns its selected source
-contract. Shared event and clock semantics remain in
+each study records its selected source and coverage requirements in its
+[protocol](../../examples/study-protocol.md). Shared event and clock semantics remain in
 [data contracts](../data/contracts.md) and
 [point-in-time semantics](../data/point-in-time-semantics.md). This catalog adds
 no acquisition adapter, live collector or notebook stream.

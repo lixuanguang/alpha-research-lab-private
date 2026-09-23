@@ -9,14 +9,13 @@ spot simulation. Broker integration and strategy monitoring remain planned; the
 roadmap records exact supported scope.
 
 The immediate operating model is a single founder using the accepted
-[bounded saved-data simulation baseline](../research/saved-baseline-acceptance.md).
+[bounded saved-data simulation](../research/l2-book-backtest.md).
 The MR09A saved-book baseline is implemented and closed. Future work uses OKX or
 Bitfinex where possible; Binance and Tardis are excluded because of availability,
 as specified by the [platform data policy](README.md#current-platform).
-The [frozen P1 hypothesis](../research/p1-baseline.md) remains deferred and unaccepted,
-with historical source evidence unresolved. The single [implementation roadmap](README.md) owns delivery of its library operations and
-orchestrator pipelines. The [QR implementation guide](../../examples/README.md#research-activities-and-journey)
-owns the activity-based journey and current usage; this page owns methodology and
+The single [implementation roadmap](README.md) owns delivery of library operations
+and orchestrator pipelines. The [research guide](../../examples/README.md) and [ranked agenda](../../examples/research-agenda.md)
+own the initial economic questions, MVP ordering and study workbooks; this page owns methodology and
 research records. Candidate research plans do not duplicate the infrastructure backlog.
 
 The [infrastructure completion policy](README.md#infrastructure-completion-before-qr-onboarding)
@@ -83,22 +82,21 @@ stability over one headline return.
 
 ## Notebook research and package promotion
 
-The founder selected long-lived, activity-based notebooks on 2026-09-13.
-The 2026-09-14 retention decision versions maintained `.ipynb`, `.py` and `.md`
-files under repository-root `examples/`; generated runs and kernel files remain
-local and ignored. The 2026-09-19 cleanup keeps two maintained reader journeys:
-the [QR workflow](../../examples/research-foundations.ipynb), ordered from research
-question through the current data/EDA capabilities and planned later stages, and
-[engineering diagnostics](../../examples/infrastructure-diagnostics.ipynb) for
-installed infrastructure, failure and recovery observations. Source acquisition
-uses the existing commands. The 2026-09-20 follow-up gives each journey an explicit
-live and offline version: [QR live](../../examples/research-foundations-live.ipynb) and
-[engineer live](../../examples/infrastructure-diagnostics-live.ipynb) acquire bounded
-public recordings through those commands; their saved studies reopen offline.
-Separate data-fetching, strategy or monitoring
-notebooks are conditional on distinct working content that warrants separation.
-They are test beds for new ideas and may span many implementation MRs; an MR records the
-relevant notebook section and decisive scenario rather than requiring a new file.
+The 2026-09-23 refresh replaces the previous QR software walkthrough as the
+research entrypoint. The [research guide](../../examples/README.md) now starts with
+an opportunity map, selective liquidity-taking, replenishment-conditioned shocks
+and selective liquidity provision. Their workbooks are experiment designs with
+analysis worksheets, awaiting empirical inputs. The [A1–F8 agenda](../../examples/research-agenda.md)
+ranks the initial economic questions; the R01–R16 workstreams below remain a
+broader methodology catalog, not a competing sequence of required projects.
+
+The earlier 2026-09-13 activity-based and 2026-09-14 retention decisions remain:
+maintain working examples by research purpose, version sources, and retain
+attempts separately. The 2026-09-19/20 software and capture notebooks have been
+retired from the active examples; their source remains in Git history. Historical
+runs keep their original identities and locations. Source acquisition continues
+to use the existing commands. The refresh changes research framing, not supported
+runtime capabilities or historical evidence.
 
 Exploratory source calls, transformations, signals, models and visualizations
 may be developed locally without first turning every experiment into a package

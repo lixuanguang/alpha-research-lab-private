@@ -24,10 +24,9 @@ validity interval.
 
 ## Binance archive source amendment
 
-On 2026-09-15 the founder selected public Binance daily trade archives for the
-[P1 sample](../research/p1-baseline.md). Acquisition downloads and retains exact ZIP
-bytes. The archive `time` is exchange event time: milliseconds for the selected
-2024 sample, microseconds for spot archives from 2025-01-01. These rows supply
+The implemented public Binance daily-trade acquisition retains exact ZIP bytes.
+The archive `time` is exchange event time: milliseconds for 2024 rows,
+microseconds for spot archives from 2025-01-01. These rows supply
 neither recorder capture nor historical knowledge clocks or disconnect markers.
 Do not pass them through the Tardis decoder or invent its required capture prefix.
 

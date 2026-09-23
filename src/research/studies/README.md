@@ -182,7 +182,7 @@ availability policy before computation. Repository JSON and self-contained HTML
 retain metric definitions, thresholds, counts, exclusions and numerical results.
 They are repository reports, not Evidently output. Local bytes survive
 publication failure and `publish_experiments` retries those bytes without
-redoing research. See the [QR window journey](../../../examples/README.md#compare-reference-and-current-windows).
+redoing research. Use the [study protocol](../../../examples/study-protocol.md#time-comparisons-and-uncertainty) to define comparison periods and information boundaries.
 
 ## Configured economics, reports and serial pipelines
 

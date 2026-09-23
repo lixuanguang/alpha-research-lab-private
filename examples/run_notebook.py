@@ -33,7 +33,7 @@ def main() -> None:
         "notebook",
         nargs="?",
         type=Path,
-        default=examples / "research-foundations.ipynb",
+        default=examples / "opportunity-map.ipynb",
         help="Notebook path, relative to the working directory; must be under examples/.",
     )
     parser.add_argument(

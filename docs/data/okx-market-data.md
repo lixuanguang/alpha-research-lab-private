@@ -7,7 +7,7 @@ the [saved L2 backtest](../research/l2-book-backtest.md) selects **ETH-USDT spot
 Each configuration has its own canonical listing ID. USDT is not USD.
 
 Use the [installed commands](#installed-commands) for acquisition and the
-[QR notebook](../../examples/research-foundations.ipynb) for pinned dataset inspection.
+[selection interfaces](../../src/market_data/README.md#discover-and-reopen-research-selections) for pinned dataset inspection.
 Binance history and the frozen P1 baseline remain separate. Shared
 [publication and book replay](../../src/market_data/README.md#published-book-queries-and-shared-stepping)
 preserve OKX's distinct L2 and historical coverage limits.

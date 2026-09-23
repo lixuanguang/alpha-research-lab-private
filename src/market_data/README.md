@@ -252,9 +252,8 @@ uses a full-day request; cross-midnight/Tardis policies fail before HTTP.
 The transport verifies compressed and expanded limits and publishes no raw
 completion on checksum, ZIP, member or size failure. Archive rows expose exchange
 event time only; local acquisition time is not historical knowledge, and the
-transport does not validate CSV semantics, eligibility or coverage. The [P1
-source contract](../../docs/research/p1-baseline.md) and [legacy reproduction](../../docs/research/legacy-p1-reproduction.md)
-retain the deferred sample's historical meaning.
+transport does not validate CSV semantics, eligibility or coverage. Those belong
+to the decoded dataset's [quality and admission rules](#reviewed-provider-qualification).
 
 ## Saved Binance archive rows
 
@@ -437,7 +436,7 @@ Book results retain native receipt/source fields, sequence/position and controls
 unknown archive availability yields an empty value result with a reason. L2
 fields are `bids`/`asks`, L3 fields are `orders`; incompatible fields and
 contradictory currencies fail. See the [research selection contract](../../docs/architecture/platform-design.md#current-and-planned-repository-shape)
-and [QR journey](../../examples/README.md#select-and-inspect-research-data).
+and [research study protocol](../../examples/study-protocol.md#research-ticket).
 
 ## Bounded saved books
 
@@ -525,9 +524,8 @@ alpha-dataset publish --inputs /absolute/reviewed/dataset-input.json \
 
 This is a bounded evidence gate, not an evidence registry or provider
 authentication service. Existing v1/v2 records remain readable; mixed admission
-scopes in one snapshot remain unsupported. The [source-qualification record](../../docs/research/source-qualification.md)
-and [legacy P1 guide](../../docs/research/legacy-p1-reproduction.md) retain the
-historical sample's unresolved status.
+scopes in one snapshot remain unsupported. A successful software fixture does not
+supply the historical evidence needed to admit a real sample.
 
 For deeper implementation coverage, use the focused [unit and integration
 tests](../../tests/README.md). The application owns command composition and exit
