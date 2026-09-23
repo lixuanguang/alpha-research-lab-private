@@ -14,8 +14,8 @@ import polars as pl
 from msgspec.structs import replace
 
 # project library imports
-from research.experiments import FeatureLabelPayload
 from research.features import FeatureObservation, OfflineFeatureRequest
+from research.studies import FeatureLabelPayload
 from serialization import DomainCodec, WireRecord
 
 _MAX_ROWS = 4_096

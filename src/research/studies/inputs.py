@@ -7,8 +7,8 @@ from datetime import timedelta
 
 # project library imports
 from market_data.query import QueryReader
-from research.experiments.configuration import BacktestRun
 from research.features import FeatureValue
+from research.studies.configuration import BacktestRun
 from serialization import WireRecord
 
 

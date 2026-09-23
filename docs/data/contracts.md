@@ -443,7 +443,7 @@ The decoding boundary is covered by
 [`test_tardis_binance.py`](../../tests/unit/data/providers/tardis/test_tardis_binance.py),
 and [`test_binance_decoder.py`](../../tests/unit/data/venues/binance/test_binance_decoder.py).
 These tests cover the library boundary; the
-[frozen baseline acceptance](../roadmap/README.md#frozen-baseline-acceptance)
+[frozen baseline acceptance](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance)
 identifies the remaining end-to-end requirements.
 
 ## Installed dataset command

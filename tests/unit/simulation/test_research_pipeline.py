@@ -13,15 +13,14 @@ from msgspec.structs import replace
 
 # project library imports
 from financial_units import ExactRatio
-from research.experiments import (
+from research.experiments import TemporalSplit, TimeWindow
+from research.studies import (
     BacktestRun,
     BenchmarkPeriod,
     ClearMLDestination,
     ComparisonStudy,
     PipelineRun,
     ReportPolicy,
-    TemporalSplit,
-    TimeWindow,
 )
 from serialization import DomainCodec
 

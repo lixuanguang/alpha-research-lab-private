@@ -37,8 +37,15 @@ from market_data.storage import RawFiles, RawStore
 from market_data.validation import Correction, QualityPolicy, TradeRevision
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import EligibilityAssertions
-from research.experiments import (
-    AttemptStore,
+from research.experiments import AttemptStore, TemporalSplit, TimeWindow
+from research.features import (
+    ScheduledFeatureCheckpoint,
+    ScheduledFeatureParity,
+    ScheduledFeatures,
+    TrailingReturn,
+    WindowPolicy,
+)
+from research.studies import (
     BacktestRun,
     BenchmarkPeriod,
     ClearMLDestination,
@@ -47,15 +54,6 @@ from research.experiments import (
     PublicationReceipt,
     ReportPolicy,
     ResultManifest,
-    TemporalSplit,
-    TimeWindow,
-)
-from research.features import (
-    ScheduledFeatureCheckpoint,
-    ScheduledFeatureParity,
-    ScheduledFeatures,
-    TrailingReturn,
-    WindowPolicy,
 )
 from serialization import DomainCodec
 from simulation import (
@@ -68,18 +66,18 @@ from simulation import (
 
 
 class _ReportInterruption:
-    """Interrupt the real atomic report rename after earlier output files exist."""
+    """Interrupt the atomic report link after its content and earlier outputs exist."""
 
     def __init__(self) -> None:
         """Keep the actual filesystem operation for unrelated attempt records."""
-        self._replace = os.replace
+        self._link = os.link
 
     def __call__(self, source: Path, destination: Path) -> None:
-        """Fail at report visibility while leaving staging and completed earlier artifacts."""
+        """Fail at report visibility while leaving retained content and earlier artifacts."""
         if destination.name == "artifact-report-html.bin":
             assert source.is_file() and not destination.exists()
             raise OSError("injected report publication interruption")
-        self._replace(source, destination)
+        self._link(source, destination)
 
 
 class _SavedEconomy:
@@ -379,7 +377,7 @@ class _SavedEconomy:
                         codec.encode_json(manifest)
                         == (output / "configured-expected.json").read_bytes()
                     )
-        with patch.object(os, "replace", _ReportInterruption()):
+        with patch.object(os, "link", _ReportInterruption()):
             try:
                 run_configured(
                     config,
@@ -403,7 +401,6 @@ class _SavedEconomy:
         failed = next(h for h in histories if h.status == "failed")
         assert "economic-reference" in AttemptStore(attempts).artifacts(failed.start.attempt_id)
         assert "report-html" not in AttemptStore(attempts).artifacts(failed.start.attempt_id)
-        assert tuple((attempts / failed.start.attempt_id).glob(".pending-*"))
         try:
             ResultManifest.read(AttemptStore(attempts), failed.start.attempt_id)
         except ValueError:

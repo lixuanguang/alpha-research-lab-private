@@ -129,7 +129,7 @@ or activation. Existing release and operating boundaries remain applicable.
 ## Small records and artifacts
 
 Keep small versioned records as durable research evidence. The
-[selected integrations](README.md#selected-research-integrations) add ClearML tracking,
+[selected integrations](history-mr1-to-mr9a.md#selected-research-integrations) add ClearML tracking,
 model records and workflow execution from MR 4 onward, followed by versioned dataset
 and feature access. These tools index and consume the retained contracts; mutable
 dashboard metadata does not replace them. Assign a stable `strategy_id` from the first formal

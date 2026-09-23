@@ -89,7 +89,7 @@ and existing allowance expiry remain unchanged.
 ## First deployment dependency decision
 
 Status: planned deployment dependency decision, 2026-09-14; the current release block is unchanged.
-Before the [first trusted deployment consumer](../roadmap/README.md#trusted-deployment-artifact)
+Before the [first trusted deployment consumer](../roadmap/future-mr10-to-mr21.md#trusted-deployment-artifact)
 needs an artifact, choose the smallest enforceable path for its actual graph:
 
 - Admit the required QuantLib build/source provenance under an implemented,
@@ -134,7 +134,7 @@ Evidently is **not admitted or installed**. Compatible Evidently 0.4.36 and late
 audit with PYSEC-2026-3740 / CVE-2026-81726, and the
 [upstream advisory lists no patched release](https://github.com/advisories/GHSA-8mgp-746c-j5xp).
 Removing that unused graph restores a clean audit; no finding is waived. The
-[accepted MR 7 tool amendment](../roadmap/README.md#diagnostic-tool-requirement-amendment)
+[accepted MR 7 tool amendment](../roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
 permits an admitted diagnostic implementation without Evidently. MR 7 remains
 incomplete until that consumer and its required verification exist.
 The existing QuantLib allowance and release block remain unchanged.
@@ -207,7 +207,7 @@ unused NLP features, older affected NLTK versions and `--no-deps` installation
 cannot clear this blocker.
 
 The founder subsequently authorized an explicit
-[change to MR 7's tool requirement](../roadmap/README.md#diagnostic-tool-requirement-amendment)
+[change to MR 7's tool requirement](../roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
 on 2026-09-21. The required reference/current diagnostic capability may now use
 admitted computation dependencies; Evidently is optional. The existing lock and
 license records include SciPy 1.18.1, which provides an implementation candidate.

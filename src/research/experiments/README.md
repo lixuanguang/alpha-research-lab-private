@@ -1,17 +1,46 @@
 # Experiment attempts and temporal splits
 
-Owner: repository founder. Updated 2026-09-21. **Implemented for bounded local
+Owner: repository founder. Updated 2026-09-23. **Implemented for bounded local
 research.** The curated `research.experiments` API owns semantic identities,
 earlier-only temporal folds and append-only execution history. It has no command.
 `applications.explore.inspect_experiment` is the first working consumer, using
 `research.exploration.ExplorationStudy` and the existing pinned research reader.
 The [research program](../../../docs/roadmap/research-program.md) owns methodology;
-[MR 2](../../../docs/roadmap/README.md#experiment-attempts-and-temporal-splits) owns
+[MR 2](../../../docs/roadmap/history-mr1-to-mr9a.md#experiment-attempts-and-temporal-splits) owns
 delivery acceptance. The same application now retains
 [versioned feature/label diagnostics](../features/README.md) through `FeatureStudy`.
 The [model workflow](../models/README.md) now consumes these retained boundaries.
 Configured economic reports and local serial pipelines are implemented below. Candidate
 promotion and deployment remain separate future work.
+
+## Import boundary
+
+The package API exports only the lightweight identity, temporal-fold and attempt
+records needed to describe and retain an experiment:
+
+```python
+from research.experiments import (
+    AttemptStore,
+    ExperimentSpec,
+    Fingerprint,
+    TemporalSplit,
+    TimeWindow,
+)
+```
+
+Comparison, reporting, diagnostics, pipeline and ClearML types now belong to the
+curated `research.studies` API:
+
+```python
+from research.studies import ClearMLDestination, ComparisonStudy, ResultManifest
+```
+
+This deliberately replaces their former `research.experiments` imports; owned
+callers and maintained examples have migrated together. Implementations moved
+without changing record schemas. Opening an attempt store no longer initializes
+ClearML, Optuna or the study implementations. The exact financial-unit codec
+still loads its foundational pandas/NumPy dependencies. Historical notebooks
+retain the imports from their identified original checkout.
 
 ## Bounded comparison and factor diagnostics
 
@@ -69,15 +98,17 @@ Turnover follows Alphalens' daily resampling convention; an intraday fixture
 without a prior daily observation retains unavailable turnover values, not invented
 zeroes. These factor statistics do not measure executable strategy economics.
 
-The [installed feature consumer](../../../tests/integration/consumers/research/feature_study.py)
+The [factor regressions](../../../tests/unit/research/test_diagnostics.py) verify
+local report retention. The
+[installed feature consumer](../../../tests/integration/consumers/research/feature_study.py)
 and [installed economic consumer](../../../tests/integration/consumers/backtest/economic_workflow.py)
-exercise these paths with unavailable publication, establishing local retention.
+exercise installed boundaries with unavailable publication.
 The separate [ClearML verifier](../../../tests/integration/consumers/research/clearml_publication.py)
 round-trips their retained artifacts with the explicit private configuration in
 the [service runbook](../../../configs/development/clearml/README.md). The maintained
 [QR activity notebook](../../../examples/research-foundations.ipynb) retains a
 rule-only comparison without fitting. Exact final verification and blockers are
-owned by [MR 7](../../../docs/roadmap/README.md#research-comparison-and-extension).
+owned by [MR 7](../../../docs/roadmap/history-mr1-to-mr9a.md#research-comparison-and-extension).
 
 ## Reproducible inputs and execution attempts
 
@@ -241,9 +272,14 @@ wheel/environment for reproduction. No deployment or trading authority is added.
 The [model consumer](../models/README.md) adds exact predictive evaluations and
 usable model artifacts to this same single-writer root. `retain` atomically adds
 supplemental bytes, including artifacts belonging to failed/rejected executions;
-an identical retry succeeds and different replacement bytes fail. `artifact` and
-`artifacts` reopen only committed records. Terminal attempt events and holdout
-history retain their original schemas and immutability.
+an identical retry succeeds and different replacement bytes fail. Identical
+artifact bytes retained by separate attempts share one content-addressed store
+entry while each attempt keeps its named reference. `ResultManifest` verifies
+the digest on every read. `AttemptStore.export` creates an immutable hard-link
+alias for a retained artifact before a caller edits a separate working copy;
+there is no automatic pruning. `artifact` and `artifacts` reopen only committed
+records. Terminal attempt events and holdout history retain their original
+schemas and immutability.
 
 Formal model workflows require `ClearMLDestination`. Existing unfitted
 `inspect_experiment` callers retain compatibility; passing `tracking` opts that

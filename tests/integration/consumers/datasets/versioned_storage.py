@@ -22,7 +22,8 @@ from lakefs_sdk import ApiClient, Configuration
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
 from market_data.storage import DatasetVersion, LakeFSStorage, RawStore, VersionedObject
-from research.experiments import AttemptStore, BacktestRun, ResearchInputs
+from research.experiments import AttemptStore
+from research.studies import BacktestRun, ResearchInputs
 from serialization import DomainCodec
 
 

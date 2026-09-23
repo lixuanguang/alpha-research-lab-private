@@ -14,18 +14,17 @@ from applications.backtest.workflow import run_backtest
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
 from market_data.storage import RawStore
-from research.experiments import (
-    AttemptStore,
+from research.experiments import AttemptStore, ExperimentSpec
+from research.exploration import EdaQuery, QuerySummary, ResearchSelection, TradeSelection
+from research.studies import (
     BacktestRun,
     ClearMLDestination,
     ComparisonStudy,
-    ExperimentSpec,
     ParameterComparison,
     QuantStatsReport,
     ResearchInputs,
     TrialEvaluation,
 )
-from research.exploration import EdaQuery, QuerySummary, ResearchSelection, TradeSelection
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 from simulation import EconomicResult, VectorbtAdapter

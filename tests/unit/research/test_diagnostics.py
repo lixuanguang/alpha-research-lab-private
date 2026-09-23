@@ -3,27 +3,43 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 from datetime import UTC, datetime, timedelta
 from fractions import Fraction
+from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 
 # project library imports
+from applications.explore import compare_factors
 from financial_units import ExactRatio
 from reference_data.instruments import InstrumentId
-from research.experiments.diagnostics import (
+from research.experiments import (
+    AttemptStore,
+    ExperimentSpec,
+    Fingerprint,
+    SampleInterval,
+    TemporalSplit,
+    TimeWindow,
+)
+from research.features import FeatureValue, PriceWindow, TrailingReturn, WindowPolicy
+from research.labels import ForwardReturn, LabelValue
+from research.studies import (
     AlphalensDiagnostics,
+    AlphalensReport,
     AlphalensStudy,
+    ClearMLDestination,
+    ClearMLPublication,
     FactorDirection,
     FeatureLabelPayload,
     PriceConvention,
     QuantileRule,
+    ResultManifest,
 )
-from research.experiments.splits import SampleInterval
-from research.features import FeatureValue, PriceWindow, TrailingReturn, WindowPolicy
-from research.labels import ForwardReturn, LabelValue
 from serialization import DomainCodec
 
 _START = datetime(2024, 1, 1, tzinfo=UTC)
@@ -235,3 +251,86 @@ class TestAlphalensDiagnostics:
             "cross-sectional statistics require at least two assets at one decision"
         )
         assert report.information_coefficients == ()
+
+    def test_application_retains_factor_report_without_consuming_holdout(
+        self, tmp_path: Path
+    ) -> None:
+        """Retain a completed factor report when its publication transport is unavailable."""
+        payload = _payload()
+        split = TemporalSplit(
+            training=None,
+            fit_cutoff=None,
+            fit_mode="none",
+            samples=payload.samples,
+            embargo_us=0,
+            rationale="Independent validation-only factor fixture",
+            validation=TimeWindow(start=_START, end=_START + timedelta(minutes=1)),
+            holdout=TimeWindow(
+                start=_START + timedelta(minutes=2), end=_START + timedelta(minutes=3)
+            ),
+        )
+        payload = replace(payload, split_identity=split.identity)
+        payload_bytes = DomainCodec().encode_json(payload)
+        source_spec = ExperimentSpec(
+            family="factor-source",
+            inputs=(
+                Fingerprint(
+                    name="feature-result", sha256=hashlib.sha256(payload_bytes).hexdigest()
+                ),
+            ),
+            components=(Fingerprint(name="implementation", sha256="b" * 64),),
+            parameters=(),
+            seeds=(),
+            environment_sha256="c" * 64,
+            split=split,
+        )
+        with AttemptStore(tmp_path) as store:
+            source = store.start(
+                source_spec,
+                at=_START,
+                invocation="synthetic factor source",
+                request=payload_bytes,
+            )
+            store.finish(
+                source.attempt_id,
+                status="completed",
+                at=_START,
+                reason="retained factor fixture",
+                result=payload_bytes,
+            )
+        destination = ClearMLDestination(
+            project="factor-unit",
+            api_uri="http://127.0.0.1:18008",
+            files_uri="http://127.0.0.1:18081",
+        )
+        with patch.object(
+            ClearMLPublication, "publish", side_effect=ConnectionError("offline factor fixture")
+        ):
+            with patch("runtime.identity.ImplementationIdentity.sha256", return_value="d" * 64):
+                with pytest.raises(ConnectionError, match="offline factor fixture"):
+                    compare_factors(
+                        _study(group_adjust=True, demeaned=False),
+                        family="factor-application",
+                        source_attempt=source.attempt_id,
+                        source_sha256=hashlib.sha256(payload_bytes).hexdigest(),
+                        split=split,
+                        attempts=tmp_path,
+                        tracking=destination,
+                    )
+        with AttemptStore(tmp_path) as store:
+            histories = tuple(
+                history
+                for history in store.histories()
+                if history.start.attempt_id != source.attempt_id
+            )
+            assert len(histories) == 1 and histories[0].status == "completed"
+            report = DomainCodec().decode_json(
+                store.artifact(histories[0].start.attempt_id, "factor-diagnostics"),
+                AlphalensReport,
+            )
+            ResultManifest.read(store, histories[0].start.attempt_id)
+            assert report.inapplicable_reason is None
+            assert len(report.eligible_rows) == 4
+            assert report.information_coefficients
+            assert report.information_coefficients[0].value == pytest.approx(1.0)
+            assert all(event.status != "holdout_consumed" for event in histories[0].events)

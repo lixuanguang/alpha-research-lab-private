@@ -1,9 +1,10 @@
 # Post-MR9A maintenance review
 
 Owner: repository founder. Assessed 2026-09-23 against clean `main` at `aa6d6f0`,
-before the accompanying documentation edits. The subsequent acceptance-scaffolding
-cleanup is recorded below; other findings remain assessments. Runtime behavior,
-notebooks and retained evidence bytes are unchanged.
+before the accompanying documentation edits. Subsequent cleanup passes are
+recorded below. The original findings describe that assessed revision; each pass
+states its own changes and validation. Retained historical evidence bytes remain
+unchanged.
 
 The founder confirms MRs through 9A are implemented and closed. Future work follows
 the [OKX/Bitfinex data policy](README.md#current-platform). Closure does not erase
@@ -89,6 +90,82 @@ model-workflow attempts exercised the service verifier's publication ordering,
 corrupt-byte refusal, receipt interruption and restart dispatch with fake remote
 transport. Local links passed across 51 Markdown documents, including component
 and runbook paths outside `docs/`.
+
+### Remaining maintenance cleanup
+
+The founder authorized the remaining candidates on 2026-09-23. This pass removes
+the untracked, byte-identical `clearml_publication 2.py` and redundant
+`history-mr1-to-mr9a 2.md` (verified against the preserved Git version), and consolidates 84
+generated-output copies across 23 SHA-256 groups in `logs/book-backtest/` and
+`logs/saved-baseline/`. Those names now share read-only hard links: all original
+paths and bytes remain, while duplicate file contents total **120,436,145 bytes
+(114.9 MiB)**. This is logical deduplication, not a filesystem free-space measure.
+The local receipt is `logs/retained-output-deduplication-2026-09-23.json`; all seven
+completed manifests in the six affected stores reopened successfully afterward.
+
+New `AttemptStore` artifacts share immutable content by digest within the same
+store while preserving per-attempt names and existing readers. Book runs encode
+each named artifact once and link exports to retained bytes on the same filesystem.
+Old independent exports and report/checkpoint schemas remain readable under the
+existing identity checks. Full reports still embed observations and account state
+for reader compatibility. There is no automatic evidence pruning. Editing a
+retained output requires a separate working copy, not changing a shared link.
+
+Core experiment identity, temporal splits and attempt storage stay in
+`research.experiments`. The existing study, report and integration implementations
+move into the public `research.studies` owner. Maintained callers and examples use
+that boundary; archived notebook bytes remain tied to their historical checkout.
+The package split preserves the public-import governance rule without lazy export
+machinery or duplicate record implementations. Core imports still load pandas and
+NumPy through the foundational financial-unit codec, but no longer load ClearML,
+Optuna or the study implementations.
+
+The feature consumer falls from 725 to 470 lines; the consumer tree falls from
+4,933 to 4,688 lines. It retains installed feature/model execution and fresh-process
+reopening. Factor and model-outcome checks move to discovered domain tests;
+existing window tests own delayed labels, reproducibility and failure/tamper
+checks. Historical P1 work is archived, and the maintained live notebook selects
+Bitfinex book capture or saved-recording replay with no network call by default.
+The active roadmap separates current delivery from closed execution history while
+preserving future MR acceptance contracts and historical links.
+
+Three bounded implementation agents used `gpt-5.6-luna` at `max` for the import,
+test and documentation work. The main agent owns content consolidation, integration
+and final validation. No provider download or live-service acceptance was requested.
+
+Validation on 2026-09-23: `env -u ALPHA_CLEARML_LOCAL_ENV TMPDIR=/private/tmp
+make check` passed on CPython 3.14.7 / macOS arm64: **1,251 tests passed**, three
+performance cases deselected, zero skips, all configured static/security/dependency
+checks, and fresh installed-wheel OKX verification. The log is
+`/private/tmp/post-mr9a-maintenance-check.log`; wheel evidence is
+`/private/tmp/alpha-research-wheel-smoke-tn2glbhn/`. A final test-fixture simplification
+also passed focused Ruff, strict mypy and all seven factor tests.
+
+Local links passed across all 54 maintained Markdown files, including component
+and example guides. All six notebook files parsed; the historical live notebook
+matches the original bytes (SHA-256
+`1a4c6fdd3abbdd140f74aef0e6f5cdd26a95b2d7a28d8189f86daf248cf304e5`), and every
+original roadmap heading anchor remains available. The active notebook has 184
+code lines. Its default path ran without creating an attempt; saved Bitfinex replay
+produced 27 market states from the 32-position prefix with network access blocked.
+The successful replay is retained at
+`data/notebooks/research-live/73ba85df-0b19-4e16-b5ed-e97ee5967b9a/`.
+No new capture or live-service acceptance was run.
+
+An isolated installed core import loaded 853 modules, compared with the original
+1,812-module observation; ClearML, Optuna and `research.studies` were absent.
+This is an import-graph observation, not a timing benchmark. The deduplication
+receipt was rechecked against all 84 paths, digests and read-only hard links;
+the installed reader reopened all seven historical completed manifests afterward.
+
+Pre-merge confirmation on 2026-09-23: the founder selected local CI as the merge
+gate because GitHub Actions credits were exhausted. A fresh
+`env -u ALPHA_CLEARML_LOCAL_ENV TMPDIR=/private/tmp make check` passed with
+**1,251 tests passed**, three performance cases deselected, zero skips, all
+configured static/security/dependency checks, and installed-wheel verification.
+The log is `/private/tmp/post-mr9a-maintenance-premerge-ci.log`; wheel evidence is
+`/private/tmp/alpha-research-wheel-smoke-1bebawdj/`. The merge uses `[skip ci]`;
+repository CI configuration remains unchanged.
 
 ## Original findings
 

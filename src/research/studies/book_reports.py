@@ -9,8 +9,8 @@ from fractions import Fraction
 
 # project library imports
 from configuration import BookRun
-from research.experiments.reports import QuantStatsReport
 from research.observations import BookFeature
+from research.studies.reports import QuantStatsReport
 from serialization import DomainCodec, WireRecord
 from simulation import BookCheckpoint
 

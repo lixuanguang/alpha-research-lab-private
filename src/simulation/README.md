@@ -1,7 +1,7 @@
 # Bounded spot economics
 
 Owner: repository founder. Status: implemented for synthetic/offline research;
-verification is recorded in [MR 5](../../docs/roadmap/README.md#first-economic-backtest).
+verification is recorded in [MR 5](../../docs/roadmap/history-mr1-to-mr9a.md#first-economic-backtest).
 The [frozen baseline](../../docs/research/p1-baseline.md) owns the experiment's
 assumptions. This library does not establish historical source coverage, empirical
 alpha, executable liquidity, release admission or trading authority.

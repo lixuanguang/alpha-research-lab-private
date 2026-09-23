@@ -10,8 +10,7 @@ from typing import Literal
 
 # project library imports
 from financial_units import ExactRatio
-from research.experiments.identity import Fingerprint
-from research.experiments.splits import TimeWindow
+from research.experiments import Fingerprint, TimeWindow
 from serialization import WireRecord
 
 

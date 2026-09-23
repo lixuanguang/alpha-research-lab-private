@@ -36,7 +36,7 @@ building or verifying an artifact never grants trading authority.
 
 ## Delivery dependency
 
-The [artifact verification package](../roadmap/README.md#trusted-deployment-artifact)
+The [artifact verification package](../roadmap/future-mr10-to-mr21.md#trusted-deployment-artifact)
 implements this contract for the first concrete deployment target. It must
 precede any deployed collector or paper/shadow runtime;
 it does not depend on a strategy or executable venue adapter. Bounded activation binds

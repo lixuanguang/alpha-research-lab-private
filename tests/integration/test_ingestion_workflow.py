@@ -1,4 +1,4 @@
-"""Retain one fresh-process test spanning acquisition recovery through saved EDA."""
+"""Retain installed feature and ingestion boundaries through fresh processes."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ class TestIngestionWorkflow:
     """Use installed commands outside the checkout; only source HTTP is synthetic."""
 
     @pytest.mark.integration
-    def test_saved_feature_label_study(self, tmp_path: Path) -> None:
-        """Reopen evidenced synthetic revisions through the installed retained diagnostic."""
+    def test_installed_feature_label_and_model_recovery(self, tmp_path: Path) -> None:
+        """Check copied feature/label inputs and retained model bytes in the installed process."""
         for source in (
             "configs/data-jobs/binance-archive.json",
             "configs/reference/binance-archive-spot.json",

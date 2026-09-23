@@ -248,7 +248,7 @@ Focused coverage is in
 [`test_serialization.py`](../../tests/unit/test_serialization.py), alongside
 the financial-unit tests that exercise exact Currency values. These references
 describe library coverage. The
-[frozen baseline acceptance](../../docs/roadmap/README.md#frozen-baseline-acceptance)
+[frozen baseline acceptance](../../docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance)
 identifies the remaining end-to-end requirements.
 
 ## Configured fixture command
@@ -1547,7 +1547,7 @@ new fields and retain their identities; older readers cannot consume version 3.
 Mixing admission scopes in one snapshot remains unsupported. Memory use is bounded
 by explicit input limits, not streaming or a process-wide memory ceiling.
 
-The [QR notebook](../../examples/research-foundations-live.ipynb) accepts the same
+The [preserved P1 notebook](../../examples/research-foundations-live-p1-evidence.ipynb) accepts the same
 file through `ALPHA_P1_ADMISSION_INPUT`, retains `dataset-input.json` and an original
 `version-inventory.json`, and reports the actual gate outcome. The
 [implementation evidence](../../docs/research/source-qualification.md) separates

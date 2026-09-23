@@ -9,17 +9,19 @@ from pathlib import Path
 
 # project library imports
 from research.experiments import (
-    AlphalensDiagnostics,
-    AlphalensStudy,
     AttemptHistory,
     AttemptStore,
+    ExperimentSpec,
+    Fingerprint,
+    TemporalSplit,
+)
+from research.studies import (
+    AlphalensDiagnostics,
+    AlphalensStudy,
     ClearMLDestination,
     ClearMLPublication,
-    ExperimentSpec,
     FeatureLabelPayload,
-    Fingerprint,
     ResultManifest,
-    TemporalSplit,
     WindowDiagnosticRun,
     WindowDiagnosticStudy,
 )

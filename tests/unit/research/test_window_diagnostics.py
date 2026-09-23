@@ -17,22 +17,19 @@ from msgspec.structs import replace
 from applications.explore import compare_windows
 from financial_units import ExactRatio
 from reference_data.instruments import InstrumentId
-from research.experiments import (
-    AttemptStore,
+from research.experiments import AttemptStore, SampleInterval, TemporalSplit, TimeWindow
+from research.features import FeatureValue, PriceWindow, TrailingReturn, WindowPolicy
+from research.labels import ForwardReturn, LabelValue
+from research.studies import (
     ClearMLDestination,
     ClearMLPublication,
     DiagnosticSource,
     EvaluationRecord,
     FeatureLabelPayload,
-    SampleInterval,
-    TemporalSplit,
-    TimeWindow,
     WindowDiagnosticReport,
     WindowDiagnostics,
     WindowDiagnosticStudy,
 )
-from research.features import FeatureValue, PriceWindow, TrailingReturn, WindowPolicy
-from research.labels import ForwardReturn, LabelValue
 from serialization import DomainCodec
 
 _START = datetime(2024, 1, 1, tzinfo=UTC)

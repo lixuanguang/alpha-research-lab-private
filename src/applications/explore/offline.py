@@ -12,18 +12,20 @@ from pathlib import Path
 from research.experiments import (
     AttemptHistory,
     AttemptStore,
-    ClearMLDestination,
-    ClearMLPublication,
     ExperimentSpec,
-    FeatureLabelPayload,
     Fingerprint,
-    ResultManifest,
     TemporalSplit,
 )
 from research.exploration import VerifiedFeatureRows
 from research.features import (
     OfflineFeatureAccess,
     OfflineFeatureRequest,
+)
+from research.studies import (
+    ClearMLDestination,
+    ClearMLPublication,
+    FeatureLabelPayload,
+    ResultManifest,
 )
 from runtime import ImplementationIdentity
 from serialization import DomainCodec

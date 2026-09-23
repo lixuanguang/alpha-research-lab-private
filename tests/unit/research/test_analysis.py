@@ -14,7 +14,7 @@ from msgspec.structs import replace
 # project library imports
 from financial_units import ExactRatio
 from reference_data.instruments import InstrumentId
-from research.experiments import FeatureLabelPayload, SampleInterval
+from research.experiments import SampleInterval
 from research.exploration.analysis import (
     AnalysisQuery,
     BoundedFeatureAnalysis,
@@ -29,6 +29,7 @@ from research.features import (
     TrailingReturn,
     WindowPolicy,
 )
+from research.studies import FeatureLabelPayload
 from serialization import DomainCodec
 
 _START = datetime(2026, 1, 1, tzinfo=UTC)

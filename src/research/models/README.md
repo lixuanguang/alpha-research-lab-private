@@ -104,7 +104,7 @@ configuration and the SDK endpoint/credentials configured outside the manifest:
 ```python
 from pathlib import Path
 from applications.explore import evaluate_model, publish_experiments
-from research.experiments import ClearMLDestination
+from research.studies import ClearMLDestination
 
 root = Path("/absolute/path/to/retained/research")
 history = evaluate_model(

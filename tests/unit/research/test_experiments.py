@@ -21,14 +21,13 @@ from research.experiments import (
     AttemptEvent,
     AttemptStart,
     AttemptStore,
-    ClearMLDestination,
-    ClearMLPublication,
     ExperimentSpec,
     Fingerprint,
     SampleInterval,
     TemporalSplit,
     TimeWindow,
 )
+from research.studies import ClearMLDestination, ClearMLPublication, ResultManifest
 from serialization import DomainCodec
 
 _START = datetime(2024, 6, 1, tzinfo=UTC)
@@ -109,7 +108,7 @@ class TestExperiments:
             patch.object(ClearMLPublication, "_task", return_value=task),
             patch.object(ClearMLPublication, "_upload"),
             patch(
-                "research.experiments.tracking.Session.get_api_server_host",
+                "research.studies.tracking.Session.get_api_server_host",
                 return_value=destination.api_uri,
             ),
         ):
@@ -236,6 +235,61 @@ class TestExperiments:
                 ),
                 ExperimentSpec,
             )
+
+    def test_immutable_exports_share_bytes_and_preserve_retained_artifacts(
+        self, tmp_path: Path
+    ) -> None:
+        """Retry exports without copies, refuse conflicts and retain bytes after export removal."""
+        destination = tmp_path / "report.json"
+        second = tmp_path / "second.json"
+        payload = b'{"result":"retained"}'
+        with AttemptStore(tmp_path / "attempts") as store:
+            start = store.start(self._spec(), at=self._time(30), invocation="export")
+            digest = store.retain(start.attempt_id, "report", payload)
+            store.export(start.attempt_id, "report", destination)
+            repeat = store.start(self._spec(), at=self._time(31), invocation="repeat")
+            assert store.retain(repeat.attempt_id, "report", payload) == digest
+            store.export(repeat.attempt_id, "report", second)
+            store.export(start.attempt_id, "report", destination)
+            assert destination.samefile(second)
+            assert destination.stat().st_mode & 0o222 == 0
+            assert destination.read_bytes() == payload
+            assert store.retain(start.attempt_id, "report", payload) == digest
+            destination.unlink()
+            destination.write_bytes(b"different")
+            with pytest.raises(ValueError, match="existing export differs"):
+                store.export(start.attempt_id, "report", destination)
+            assert destination.read_bytes() == b"different"
+            assert second.read_bytes() == payload
+            second.unlink()
+            assert store.artifact(start.attempt_id, "report") == payload
+            assert store.artifact(repeat.attempt_id, "report") == payload
+        assert AttemptStore(tmp_path / "attempts").artifact(start.attempt_id, "report") == payload
+        with pytest.raises(RuntimeError, match="writer context"):
+            store.export(start.attempt_id, "report", second)
+
+    def test_corrupt_shared_artifacts_fail_closed(self, tmp_path: Path) -> None:
+        """Reject deliberate on-disk corruption before reusing a shared content digest."""
+        with AttemptStore(tmp_path / "attempts") as store:
+            start = store.start(self._spec(), at=self._time(30), invocation="original")
+            manifest = ResultManifest.retain(store, start.attempt_id, {"report": b"original"})
+            store.finish(
+                start.attempt_id,
+                status="completed",
+                at=self._time(31),
+                reason="Retained output committed",
+                result=_CODEC.encode_json(manifest),
+            )
+            export = tmp_path / "report.json"
+            store.export(start.attempt_id, "report", export)
+            export.chmod(0o600)
+            export.write_bytes(b"tampered")
+            with pytest.raises(ValueError, match="digest mismatch"):
+                ResultManifest.read(store, start.attempt_id)
+            repeat = store.start(self._spec(), at=self._time(32), invocation="repeat")
+            with pytest.raises(ValueError, match="content digest mismatch"):
+                store.retain(repeat.attempt_id, "report", b"original")
+            assert store.artifacts(repeat.attempt_id) == ()
 
     def test_attempt_identity_outcomes_and_reader_writer_boundary(self, tmp_path: Path) -> None:
         """Keep distinct executions and every terminal outcome without rewriting history."""

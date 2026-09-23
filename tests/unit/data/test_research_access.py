@@ -25,13 +25,7 @@ from market_data.datasets import BookInput, DatasetPublication, SnapshotCatalog
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader, QueryMarketRow
 from market_data.storage import CaptureJournal, RawFiles, RawStore
 from market_data.validation import QualityPolicy
-from research.experiments import (
-    AttemptStore,
-    ClearMLDestination,
-    ClearMLPublication,
-    TemporalSplit,
-    TimeWindow,
-)
+from research.experiments import AttemptStore, TemporalSplit, TimeWindow
 from research.exploration import (
     BookResearchInput,
     BookSelection,
@@ -43,6 +37,7 @@ from research.exploration import (
     TradeResearchInput,
     TradeSelection,
 )
+from research.studies import ClearMLDestination, ClearMLPublication
 from serialization import DomainCodec
 
 _LIMIT = 1_048_576

@@ -19,8 +19,9 @@ from optuna.trial import Trial
 # project library imports
 from applications.backtest import EconomicComparison
 from financial_units import ExactRatio
-from research.experiments import (
-    AttemptStore,
+from research.experiments import AttemptStore, TemporalSplit, TimeWindow
+from research.exploration import EdaQuery, ResearchSelection, TradeSelection
+from research.studies import (
     BacktestRun,
     BenchmarkPeriod,
     ClearMLDestination,
@@ -30,11 +31,8 @@ from research.experiments import (
     PublicationReceipt,
     ReportPolicy,
     ResultManifest,
-    TemporalSplit,
-    TimeWindow,
     TrialEvaluation,
 )
-from research.exploration import EdaQuery, ResearchSelection, TradeSelection
 from serialization import DomainCodec
 
 _RETAIN = AttemptStore.retain

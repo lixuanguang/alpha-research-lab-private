@@ -22,7 +22,8 @@ from market_data.query import QueryReader
 from market_data.storage import RawStore
 from market_data.validation import QualityPolicy, QualityReport
 from reference_data.eligibility import EligibilityAssertions
-from research.experiments import ExperimentSpec, ResultManifest
+from research.experiments import ExperimentSpec
+from research.studies import ResultManifest
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 from simulation import BacktestSpec, EconomicCheckpoint, EconomicResult

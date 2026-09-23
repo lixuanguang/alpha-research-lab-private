@@ -18,12 +18,7 @@ from msgspec.structs import replace
 
 # project library imports
 import research.features
-from applications.explore import (
-    compare_factors,
-    compare_windows,
-    evaluate_model,
-    inspect_experiment,
-)
+from applications.explore import evaluate_model, inspect_experiment
 from configuration import Configuration
 from financial_units import ExactRatio
 from market_data.acquisition import AcquisitionManifest
@@ -34,28 +29,19 @@ from market_data.storage import RawFiles, RawStore
 from market_data.validation import Correction, QualityPolicy, TradeRevision
 from reference_data.catalogs import CatalogSnapshot
 from reference_data.eligibility import EligibilityAssertions
-from research.experiments import (
-    AlphalensReport,
-    AlphalensStudy,
-    AttemptHistory,
-    AttemptStore,
-    ClearMLDestination,
-    ClearMLPublication,
-    DiagnosticSource,
-    EvaluationRecord,
-    FeatureLabelPayload,
-    ResultManifest,
-    SampleInterval,
-    TemporalSplit,
-    TimeWindow,
-    WindowDiagnosticReport,
-    WindowDiagnostics,
-    WindowDiagnosticStudy,
-)
+from research.experiments import AttemptStore, SampleInterval, TemporalSplit, TimeWindow
 from research.exploration import EdaQuery, FeatureStudy, ResearchSelection, TradeSelection
 from research.features import TrailingReturn, WindowPolicy
 from research.labels import ForwardReturn
 from research.models import LinearDefinition, ModelDataset, ModelStudy, ModelVersion, RetainedResult
+from research.studies import (
+    AlphalensStudy,
+    ClearMLDestination,
+    ClearMLPublication,
+    DiagnosticSource,
+    EvaluationRecord,
+    WindowDiagnosticStudy,
+)
 from serialization import DomainCodec
 
 _START = datetime(2024, 6, 1, tzinfo=UTC)
@@ -199,7 +185,7 @@ class _StudyFixture:
 
 
 class _ModelAcceptance:
-    """Exercise installed model state and outcomes with an unavailable publication transport."""
+    """Exercise the installed model boundary and fresh-process state recovery."""
 
     @staticmethod
     def _selection_item(item: TradeSelection) -> TradeSelection:
@@ -214,23 +200,20 @@ class _ModelAcceptance:
         )
 
     @classmethod
-    def run(cls, inputs: Path, output: Path) -> None:
-        """Exercise installed models, terminal retention and fresh-process recovery offline."""
+    def run(cls, source: Path, output: Path) -> None:
+        """Fit, reload and reopen one retained model without a live publication service."""
         output.mkdir()
-        (output / "raw").mkdir()
-        (output / "snapshots").mkdir()
-        fixture = _StudyFixture(inputs, output)
-        selection = fixture.publish()
+        original = _CODEC.decode_json((source / "study.json").read_bytes(), FeatureStudy)
         expanded = ResearchSelection(
             inputs=tuple(
                 cls._selection_item(item)
-                for item in selection.inputs
+                for item in original.selection.inputs
                 if isinstance(item, TradeSelection)
             )
         )
-        original = fixture.study(expanded)
         feature_study = replace(
             original,
+            selection=expanded,
             family="model-feature-inputs",
             decisions=TimeWindow(
                 start=_START + timedelta(seconds=10), end=_START + timedelta(seconds=41)
@@ -248,8 +231,8 @@ class _ModelAcceptance:
         with patch.object(ClearMLPublication, "publish"):
             history = inspect_experiment(
                 request,
-                output / "snapshots",
-                fixture.raw,
+                source / "snapshots",
+                RawStore(source / "raw"),
                 attempts=attempts,
                 tracking=destination,
             )
@@ -318,47 +301,6 @@ class _ModelAcceptance:
             with patch.object(ClearMLPublication, "publish"):
                 reloaded = evaluate_model(config, attempts=attempts, tracking=destination)
             assert reloaded.events[-1].result == models[0].events[-1].result
-        with patch.object(ClearMLPublication, "publish"):
-            # A newly configured state is retained even when selection rejects it.
-            rejected_study = replace(
-                study,
-                family="configured-rejection",
-                split=replace(split, training=None, fit_cutoff=None, fit_mode="none"),
-                definition=LinearDefinition(
-                    mode="configured",
-                    assumptions="Fixed zero-return analytical comparator",
-                    intercept=ExactRatio(numerator="0", denominator="1"),
-                    slope=ExactRatio(numerator="0", denominator="1"),
-                ),
-                available_at=_START,
-                max_mse=ExactRatio(numerator="0", denominator="1"),
-            )
-            config.write_bytes(_CODEC.encode_json(rejected_study))
-            rejected = evaluate_model(config, attempts=attempts, tracking=destination)
-            assert rejected.status == "rejected"
-            assert "model-version" in retained.artifacts(rejected.start.attempt_id)
-            # A failed calibration has diagnostics but no invented usable state.
-            failed_study = replace(rejected_study, definition=study.definition, family="failed-fit")
-            config.write_bytes(_CODEC.encode_json(failed_study))
-            try:
-                evaluate_model(config, attempts=attempts, tracking=destination)
-            except ValueError as error:
-                assert "supervised label fitting" in str(error)
-            else:
-                raise AssertionError("forbidden calibration succeeded")
-            failure = tuple(h for h in retained.histories() if h.start.spec.family == "failed-fit")
-            assert len(failure) == 1 and failure[0].status == "failed"
-            assert "model-version" not in retained.artifacts(failure[0].start.attempt_id)
-            config.write_bytes(_CODEC.encode_json(replace(study, family="aborted-fit")))
-            with patch("research.models.LinearModel.construct", side_effect=KeyboardInterrupt):
-                try:
-                    evaluate_model(config, attempts=attempts, tracking=destination)
-                except KeyboardInterrupt:
-                    pass
-                else:
-                    raise AssertionError("interruption was not propagated")
-            aborted = tuple(h for h in retained.histories() if h.start.spec.family == "aborted-fit")
-            assert len(aborted) == 1 and aborted[0].status == "abandoned"
         (output / "dataset.json").write_bytes(_CODEC.encode_json(dataset))
         (output / "model-attempt.txt").write_text(model_id)
         backup = output / "backup"
@@ -375,12 +317,45 @@ class _ModelAcceptance:
                 row, dataset.signature
             )
         assert restored.histories() == AttemptStore(attempts).histories()
+        evaluation_bytes = retained.artifact(model_id, "evaluation")
+        window_study = WindowDiagnosticStudy(
+            family=feature_study.family,
+            features=(
+                DiagnosticSource(
+                    attempt_id=history.start.attempt_id,
+                    sha256=hashlib.sha256(payload).hexdigest(),
+                ),
+            ),
+            predictions=(
+                DiagnosticSource(
+                    attempt_id=model_id,
+                    sha256=hashlib.sha256(evaluation_bytes).hexdigest(),
+                ),
+            ),
+            split=feature_study.split,
+            reference=TimeWindow(
+                start=_START + timedelta(seconds=20), end=_START + timedelta(seconds=26)
+            ),
+            current=TimeWindow(
+                start=_START + timedelta(seconds=40), end=_START + timedelta(seconds=51)
+            ),
+            evaluated_as_of=_START + timedelta(seconds=51),
+            min_observations=2,
+            ks_statistic_threshold=0.5,
+            ks_pvalue_threshold=0.01,
+            predictive_metric="mse",
+            predictive_reason="Configured retained return predictions",
+            max_mse=ExactRatio(numerator="1", denominator="100"),
+            threshold_reason="Frozen software example; descriptive unadjusted tests",
+        )
+        (output / "window-study.json").write_bytes(_CODEC.encode_json(window_study))
+        (output / "tracking.json").write_bytes(_CODEC.encode_json(destination))
         subprocess.run(
             [
                 sys.executable,
                 "-I",
                 str(Path(__file__).resolve()),
-                str(inputs),
+                str(source),
                 str(output),
                 "model-reopen",
             ],
@@ -406,247 +381,6 @@ class _ModelAcceptance:
         print("Fresh-process backup reload reproduces exact predictions.")
 
 
-class _FactorAcceptance:
-    """Exercise retained factor reports and publication failure independently of services."""
-
-    @staticmethod
-    def run(output: Path, source: AttemptHistory, payload: bytes) -> None:
-        """Evaluate the installed two-instrument source with independently known ordering."""
-        study = _CODEC.decode_json((output / "study.json").read_bytes(), FeatureStudy)
-        definition = AlphalensStudy(
-            selection_identity=study.selection.identity,
-            quantiles=2,
-            known_at=_START + timedelta(seconds=30),
-            demeaned=False,
-        )
-        destination = ClearMLDestination(
-            project="alpha-factor-integration",
-            api_uri="http://127.0.0.1:18008",
-            files_uri="http://127.0.0.1:18081",
-        )
-        (output / "factor-study.json").write_bytes(_CODEC.encode_json(definition))
-        (output / "tracking.json").write_bytes(_CODEC.encode_json(destination))
-        with AttemptStore(output / "attempts") as store:
-            before = {h.start.attempt_id for h in store.histories()}
-        with patch.object(
-            ClearMLPublication, "publish", side_effect=ConnectionError("offline factor fixture")
-        ):
-            try:
-                compare_factors(
-                    definition,
-                    family=study.family,
-                    source_attempt=source.start.attempt_id,
-                    source_sha256=hashlib.sha256(payload).hexdigest(),
-                    split=study.split,
-                    attempts=output / "attempts",
-                    tracking=destination,
-                )
-            except ConnectionError:
-                pass
-            else:
-                raise AssertionError("unavailable factor publication was hidden")
-        with AttemptStore(output / "attempts") as store:
-            histories = [h for h in store.histories() if h.start.attempt_id not in before]
-            assert len(histories) == 1 and histories[0].status == "completed"
-            attempt_id = histories[0].start.attempt_id
-            ResultManifest.read(store, attempt_id)
-            report = _CODEC.decode_json(
-                store.artifact(attempt_id, "factor-diagnostics"), AlphalensReport
-            )
-            assert report.inapplicable_reason is None and len(report.eligible_rows) == 2
-            assert report.information_coefficients
-            coefficient = report.information_coefficients[0].value
-            assert coefficient is not None and abs(coefficient - 1.0) < 1e-12
-            assert not any(e.status == "holdout_consumed" for e in histories[0].events)
-        print("Installed Alphalens IC and retained report bytes verified; holdout untouched.")
-
-
-class _WindowAcceptance:
-    """Exercise installed diagnostics using the saved archive, features and actual model owner."""
-
-    @classmethod
-    def run(cls, output: Path) -> None:
-        """Verify labels, failures, reproducible reports and optional actual publication."""
-        original = _CODEC.decode_json((output / "features.json").read_bytes(), FeatureStudy)
-        assert original.label is not None
-        feature_study = replace(
-            original,
-            family="window-feature-inputs",
-            decisions=TimeWindow(
-                start=_START + timedelta(seconds=20), end=_START + timedelta(seconds=51)
-            ),
-            feature=replace(
-                original.feature,
-                cadence_us=5_000_000,
-                policy=WindowPolicy(
-                    lookback_us=20_000_000, min_trades=2, max_staleness_us=10_000_000
-                ),
-            ),
-            label=replace(
-                original.label,
-                policy=WindowPolicy(
-                    lookback_us=20_000_000, min_trades=1, max_staleness_us=10_000_000
-                ),
-            ),
-        )
-        request = output / "window-features.json"
-        request.write_bytes(_CODEC.encode_json(feature_study))
-        attempts = output / "attempts"
-        source = inspect_experiment(
-            request, output / "snapshots", RawStore(output / "raw"), attempts=attempts
-        )
-        payload = source.events[-1].result
-        assert payload is not None
-        dataset = ModelDataset.from_results((payload,))
-        reference = DiagnosticSource(
-            attempt_id=source.start.attempt_id, sha256=hashlib.sha256(payload).hexdigest()
-        )
-        destination = ClearMLDestination(
-            project="alpha-local-integration",
-            api_uri="http://127.0.0.1:18008",
-            files_uri="http://127.0.0.1:18081",
-        )
-        model_samples: tuple[SampleInterval, ...] = tuple(row.sample for row in dataset.rows)
-        model_study = ModelStudy(
-            family="window-predictions",
-            question="Retain configured predictions",
-            sources=(RetainedResult(attempt_id=reference.attempt_id, sha256=reference.sha256),),
-            split=replace(feature_study.split, samples=model_samples),
-            partition="validation",
-            known_at=_START + timedelta(seconds=60),
-            max_mse=ExactRatio(numerator="100", denominator="1"),
-            selection_reason="Frozen software example; no empirical selection",
-            definition=LinearDefinition(
-                mode="configured",
-                assumptions="Fixed return identity",
-                intercept=ExactRatio(numerator="0", denominator="1"),
-                slope=ExactRatio(numerator="1", denominator="1"),
-            ),
-            available_at=_START,
-        )
-        model_config = output / "window-model.json"
-        model_config.write_bytes(_CODEC.encode_json(model_study))
-        with patch.object(
-            ClearMLPublication, "_publish", side_effect=ConnectionError("offline setup")
-        ):
-            try:
-                evaluate_model(model_config, attempts=attempts, tracking=destination)
-            except ConnectionError:
-                pass
-        store = AttemptStore(attempts)
-        prediction = next(
-            h for h in store.histories() if h.start.spec.family == "window-predictions"
-        )
-        evaluation_bytes = store.artifact(prediction.start.attempt_id, "evaluation")
-        study = WindowDiagnosticStudy(
-            family=feature_study.family,
-            features=(reference,),
-            predictions=(
-                DiagnosticSource(
-                    attempt_id=prediction.start.attempt_id,
-                    sha256=hashlib.sha256(evaluation_bytes).hexdigest(),
-                ),
-            ),
-            split=feature_study.split,
-            reference=TimeWindow(
-                start=_START + timedelta(seconds=20), end=_START + timedelta(seconds=26)
-            ),
-            current=TimeWindow(
-                start=_START + timedelta(seconds=40), end=_START + timedelta(seconds=51)
-            ),
-            evaluated_as_of=_START + timedelta(seconds=51),
-            min_observations=2,
-            ks_statistic_threshold=0.5,
-            ks_pvalue_threshold=0.01,
-            predictive_metric="mse",
-            predictive_reason="Configured retained return predictions",
-            max_mse=ExactRatio(numerator="1", denominator="100"),
-            threshold_reason="Frozen software example; descriptive unadjusted tests",
-        )
-        (output / "window-study.json").write_bytes(_CODEC.encode_json(study))
-        (output / "tracking.json").write_bytes(_CODEC.encode_json(destination))
-        before = store.histories()
-        with patch.object(
-            WindowDiagnostics, "evaluate", side_effect=ArithmeticError("injected computation")
-        ):
-            try:
-                compare_windows(study, attempts=attempts, tracking=destination)
-            except ArithmeticError:
-                pass
-            else:
-                raise AssertionError("computation failure was hidden")
-        failed = next(
-            h
-            for h in store.histories()
-            if h.start.invocation.endswith("compare_windows") and h.status == "failed"
-        )
-        assert store.artifact(failed.start.attempt_id, "feature-source-0") == payload
-        for requested in (
-            study,
-            replace(study, evaluated_as_of=_START + timedelta(seconds=56)),
-            replace(
-                study,
-                predictive_metric="inapplicable",
-                max_mse=None,
-                predictive_reason="Rule analysis: predictive error not selected",
-            ),
-        ):
-            with patch.object(
-                ClearMLPublication, "_publish", side_effect=ConnectionError("report transport")
-            ):
-                try:
-                    compare_windows(requested, attempts=attempts, tracking=destination)
-                except ConnectionError:
-                    pass
-                else:
-                    raise AssertionError("publication failure was hidden")
-        completed = tuple(
-            h
-            for h in store.histories()
-            if h.start.invocation.endswith("compare_windows") and h.status == "completed"
-        )
-        assert len(completed) == 3
-        reports = tuple(
-            _CODEC.decode_json(
-                store.artifact(h.start.attempt_id, "window-report-json"), WindowDiagnosticReport
-            )
-            for h in completed
-        )
-        earlier = next(r for r in reports if r.study == study)
-        later = next(
-            r for r in reports if r.study.evaluated_as_of == _START + timedelta(seconds=56)
-        )
-        assert earlier.distributions == later.distributions
-        assert any(row.statistic is not None for row in earlier.distributions)
-        assert sum(row.count for row in later.predictive) > sum(
-            row.count for row in earlier.predictive
-        )
-        assert any(row.label_reason is not None for row in later.observations)
-        assert all(store.read(h.start.attempt_id) == h for h in before)
-        assert store.read(failed.start.attempt_id) == failed
-        assert all(
-            not any(event.status == "holdout_consumed" for event in h.events)
-            for h in store.histories()
-        )
-        for history, report in zip(completed, reports, strict=True):
-            ResultManifest.read(store, history.start.attempt_id)
-            reproduced = WindowDiagnostics().evaluate(
-                report.study,
-                (FeatureLabelPayload.decode(payload),),
-                (_CODEC.decode_json(evaluation_bytes, EvaluationRecord),),
-            )
-            assert _CODEC.encode_json(reproduced) == store.artifact(
-                history.start.attempt_id, "window-report-json"
-            )
-            assert reproduced.html_bytes() == store.artifact(
-                history.start.attempt_id, "window-report-html"
-            )
-        (output / "window-attempts.json").write_bytes(
-            _CODEC.encode_json(tuple(h.start.attempt_id for h in completed))
-        )
-        print("Installed SciPy windows, delayed labels and inapplicability verified.")
-
-
 def main() -> None:
     """Publish real saved fixtures or reproduce the completed study in a fresh installed process.
 
@@ -665,6 +399,19 @@ def main() -> None:
         fixture = _StudyFixture(inputs, output)
         study = fixture.study(fixture.publish())
         (output / "study.json").write_bytes(_CODEC.encode_json(study))
+        factor_study = AlphalensStudy(
+            selection_identity=study.selection.identity,
+            quantiles=2,
+            known_at=_START + timedelta(seconds=30),
+            demeaned=False,
+        )
+        factor_tracking = ClearMLDestination(
+            project="alpha-factor-integration",
+            api_uri="http://127.0.0.1:18008",
+            files_uri="http://127.0.0.1:18081",
+        )
+        (output / "factor-study.json").write_bytes(_CODEC.encode_json(factor_study))
+        (output / "tracking.json").write_bytes(_CODEC.encode_json(factor_tracking))
     history = inspect_experiment(
         output / "study.json",
         output / "snapshots",
@@ -716,9 +463,7 @@ def main() -> None:
     (output / "result.json").write_bytes(payload)
     print("Installed two-instrument feature/label study and fresh-process parity verified.")
     if len(sys.argv) == 3:
-        _FactorAcceptance.run(output, history, payload)
-        _ModelAcceptance.run(inputs, output / "models")
-        _WindowAcceptance.run(output / "models")
+        _ModelAcceptance.run(output, output / "models")
 
 
 if __name__ == "__main__":
