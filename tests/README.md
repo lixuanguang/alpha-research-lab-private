@@ -1,192 +1,93 @@
 # Tests and retained inputs
 
-This guide describes the maintained test layout and how to run its isolated
-consumers. The [engineering guide](../docs/coding_standards/README.md#stable-names-and-test-support-layout)
-owns naming requirements; the [development workflow](../docs/governance/workflow.md)
-owns validation and merge requirements.
+The [engineering guide](../docs/coding_standards/README.md#stable-names-and-test-support-layout)
+owns naming and source requirements; the [development workflow](../docs/governance/workflow.md)
+owns validation and merge requirements. Keep tests organized by behavior rather
+than by the MR that originally demonstrated it.
 
-## Layout
+## Layout and execution
 
 | Location | Responsibility |
 | --- | --- |
-| `unit/` | Domain and component tests, including existing integration-marked cases beside their owning component |
-| `engineering/` | Packaging, dependency, source-standard and governance tests |
-| `golden/` | Independently specified domain expectations |
-| `fixtures/` | Static input bytes organized by domain and scenario; no executable Python |
-| `support/subprocesses/` | Child-process acquisition fakes and deliberate publication interruptions |
-| `integration/test_*.py` | Discovered workflow tests, including acquisition through saved EDA |
-| `integration/consumers/` | Standalone installed-package scenarios grouped into datasets, eligibility, query, replay, research capture and backtest |
-
-The static inputs include Tardis-framed trades and Coinbase book messages under
-`fixtures/market_data/`, eligibility histories under `fixtures/eligibility/`, a
-canonical trade partition under `fixtures/replay/`, and an explicit synthetic
-contract under `fixtures/instruments/`.
-
-[Assumptions and membership](fixtures/eligibility/assumptions-and-membership.json)
-distinguishes later research assumptions from historically available synthetic
-membership evidence. [Membership corrections](fixtures/eligibility/membership-corrections.json)
-adds decision-time correction and delisting scenarios. These are different inputs,
-not interchangeable copies of a generic eligibility file.
-
-## Execution and isolation
-
-Run from the repository root:
+| `unit/` | Domain/component regressions, including integration-marked cases beside their owner |
+| `engineering/` | Packaging, dependencies, source standards and governance |
+| `golden/`, `fixtures/` | Independent expected values and static input bytes; no executable Python |
+| `support/subprocesses/` | Acquisition fakes and deliberate process-death/publication interruptions |
+| `integration/test_*.py` | Discovered workflow tests |
+| `integration/consumers/` | Standalone installed workflows still used by tests, notebooks or explicit service checks |
 
 ```sh
-# All correctness tests, including integration cases; excludes performance cases.
+# Correctness tests, including integration; excludes performance cases.
 make test
 
-# Installed acquisition/resume/publication/EDA and feature/label/model workflows.
-uv run --frozen --no-editable pytest -q -m integration tests/integration/test_ingestion_workflow.py
+# Installed workflow regressions and component integration cases.
+make integration-test
 
-# Installed L2 IOC workflow, independent accounts and complete restart.
+# One affected workflow during development.
 uv run --frozen --no-editable pytest -q -m integration tests/integration/test_book_backtest.py
 
-# Existing component integration cases as well as workflow integration tests.
-make integration-test
+# Clean artifact installation and a bounded OKX CLI round trip.
+make wheel-smoke
 ```
 
-Plain pytest uses the configured marker filter, which excludes integration and
-performance cases. A file under `consumers/` is not automatically a pytest test.
-The ingestion, feature-study, capture recovery, saved-book, health and parity consumers have
-pytest callers. Other consumers remain manual acceptance programs; moving them
-does not add CI coverage. The recovery probe needs an explicitly selected saved
-Bitfinex capture; the synthetic acceptance consumers need only copied inputs.
+Plain pytest excludes `integration` and `performance` through its marker filter.
+A script under `consumers/` is not discovered automatically. `make check` runs
+source validation, including domain regressions, followed by wheel smoke. Hosted
+source, macOS and merged-result gates remain unchanged. On macOS use
+`TMPDIR=/private/tmp` to keep Unix-domain socket paths within OS limits.
 
-Consumers intentionally run as fresh processes with `python -I`, copied scripts
-and inputs, a working directory outside the checkout, and the installed runtime.
-They must not import repository test helpers or add the checkout to `sys.path`.
-The subprocess support scripts may terminate without cleanup using `os._exit`;
-invoke them through their test or consumer, never in the pytest process itself.
-The package's real orchestration stays in `src/applications/`;
-consumers compose it with synthetic transports, failure injection and assertions.
+## Installed boundaries and domain regressions
 
-The manual [saved-source consumer](integration/consumers/backtest/source_acceptance.py)
-uses the existing actual Binance archive and frozen economic configs, with no
-synthetic eligibility or availability. It retains causal-publication refusal and
-non-admission through the installed backtest application. Exit 3 means the
-refusal checks passed and empirical acceptance remains open; it is not a passing
-baseline result. The [P1 verification contract](../docs/research/p1-baseline.md#saved-source-verification)
-owns the explicit inputs, new output directories, fresh-process reopen invocation
-and precise remaining evidence. This source-dependent program is not a pytest
-or ordinary wheel-smoke test.
+Consumers run as copied scripts with `python -I`, copied inputs and a working
+directory outside the checkout. They must not import repository test helpers or
+add the checkout to `sys.path`. Deliberate `os._exit` support programs run only in
+children. Real orchestration belongs to `src/applications/`.
 
-`make wheel-smoke` compiles the hash-locked installation's bytecode and gives its
-child processes one writable run-local Matplotlib cache. This avoids repeated
-font discovery when the user's cache is unavailable. The feature and later
-economic/recovery consumers retain their existing 60-second deadlines and full
-assertions. The command prints its retained `/private/tmp` or system temporary
-root and preserves the wheel, environment, inputs and attempts on failure and
-success. Archive needed evidence before explicitly cleaning up that directory;
-never replace an environment still used by a worker or notebook.
-
-The feature consumer also creates `models/window-study.json`, runs SciPy window
-diagnostics over actual retained feature/prediction results, verifies delayed and
-missing labels, predictive inapplicability, saved-input reproduction and retained
-computation/publication failures. With `ALPHA_CLEARML_LOCAL_ENV` set to the private
-loopback credential file, it publishes actual reports, injects a lost receipt,
-reconciles without recalculation and verifies downloaded artifact hashes. The
-[QR guide](../examples/README.md#compare-reference-and-current-windows) reuses those
-saved inputs in the maintained interface. The live server path is separate from
-the ordinary offline wheel smoke; neither path grants trading authority.
-
-For manual installed checks, copy the selected consumer and its inputs into a
-fresh external directory, preserving basenames. Use the installed interpreter
-to run `python -I <copied-consumer> <inputs>`; `eda_consumer.py` and
-`ingestion_workflow.py` and `feature_study.py` additionally require a fresh
-output-directory argument.
-
-| Consumers | Copied inputs |
+| Maintained caller | Behavior retained |
 | --- | --- |
-| Dataset and query consumers | `configs/data-jobs/binance-archive.json`, `configs/reference/binance-archive-spot.json`; readers of eligibility also need `fixtures/eligibility/membership-corrections.json` |
-| `read_occurrences.py` | Archive inputs above plus `configs/data-jobs/fixture-inspection.json` and `configs/reference/binance-spot.json` |
-| `read_eligibility.py` | Archive reference catalog and `fixtures/eligibility/assumptions-and-membership.json` |
-| `select_eligibility.py` | Archive reference catalog and `fixtures/eligibility/membership-corrections.json` |
-| `publish_snapshot.py` | Dataset inputs plus `support/subprocesses/interrupt_snapshot.py` |
-| `dataset_command.py` | Dataset inputs plus `support/subprocesses/interrupt_command.py` |
-| `ingestion_workflow.py` | Dataset inputs, `support/subprocesses/interrupt_command.py`, and `configs/live/okx-btc-usdt.json` |
-| `research/feature_study.py` | Archive dataset inputs plus `fixtures/eligibility/membership-corrections.json`; network only with explicit local ClearML selection |
-| `eda_consumer.py` | Query inputs plus `fixtures/instruments/contract.json` |
-| `replay_consumer.py` | `fixtures/replay/canonical.json`, `configs/data-jobs/fixture-inspection.json`, `configs/reference/binance-spot.json` |
+| [Ingestion/feature tests](integration/test_ingestion_workflow.py) | Acquisition resume, publication, EDA, feature/label reproduction, models and diagnostics |
+| [Economic tests](integration/test_economic_workflow.py) | Exact trade-price economics, vectorbt/comparison reports, feature parity, publication failure and fresh-process resume; existing synthetic engineering-sample refusals |
+| [Book tests](integration/test_book_backtest.py) | Saved OKX L2 CLI, independent accounts, second spot configuration, checkpoint restart and corrupt-source refusal |
+| [Capture recovery tests](unit/data/live/test_recovery.py) | Pending snapshots, duplicates, stale responses, recovery and installed replay CLI/API equality |
+| Component tests under `unit/data/` | Installed book, health and parity consumers alongside their domain regressions |
 
-Fixture and support paths in this table are relative to `tests/`; configuration
-paths are relative to the repository root. Capture consumers have different
-arguments for saved captures and synthetic endpoints; use their existing pytest
-callers or the maintained [engineer notebook](../examples/infrastructure-diagnostics.ipynb).
-The [QR notebook](../examples/research-foundations.ipynb) follows research activities
-and uses the existing installed handoff as its default synthetic input setup.
-The explicit [live counterparts](../examples/README.md#start-with-your-research-question)
-exercise bounded public capture and saved-input reopening; they are manual external-source
-checks, not network-dependent unit tests. Run each through the [existing notebook runner](../examples/notebook-operations.md#running-a-notebook)
-when their executable cells change; the configured source checks do not discover
-notebook cells.
+Wheel smoke installs the hash-locked runtime without governance, checks every
+shipped API/resource and installed identity, reopens the historical snapshot,
+and runs the existing book consumer with `--smoke`. This mode verifies one small
+synthetic OKX archive through the installed CLI and exact account report. The
+default book-consumer mode retains the complete recovery/failure scenario.
+Wheel smoke does not repeat all domain workflows or contact services.
 
-## Functional layout verification
+The smoke prints and retains its temporary wheel/environment directory. Keep
+needed evidence before explicitly cleaning it up. Do not synchronize or reinstall
+an environment while tests, notebooks or workers use it. The historical snapshot's
+original bytes and identity stay in `fixtures/datasets/historical_snapshot/`.
+Existing Binance/Tardis-shaped synthetic fixtures remain compatibility tests;
+new data-dependent work follows the [OKX/Bitfinex policy](../docs/roadmap/README.md#current-platform).
 
-`engineering/test_source_layout.py` exercises forbidden dependency directions,
-private/module API bypasses, duplicate commands, installed inventory faults and
-pre-refactor snapshot reopening. Existing behavioral test groups keep their names;
-their imports use functional APIs, with internal imports reserved for focused tests
-and fault injection. Feature/label libraries compose through the existing
-`applications/explore` workflow; no additional application runner is introduced.
+The old standalone row/occurrence, revision, quality, identity, publication,
+eligibility, query and EDA acceptance demos have been retired. Their maintained
+regressions are in `unit/data/`, `unit/pipelines/` and the ingestion workflow.
+Snapshot and command process-death tests remain. The as-of and replay consumers
+remain because the maintained notebooks execute them.
 
-`make wheel-smoke` installs the frozen runtime into a clean environment outside
-the checkout. It imports every shipped API, checks package resources and identity
-scope, and runs the installed application commands with copied synthetic/saved inputs.
-It reuses ingestion/recovery consumers for acquisition resume, dataset admission,
-EDA, pinned mixed trade/book selection, retained unfitted studies, fresh-process
-identity/result reproduction, two-instrument exact feature/label diagnostics and book replay;
-governance is absent from this installation. On macOS,
-`TMPDIR=/private/tmp make check` keeps Unix-domain socket paths within OS limits.
+## Explicit service and saved-source checks
 
-The `fixtures/datasets/historical_snapshot` fixture was produced before migration.
-Its original wheel/revision, canonical bytes and implementation identity are
-retained in `provenance.json`; tests do not regenerate it under current code.
+The feature/model and economic consumers retain their optional local ClearML
+paths. With `ALPHA_CLEARML_LOCAL_ENV` pointing to the private loopback credential
+file, they check actual publication, artifact retrieval and receipt recovery.
+Ordinary test invocations use unavailable/fake transports and make no server claim.
+Follow the [ClearML runbook](../configs/development/clearml/README.md) for explicit
+service checks; no ordinary test starts Docker or an agent.
 
-The [research access tests](unit/data/test_research_access.py) exercise published
-mixed inputs, late corrections, membership withdrawal, unknown archive clocks,
-exact receipt cutoffs, controls, coverage, field/unit incompatibility and missing
-raw bytes. The installed handoff selects the configured `spot-comparison` job;
-synthetic HTTP and book messages establish software behavior only. No source access,
-empirical completeness or deployment qualification is asserted.
-
-The [experiment regressions](unit/research/test_experiments.py) use independent
-information/availability clocks for fitting admission, identity changes and
-holdout boundaries. The integration-marked process-death case calls
-[support/subprocesses/interrupt_attempt.py](support/subprocesses/interrupt_attempt.py)
-through a copied installed script; do not run that interruption inside pytest.
-The research-access tests also exercise a failed holdout read and refusal of a
-changed study before data access. The existing ingestion workflow now retains two
-completed executions of the same semantic study with identical result bytes.
-
-The [model tests](unit/research/test_models.py) independently specify `y=2x+1`,
-exact reload/prediction and squared error, held-out/future perturbations, late and
-missing labels, singular designs, invalid state/signatures, walk-forward version
-availability, failed holdout retention and Pandera rejection without coercion.
-The existing feature-study installed consumer additionally constructs/reloads models,
-retains usable rejected states and reopens an attempt backup in a fresh process.
-Without `ALPHA_CLEARML_LOCAL_ENV` it injects an unavailable transport and proves
-only the retained local behavior. Setting that variable to the private local env
-file enables actual task/artifact/model uploads, failure/abandonment, a lost-receipt
-retry and server receipt assertions. See the [local server runbook](../configs/development/clearml/README.md).
-Docker server volumes and credentials are external to CI; no live-server pass is
-inferred from the ordinary synthetic wheel smoke.
-
-## Research comparison acceptance
-
-The feature-study consumer now verifies a real Alphalens IC example and retained
-report artifacts. The economic consumer exercises a two-rule Optuna grid,
-vectorbt/reference parity and fresh-process resume. Their actual ClearML uploads
-remain opt-in through `ALPHA_CLEARML_LOCAL_ENV`; synthetic transport tests do not
-prove server execution. The [pipeline consumer](integration/consumers/backtest/pipeline_workflow.py)
-requires the dedicated running local agent and a matching installed wheel. It
-checks failed-step recovery, server overrides, actual comparison task execution
-and unchanged terminal trials on resume.
+The [pipeline consumer](integration/consumers/backtest/pipeline_workflow.py)
+requires an explicitly running local agent and matching installed wheel. The
+[versioned-storage consumer](integration/consumers/datasets/versioned_storage.py)
+requires the selected local lakeFS service. These remain manual service checks.
 
 The [offline feature consumer](integration/consumers/research/offline_features.py)
 uses the [separately locked Feast worker](../configs/development/research-worker/README.md).
-After copying the consumer outside the checkout and completing `feature_study.py`,
-run it with the installed core interpreter and explicit paths:
+After running `feature_study.py`, copy it outside the checkout and invoke:
 
 ```sh
 /absolute/core/bin/python -I /absolute/consumers/offline_features.py \
@@ -194,26 +95,14 @@ run it with the installed core interpreter and explicit paths:
   --worker-python /absolute/checkout/configs/development/research-worker/.venv/bin/python
 ```
 
-It registers exact MR3 values and clock metadata with the real Feast SDK, pins the
-registry and Parquet source, and verifies native parity, a delayed correction,
-a missing entity and TTL expiry in separate worker processes. It also creates a
-formal parity attempt with five hashed artifacts; `ALPHA_CLEARML_LOCAL_ENV` opts
-into actual publication and downloaded-artifact verification. It is a maintained
-manual acceptance program, not an implicit core CI install of Feast. The bounded
-worker does not qualify remote stores or online retrieval.
+It checks real SDK retrieval, pinned registry/source bytes, delayed corrections,
+missing entities and TTL expiry. ClearML publication remains separately opt-in.
+It does not implicitly install Feast in the core CI environment.
 
-Keep package installation and environment synchronization idle while running
-installed consumers, notebooks or the ClearML agent. Runtime identity checks
-reject missing or changed package bytes during a concurrent reinstall. Preserve
-failed evidence and rerun from a fresh output directory after stabilizing the
-installation. See the [roadmap evidence](../docs/roadmap/README.md#research-comparison-and-extension)
-for the exact validation results and the outstanding Evidently dependency blocker.
-
-
-The installed [engineering sample consumer](integration/consumers/backtest/engineering_sample.py)
-is included in wheel smoke. It uses synthetic native capture bytes and hypothetical
-source eligibility with both unchanged frozen P1 configurations, checking exact
-loss/cash/position/NAV/gross-to-net values, no-trade, evidence rejection without a
-snapshot, durable reports and fresh-process resume/repeat parity. This is software
-proof, not acceptance of the actual archive. Public-source research and installed
-actual capture matching are retained separately in the owning P1 evidence record.
+The [saved-source consumer](integration/consumers/backtest/source_acceptance.py)
+and [capture recovery probe](integration/consumers/capture/recovery_probe.py) need
+explicit retained external inputs. P1 is deferred; its original
+[verification contract](../docs/research/p1-baseline.md#saved-source-verification)
+and evidence identities remain historical. No provider download or outreach is a
+cleanup prerequisite. The [notebook guide](../examples/notebook-operations.md)
+owns notebook execution; closed-MR results stay in their original evidence records.

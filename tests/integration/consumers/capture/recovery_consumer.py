@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import asyncio
 import json
+import subprocess
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -281,6 +282,16 @@ def main() -> None:
             for mode in ("late", "bridge_gap", "rate_limit")
         ],
     }
+    capture = output / "lineage"
+    replay = subprocess.run(
+        [str(Path(sys.executable).parent / "alpha-collect"), "replay", "--capture", str(capture)],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    assert replay.stdout.strip() == DomainCodec().encode_json(
+        SavedCapture.read(capture, book_factory=BookAdapters.create).summary()
+    )
     (output / "result.json").write_text(json.dumps(results, indent=2) + "\n")
     print(json.dumps(results, indent=2))
 

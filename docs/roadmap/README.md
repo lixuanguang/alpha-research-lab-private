@@ -1,10 +1,11 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-23. **MRs 1–7 are implemented; MR 8 is
-complete within its explicitly revised saved-data simulation scope; legacy P1
-remains deferred and unaccepted; MR 9 has bounded saved-input
-batch parity with runtime qualification open; MR 9A has completed local L2
-backtesting acceptance; MRs 10–21 are planned.**
+Owner: repository founder. Updated 2026-09-23. **MRs 1–9A are implemented and
+closed, per the founder's closure confirmation. MRs 10–21 are planned.** Closure
+retains each MR's delivered scope: MR 8 accepts saved-data simulation, MR 9
+delivers bounded saved-input batch parity, and MR 9A delivers saved L2 backtesting.
+Legacy P1 remains deferred and unaccepted; live/runtime qualification is not
+implied by closing these delivery slices.
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -41,15 +42,21 @@ The [frozen P1 experiment](../research/p1-baseline.md) retains its own identity,
 source sample and economic assumptions. It is not renumbered with this roadmap.
 No empirical strategy, paper deployment or live trading acceptance is claimed.
 
-**Current source priority (founder clarification, 2026-09-23).** Binance and Tardis
-are deprioritised for new research work. Preserve their existing adapters, fixtures
-and frozen P1 records, but defer further P1 source investigation and provider
-outreach. Such outreach is not a platform requirement or a prerequisite for the
-current OKX/Bitfinex research workflows. Continue from the saved OKX order-book
-workflow for L2 backtesting. The founder subsequently authorized the explicit
-[MR8 scope amendment](../research/saved-baseline-acceptance.md): reproducible
-simulation on saved OKX data replaces the legacy milestone target. P1 remains
-unaccepted and all strict source-quality requirements remain unchanged.
+**Future-MR data policy (founder direction, 2026-09-23).** All future MRs must
+avoid Binance and Tardis data because of availability constraints. Use OKX or
+Bitfinex where the required data and implemented capabilities are available;
+start L2 work from the saved OKX order-book workflow. New acquisition, research
+examples and acceptance evidence must not depend on Binance/Tardis access or
+provider outreach. If neither preferred source supports the required scope,
+record the gap and select an available alternative explicitly; do not silently
+fall back to Binance/Tardis or claim unsupported source quality.
+
+Preserve existing adapters, offline regression fixtures and historical evidence
+with their original identities. They do not set the source choice for new MRs.
+Further P1 investigation and provider outreach remain deferred. The
+[MR8 scope amendment](../research/saved-baseline-acceptance.md) accepts reproducible
+simulation on saved OKX data; P1 remains unaccepted and source-quality requirements
+remain unchanged.
 
 ## Platform and researcher responsibilities
 
@@ -85,8 +92,8 @@ source evidence and researcher access improve independently.
 | 6 | [Configured runs, ClearML pipelines and versioned reports/data](#configured-runs-and-durable-reports) | MRs 1–2, 4–5; lakeFS adapter preserves existing dataset contracts |
 | 7 | [Research comparison, offline diagnostics and Feast retrieval](#research-comparison-and-extension) — implemented | MRs 1–6; fitted-state requirements only where applicable |
 | 8 | [Saved-data baseline acceptance](#saved-data-baseline-acceptance) — complete within revised simulation scope; P1 deferred and unaccepted | MRs 5–6, MR9A saved-book workflow and explicit replacement specification |
-| 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) — saved-input batch slice delivered; runtime acceptance open | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
-| 9A | [L2 order-book backtesting](#l2-order-book-backtesting) — implemented; local acceptance complete | Saved L2 reader and MRs 5–6; before MR 10 for order-book strategies |
+| 9 | [Runtime feature parity and applicable Feast online retrieval](#runtime-feature-parity) — closed within saved-input batch scope | MRs 3–4; MR 7 for a Feast consumer; qualified runtime input, only if required |
+| 9A | [L2 order-book backtesting](#l2-order-book-backtesting) — implemented and closed | Saved L2 reader and MRs 5–6; before MR 10 for order-book strategies |
 | 10 | [Candidate packaging and runtime binding](#candidate-packaging-and-runtime-binding) | MRs 6–7 and accepted candidate evidence; MRs 4/9 where applicable; MR 9A for order-book strategies |
 | 11 | [Trusted deployment artifact](#trusted-deployment-artifact) | Dependency admission and a concrete deployable consumer |
 | 12 | [Paper order lifecycle and recovery](#paper-order-lifecycle-and-recovery) | MR 10; MR 11 before deployment |
@@ -106,9 +113,10 @@ MR 21 can proceed independently. MR 8 accepts the explicitly revised saved-data 
 MR 7 separately accepts the reusable research workflow. Neither substitutes for
 the other's evidence. Conditional work stays dormant until its consumer exists.
 MR 9A implements the saved ETH-USDT order-book workflow independently of MR 8
-and the runtime portion of MR 9. Its local acceptance is complete; hosted merge
-gates remain required. MR 10 can package an order-book candidate after those
-gates; trade-price candidates retain their existing prerequisites.
+and conditional runtime feature work. MRs through 9A are closed. MR 10 can package
+an order-book candidate using that delivered capability; any candidate-specific
+runtime qualification remains part of its future delivery. Hosted merge gates
+continue to apply to new changes.
 
 ## Selected research integrations
 
@@ -1466,7 +1474,12 @@ any future explicit resumption; they are not required next actions for the platf
 
 ### Runtime feature parity
 
-**MR 9, conditional.** Add incremental features only for a candidate that needs them;
+**MR 9, closed within bounded saved-input batch scope (founder confirmation,
+2026-09-23).** The historical acceptance record below retains the original
+runtime limits; it is not an open MR. Candidate-specific incremental/online or
+live-runtime qualification belongs to a future MR under the current data policy.
+
+Add incremental features only for a candidate that needs them;
 a scheduled batch candidate can retain a qualified batch path. Use qualified inputs
 with explicit clocks, cadence, missingness, late-data, warm-up and recovery behavior.
 
@@ -1483,7 +1496,7 @@ online store cannot answer arbitrary historical as-of queries. A qualified batch
 candidate does not need an online store, and Feast does not move feature formulas
 out of their existing owner.
 
-MR 9 implementation status (2026-09-22): **bounded saved-input batch parity
+Historical MR 9 implementation status (2026-09-22, before closure): **bounded saved-input batch parity
 delivered; full runtime acceptance remains open.** The concrete software consumer
 is P1's existing scheduled, unfitted completed-price rule. `research.features`
 owns `CompletedReturn`, `ScheduledFeatures`, versioned state and parity records;
@@ -1506,7 +1519,7 @@ materialization/freshness/TTL are therefore not activated by this rule-only slic
 MR 8's historical eligibility, positive coverage and exhaustive revision evidence
 are still missing; neither this parity report nor a native capture witness supplies
 them. Actual runtime source binding and measured cadence/recovery qualification
-remain required before full MR 9 acceptance. MR 10 packaging and MR 11 deployment
+remain required before a candidate claims runtime qualification. MR 10 packaging and MR 11 deployment
 admission are not implemented here.
 
 Verification: focused development checks passed **20 tests**, including independent
@@ -1559,13 +1572,15 @@ uv run --frozen --no-editable pytest -q tests/unit/research/test_scheduled_featu
 # Final changed-domain state: 20 passed.
 ```
 
-Hosted source/macOS/merged-result CI remains a required pre-merge boundary; its
-PR status is reported separately and local checks do not bypass it. Full MR 9 is
-not marked complete while the runtime prerequisites above remain open.
+Hosted source/macOS/merged-result CI was the required pre-merge boundary; local
+checks did not bypass it. The founder subsequently confirmed MR 9 closed within
+the delivered scope. This does not turn the saved-input proof into live-runtime
+qualification.
 
 ### L2 order-book backtesting
 
-**MR 9A, implemented; local acceptance 2026-09-22.** The saved-book workflow is runnable end to end:
+**MR 9A, implemented and closed; local acceptance 2026-09-22, founder closure
+confirmation 2026-09-23.** The saved-book workflow is runnable end to end:
 verified L2 archive → book observations and EDA → strategy targets → independent
 risk checks → simulated orders and fills → cash, positions and P&L report.
 The existing OKX reader supplies books to a separate L2 economic path; MR 5's
@@ -1662,7 +1677,8 @@ causal cases cover delayed information, pending responses and changed future dat
 Original receipt and sequence fields remain unknown; archive continuity and
 full-day semantic coverage remain unproven. This is long-only, no-impact IOC
 research with explicit participation caps, not resting-order or runtime recovery
-support. Hosted source/macOS/merged-result CI remains required before merge.
+support. Hosted source/macOS/merged-result CI was the required pre-merge gate;
+the founder has since confirmed closure.
 
 Reversal: remove the new configuration/consumer and book-specific implementation
 together while preserving saved inputs and run records. Reject incompatible
@@ -1676,8 +1692,8 @@ state/warm-up rules and accepted experiment evidence. Retain artifact bytes as w
 as hashes. A rule has no invented model artifact. Reuse the accepted components in
 research and runtime applications; no translation into separate production formulas.
 
-For an order-book candidate, complete [MR 9A](#l2-order-book-backtesting) before
-starting this packaging work. Bind its supported order types, book requirements,
+For an order-book candidate, reuse the closed [MR 9A](#l2-order-book-backtesting)
+capability. Bind its supported order types, book requirements,
 timing/fill model and accepted backtest evidence in the candidate contract. A
 strategy requiring resting orders must also have that execution model implemented
 and tested; the first immediate-execution slice cannot qualify it. Candidates
@@ -1824,6 +1840,10 @@ state or bypass account controls. Extend only the affected source, economic and
 operational evidence for the added scope.
 
 ## Maintenance and growth
+
+The [post-MR9A maintenance review](post-mr9a-maintenance-review.md) records the
+completed acceptance-scaffolding cleanup and remaining output/documentation
+consolidation candidates. Retained evidence has not been deleted.
 
 ### Measured storage and computation growth
 

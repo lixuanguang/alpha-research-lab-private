@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import argparse
 import hashlib
 import io
 import subprocess
@@ -22,6 +23,13 @@ from market_data.adapters.venues.okx import OKXArchiveDiscovery, OKXArchiveStore
 from market_data.contracts import OKXArchiveRequest
 from research.experiments import AttemptStore, BookReport
 from serialization import DomainCodec
+
+
+class _Arguments(argparse.Namespace):
+    """Type the copied input directory and optional installation-smoke selection."""
+
+    root: Path
+    smoke: bool
 
 
 class _SavedBooks:
@@ -123,7 +131,11 @@ def main() -> None:
     Raises:
         AssertionError: An installed behavior differs from the independent expected result.
     """
-    root = Path(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root", type=Path)
+    parser.add_argument("--smoke", action="store_true", help="Run one installed CLI round trip")
+    arguments = parser.parse_args(namespace=_Arguments())
+    root = arguments.root
     codec = DomainCodec()
     authored = BookRun.read(root / "book-config.json")
     instance = authored.instances[0]
@@ -161,6 +173,20 @@ def main() -> None:
     config.write_bytes(codec.encode_json(selected))
     archive = _SavedBooks.create(root, selected.history)
     complete = _SavedBooks.command(config, archive, root / "runs")
+    report = codec.decode_json((complete / "report.json").read_bytes(), BookReport)
+    assert len(report.features) == 5 and all(
+        row.received_ns is None and row.sequence is None for row in report.features
+    )
+    balances = [account.state.valuations[-1].balance for account in report.accounts]
+    assert [balance.holding.value for balance in balances] == [
+        Decimal("2"),
+        Decimal("0"),
+        Decimal("0.5"),
+    ]
+    assert balances[0].cash.value == Decimal("796.797")
+    assert balances[1].cash.value == Decimal("1000")
+    if arguments.smoke:
+        return
     checkpoint = _SavedBooks.command(
         config,
         archive,
@@ -174,18 +200,6 @@ def main() -> None:
         assert (complete / f"checkpoint-{index}.json").read_bytes() == (
             resumed / f"checkpoint-{index}.json"
         ).read_bytes()
-    report = codec.decode_json((complete / "report.json").read_bytes(), BookReport)
-    assert len(report.features) == 5 and all(
-        row.received_ns is None and row.sequence is None for row in report.features
-    )
-    balances = [account.state.valuations[-1].balance for account in report.accounts]
-    assert [balance.holding.value for balance in balances] == [
-        Decimal("2"),
-        Decimal("0"),
-        Decimal("0.5"),
-    ]
-    assert balances[0].cash.value == Decimal("796.797")
-    assert balances[1].cash.value == Decimal("1000")
     btc = OKXHistoryConfig.read(root / "btc-history.json")
     btc_history = replace(
         selected.history,
