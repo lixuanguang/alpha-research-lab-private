@@ -9,7 +9,7 @@ target with reproducible saved-OKX simulation. It leaves this strict admission
 implementation and P1's own requirements unchanged. Historical verification below
 is retained under its original scope.
 
-The missing engineering path now accepts retained, externally reviewed provider
+The implemented admission path accepts retained, externally reviewed provider
 evidence through `SourceQualification` and `DatasetInput`, using the existing
 publisher, native decoder, eligibility, revision, query, replay, accounting and
 reporting owners. The [contract](../../src/market_data/README.md#reviewed-provider-qualification)
@@ -112,7 +112,7 @@ remain retained. The earlier verification record retained notebook SHA-256:
 Pre-merge verification on 2026-09-23 found all 191 runtime Python files identical
 to the installed candidate. The 36 focused qualification/quality tests passed again,
 as did scoped Ruff checks, the 36-document link check and diff whitespace validation.
-The current maintained notebook bytes have SHA-256
+The notebook bytes retained at that verification have SHA-256
 `1a4c6fdd3abbdd140f74aef0e6f5cdd26a95b2d7a28d8189f86daf248cf304e5`;
 every cell's type and source matches both retained executions exactly, and outputs
 and execution counts are cleared. Notebook envelope/metadata differences do not
@@ -128,9 +128,9 @@ criterion amended in that investigation. P1 therefore remains deferred and unacc
 
 The subsequent [provider-records investigation](provider-records.md) retained an
 additional Binance correction file and checked available provider contracts. None
-qualifies the frozen hour. The [provider request drafts](provider-requests.md)
-remain unsent and the proposed outreach has been withdrawn. The founder has
-deprioritised Binance and Tardis; these records are not a required next action or
+qualifies the frozen hour. The [proposed outreach](provider-records.md#deferred-follow-up)
+was withdrawn without sending either request; obsolete draft messages were removed.
+The founder has deprioritised Binance and Tardis; these records are not a required next action or
 a prerequisite for independent OKX/Bitfinex research workflows.
 
 If this legacy case is explicitly resumed and suitable records are supplied,
@@ -150,21 +150,9 @@ No scalability, profitability, deployment or trading claim follows from these te
 
 ## Run the evidence notebook
 
-Install the current package with `uv sync --frozen --no-editable`, then run from the
-repository root. Saved mode verifies already retained public responses and receipts;
-no network request is made. Without a reviewed input the expected result is a
-retained refusal, not an empirical backtest.
-
-```sh
-ALPHA_P1_PUBLIC_MODE=saved \
-ALPHA_P1_PUBLIC_DIRECTORY=data/notebooks/p1-evidence/fa8aec4f-cf2a-4f9d-8f89-cd3dac2ebe4c/public \
-uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
-  python examples/run_notebook.py examples/research-foundations-live-p1-evidence.ipynb \
-  --kernel-python .venv/bin/python
-```
-
-Add `ALPHA_P1_ADMISSION_INPUT=/absolute/reviewed/dataset-input.json` only when that
-reviewed input exists. The [operations guide](../../examples/notebook-operations.md#frozen-source-evidence)
-explains missing source preparation, output retention and exact fresh-kernel reproduction.
-The final cell prints the retained handoff report path. Generated source bytes and
-executed notebooks remain ignored; no credentials or provider payloads are committed.
+Use the [legacy reproduction guide](legacy-p1-reproduction.md) and its matching
+historical checkout/environment. The archived notebook retains older imports and
+cannot be run against the current package unchanged. Saved mode verifies retained
+responses and receipts; without a reviewed input its expected result is a retained
+refusal, not an empirical backtest. Current research starts with the
+[saved OKX workflow](l2-book-backtest.md).

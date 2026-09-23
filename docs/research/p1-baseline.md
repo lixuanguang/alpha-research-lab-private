@@ -23,7 +23,7 @@ The [saved-source verification record](#saved-source-verification) records the
 economics now have explicit [momentum](../../configs/backtests/p1-btcusdt-return-v1.json)
 and [no-trade](../../configs/backtests/p1-btcusdt-no-trade-v1.json) configurations
 for the existing `applications.backtest.run_backtest` consumer. These unchanged `BacktestSpec` inputs can be embedded in the explicit
-[engineering-sample configuration](../../src/research/experiments/README.md#unfitted-engineering-samples)
+[engineering-sample configuration](../../src/research/studies/README.md#unfitted-engineering-samples)
 for `alpha-backtest run`; no validation or holdout window is invented.
 
 The selected source is Binance public spot-trade archives, authorized before any
@@ -53,7 +53,7 @@ requirement to contact Binance or Tardis or to continue prioritising these sourc
 For each item, retain the actual supporting files, their source URLs or provider
 references, retrieval times, and the dates/instrument they cover. Attach them to
 the preserved [P1 evidence notebook](../../examples/research-foundations-live-p1-evidence.ipynb)
-using its [handoff instructions](../../examples/notebook-operations.md#frozen-source-evidence).
+using its [historical environment and handoff instructions](legacy-p1-reproduction.md).
 The notebook's investigation cells check the saved trade stream and provider records,
 display the three findings, and write a draft `provider-questions.md` for facts still
 missing. It can explicitly refresh four public records or reproduce an earlier
@@ -270,7 +270,7 @@ remains open.
 The specification fixes scope and assumptions; it does not complete data
 feasibility or baseline acceptance. Actual endpoint/framing/timestamp/retention
 feasibility, historical eligibility, coverage and revision availability each need
-their applicable evidence. The [baseline delivery](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance)
+their applicable evidence. The [baseline delivery](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance)
 owns assembled saved-source and fresh-process acceptance. Investigate missing source
 evidence early; successful download cannot establish historical knowability.
 Absent evidence leaves the empirical causal baseline incomplete even when archive
@@ -294,8 +294,8 @@ retain the frozen values and disclose poor results rather than tune to pass.
 
 “Frozen P1 baseline accepted” means the assembled candidate meets every source,
 causal, quality, economic and reproduction requirement above, including the
-permitted-source and fresh-process proof in [baseline acceptance](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance).
-The [reusable research workflow](../roadmap/history-mr1-to-mr9a.md#research-comparison-and-extension)
+permitted-source and fresh-process proof in [baseline acceptance](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance).
+The [reusable research workflow](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#research-comparison-and-extension)
 separately requires comparison, EDA/replay integration and instance-isolation
 acceptance. A synthetic slice or an installed development wheel establishes
 neither complete outcome. Completing one does not retire the other's requirements.
@@ -370,7 +370,7 @@ Keep source bytes and bulky output outside Git. Original raw data remains in the
 selected `data/binance-archives/` store.
 
 Validation results are recorded in the
-[roadmap acceptance attempt](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance).
+[roadmap acceptance attempt](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance).
 Existing synthetic MR 5/6 evidence remains valid for exact accounting, delays,
 recovery and report atomicity because their runtime implementations are unchanged.
 It cannot fill the empirical gaps above. Reversal removes the consumer/configs and
@@ -458,7 +458,7 @@ compare complete result manifests; admission failure produces no snapshot.
 The 2026-09-21 refusal output is reused only for its original state and non-admission
 claim. The continuation does not rerun that unchanged actual-source economics merely
 to produce another refusal. New runtime behavior requires new checks and installed
-proof, recorded in the [roadmap continuation](../roadmap/history-mr1-to-mr9a.md#frozen-baseline-continuation).
+proof, recorded in the [roadmap continuation](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-continuation).
 Original source integrity remains supported because its retained bytes and selection
 are unchanged. Existing independent monetary/rounding oracles remain authoritative.
 

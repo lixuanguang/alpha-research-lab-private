@@ -59,7 +59,7 @@ that Git does not track. A missing root, unreadable source, malformed
 configuration, or finding fails closed. It has no source-rule waiver or
 function-registration mechanism. The checker does not yet enforce the
 orchestrator-only function rule or assess class cohesion; those are review
-requirements pending the [OOP migration](../roadmap/future-mr10-to-mr21.md#python-ownership-and-enforcement).
+requirements pending the [OOP migration](../roadmap/README.md#delivery-order-and-dependencies).
 A passing check does not establish OOP compliance. Line-scoped tool suppressions
 are separate and must carry the owner, rationale, and expiry metadata described
 below.
@@ -220,7 +220,7 @@ Existing non-orchestrator functions remain migration work, not a permanent
 exception or evidence that migration is complete. New and materially changed
 implementation MUST follow this rule. Migrate each affected API with its callers,
 exports, tests and documentation; retain current API descriptions until the code
-changes. The [roadmap](../roadmap/future-mr10-to-mr21.md#python-ownership-and-enforcement) owns the remaining
+changes. The [roadmap](../roadmap/README.md#delivery-order-and-dependencies) owns the remaining
 implementation and enforcement work. This policy update changes no runtime API
 or checker behavior by itself.
 
@@ -380,10 +380,10 @@ not authorize a validation framework in economic or trading-domain code without
 a boundary-specific need. Latency-sensitive market-data and event records, plus
 quote, order-intent and execution records, MUST use frozen `msgspec.Struct`
 values with cached strict typed codecs for serialization and deserialization.
-This candidate uses the serialization boundary for exact financial values and
-bounded canonical Binance event records. Later quote, order-intent, execution,
-configuration and report records will use the same boundary when their planned
-consumers are introduced; this does not require a blanket foundation rewrite.
+The implemented boundary covers exact financial values, market-data records,
+configuration, simulation orders/fills/checkpoints and retained research results.
+Future venue-execution consumers use the same requirements; this does not require
+a blanket foundation rewrite.
 
 `msgspec` annotations are not checked by direct constructors. Its records MUST
 therefore retain explicit constructor and custom invariant checks so invalid,

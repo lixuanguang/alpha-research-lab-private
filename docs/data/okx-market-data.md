@@ -2,8 +2,9 @@
 
 OKX adds **L2** data: aggregate price levels and order counts, without individual
 order IDs or queue priority. Bitfinex R0 and Coinbase Exchange remain the L3
-sources. Both maintained OKX examples select native **BTC-USDT spot**, with a
-shared canonical listing ID distinct from BTC/USD. USDT is not USD.
+sources. The acquisition/capture examples below select native **BTC-USDT spot**;
+the [saved L2 backtest](../research/l2-book-backtest.md) selects **ETH-USDT spot**.
+Each configuration has its own canonical listing ID. USDT is not USD.
 
 Use the [installed commands](#installed-commands) for acquisition and the
 [QR notebook](../../examples/research-foundations.ipynb) for pinned dataset inspection.
@@ -26,7 +27,8 @@ history from March 2023. The
 describes variable availability and typical T+3 publication for books. Daily
 order-book query dates are inclusive UTC dates. Module 6's 50-level history is
 being deprecated; this implementation explicitly selects module 4. The maintained
-example fixes 8 September 2026 rather than a moving latest date.
+BTC acquisition example fixes 8 September 2026 rather than a moving latest date;
+the separate ETH backtest configuration selects 20 September 2026.
 
 The [live channel contract](https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-order-book-channel)
 distinguishes public `books` from the authenticated VIP `books-l2-tbt` and

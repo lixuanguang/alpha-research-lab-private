@@ -71,18 +71,10 @@ not repeated for this documentation and evidence-only continuation.
 ## Deferred follow-up
 
 The founder's 2026-09-23 clarification supersedes the earlier recommendation to
-contact these providers. The drafts below are retained as investigation history,
-not required next actions. Preserving the frozen P1 case does not require pursuing
+contact these providers. The unsent draft messages were removed during documentation
+cleanup; the decision and evidence remain here. Preserving the frozen P1 case does not require pursuing
 its acceptance now. Current work proceeds independently through the existing OKX
 and Bitfinex workflows, with their own documented assumptions and limitations.
-
-The [prepared provider requests](provider-requests.md) identify the exact hour,
-archive digest, observed trade IDs and the records each provider is being asked to
-supply. Binance owns the original exchange status, export and correction facts;
-Tardis can address its recording health, capture clocks and any separately retained
-historical reference information. Either can explicitly identify facts it cannot
-certify. A reply containing only current status, matching checksums or an empty
-incident list will leave the corresponding gap open.
 
 No request has been sent. No provider account was accessed, subscription purchased,
 alternative source substituted or acceptance criterion amended. Public documentation

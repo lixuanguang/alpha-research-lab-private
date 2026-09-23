@@ -118,7 +118,8 @@ docker compose --env-file "$CLEARML_LOCAL_ENV_FILE" \
 The SDK's missing PyPI source distribution is handled by the implemented,
 verified upstream source-archive admission rule. The native release restriction
 and shared-service qualification remain separate. See the
-[roadmap evidence and remaining work](../../../docs/roadmap/history-mr1-to-mr9a.md#fitted-preprocessing-and-model-evaluation).
+[original acceptance evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#fitted-preprocessing-and-model-evaluation)
+and current [release requirements](../../../docs/governance/workflow.md#build-a-release).
 
 ## Serial installed research worker
 

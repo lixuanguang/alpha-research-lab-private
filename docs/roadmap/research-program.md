@@ -129,9 +129,9 @@ or activation. Existing release and operating boundaries remain applicable.
 ## Small records and artifacts
 
 Keep small versioned records as durable research evidence. The
-[selected integrations](history-mr1-to-mr9a.md#selected-research-integrations) add ClearML tracking,
-model records and workflow execution from MR 4 onward, followed by versioned dataset
-and feature access. These tools index and consume the retained contracts; mutable
+[implemented integrations](../../src/research/studies/README.md#ownership-and-verification) provide ClearML tracking,
+model records and workflow execution, alongside versioned dataset and feature
+access. These tools index and consume the retained contracts; mutable
 dashboard metadata does not replace them. Assign a stable `strategy_id` from the first formal
 run. Add a `family_id` when variants or shared selection rules make grouping useful. Keep each record
 human-readable and append changes rather than silently renaming history. A strategy record identifies its

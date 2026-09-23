@@ -1,52 +1,27 @@
 # Alpha Research Platform
 
-A monorepo growing toward institutional-grade multi-asset, multi-strategy research,
-production trading and monitoring. The implemented Python libraries cover
-instrument identity, venue calendars, financial units, exact serialization,
-event provenance, an authored reference catalog, bounded Tardis/Binance
-decoding, historical acquisition, saved-row reading, eligibility selection and
-validated dataset publication/reopening with explicit quality scope. Native
-Bitfinex and OKX order-book acquisition/replay, point-in-time trade queries and
-configured EDA, retained experiment attempts, temporal split admission and versioned
-observed-price feature/label studies are also available. Exact model construction,
-evaluation and local ClearML integration are implemented with verified upstream
-source admission; see the [model contract](../src/research/models/README.md).
-[Bounded spot economics](../src/simulation/README.md) composes saved synthetic inputs,
-completed observations, fixed rules, independent limits, delayed fills and exact
-accounting, with a separate vectorbt comparison and retained ClearML artifacts.
-Configured economic reports and [saved L2 backtesting](research/l2-book-backtest.md)
-are available through `alpha-backtest`; the book path adds depth walking, IOC
-partial fills and consumed liquidity. Empirical causal dataset acceptance,
-production execution and deployment remain future work. Start with the [QR implementation guide](../examples/README.md)
-for current notebooks and the full research-to-production journey, with planned
-activities clearly distinguished from implemented workflows.
-One reproducible strategy baseline is the first delivery target; shared research,
-portfolio infrastructure and independently operated strategies are the destination.
+Current scope: bounded local research from retained market data to exact spot
+simulation, model studies and reports. MRs 1–9A are implemented and closed within
+their recorded limits; [MR10–MR21](roadmap/README.md#delivery-order-and-dependencies) define future
+candidate, deployment and operating work. No paper or live trading service is
+qualified or activated.
 
-The [saved-data baseline specification and report](research/saved-baseline-acceptance.md)
-revises MR8 to bounded reproducible simulation using the saved OKX ETH-USDT L2
-archive, the existing imbalance rule and no-trade control. Run it through the
-[saved L2 workflow](research/l2-book-backtest.md) or the [maintained notebook](../examples/orderbook-research.ipynb).
-Historical causal qualification remains unproven. The separate
-[P1 experiment](research/p1-baseline.md), configurations and results remain frozen,
-deferred and unaccepted; its retained reproduction steps are in the [legacy P1
-guide](research/legacy-p1-reproduction.md).
+Start with the [researcher guide](../examples/README.md). The maintained data
+journeys use [saved OKX L2 backtesting](research/l2-book-backtest.md) and
+[bounded Bitfinex capture/replay](data/l3-collectors.md). The [roadmap](roadmap/README.md)
+owns capability status and the OKX/Bitfinex source policy;
+[architecture](architecture/README.md) owns current package boundaries and
+[research methodology](roadmap/research-program.md) owns evaluation choices.
 
-The [platform infrastructure roadmap](roadmap/README.md) begins with researcher
-dataset access. It owns future capability delivery, dependencies and acceptance.
-Current capabilities are documented by function; the QR guide owns usage and the
-research program owns methodology. Source ownership is documented in architecture.
-The [platform design](architecture/platform-design.md) preserves intended module
-boundaries, interfaces, runtime lanes and scaling choices. Technical correctness,
-reproducibility and trading safety accompany the features that need them. Team
-ownership, independent approvals and organizational controls are the lowest
-priority workstream, introduced as actual contributors and operators join.
+The accepted [saved-data baseline](research/saved-baseline-acceptance.md) is a
+reproducible simulation, not empirical causal-source or strategy qualification.
+Legacy Binance/Tardis P1 work is deferred and unaccepted; its records are listed
+under [historical evidence](#historical-evidence).
 
-The [development workflow](governance/workflow.md) owns development and founder
-activation decisions. QuantLib 1.43 remains
-restricted to isolated development/CI through 2026-10-04 because its
-source-to-wheel binding is unverified; artifact release remains blocked. See the
-[dependency decision](architecture/README.md#dependency-and-release-boundaries).
+QuantLib's unresolved source-to-wheel binding permits isolated development/CI
+through 2026-10-04 and blocks release use. See the
+[dependency restriction](architecture/dependency-admission.md#quantlib-restriction)
+and [release workflow](governance/workflow.md#build-a-release).
 
 ## Development environment
 
@@ -110,13 +85,11 @@ the QuantLib release restriction.
 | [Platform design](architecture/platform-design.md) | Planned shared modules, runtime lanes, contracts, recovery and scaling decisions |
 | [Development workflow](governance/workflow.md) | Implementation, validation and founder activation rules |
 | [Operations runbook](governance/operations.md) | Security, monitoring, stop and recovery requirements for a future deployment |
-| [Platform infrastructure roadmap](roadmap/README.md) | One backlog for reusable capabilities, MR dependencies, functional ownership and acceptance |
+| [Platform infrastructure roadmap](roadmap/README.md) | Completion status, planned capabilities, dependencies and functional ownership |
 | [QR implementation guide](../examples/README.md) | Research activities: data selection/onboarding, features/labels, models/rules, backtesting, candidate promotion and monitoring; current versus planned support |
 | [Research studies and reports](../src/research/studies/README.md) | Retained saved studies, comparisons, diagnostics, configured reports, publication and serial pipelines |
 | [Experiment attempts and temporal splits](../src/research/experiments/README.md) | Semantic run identity, temporal fitting/holdout rules and append-only attempt history |
-| [Legacy P1 reproduction](research/legacy-p1-reproduction.md) | Deferred Binance/Tardis source-evidence reopening and unresolved historical limits |
 | [Saved L2 workflow](research/l2-book-backtest.md) | Configured book simulation, real-source results and offline recovery |
-| [Frozen P1 experiment](research/p1-baseline.md) | Selected sample, strategy, timing, cost assumptions and experiment acceptance requirements |
 | [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |
 | [Data sources](data_source/README.md) | Sources by asset class and data type, historical coverage, access limits and dated verification evidence |
 | [Engineering guide](coding_standards/README.md) | Enforced clarity and numerical engineering requirements |
@@ -129,3 +102,18 @@ The [data command reference](../src/market_data/README.md) and
 paper trading, deployment, activation and trading stop commands remain planned.
 Keep actual release identities, data provenance and unresolved dependency
 evidence; no current result grants live readiness.
+
+## Historical evidence
+
+These records explain closed milestones or deferred work; they are not current
+quickstarts or additional implementation gates. Their hashes, measured results
+and limitations apply to the revisions and inputs identified in each record.
+
+- [MR1–MR9A delivery history](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md) and
+  [completed maintenance](roadmap/post-mr9a-maintenance-review.md).
+- [Saved OKX baseline acceptance](research/saved-baseline-acceptance.md).
+- [Frozen P1 specification](research/p1-baseline.md),
+  [qualification evidence](research/source-qualification.md) and
+  [provider investigation](research/provider-records.md). No outreach is pending.
+- [Legacy P1 reproduction](research/legacy-p1-reproduction.md), requiring its
+  matching historical checkout and environment.

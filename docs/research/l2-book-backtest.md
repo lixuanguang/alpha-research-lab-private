@@ -2,7 +2,7 @@
 
 Owner: repository founder. Status: implemented for bounded offline spot research.
 Acceptance date: 2026-09-22. Scope and original acceptance criteria:
-[MR 9A](../roadmap/history-mr1-to-mr9a.md#l2-order-book-backtesting). This is an engineering
+[MR 9A](../roadmap/README.md#closed-delivery-summary). This is an engineering
 example, not a selected alpha strategy or a live-execution qualification.
 
 The [replacement MR8 specification and acceptance record](saved-baseline-acceptance.md)

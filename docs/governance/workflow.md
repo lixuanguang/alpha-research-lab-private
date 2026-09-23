@@ -13,7 +13,7 @@ institutional approval is not a prerequisite for ordinary development.
    [orchestrator pipeline and library boundary](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
    Review class ownership and reserve bare functions for actual orchestration;
    the checker does not yet enforce this rule. Migrate affected APIs with their
-   callers and follow the [remaining OOP work](../roadmap/future-mr10-to-mr21.md#python-ownership-and-enforcement).
+   callers and follow the [remaining OOP work](../roadmap/README.md#delivery-order-and-dependencies).
 3. Use the four sections in the pull-request template: problem/change,
    affected scope, validation result, and risks/reversal. Add migration,
    benchmark, or operational detail only when the change needs it.
@@ -36,13 +36,21 @@ authority.
 ## Build a release
 
 `make build` and `make wheel-smoke` build and test installation for development.
-The fail-closed artifact boundary is described in the
-[architecture guide](../architecture/README.md#dependency-and-release-boundaries).
-QuantLib's unresolved source-to-wheel binding currently blocks all artifact
-release use, even when the development checks pass. Clearing that dependency
-restriction will not itself enable releases: a concrete trusted consumer and
-its integrity, tamper and failure tests must be implemented first. The unused
-general bundle/signing/publication framework has been retired.
+Release use remains blocked by [dependency admission](../architecture/dependency-admission.md#quantlib-restriction)
+and the absence of a trusted release consumer. The diagnostic
+`uv run --frozen alpha-governance-artifacts release-check` checks admission, then
+rejects the absent consumer even if dependencies pass. It produces no artifact;
+unsupported invocations return a usage failure. Development wheel builds remain
+available under the existing allowance.
+
+[MR11](../roadmap/README.md#delivery-order-and-dependencies) owns the first
+trusted build/install consumer and must precede any deployed collector or
+paper/shadow runtime. It verifies trusted origin and builder identity, exact
+digests, provenance/inventory, safe archive members and configuration/state
+compatibility before installation. Tests must reject tampering, unexpected
+origins, unsafe paths, missing/unknown records and source/dependency mismatches.
+Its runbook owns signing, identity rotation, registry retention and rollback.
+Clearing the dependency restriction alone cannot supply this consumer.
 
 Build once from the locked environment and retain one release record containing:
 
@@ -52,8 +60,9 @@ Build once from the locked environment and retain one release record containing:
 - target environment and explicit operating limits; and
 - rollback artifact and state-compatibility result.
 
-Verify installation from outside the checkout. Keep the release artifact and
-record for the operating lifetime and any applicable retention requirement.
+Promote the same built bytes and verify installation from outside the checkout.
+Keep the release artifact and record for the operating lifetime and any applicable
+retention requirement.
 
 ## Activate and operate
 
@@ -87,6 +96,4 @@ technical stage; it does not wait for every platform capability to finish.
 
 Data correctness, accounting, runtime limits, reconciliation and recovery remain
 part of the features they protect, including during founder-only operation.
-Concrete external obligations apply when encountered. The
-[organizational workstream](../roadmap/future-mr10-to-mr21.md#further-scope-needs-a-consumer)
-records the triggers without requiring fictitious roles today.
+Concrete external obligations apply when encountered.

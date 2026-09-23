@@ -1,10 +1,10 @@
-# Post-MR9A maintenance review
+# Post-MR9A maintenance record
 
-Owner: repository founder. Assessed 2026-09-23 against clean `main` at `aa6d6f0`,
-before the accompanying documentation edits. Subsequent cleanup passes are
-recorded below. The original findings describe that assessed revision; each pass
-states its own changes and validation. Retained historical evidence bytes remain
-unchanged.
+Owner: repository founder. Status: the reviewed P2/P3 findings are resolved,
+merged through `31fcc84` on 2026-09-23. The original assessment used `aa6d6f0`;
+each cleanup pass below retains its own changes, validation and evidence scope.
+This is a completion record, not an active backlog. New work belongs in the
+[active roadmap](README.md). Historical artifact bytes remain unchanged.
 
 The founder confirms MRs through 9A are implemented and closed. Future work follows
 the [OKX/Bitfinex data policy](README.md#current-platform). Closure does not erase
@@ -232,147 +232,34 @@ is `/private/tmp/post-mr9a-p2-p3-local-ci.log`; installed-wheel evidence is
 `/private/tmp/alpha-research-wheel-smoke-uj72znjm/`. The merge follows the existing
 `[skip ci]` convention; repository CI configuration remains unchanged.
 
+### Documentation follow-up
+
+The 2026-09-23 documentation cleanup removes the two detailed roadmap files and
+their duplicated narratives: completion status and planned dependencies now fit
+in the 112-line master roadmap. Git retains cited historical evidence. Withdrawn
+outreach drafts and duplicate release guidance are removed; stale API/status
+instructions are corrected. Links pass across 52 Markdown documents, nine cited
+Git targets/anchors resolve, and secret scanning passes. The offline wheel build
+preserves the updated README metadata and all 194 Python modules match unchanged
+source. Runtime tests and research notebooks were not rerun for these prose edits.
+
 ## Original findings
 
-Priorities describe maintenance impact, not a request to reopen closed MRs.
-All findings have high confidence and advisory disposition. The relevant invariant
-is keeping reproducible domain behavior while separating current execution from
-acceptance machinery; risk dimensions are specified below.
+All six original findings and the follow-up P2/P3 items are closed. The
+[detailed assessment at the merge revision](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/post-mr9a-maintenance-review.md#original-findings)
+retains the original line references, measurements and recommendations. Those
+references describe the assessed checkout, not the current implementation.
 
-### P2 — Installed smoke has accumulated full acceptance workflows
+| Finding | Resolution and retained evidence |
+| --- | --- |
+| Full acceptance workflows duplicated in wheel smoke | [Bounded installation smoke and maintained domain regressions](#acceptance-scaffolding-cleanup) |
+| Core records eagerly load integration SDKs | [Separate owners and deferred operational imports](#follow-up-import-and-result-contract-cleanup) |
+| Saved-book payloads are repeatedly materialized | [Content sharing](#remaining-maintenance-cleanup) and [v2 report references with v1 reading](#follow-up-p3-cleanup) |
+| ClearML service setup and verification are repeated | [One explicit service verifier](#second-cleanup-pass) |
+| The maintained live notebook contains deferred P1 work | [Preserved P1 notebook and current Bitfinex journey](#remaining-maintenance-cleanup) |
+| The roadmap mixes active work and closed delivery logs | [Concise master roadmap with completion status and remaining work](README.md) |
 
-The 28 Python files in `tests/integration/consumers/` total **7,381 lines**.
-This is the review surface, not a deletion estimate. The clearest accumulation is
-[feature_study.py](../../tests/integration/consumers/research/feature_study.py)
-(859 lines): lines 853–855 add factor, model and window acceptance to the original
-feature/label handoff. [wheel_layout.py](../../tests/integration/consumers/wheel_layout.py),
-lines 146–161, runs five complete consumers, each under a 60-second deadline.
-The feature and ingestion consumers also run through
-[test_ingestion_workflow.py](../../tests/integration/test_ingestion_workflow.py),
-so `make check` exercises them in both source tests and a clean installation.
-
-Those two environments prove different things, but each currently repeats the
-whole scenario. The [historical MR9 record](README.md#runtime-feature-parity)
-already records the feature consumer timing out during font-cache construction.
-Every added acceptance scenario broadens this unrelated package-installation gate.
-Risk: reliability/operability and CI capacity.
-
-Consolidate by purpose: keep a bounded outside-checkout installation/reopen smoke;
-give model, diagnostics, publication and recovery behavior focused domain checks.
-Preserve required CI coverage and true process-death tests when moving scenarios.
-Do not delete all consumers merely because their original MR closed.
-
-### P2 — Basic experiment records eagerly load integration dependencies
-
-[research.experiments exports](../../src/research/experiments/__init__.py),
-lines 4–46, import comparison, pipeline and tracking implementations alongside
-`AttemptStore` and `Fingerprint`. Their imports load ClearML and Optuna even for
-callers that only need local records. A fresh installed-process probe importing
-only `AttemptStore` loaded **1,812 modules**, including ClearML, Optuna, pandas and
-NumPy; the single observed import took **1.819 seconds**. This is a diagnostic
-observation, not a controlled performance benchmark.
-
-The trigger is any import through this package, including ordinary local backtest
-work. Risk: startup capacity and coupling of local record access to integration
-installation/import health. Give the core record/store API a lightweight boundary
-and load integrations at their actual consumers, preserving or deliberately
-migrating supported public imports. Merely changing to a submodule import is
-insufficient while the package initializer still performs these imports.
-
-### P2 — Saved-book results repeatedly store the same large payloads
-
-[run_books](../../src/applications/backtest/books.py), lines 94–95 and 115–117,
-writes both exports and attempt artifacts for EDA and checkpoints. Lines 126–152
-also embed those values into the report, retain that report and export it again.
-These are useful output roles, but the current implementation materializes full
-copies and repeats serialization instead of sharing immutable content.
-
-The local `logs/` tree occupies about **429 MiB**. A SHA-256 inventory restricted
-to JSON, HTML and `artifact-*` files of at least 1 KiB in `logs/book-backtest/` and
-`logs/saved-baseline/` found **120,436,145 bytes (114.9 MiB)** of byte-identical
-copies beyond one file per distinct payload. One 3,186,388-byte EDA payload appears
-18 times. This includes repeat/restart evidence across attempts: it is logical
-duplication, not an estimate of safely deletable or physically reclaimable space.
-Risk: storage capacity and increasingly expensive retention/reopen workflows.
-
-For new runs, serialize once, retain canonical immutable bytes and make exports
-explicit or derived. Consider shared content only within the existing store if
-the measured need justifies it; retain separate attempt histories and manifests.
-Any later schema change needs old-report/checkpoint reopening compatibility.
-Verify durable artifact retrieval before pruning local copies; this review did
-not independently verify remote upload receipts or retention coverage.
-
-### P3 — ClearML acceptance setup and verification are duplicated
-
-The credential-file parsing and loopback endpoint setup are repeated in
-[feature_study.py](../../tests/integration/consumers/research/feature_study.py)
-at line 208, [economic_workflow.py](../../tests/integration/consumers/backtest/economic_workflow.py)
-at line 526, and [offline_features.py](../../tests/integration/consumers/research/offline_features.py)
-at line 155. They have already diverged: the feature consumer does not skip blank
-or comment lines, while the other two do. The same credential file can therefore
-work for one service acceptance path and fail in another.
-
-Remote artifact download/hash checks are also repeated at feature lines 522–538
-and 757–782, economic lines 310–323 and 636–656, and offline lines 269–288.
-Risk: reliability/operability and maintenance drift. Consolidate common service
-setup, receipt reconciliation and artifact verification in a bounded service
-acceptance consumer; keep domain-specific expectations independent. Preserve
-outside-checkout isolation rather than adding runtime imports of test helpers.
-
-### P3 — The active live notebook contains a large deferred P1 investigation
-
-[research-foundations-live.ipynb](../../examples/research-foundations-live.ipynb)
-contains **1,197 code lines**, of which **827** belong to its ten P1 evidence cells
-(`p1-inputs` through `p1-handoff`, starting near JSON line 242). These include
-retention, provider-document assembly, source qualification and refusal evidence.
-The maintained path also has a separate
-[source_acceptance.py](../../tests/integration/consumers/backtest/source_acceptance.py)
-program and several P1/provider records. P1 is deferred and the new source policy
-excludes its Binance/Tardis inputs.
-
-Risk: operability and maintenance of an obsolete default research journey.
-Archive the P1-specific notebook journey with its tested identity and record;
-make the maintained notebook focus on supported OKX/Bitfinex workflows. Retain
-source-admission contracts, compatibility readers and useful negative regressions.
-The synthetic P1 engineering consumer currently participates in wheel smoke, so
-it is not dead code and cannot simply be removed with the notebook cells.
-
-### P3 — The roadmap doubles as a large historical execution log
-
-Before this review's small status edits, [the roadmap](README.md) had **1,898
-lines / 140,886 bytes**. The MR7 section alone runs from lines 781–1234, with
-successive completion attempts, validation counts, tool decisions and local
-evidence locations. [The market-data command reference](../../src/market_data/README.md)
-adds another **1,556 lines**, and the frozen P1 record has **555 lines**.
-Length alone is not a defect: the concrete problem is mixing current delivery
-status with historical acceptance narratives. It left MR9 marked open and MR9A
-awaiting merge in current guidance after the founder confirmed closure.
-
-Risk: operability and incorrect future planning. Keep the active roadmap focused
-on current capabilities, limits and MRs 10 onward; move completed acceptance
-narratives to historical records with preserved links, anchors and tested
-identities. The accompanying edit corrects current status and source policy only.
-
-## Cleanup order and preservation boundary
-
-1. Separate historical roadmap/P1 material from current researcher entrypoints.
-2. Consolidate service acceptance setup and split the oversized smoke scenarios,
-   retaining domain assertions and installed-boundary coverage.
-3. Reduce eager integration imports and repeated artifact materialization with
-   focused compatibility/reopen checks.
-4. Prune local generated outputs only after verifying retained evidence retrieval.
-
-Keep the shared `AttemptStore`, `ResultManifest`, publication retry/receipt logic,
-source admission, exact accounting, causal checks and checkpoint recovery. They
-have ongoing runtime consumers; successful MR evidence upload does not retire
-them. Large numerical/identity/calendar modules and tests are not classified as
-bloat merely from their line counts. Existing provider adapters and fixtures
-remain historical compatibility surfaces, not the source template for new MRs.
-
-Review profile: research and platform architecture, risk tier 2, local/offline
-scope. Validation comprised tracked-file inventories, caller/import inspection,
-the isolated installed import probe and local duplicate-payload hashing. No
-live service, provider download, research rerun or runtime suite was executed.
-Local-link validation passed for all 38 documentation files, and
-`git diff --check` passed. No package inputs or runtime contracts change in this
-assessment.
+The shared attempt store, result manifests, source admission, exact accounting,
+causal checks and recovery remain supported runtime contracts. MR closure does
+not retire them. Retained provider evidence and historical failures continue to
+explain their original acceptance limits.

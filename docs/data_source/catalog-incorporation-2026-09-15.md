@@ -1,5 +1,8 @@
 # Catalog incorporation — 2026-09-15
 
+Historical import record. Counts and checks below describe 2026-09-15, before
+later catalog additions; the [source index](README.md) owns the maintained inventory.
+
 ## Change and scope
 
 The [source index](README.md) incorporates the supplied multi-asset catalog,
