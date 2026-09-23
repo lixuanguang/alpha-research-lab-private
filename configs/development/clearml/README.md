@@ -123,7 +123,7 @@ and shared-service qualification remain separate. See the
 ## Serial installed research worker
 
 MR 6 adds the first explicit local worker consumer for
-[configured economics](../../../src/research/experiments/README.md#configured-economics-reports-and-serial-pipelines).
+[configured economics](../../../src/research/studies/README.md#configured-economics-reports-and-serial-pipelines).
 The Compose stack still starts no workers. The separate
 [worker lock](worker/uv.lock) pins ClearML Agent 3.0.3 and its 12 macOS dependencies;
 `uv sync --frozen --project configs/development/clearml/worker` installs it outside

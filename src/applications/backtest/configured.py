@@ -12,7 +12,6 @@ from urllib.parse import urlsplit
 
 # third party library imports
 import msgspec
-from clearml import Task
 from lakefs_sdk import ApiClient, Configuration
 from msgspec.structs import replace
 
@@ -266,6 +265,9 @@ def run_worker() -> None:
         ValueError: The installed environment, resolved configuration or stage is unsupported.
         Exception: The selected stage fails; the agent records its original failed task.
     """
+    # third party library imports
+    from clearml import Task
+
     task = Task.get_task(task_id=os.environ["CLEARML_TASK_ID"])
     parameters = task.get_parameters()
     codec = DomainCodec()

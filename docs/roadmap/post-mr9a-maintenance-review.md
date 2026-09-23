@@ -167,6 +167,71 @@ The log is `/private/tmp/post-mr9a-maintenance-premerge-ci.log`; wheel evidence 
 `/private/tmp/alpha-research-wheel-smoke-1bebawdj/`. The merge uses `[skip ci]`;
 repository CI configuration remains unchanged.
 
+### Follow-up import and result-contract cleanup
+
+The follow-up checkout defers ClearML, Optuna, DuckDB and Polars imports until
+their operations run, preserving existing public imports. The producer, model
+admission and diagnostic consumers share `research.results.FeatureStudyResult`;
+`FeatureLabelPayload` remains an alias. Regression evidence preserves the existing
+wire bytes, pending labels and model-specific row-order/digest checks. An invalid
+custom reader returning no selected inputs now fails the shared result validator.
+All 17 untracked ` 2` copies matched their pre-fix Git originals and were removed.
+
+Validation on 2026-09-23: the frozen installed research, comparison/pipeline and
+ingestion/economic/book workflow selection passed **88 tests**. After final
+contract integration, feature, diagnostic and isolated-import regressions passed
+**23 tests**, including the new compatibility case; neither selection skipped or
+deselected tests. Ruff lint/format, strict mypy (57 files), the full engineering
+checker, scoped Bandit and changed-guide links passed. Fresh wheel smoke verified
+installed APIs, resources, historical snapshot reopening and the OKX book command;
+local evidence is `/private/tmp/alpha-research-wheel-smoke-ktrsz79w/`.
+The schema extraction used a `gpt-5.6-luna` subagent at `max`; the main agent
+integrated both fixes and ran the final checks. Full pre-merge CI and live-service
+acceptance were not rerun for this follow-up.
+
+### Follow-up P3 cleanup
+
+The founder authorized the remaining P3 findings on 2026-09-23. Documentation
+sections now depend on the contract's needs; present sections still require
+content and accurate parameter names. Overloads inherit implementation docs.
+Repeated calendar/identifier boilerplate and overload suppressions were removed.
+Alphalens uses the existing module stubs instead of six runtime typing protocols;
+its imports remain deferred to evaluation.
+
+The four large researcher/component guides were consolidated around current
+journeys and owning packages. Study details now live under `research.studies`,
+and deferred P1 reproduction has a separate guide. Including both new guides,
+the combined text falls from **3,279 to 1,937 lines** (40.9%); historical anchors
+and evidence remain available. Current callers link directly to the new owners.
+
+New L2 reports use digest references to their adjacent configuration, EDA and
+ordered checkpoints. `BookReport.read` verifies those bytes and also opens
+standalone v1 reports. Copy the complete v2 bundle when relocating it; HTML
+remains standalone. The maintained saved-data notebook produced a **2,230-byte**
+report instead of the equivalent **4,806,968-byte** embedded encoding, with the
+same 10,000 observations and two accounts. No historical artifact was rewritten.
+
+Validation: **1,261 tests passed**, three performance tests deselected and zero
+skips. Full-scope Ruff, strict mypy (347 files), native stubtest (1,562 modules),
+engineering standards, Bandit, dependency admission and secret scanning passed;
+all 56 Markdown documents passed local-link checks. Installed L2 regressions
+cover portable bundles, missing/changed companions, standalone v1 reading and
+byte-identical resumed results. An actual retained 10,000-message v1 report
+also reopened. All six notebook code cells passed in a fresh kernel; the executed
+copy is `examples/runs/orderbook-research/fd070526-c1fb-4a4e-af2f-e24fcc770ca6.ipynb`.
+Fresh-wheel verification passed at `/private/tmp/alpha-research-wheel-smoke-cmyk12pu/`.
+Three `gpt-5.6-luna` agents at `max` handled documentation policy, guide ownership
+and Alphalens typing; the main agent implemented report references and validated
+the integrated tree. No provider download or live-service acceptance was run.
+
+Pre-merge confirmation on 2026-09-23: the founder selected the full local gate.
+`env -u ALPHA_CLEARML_LOCAL_ENV TMPDIR=/private/tmp make check` passed with
+**1,261 tests passed**, three performance tests deselected and zero skips, all
+static/security checks, dependency audit and fresh-wheel verification. The log
+is `/private/tmp/post-mr9a-p2-p3-local-ci.log`; installed-wheel evidence is
+`/private/tmp/alpha-research-wheel-smoke-uj72znjm/`. The merge follows the existing
+`[skip ci]` convention; repository CI configuration remains unchanged.
+
 ## Original findings
 
 Priorities describe maintenance impact, not a request to reopen closed MRs.

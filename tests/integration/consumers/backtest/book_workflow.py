@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -125,6 +126,46 @@ class _SavedBooks:
         assert completed.returncode == 0, (completed.stdout, completed.stderr)
         return Path(completed.stdout.strip())
 
+    @staticmethod
+    def verify_report(directory: Path, report: BookReport) -> None:
+        """Prove portable v2 resolution, standalone v1 compatibility and corruption rejection."""
+        legacy = directory.parent / "legacy-report.json"
+        embedded = DomainCodec().encode_json(report)
+        legacy.write_bytes(embedded)
+        assert BookReport.read(legacy) == report
+        assert DomainCodec().decode_json(embedded, BookReport) == report
+        assert len((directory / "report.json").read_bytes()) * 2 < len(embedded)
+        copied = directory.parent / "portable-report"
+        shutil.copytree(directory, copied)
+        assert BookReport.read(copied / "report.json") == report
+        assert (
+            BookReport.read(copied / "report.json").render()
+            == (directory / "report.html").read_bytes()
+        )
+        for filename in (
+            "configuration.json",
+            "eda.json",
+            *(f"checkpoint-{i}.json" for i in range(len(report.accounts))),
+        ):
+            path = copied / filename
+            original = path.read_bytes()
+            path.chmod(0o600)
+            path.write_bytes(original + b" ")
+            try:
+                BookReport.read(copied / "report.json")
+            except ValueError as error:
+                assert f"artifact digest mismatch: {filename}" in str(error)
+            else:
+                raise AssertionError(f"accepted changed companion bytes: {filename}")
+            path.write_bytes(original)
+        (copied / "eda.json").unlink()
+        try:
+            BookReport.read(copied / "report.json")
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("accepted a report without its EDA companion")
+
 
 def main() -> None:
     """Compose saved inputs and prove installed CLI recovery, isolation and failure retention.
@@ -187,7 +228,7 @@ def main() -> None:
         assert (complete / filename).samefile(
             root / "runs/attempts" / complete.name / f"artifact-{name}.bin"
         )
-    report = codec.decode_json((complete / "report.json").read_bytes(), BookReport)
+    report = BookReport.read(complete / "report.json")
     assert len(report.features) == 5 and all(
         row.received_ns is None and row.sequence is None for row in report.features
     )
@@ -201,6 +242,7 @@ def main() -> None:
     assert balances[1].cash.value == Decimal("1000")
     if arguments.smoke:
         return
+    _SavedBooks.verify_report(complete, report)
     checkpoint = _SavedBooks.command(
         config,
         archive,
@@ -241,7 +283,7 @@ def main() -> None:
     second = _SavedBooks.command(
         other_config, _SavedBooks.create(other_root, btc_history), other_root / "runs"
     )
-    second_report = codec.decode_json((second / "report.json").read_bytes(), BookReport)
+    second_report = BookReport.read(second / "report.json")
     assert second_report.accounts[0].state.valuations[-1].balance.cash.value == Decimal("796.797")
     # Preserve the failed source-validation attempt instead of substituting a valid fixture.
     descriptor = report.raw_sha256

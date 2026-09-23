@@ -9,10 +9,6 @@ from pathlib import Path
 from uuid import uuid4
 from zipfile import ZipFile
 
-# third party library imports
-from clearml import Task
-from clearml.automation import PipelineController
-
 # project library imports
 from market_data.storage import DatasetVersion
 from research.experiments import ExperimentSpec, Fingerprint
@@ -157,6 +153,10 @@ class ResearchPipeline:
         Raises:
             RuntimeError: A step failed or was aborted; dependent work cannot complete.
         """
+        # third party library imports
+        from clearml import Task
+        from clearml.automation import PipelineController
+
         plan.__post_init__()
         codec = DomainCodec()
         launch = Path(plan.output_root) / uuid4().hex

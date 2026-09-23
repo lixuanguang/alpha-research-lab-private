@@ -209,12 +209,6 @@ class InstrumentId(_InstrumentIdentityModel):
     def valid_uuid(cls, value: object) -> UUID:
         """Require a typed, non-nil UUID without coercion.
 
-        Args:
-            value: Candidate UUID instance.
-
-        Returns:
-            The original non-nil UUID.
-
         Raises:
             InstrumentIdentityValidationError: The value is not a UUID or is the all-zero UUID.
         """
@@ -276,12 +270,6 @@ class MappingId(_InstrumentIdentityModel):
     @classmethod
     def valid_uuid(cls, value: object) -> UUID:
         """Require a typed, non-nil UUID without coercion.
-
-        Args:
-            value: Candidate UUID instance.
-
-        Returns:
-            The original non-nil UUID.
 
         Raises:
             InstrumentIdentityValidationError: The value is not a UUID or is the all-zero UUID.
@@ -361,12 +349,6 @@ class InstrumentIdentity(_InstrumentIdentityModel):
     def valid_instrument_id(cls, value: object) -> InstrumentId:
         """Require an owned instrument_id value without coercion.
 
-        Args:
-            value: Candidate InstrumentId for instrument_id.
-
-        Returns:
-            The original InstrumentId for subsequent validation.
-
         Raises:
             InstrumentIdentityValidationError: The value is not a InstrumentId.
         """
@@ -379,12 +361,6 @@ class InstrumentIdentity(_InstrumentIdentityModel):
     def valid_instrument_kind(cls, value: object) -> InstrumentKind:
         """Require an owned instrument_kind value without coercion.
 
-        Args:
-            value: Candidate InstrumentKind for instrument_kind.
-
-        Returns:
-            The original InstrumentKind for subsequent validation.
-
         Raises:
             InstrumentIdentityValidationError: The value is not a InstrumentKind.
         """
@@ -396,12 +372,6 @@ class InstrumentIdentity(_InstrumentIdentityModel):
     @classmethod
     def valid_economic_instrument_id(cls, value: object) -> InstrumentId:
         """Require an owned economic_instrument_id value without coercion.
-
-        Args:
-            value: Candidate InstrumentId for economic_instrument_id.
-
-        Returns:
-            The original InstrumentId for subsequent validation.
 
         Raises:
             InstrumentIdentityValidationError: The value is not a InstrumentId.
@@ -585,12 +555,6 @@ class ExternalIdentifier(_InstrumentIdentityModel):
     def valid_scheme(cls, value: object) -> IdentifierScheme:
         """Require a typed identifier scheme without coercing strings.
 
-        Args:
-            value: Candidate IdentifierScheme member.
-
-        Returns:
-            The original scheme.
-
         Raises:
             InstrumentIdentityValidationError: The value is not an IdentifierScheme.
         """
@@ -701,12 +665,6 @@ class IdentifierQuery(_InstrumentIdentityModel):
     @classmethod
     def valid_scheme(cls, value: object) -> IdentifierScheme:
         """Require a typed identifier scheme without coercing strings.
-
-        Args:
-            value: Candidate IdentifierScheme member.
-
-        Returns:
-            The original scheme.
 
         Raises:
             InstrumentIdentityValidationError: The value is not an IdentifierScheme.

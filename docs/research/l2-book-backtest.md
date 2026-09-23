@@ -26,7 +26,7 @@ uv run --frozen --no-editable alpha-backtest books \
 ```
 
 The command reads saved files only and prints its unique result directory. Open
-`report.html` there. `report.json` retains the exact results, `eda.json` contains
+`report.html` there. `report.json` identifies the exact results, `eda.json` contains
 10,000 descriptive observations, `configuration.json` contains the resolved
 selection, and `checkpoint-0.json` / `checkpoint-1.json` contain the independent
 rule/control accounts. Each checkpoint includes decisions, orders, per-level
@@ -37,13 +37,25 @@ intentionally interrupted attempts under the output root's `attempts/` directory
 
 New runs serialize each named artifact once. The configuration, EDA, checkpoints
 and report exports are read-only hard links to their retained artifact in the
-same output filesystem. Their existing filenames and JSON schemas are unchanged;
-old independent exports remain readable, subject to the existing identity checks
-for resumption. `AttemptStore` shares byte-identical content across attempts in
+same output filesystem. New `report.json` files use `l2-book-report-v2`: metadata
+and SHA-256 references to the adjacent configuration, EDA and ordered checkpoints,
+without embedding those payloads again. Companion filenames and schemas are unchanged.
+`BookReport.read(path)` verifies every digest and reconstructs the complete report;
+it also reads standalone `l2-book-report-v1` files. To move a v2 report, copy its
+directory with all companion files. To share the rendered summary alone, use
+`report.html`. Existing resumption identity checks still apply.
+
+`AttemptStore` shares byte-identical content across attempts in
 that store using content digests while retaining each attempt's named artifact
 paths. Copy an export to a separate working file before editing it. Deleting an
-export does not delete the retained artifact. The full report still embeds
-observations and account state so historical report readers remain compatible.
+export does not delete the retained artifact. Historical report bytes are unchanged.
+
+```python
+from pathlib import Path
+from research.studies import BookReport
+
+report = BookReport.read(Path("logs/book-backtest/runs/<attempt-id>/report.json"))
+```
 
 The [order-book notebook](../../examples/orderbook-research.ipynb) calls
 `applications.backtest.run_books`, the same shared orchestrator as the command,
@@ -86,7 +98,8 @@ Acquisition timestamps identify the download; they are not historical receipt.
 | `strategies` | Stateless imbalance and no-trade rules, selected through `BookRules` |
 | `simulation` | Separate exchange/delivered books, IOC execution, consumption and complete checkpoints |
 | `risk` / `accounting` | Existing `SpotLimits`, fee calculation and `Ledger` exact postings/reconciliation |
-| `research.experiments` | Existing attempts, fingerprints, atomic result publication and QuantStats projection; L2 report |
+| `research.experiments` | Attempts, fingerprints and retained artifacts |
+| `research.studies` | Result publication, QuantStats projection and L2 report reading/rendering |
 | `applications.backtest` | Shared configured composition and the existing `alpha-backtest` command |
 
 The original trade-price simulator, source-admission rules, vectorbt comparison

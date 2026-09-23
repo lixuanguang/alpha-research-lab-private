@@ -6,17 +6,19 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 # third party library imports
-import duckdb
-import polars as pl
 from msgspec.structs import replace
 
 # project library imports
 from research.features import FeatureObservation, OfflineFeatureRequest
-from research.studies import FeatureLabelPayload
+from research.results import FeatureStudyResult
 from serialization import DomainCodec, WireRecord
+
+if TYPE_CHECKING:
+    # third party library imports
+    import polars as pl
 
 _MAX_ROWS = 4_096
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -129,7 +131,7 @@ class VerifiedFeatureRows:
         AnalysisQuery._text(feature_name, "feature_name")
         AnalysisQuery._text(entity_type, "entity_type")
         try:
-            source = FeatureLabelPayload.decode(payload)
+            source = FeatureStudyResult.decode(payload)
         except (TypeError, ValueError) as error:
             raise ValueError("feature result does not match the retained MR3 contract") from error
         if type(ttl_us) is not int or not 0 < ttl_us <= 31_536_000_000_000:
@@ -508,6 +510,9 @@ class DuckDBFeatureAnalysis:
         Raises:
             ValueError: DuckDB returns an identity outside the verified source.
         """
+        # third party library imports
+        import duckdb
+
         source_rows = source.rows
         query.__post_init__()
         values = [
@@ -622,6 +627,9 @@ class PolarsFeatureAnalysis:
         Returns:
             Collected Polars frame with exact strings, UTC clocks and nulls preserved.
         """
+        # third party library imports
+        import polars as pl
+
         query.__post_init__()
         rows = source.rows
         frame = pl.DataFrame(

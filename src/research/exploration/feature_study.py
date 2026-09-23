@@ -26,6 +26,7 @@ from research.exploration.selection import (
 )
 from research.features import FeatureDefinition, FeatureRegistry, FeatureValue, TrailingReturn
 from research.labels import ForwardReturn, LabelValue
+from research.results import FeatureStudyResult
 from serialization import DomainCodec, WireRecord
 
 
@@ -253,18 +254,18 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
                     )
             decision += timedelta(microseconds=definition.cadence_us)
         return codec.encode_json(
-            {
-                "schema_version": "feature-study-result-v1",
-                "selection_identity": self.selection.identity,
-                "feature_definition": self.feature,
-                "label_definition": self.label,
-                "features": tuple(features),
-                "labels": tuple(labels),
-                "samples": tuple(samples),
-                "split_identity": self.split.identity,
-                "fitting": "not applicable: fixed diagnostic has no fitted state",
-                "scope": "exploratory_degraded",
-            }
+            FeatureStudyResult(
+                schema_version="feature-study-result-v1",
+                selection_identity=self.selection.identity,
+                feature_definition=self.feature,
+                label_definition=self.label,
+                features=tuple(features),
+                labels=tuple(labels),
+                samples=tuple(samples),
+                split_identity=self.split.identity,
+                fitting="not applicable: fixed diagnostic has no fitted state",
+                scope="exploratory_degraded",
+            )
         )
 
     def _selection(
