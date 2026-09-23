@@ -6,6 +6,10 @@ Fill it before formal comparison; retain changes and the trials that prompted
 them. The [research program](../docs/roadmap/research-program.md#rules-for-every-workstream)
 owns formal methodology.
 
+Use this template only after MR17/G5 accepts the full infrastructure. Link the
+study to the [QR milestones and deliverables](../docs/roadmap/research-program.md#post-infrastructure-research-milestones);
+an empty record or successfully executed worksheet completes none of them.
+
 ## Research ticket
 
 | Field | Record |
@@ -13,14 +17,15 @@ owns formal methodology.
 | Question and agenda IDs | One economic decision and the relevant A–F questions |
 | Mechanism | Why the observable state could change a subsequent outcome |
 | Competing explanation | Recent returns, spread mechanics, stale data, selection, exposure or another account |
-| Information set | Fields, receipt cutoff, lookbacks, warm-up, missing/stale rules and units |
+| Information set | Market fields and account/order state, receipt cutoff, lookbacks, warm-up, missing/stale rules and units |
 | Sample | Venue, exact instrument/product/currency, historical eligibility, dates, channels and exclusions |
 | Outcome | Executable return, direction, fill probability or fill-conditioned markout; clock, horizon and availability |
 | Policy | Trigger, action, size, delay, entry, exit/timeout, overlapping positions, inventory and independent risk limits |
 | Comparisons | Transparent rule, recent-return baseline, no-trade, ablations and model progression |
-| Selection | Primary economic criterion, bounded search space, chronological splits and trial family |
+| Selection | Primary economic criterion, bounded search space, chronological splits, final-period reservation/access history and trial family |
 | Falsification | Conditions that reject the mechanism or make it untradeable |
 | Evidence needed | Retrievable inputs, code/config, trials, results and missing dependencies |
+| Delivery | Target QR milestone, applicable QR deliverables, implementation/test references and acceptance evidence; missing platform capabilities go to QD |
 
 Example: after unusually large ask-side depletion, persistent bid depth predicts
 positive five-second executable returns beyond recent returns. Define “large”
@@ -34,6 +39,13 @@ Use local receipt to bound information; retain source time separately. For every
 feature and label, record the complete information interval and availability.
 A future outcome labels a prior decision; it never enters its features. For
 replenishment, the decision is after the condition becomes observable.
+
+Record quality-flag availability. A defect discovered later may inform a declared
+sample-quality diagnostic, but cannot retrospectively tell the strategy to avoid
+a trade. Retain exclusion effects separately. Warm-up, stale data and recovery
+must match the intended runtime. Align cross-venue inputs by local availability;
+an exchange-time-only join is an idealized information study unless tradable
+availability is established.
 
 Use chronological train, validation and untouched test periods. Fit transforms,
 feature selection and thresholds on past training data. Purge overlapping label
@@ -77,6 +89,10 @@ feed/fee/clock assumptions; splits and fitted state; all variants; predictions,
 actions and economic traces; aggregation and uncertainty methods. The workbook
 is an analysis surface, not the trial journal or sole storage.
 
+Retain the dataset recipe, feature/label definitions and tests, rule/model artifact,
+complete strategy implementation, policy configuration, execution assumptions and
+reconciled ledger. A predictor or chart alone is not a delivered prototype.
+
 The [attempt store](../src/research/experiments/README.md) and
 [study reports](../src/research/studies/README.md) cover their implemented paths.
 Outside those paths, keep an append-only research record with the relevant
@@ -87,6 +103,9 @@ identities. Notebook execution success is only software execution evidence.
 Finish with **continue**, **narrow**, **reject**, or **insufficient evidence**.
 Record the result against the baseline, economic magnitude and uncertainty,
 daily/regime concentration, delay/size/fill sensitivity, unresolved assumptions
-and next decisive experiment. State when to stop or revisit. A deployment
-proposal identifies the frozen policy, capital/risk limits, calibration and
-operational requirements; it does not itself authorize activation.
+and next decisive experiment. State when to stop or revisit. A forward-validation
+proposal identifies the frozen policy, capital/risk limits, calibration needs,
+measures and stop criteria. Surviving candidates then retain reproduction/parity
+and authorized forward evidence under QR-16–QR-18. Shadow establishes no actual
+fill quality; paper fills remain modeled. A deployment recommendation does not
+itself authorize activation.

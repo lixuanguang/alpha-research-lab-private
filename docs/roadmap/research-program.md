@@ -1,43 +1,155 @@
 # Research program
 
-This page describes the empirical research performed using the platform's
-capabilities. It is a human-maintained program,
-not an executable package catalog, registry service, or release gate. Acquisition,
-publication, bounded queries/replay, EDA, retained price feature/label diagnostics
-and collector health are implemented, alongside fitted model workflows and bounded
-spot simulation. Broker integration and strategy monitoring remain planned; the
-roadmap records exact supported scope.
+Owner: quant research after infrastructure handoff; repository founder maintains
+this plan until then. Updated 2026-09-23 from the research-deliverable notes.
+**Status: planned, not started. All QR milestones and deliverables below wait for
+full infrastructure acceptance.** Existing bounded simulation evidence and empty
+study worksheets complete none of them.
 
-The immediate operating model is a single founder using the accepted
-[bounded saved-data simulation](../research/l2-book-backtest.md).
-The MR09A saved-book baseline is implemented and closed. Future work uses OKX or
-Bitfinex where possible; Binance and Tardis are excluded because of availability,
-as specified by the [platform data policy](README.md#current-platform).
-The single [implementation roadmap](README.md) owns delivery of library operations
-and orchestrator pipelines. The [research guide](../../examples/README.md) and [ranked agenda](../../examples/research-agenda.md)
-own the initial economic questions, MVP ordering and study workbooks; this page owns methodology and
-research records. Candidate research plans do not duplicate the infrastructure backlog.
+QR turns available data into reproducible, executable strategy experiments and
+decides whether to reject, develop or propose a candidate for forward validation.
+The outputs are research code, strategy implementations, evaluation artifacts and
+decisions. This page owns those deliverables and methodology. The
+[ranked agenda](../../examples/research-agenda.md) owns economic questions and
+candidate priority; the [research guide](../../examples/README.md) owns workbook
+usage. The [platform roadmap](README.md) owns infrastructure scope and status.
 
 The [infrastructure completion policy](README.md#infrastructure-completion-before-qr-onboarding)
 requires quant development to build the complete initial OKX/Bitfinex spot stack
-before QR onboarding. Quant development owns reference studies, strategies and
-metric/chart examples that qualify its interfaces; none of the empirical
-workstreams below is a prerequisite for that delivery. QR then owns hypotheses,
-formulas, estimator/strategy content, backtest specifications, metrics/charts and
-their interpretation. A technically correct reference workload, even one with
-negative returns, can qualify infrastructure without qualifying an alpha.
+before any stage of this QR program starts, including research readiness.
+**MR01–MR16 complete → MR17/G5 integrated acceptance → QR research milestones.**
+G1–G4 are engineering increments, not permission to begin QR early. Quant
+development owns reference studies, strategies and metric/chart examples that
+qualify its interfaces; empirical strategy success is never a prerequisite for
+that delivery. A technically correct losing reference workload can qualify
+infrastructure without qualifying an alpha.
+
+After handoff, QR owns question-specific data suitability, causal feature/label
+implementations and tests, models/rules, complete trading policies, execution
+assumptions, metrics/charts and interpretation. Quant development retains shared
+data, simulator, runtime, accounting, OMS, hard-risk and operational ownership as
+specified in the [responsibility boundary](README.md#platform-and-researcher-responsibilities).
+A promised interface that does not work is an infrastructure defect for quant
+development; a genuinely new capability needs a scoped extension. Record either
+dependency and stop affected claims rather than build a parallel research stack.
+Platform acceptance proves the declared machinery works; QR must still challenge
+and calibrate its assumptions for each candidate.
 
 Actual production activation remains a later decision. The long-term model can
 add asset classes and strategy families beyond the initial spot infrastructure.
-Independent research, model-risk,
-risk, release, and activation controls become formal organizational controls when people are hired; they do
-not block the founder from implementing and reproducibly testing technical work now.
+Independent research, model-risk, risk, release and activation controls become
+formal organizational controls when people are hired. Staffing does not block
+the founder's infrastructure implementation or reproducible research after handoff.
 
-The workstreams below are candidate hypothesis workstreams selected when a strategy, asset, or observed
-failure makes them relevant. Their numbering gives the work a common vocabulary; it does not make every stage
-a mandatory sequential prerequisite for every strategy. A simple strategy may use R01, R02, R05, R10, and R15.
-A cross-asset or capacity-sensitive strategy may use most of the workstreams. Record why an applicable
-workstream was used, deferred, or marked not applicable.
+## Post-infrastructure research milestones
+
+Use three acceptance milestones for the core research MVP. These are empirical
+outcomes after MR17, separate from the infrastructure roadmap's MR and D IDs.
+Record completion with retained artifact references and a decision; this plan
+supplies no results or completion credit.
+
+| Milestone | Required result | Deliverable coverage |
+| --- | --- | --- |
+| QR-M1 — Research-ready | Accept a versioned sample for specific questions; rank a few hypotheses; establish preliminary economics and an executable causal selection protocol with an untouched final period reserved. Identify unsupported assumptions and concrete QD dependencies. | Stage A, QR-01–QR-05 |
+| QR-M2 — End-to-end prototype | Reproduce at least one simple candidate from dataset recipe through features, labels, baseline rule/model, complete policy and costed replay. Retain development OOS comparisons and reconcile results to the ledger, including a losing result. No undocumented notebook steps are needed. | Stage B and QR-11–QR-13 from Stage C |
+| QR-M3 — Evidence-backed decision | Complete robustness, falsification and risk/capacity review. Freeze any selected candidate before untouched final evaluation, then produce a justified forward-validation proposal or a defensible rejection and next research priority. | Remaining Stage C, QR-14–QR-15, the QR-05 final-test protocol and a decision memo |
+
+An early rejection closes that study with its evidence and reason; it does not
+mark unexecuted milestones complete. A profitable result is not required to
+complete a research study. A proposal from QR-M3 is not a validated deployment:
+only surviving candidates enter Stage D. Every study has a decision record;
+rejected studies do not need a frozen operating bundle or forward run.
+
+Start with one execution venue and a narrow OKX/Bitfinex **spot** universe under
+the [source policy](README.md#future-mr-data-policy). Use long/flat or explicitly
+inventory-constrained behavior; unsupported borrowing, derivatives or unrestricted
+shorting are outside this MVP. Prioritize taking, depletion/replenishment and then
+cross-venue information for one execution venue. Passive-quote selection follows
+when execution evidence supports it. Neural networks, full market making,
+two-venue trading and a sophisticated optimizer are not QR milestone prerequisites.
+This narrow research scope does not reduce the infrastructure required by MR17.
+
+## QR deliverables
+
+The four stages organize work products, not 18 new documents or services. Combine
+the specification and decision record; generate manifests and reports through the
+accepted platform. Use existing feature, label, strategy, experiment and artifact
+owners. Keep large datasets, models and traces outside Git with durable references.
+
+### Stage A — Research readiness
+
+| ID | Deliverable | Acceptance evidence |
+| --- | --- | --- |
+| QR-01 | MVP mandate | Instruments/products, execution venue, horizons, order types, capital/inventory/shorting constraints and success/rejection criteria. Distinguish predictive information from executable economics. |
+| QR-02 | Ranked hypotheses | A few mechanisms with competing explanations, required data, features/target, baseline, implementation burden and falsification criteria, selected from the A–F agenda. |
+| QR-03 | Research data acceptance | Versioned manifest and feed-specific data card: coverage, channel/depth/precision, snapshots/updates, clocks/order, instrument units and dated metadata, integrity/gaps/staleness/recovery. Retain machine-readable quality flags and eligible windows, with availability times and observable/proxy/unidentifiable distinctions. |
+| QR-04 | Microstructure and preliminary economics | Spread, depth, price movement, update activity and volatility by period/instrument/venue; entry/exit cost budget across intended size and delay. Identify unsupported horizons and assumptions. |
+| QR-05 | Executable evaluation/selection protocol | Chronological development/validation/final periods, actual information-interval purging, train-only transforms, common baselines, uncertainty, bounded variants and stopping rules. Reserve the final sample before selection and retain access history. |
+
+Exit at QR-M1: state what can be tested credibly and what would falsify it.
+Candidate-specific sample acceptance is QR work after handoff; it does not replace
+quant development's source, reconstruction or recovery acceptance.
+
+### Stage B — Repeatable signal experiments
+
+| ID | Deliverable | Acceptance evidence |
+| --- | --- | --- |
+| QR-06 | Causal dataset recipes | Config/code for universe, sampling, features, targets and quality through existing APIs. Reproduce the pinned dataset and then-available information at each decision. |
+| QR-07 | Compact feature implementations | Definitions, units, lookbacks, required capabilities and missingness; hand-checkable book cases, future-perturbation tests and batch/incremental parity where applicable. Begin with shape, weighted-price proxies, observed depth dynamics, lagged returns/volatility and data state; add cross-venue features only with credible alignment. |
+| QR-08 | Label/outcome implementations | Fixed-horizon price/direction and policy-relevant outcomes, horizon anchors, unavailable future values, boundaries and overlap. Future-dependent labels are inaccessible to decision code. |
+| QR-09 | Baseline comparisons | Null/no-trade, simple deterministic rules and regularized linear/logistic comparators where applicable. Extra features or nonlinear models must add value under the same selection protocol. |
+| QR-10 | Reproducible experiments | Existing tracking retains hypothesis, command, commit/environment, data/metadata, feature/label/split configs, rule/model, hyperparameters/seeds, fits, predictions, metrics and every failed/rejected/abandoned trial. No new registry platform is required. |
+
+Exit: reproduce a signal result from its manifest in a clean environment. Use a
+second researcher when staffed; otherwise the founder performs a clean rerun.
+A fitted predictor alone does not complete QR-M2.
+
+### Stage C — Executable strategy prototypes
+
+| ID | Deliverable | Acceptance evidence |
+| --- | --- | --- |
+| QR-11 | Cost/execution assumption pack | Versioned applicable fee schedules, feed/decision/order delays, depth consumption, partial fills and relevant financing; passive scenarios when applicable. Separate measured inputs, estimates and stresses; identify calibration gaps and avoid double-counting execution-price costs. |
+| QR-12 | Strategy implementation and policy | Existing strategy interface with entry/exit, sizing, inventory, order type/price limits, cancellation/expiry and invalid/stale/warm-up/depth/risk no-trade behavior. Deterministic policy tests use then-known market and account/order state. |
+| QR-13 | Costed evaluation and reconciliation | Development OOS prediction and trading reports with decisions, orders/fills, positions, cash, costs, P&L and attribution reconciled to the ledger. Retain non-fills, abstention and failures; a final result uses the QR-05 freeze/access protocol. |
+| QR-14 | Robustness and falsification | Parameter neighborhoods, ablations, negative controls, period/instrument/venue dependence, latency/cost deterioration and alternative fill/impact assumptions. Account for attempted variants and concentration rather than selecting favorable scenarios. |
+| QR-15 | Risk, capital and capacity | Exposure/inventory, losses, turnover, liquidity usage, failure responses and capacity bounds. Compare candidates under shared capital/exposure constraints; independent platform hard limits still apply. |
+
+Exit at QR-M3: auditable economics, explicit assumption sensitivity and a decision.
+L2 replay cannot identify exact queue position or fully reproduce the market's
+response to our orders. Bound these with scenarios; label uncalibrated claims.
+Public trades and authorized own-order observations are explicit dependencies for
+passive calibration, never implicit additions to an L2-only experiment.
+
+### Stage D — Surviving candidate validation and handoff
+
+| ID | Deliverable | Acceptance evidence |
+| --- | --- | --- |
+| QR-16 | Frozen candidate and reproduction/parity | Package the selected code, data/model/features, policy, costs and evaluation identity already frozen before final testing. Clean rerun and same-input replay/intended-runtime feature and decision parity; second-person reproduction when staffed. Any changed candidate requires new validation. |
+| QR-17 | Forward-validation plan and evidence | Predeclare measures, duration/sample sufficiency and stop criteria, then retain evidence from authorized shadow/paper modes; small-capital live requires separate approval. Compare availability, timing, delay, costs and outcomes with research assumptions; distinguish modeled from actual fills. A plan alone is not completed forward validation. |
+| QR-18 | Candidate decision and monitoring specification | Mechanism, evidence, uncertainty, costs, risk/capital envelope, failure modes, metrics and stop/review conditions. Explicitly reject, retain as a component, obtain specified evidence or propose controlled deployment. |
+
+Shadow decisions establish no actual fill quality; paper fills remain modeled.
+Unresolved execution assumptions stay visible in the recommendation. QD owns
+engineering readiness and deployment mechanisms; the founder or designated risk
+authority separately decides capital and activation.
+
+### Coverage by the accepted infrastructure
+
+These are the interfaces each stage consumes **after all MR01–MR17 are accepted**,
+not alternative early-start gates or new infrastructure work packages.
+
+| Research outputs | Accepted platform capabilities | Methodology reference |
+| --- | --- | --- |
+| QR-01–QR-05 | MR01 data/reference/quality; MR03 evaluation; MR15 workload envelope | R01/R02/R13/R15 |
+| QR-06–QR-10 | MR01–MR04 data, features, models, studies and retained experiment artifacts | R02/R05–R09/R15 |
+| QR-11–QR-15 | MR02/MR03/MR05 strategy/replay; MR08/MR09/MR13 shared capital, risk and accounting | R01/R10–R15 |
+| QR-16–QR-18 | MR04–MR14 candidate, feature serving, runtime, deployment, OMS, monitoring and recovery; MR15 budgets | R15/R16 |
+
+Use the [study protocol](../../examples/study-protocol.md) as the compact study
+specification. A result must answer whether there is predictive information,
+whether a policy monetizes it, how uncertain it is, what resources/risks it
+requires, and what should happen next. The R01–R16 catalog below supplies methods
+when applicable; it is not another mandatory sequence.
 
 ## Rules for every workstream
 
@@ -49,7 +161,11 @@ universe, timing, and implementation.
 
 Use point-in-time data. Keep raw identity, source event time, publication or availability time, ingestion
 time, revisions, historical universe membership, units, timezone, adjustment rules, and deterministic
-ordering. A decision may consume only values whose knowledge time is at or before the decision time.
+ordering. A decision may consume only market data and account/order state whose
+knowledge time is at or before the decision time. Future-discovered quality flags
+cannot retrospectively decide whether a trade was taken. Keep ex-post sample
+diagnostics separate from causal eligibility and report their exclusion effects.
+Warm-up, staleness and recovery rules must match the intended runtime.
 Historical membership and eligibility must be reconstructed as known then; today's survivors cannot define the
 past. Gaps, duplicates, stale values, outliers, delistings, corrections, and missingness need explicit
 policies.
@@ -85,8 +201,10 @@ stability over one headline return.
 The 2026-09-23 refresh replaces the previous QR software walkthrough as the
 research entrypoint. The [research guide](../../examples/README.md) now starts with
 an opportunity map, selective liquidity-taking, replenishment-conditioned shocks
-and selective liquidity provision. Their workbooks are experiment designs with
-analysis worksheets, awaiting empirical inputs. The [A1–F8 agenda](../../examples/research-agenda.md)
+and selective liquidity provision. Cross-venue information now precedes passive
+strategy promotion in the agenda; the workbook list is not the delivery order.
+The workbooks are experiment designs with analysis worksheets, awaiting empirical
+inputs. The [A1–F8 agenda](../../examples/research-agenda.md)
 ranks the initial economic questions; the R01–R16 workstreams below remain a
 broader methodology catalog, not a competing sequence of required projects.
 
@@ -98,9 +216,9 @@ runs keep their original identities and locations. Source acquisition continues
 to use the existing commands. The refresh changes research framing, not supported
 runtime capabilities or historical evidence.
 
-Exploratory source calls, transformations, signals, models and visualizations
-may be developed locally without first turning every experiment into a package
-API. A feature diagnostic or deterministic signal is a concrete research consumer;
+After infrastructure handoff, exploratory source calls, transformations, signals,
+models and visualizations may be developed locally without first turning every
+experiment into a package API. A feature diagnostic or deterministic signal is a concrete research consumer;
 choosing a model is not a prerequisite. Use existing instrument, calendar,
 provenance and exact financial contracts
 where applicable. Source-access permissions and the predeclared experiment's
@@ -177,8 +295,12 @@ institutional registries, or fictional approvals to make an experiment look comp
 
 ## Candidate research workstreams
 
-Each workstream states when it is useful, its implementation/research output, and decisive tests. These are
-technical research decisions; future staffed review is described below.
+Each workstream states when it is useful, its implementation/research output, and
+decisive tests. Select methods when a strategy, asset or observed failure makes
+them relevant; record why each applicable method was used, deferred or omitted.
+A simple strategy may use R01/R02/R05/R10/R15; not every strategy needs factor
+models or portfolio optimization. These are technical research decisions; future
+staffed review is described below.
 
 ### R01 — Define the strategy and transparent baseline
 

@@ -1,8 +1,13 @@
 # Ranked research agenda
 
 Owner: repository founder. Research design refreshed 2026-09-23 from the supplied
-notes. Status: proposed studies; none carries a profitability claim.
+notes. Status: planned, not started; none carries a profitability claim.
 [Start with the workbooks](README.md).
+
+All studies start after the complete infrastructure is accepted at MR17/G5.
+The [research delivery milestones](../docs/roadmap/research-program.md#post-infrastructure-research-milestones)
+own readiness, reproducible strategy delivery and decisions. This agenda owns
+the questions to select, not a parallel infrastructure backlog.
 
 The objective is to find at least one implementable after-cost edge, or establish
 why the current opportunity set does not justify further investment. Start with
@@ -99,11 +104,15 @@ applicable. Test alternatives without presuming a winning execution style.
 | --- | --- | --- | --- |
 | [Selective liquidity-taking](liquidity-taking.ipynb) | Persistent pressure pays for delayed aggressive entry and exit; B1/B2/B4/B7 | No-trade, recent returns, imbalance, linear model, then tree challenger | Feasible delay erases value, capacity is negligible, or tiny subsets require repeated tuning |
 | [Replenishment-conditioned shocks](liquidity-shocks.ipynb) | Observed replenishment separates temporary dislocation from repricing; B5–B8 | Matched reversal, continuation and abstention on the same shocks | Future-defined events, recovery before entry, gaps or a few episodes drive the result |
-| [Selective liquidity provision](liquidity-provision.ipynb) | Toxic-state filters, skew and inventory response improve passive economics; B8/C1–C5 | Constrained passive baseline, with each adjustment added separately | Favorable fill assumptions, hidden inventory risk or uncalibrated execution drive gains |
+| [Cross-venue information, one execution venue](#p1p2-does-another-market-add-incremental-value) | The other venue improves local decisions with then-available observations; D1–D3 | Strong local-only model on matched opportunities, costs, capital and periods | Availability alignment, staleness or quote-currency differences explain the apparent edge |
 
 Use candidate 1 as the economic baseline, candidate 2 as the focused alternative,
-and promote candidate 3 only when execution evidence supports it. A linear model
-is a sensible first fitted comparator, not a requirement for every experiment.
+and candidate 3 as an information extension, without trading both venues.
+[Selective liquidity provision](liquidity-provision.ipynb), B8/C1–C8, is a later
+candidate: compare a constrained passive baseline with toxicity filters, skew and
+inventory adjustments separately. Reject or defer if favorable fill assumptions,
+hidden inventory risk or absent calibration drive the gains. A linear model is a
+sensible first fitted comparator, not a requirement for every experiment.
 
 ## P0/P1 throughout: Is the result credible and useful?
 
@@ -128,7 +137,10 @@ past-only fitting and complete trial history. Assess independent days and
 uncertainty that respects dependence; correlated updates are not independent
 strategy outcomes.
 
-## P2: Does another market add incremental value?
+## P1/P2: Does another market add incremental value?
+
+D1–D3 support the third MVP candidate when receipt alignment and comparable
+instruments are available. D4–D6 remain later expansion questions.
 
 | ID | Research question | Decision |
 | --- | --- | --- |
