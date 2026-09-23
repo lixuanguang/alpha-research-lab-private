@@ -10,6 +10,11 @@ is numbered MR01–MR17 and is planned; this revision completes no capability.
 Component guides own implemented behavior. Historical delivery records remain
 in Git history; P1 stays deferred and unaccepted.
 
+This revision strengthens generalization and acceptance without reducing the
+destination. Intermediate gates expose usable increments; they do not retire
+feature-store, portfolio/netting, second-venue, dashboard, capacity or handoff
+requirements. All MR01–MR17 outcomes remain mandatory before formal QR onboarding.
+
 The [QR implementation guide](../../examples/README.md) explains how researchers
 use the available capabilities. The [research program](research-program.md) owns
 methodology and experimental choices. The [platform design](../architecture/platform-design.md)
@@ -28,6 +33,14 @@ owns the implemented OKX simulation scope and its limitations. No empirical
 strategy, paper deployment or live trading acceptance is implied by the current
 platform.
 
+Current evidence is bounded: the accepted OKX simulation covers a 10,000-message
+prefix with modeled delivery clocks, not known historical receipt or continuity.
+Its instances have separate simulated accounts. Identity/calendar/unit contracts,
+immutable datasets, experiment history, exact spot accounting and an isolated
+Feast offline bridge are reusable foundations; shared-account trading, online
+feature serving and a deployed OMS are not thereby qualified. Library registries
+also require end-to-end consumer acceptance before claiming general extensibility.
+
 ## Infrastructure completion before QR onboarding
 
 Quant development must deliver and integrate every infrastructure layer in the
@@ -45,6 +58,24 @@ and the storage/computation needed to run them. Supported venue operations,
 order types, dataset history, workload sizes and operating modes must be stated
 in each capability's acceptance record. Both venues need explicit conformance
 evidence for their declared support; one venue's pass does not qualify the other.
+
+The destination remains a generalized multi-asset, multi-source, multi-strategy
+monorepo. Required infrastructure includes a versioned feature store with offline
+PIT retrieval and online materialization/retrieval, experiment/model/artifact
+tracking, dataset versioning, concurrent job services, allocation and compatible
+netting, both venue execution adapters, extensible reports/dashboards and recovery.
+Preserve and extend the existing Feast, lakeFS, ClearML, search and analytical
+integrations through their owned interfaces. Their present bounded support does
+not complete the generalized capability; technology changes require equivalent
+behavior and migration evidence rather than deleting the capability.
+
+Generalization means localizing differences behind working typed contracts.
+Support both target-position/exposure decisions and order/quote intents through
+the same portfolio, risk, OMS and accounting boundaries. Support named market
+and non-order-book inputs without forcing them into one feed representation.
+Shared contracts must permit multiple deployment artifacts, compatible runtime
+environments and independent release cadences. A particular directory layout or
+one dependency resolution for incompatible workers is not required.
 
 Other asset adapters and lifecycle mechanics, derivatives, borrowing, on-chain
 execution and specialized native low-latency infrastructure are later scope.
@@ -66,8 +97,8 @@ capability's qualification, while independent infrastructure work continues.
 | Boundary | Quant development delivers before onboarding | QR supplies through the delivered interfaces |
 | --- | --- | --- |
 | Data | Source adapters, reference/universe contracts, collection/backfill, quality, revisions, discovery, PIT assembly, storage and replay | Research universe, datasets/fields, sample, horizon and stricter question-specific quality requirements |
-| Features and labels | Typed extensible definitions, execution/alignment, lineage, fitted-transform lifecycle, batch/incremental state and recovery | Formulas, targets, windows, transformations and missingness choices within the supported contracts |
-| Models and rules | Training/inference adapters, temporal evaluation/search, artifact reload, prediction-to-target binding and isolated state | Estimator/strategy implementations, parameters, comparison space and selection criteria |
+| Features and labels | Typed extensible definitions, execution/alignment, lineage, fitted-transform lifecycle, batch/incremental state, versioned offline/online feature-store access and recovery | Formulas, targets, windows, transformations and missingness choices within the supported contracts |
+| Models and rules | Training/inference adapters, temporal evaluation/search, artifact reload, prediction-to-target/order-intent binding and isolated state | Estimator/strategy implementations, parameters, comparison space and selection criteria |
 | Backtesting | Reusable study runner, execution/cost model interfaces, portfolio/risk/accounting, checkpoints and analysis | Backtest specifications, hypotheses, scenarios, economic assumptions and interpretation |
 | Metrics and charts | Versioned metric/result contracts, computation, query/export, report/dashboard rendering and alert evaluation | Research metrics, chart definitions, diagnostic views and strategy-specific thresholds |
 | Promotion and operation | Candidate loading, trusted artifacts, provisioning, scheduling, OMS/venue adapters, reconciliation, limits, stop and recovery | Candidate content and accepted research evidence; investigation and proposed revisions |
@@ -90,10 +121,19 @@ the platform. They are engineering examples, not research recommendations:
 - A learned example with multiple named features and fitted preprocessing exercises
   train-only fitting, labels, temporal evaluation, artifact reload and predictions
   flowing into targets. A stateful feature/rule exercises warm-up and restart.
-- Multiple instruments and two independent strategy instances exercise selection,
-  scheduling, risk and attribution, including a shared paper account.
+- Multiple instruments and two distinct active strategies exercise selection,
+  scheduling, target and order/quote intents, competing risk requests and attribution
+  on a shared paper account. Separate simulated accounts and a no-trade control
+  do not establish shared-budget or conflicting-order behavior.
+- One versioned feature definition exercises offline retrieval, incremental
+  materialization and online serving with matched-cutoff parity, revisions,
+  missing entities, staleness, restart and rollback. Reuse the existing Feast
+  bridge and source semantics; vendor event-time joins cannot invent knowledge.
 - A custom metric and chart exercise retained research reports and runtime
   dashboards; missing/late observations and an alert exercise failure semantics.
+- A small non-order-book dataset and a non-24/7 calendar or different product
+  economics fixture exercise the shared interfaces and explicit unsupported
+  behavior. This establishes extension boundaries, not another live asset class.
 
 Use small independent fixtures for exact/causal/failure proofs and permitted
 saved or test-environment inputs for actual adapter/service boundaries. Extend
@@ -128,6 +168,22 @@ capabilities are described by their owning component guides.
 | --- | --- | --- |
 | MR09A | [L2 order-book backtesting](../research/l2-book-backtest.md) | Saved OKX ETH-USDT EDA and IOC backtesting |
 
+## Incremental acceptance gates
+
+These gates are checkpoints within the complete delivery commitment. A gate
+qualifies only its stated scope; it does not declare all contributing MRs complete
+or replace MR17. Quant development owns the reference consumers at every gate.
+Formal QR onboarding still requires the full stack; research-ready engineering
+acceptance can be established earlier without waiting for execution adapters.
+
+| Gate | Observable acceptance | Delivery boundary |
+| --- | --- | --- |
+| G1 — Foundation and contracts | Clean installed build; typed configuration; four distinct universes; versioned reference and adapter capability admission; incompatible inputs rejected before work. | Existing foundations plus MR01/MR02/MR16 contracts. Current domain tests are reusable evidence, not a pass for new contracts. |
+| G2 — Research-ready increment | From a clean workspace, acquire/capture the declared inputs, publish pinned datasets, retrieve versioned offline features, add a fresh compatible strategy/feature/model, run temporal studies and costed backtests, and reopen results. Meet the declared research workload and restore data/artifacts. | MR01–MR03; MR04 research/feature-store services; MR15 research budgets. MR06 precedes any actual service deployment. Online serving and operating scope remain required at later gates. |
+| G3 — Paper/shadow increment | Reuse decision components on live inputs with submission suppressed; exercise online features, durable order state, independent risk, base reconciliation, essential alerts and restart. | MR04 online path, MR05–MR08, applicable MR10/MR12 controls and MR06 installation. Initial dedicated-account evidence does not qualify shared accounts. |
+| G4 — Integrated operating infrastructure | Qualify shared-account controls/netting, both venue adapters, complete monitoring, scoped activation machinery and operational failure drills, using authorized test environments. | MR09–MR14 and runtime MR15 budgets. A first-venue increment is useful evidence; the second venue remains mandatory. No gate authorizes live capital. |
+| G5 — Generalized handoff | Demonstrate fresh extensions through the installed integrated stack, all launch workloads, service/venue evidence and the operator/researcher guides. | MR17, after every MR01–MR16 outcome. This is full infrastructure acceptance, separate from empirical strategy acceptance and activation. |
+
 ## Delivery order and dependencies
 
 All rows below are required for the initial infrastructure gate. The restarted
@@ -140,26 +196,26 @@ not progress in the [research program](research-program.md).
 
 | MR | Planned delivered behavior and sufficient completion evidence | Dependencies |
 | --- | --- | --- |
-| MR01 | **Usable spot data/reference plane.** Extend `market_data`, `reference_data` and data applications for the declared OKX/Bitfinex sources: configurable capture/backfill, current and historical reference facts with honest availability, catalog discovery, pinned selections, quality/coverage inspection and causal multi-input assembly. From a clean workspace, discover, read and replay saved inputs; recover interrupted ingestion and expose unsupported/gapped data without notebook-created manifests or invented clocks. | Existing data access/attempt contracts and MR09A; source policy and declared source access |
-| MR02 | **Research component contracts.** Extend `research.features`, `labels`, `models`, `observations` and `strategies` beyond the fixed return/linear schemas: named trade/book features, labels, multi-feature inputs, fitted transforms, estimator/state adapters, predictions-to-targets and batch/incremental lifecycle. Run the rule-only, learned and stateful reference consumers through the same public contracts; future perturbation and restart preserve the declared semantics. | MR01 and existing feature/model/split owners |
-| MR03 | **Complete study/backtest/report APIs.** Extend `research.studies`, `experiments`, `simulation` and applications with typed in-memory and serialized configuration, injected compatible implementations end to end, explicit local/deferred publication, typed result readers, temporal/walk-forward evaluation, parameter search, configurable execution/cost assumptions and custom metrics/charts. A reference author adds a feature/rule/model and a study/report without changing shared orchestration; attempts, exclusions and holdout history survive failures and publication retries. | MR02; reuse existing accounting/risk and reports |
-| MR04 | **Reproducible workspace and job services.** Extend configuration/runtime/storage and development profiles with provisioned data/artifact/experiment stores, feature retrieval, job scheduling/cancellation/retry, bounded concurrent research workers, secrets references, backup/restore and service health. A clean environment runs and reopens retained studies without manual directory repair, monkeypatching tracking or reinstalling a running worker; job failure cannot duplicate an attempt's effects. | Start from existing local services; integrate MR01–MR03; MR06 before deployment |
+| MR01 | **Generalized data/reference plane with OKX/Bitfinex qualification.** Extend `market_data`, `reference_data`, configuration and data applications with selected public trades and books, configurable capture/backfill, versioned venue specifications, catalog discovery, pinned selections, quality/coverage inspection and causal multi-input assembly. Separate collection, research, strategy and authorized-trading universes. Declare typed market-data/reference/calendar capabilities and preserve source-specific time, sequence and depth semantics. Resolve the specification valid and known for an observation/order; unknown history remains explicit. From a clean workspace, discover/read/replay inputs and recover interrupted ingestion without notebook-created manifests or invented clocks. | Existing data access/attempt contracts and MR09A; source policy and declared source access |
+| MR02 | **Generalized research and decision contracts.** Extend `research.features`, `labels`, `models`, `observations` and `strategies` beyond fixed return/linear schemas: named trade/book/non-book inputs, multi-feature schemas, fitted transforms, estimator/state adapters, predictions-to-targets or order/quote intents, and batch/incremental lifecycle. Define feature entity/version/availability interfaces for MR04 and declare required capabilities for candidate admission. Run rule-only, learned and stateful reference consumers through the public contracts; future perturbation and restart preserve semantics. | MR01 and existing feature/model/split owners |
+| MR03 | **Complete study/backtest/report APIs.** Extend `research.studies`, `experiments`, `simulation` and applications with typed in-memory and serialized configuration, injected compatible implementations end to end, explicit local/deferred publication, typed result readers, temporal/walk-forward evaluation, parameter search, configurable execution/cost models and custom metrics/charts. Exercise target and order-intent strategies, including declared passive-fill/queue assumptions and sensitivity cases. A fresh feature/rule/model reaches the installed workflow without shared orchestration edits or replacement by a built-in default; attempts, exclusions and holdout history survive failures/publication retries. | MR02; reuse existing accounting/risk and reports; offline order-lifecycle contracts do not wait for a deployed OMS |
+| MR04 | **[Feature store](../architecture/platform-design.md#feature-store-contract), reproducible workspace and job services.** Provision versioned data/artifact/experiment stores and offline/online feature-store paths, with causal historical retrieval, incremental materialization, entity/schema/version validation, freshness/TTL and missingness, idempotent retry, restart and rollback. Extend the isolated Feast integration and pinned lakeFS/ClearML paths while preserving independent compatible environments. Deliver scheduling/cancellation/retry, bounded concurrent workers, secrets references, backup/restore and service health. A clean workspace reopens studies and matched-cutoff features without manual repair or replacing an active worker; job failure cannot duplicate effects. | Start from existing local services and offline bridge; MR02 feature contracts and MR01 inputs; integrate MR03; qualify online consumption with MR05/MR07; MR06 before deployment |
 
 ### Runtime, operations and handoff
 
 | MR | Planned delivered behavior and sufficient completion evidence | Dependencies |
 | --- | --- | --- |
-| MR05 | **[Candidate packaging and runtime binding](../architecture/platform-design.md#candidate-promotion-contract).** Package rule-only and learned reference candidates with input/state/metric contracts; load the same components into replay and runtime with compatibility rejection. A reference candidate proves the loader, without claiming accepted research or activation permission. | MR02–MR03 |
-| MR06 | **[Trusted deployment artifact](../governance/workflow.md#build-a-release).** Build, verify, install and roll back pinned artifacts/configuration/state on the declared target; reject provenance, dependency, signature and compatibility failures. Develop against the reference runtime; resolve current release restrictions before deployment acceptance. | Existing build/admission; MR04 environment profile, which can be developed locally first |
-| MR07 | **[Paper/shadow runtime and OMS](../architecture/platform-design.md#oms-and-venue-adapter-design).** Supervise candidates, inputs and durable order state; support the declared order lifecycle, partial fills, cancel/replace, unknown outcomes and restart. Replayed/live-data paper and shadow runs exercise the same decision code with executable submission suppressed. | MR05; MR06 before deployment; base independent spot controls remain active throughout |
-| MR08 | **[Independent risk and reconciliation](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Enforce instrument/instance/account limits and pending reservations; reconcile orders, fills, positions, cash and fees. Stale state, duplicates, unknown sends and reconciliation breaks produce the defined safe response. | MR07 and existing risk/accounting |
-| MR09 | **[Portfolio and shared-account infrastructure](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Implement allocation/target interfaces, compatible netting, budgets, attributable orders/fills/costs and shared-account recovery. Two engineering strategies share a paper account and reconcile independently and in aggregate; neither can bypass account protection. | MR08; required before onboarding, even without QR strategies |
-| MR10 | **[Operational qualification](../architecture/platform-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for service startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass process/data/service-loss drills with retained state and alert outcomes. | MR04, MR05–MR09 |
-| MR11 | **[OKX/Bitfinex execution adapters](../architecture/platform-design.md#oms-and-venue-adapter-design).** Implement declared spot order/account operations, authentication boundaries, throttles, durable client IDs and reconciliation. Retain per-venue conformance evidence in an authorized test environment; protocol fixtures supplement rather than replace unavailable external proof. | MR07–MR08 contracts; MR06 before deployment; required venue access |
+| MR05 | **[Candidate packaging and runtime binding](../architecture/platform-design.md#candidate-promotion-contract).** Package rule-only and learned reference candidates with input/feature-store/state/metric contracts and target or order/quote outputs; load the same components into replay and runtime. Resolve a typed capability registry for market data, reference data, calendars, valuation, account and execution interfaces; reject unsupported product/channel/order/freshness combinations before startup. Bind dataset → experiment → candidate → deployment identities without granting authority. | MR02–MR03; integrate MR04 serving interfaces and MR11 conformance when available |
+| MR06 | **[Independent deployable packages and trusted installation](../governance/workflow.md#build-a-release).** Build, verify, install and roll back pinned artifacts/configuration/state on the declared target; reject provenance, dependency, signature and compatibility failures. Prove that collector/execution applications install without unrelated research, notebook, training or reporting dependencies; shared contracts and independently locked workers retain compatible versions and release cadences. Resolve current release restrictions and verify research/shadow credentials cannot submit production orders. | Existing build/admission and MR16 package contracts; MR04 local environment profile supplies the target; MR06 does not wait for full MR04 or MR16 completion |
+| MR07 | **[Paper/shadow runtime and OMS](../architecture/platform-design.md#oms-and-venue-adapter-design).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
+| MR08 | **[Independent risk and account reconciliation](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Unknown sends, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate physical venue reconciliation through MR11. | MR07 and existing risk/accounting; base paper acceptance precedes MR11 external evidence |
+| MR09 | **[Portfolio and shared-account infrastructure](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
+| MR10 | **[Operational qualification](../architecture/platform-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Keep paper results distinct from later MR11 private-stream/venue evidence; final operational acceptance incorporates MR11–MR14 results. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
+| MR11 | **[OKX and Bitfinex execution/account adapters](../architecture/platform-design.md#oms-and-venue-adapter-design).** Implement both venues' declared spot operations, capability profiles, authentication, throttles, durable client IDs, private-stream recovery and reconciliation. Qualify one complete venue path first, then the second through the same strategy/OMS/risk contracts. Retain per-venue authorized test-environment conformance; fixtures supplement unavailable external proof. The first venue never closes this two-venue outcome. | MR07–MR08 contracts; MR06 before deployment; required venue access; integrate MR09 attribution |
 | MR12 | **[Monitoring, metrics, charts and alerts](../architecture/platform-design.md#monitoring-recovery-and-operational-evidence).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account views. Register a custom research metric/chart and delayed-label diagnostic without modifying collectors or runtime; test telemetry loss independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; basic telemetry ships earlier with each capability |
-| MR13 | **[Activation and recovery machinery](../governance/workflow.md#activate-and-operate).** Implement disabled-by-default authorization envelopes, scoped limits, fencing, stop/cancel and recovery commands. Reference/test-environment scenarios prove rejection of absent/expired authority and safe restart; completion does not require or grant live capital use. | MR06, MR10–MR12 |
+| MR13 | **[Activation and recovery machinery](../governance/workflow.md#activate-and-operate).** Implement disabled-by-default deployment manifests and separate authorization envelopes, scoped limits, fencing and recovery. Provide distinct block-new-exposure, cancel and reduce-position operations with defined stale-data, disconnected and illiquid behavior. Reject absent/expired authority and incompatible code/model/schema/state; prove safe restart and rollback without undoing or duplicating external fills. Completion does not require or grant live capital use. | MR06, MR10 paper drills and MR11–MR12; feed results back into final MR10 acceptance |
 | MR14 | **[Multiple-instance integration](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Run different reference components and instruments with isolated/shared-account configurations through paper/shadow; add an instance through configuration, then stop/restart it without losing attribution or weakening other accounts' controls. | MR09, MR12–MR13; actual live use remains separately authorized |
-| MR15 | **[Research and runtime capacity qualification](../architecture/platform-design.md#scaling-triggers-and-technology-choices).** Quant development defines and meets a launch workload covering multi-day data, multiple instruments, concurrent studies, trials, replay, live ingestion and dashboard queries. Record numeric volume/retention/concurrency/latency/recovery budgets and hardware before testing; remove the current demonstration-size limits where they prevent that workload. Prove causal/numerical parity and bounded resource/recovery behavior; deploy only the storage/compute topology needed to meet it. | MR01–MR04 for research measurements; MR07/MR12/MR14 for final runtime measurements; no QR bottleneck required |
+| MR15 | **[Research and runtime capacity qualification](../architecture/platform-design.md#scaling-triggers-and-technology-choices).** Define numeric launch budgets early, covering multi-day data, multiple instruments, concurrent studies/trials, replay, feature-store materialization/retrieval, live ingestion and dashboard queries. Record volumes, retention, throughput, p50/p95/p99 latency, memory/disk, concurrency, hardware/cache conditions and recovery targets before measurement. Remove demonstration-size limits where they prevent the workload; preserve causal/numerical parity. Retain research acceptance separately from final integrated runtime acceptance and deploy the topology needed to meet both. | Budgets start with MR01/MR04; MR01–MR04 for research acceptance; MR07/MR12/MR14 for final runtime acceptance; no QR bottleneck required |
 | MR16 | **[Python ownership and enforcement](../coding_standards/README.md#python-scope-and-migration).** Complete the retained ownership/enforcement work with supported imports, packaging, checks and migration guidance; verify the APIs consumed by the reference workflows. | Existing engineering rules; can proceed alongside other work |
 | MR17 | **[QR onboarding acceptance](#qr-onboarding-acceptance).** Exercise the installed integrated stack from a clean environment with fresh research extensions and the published onboarding guide. Close every in-scope platform gap before declaring it ready for QR. | All planned rows above, retaining valid earlier evidence |
 
@@ -170,10 +226,62 @@ verified installation path. MR06 precedes every deployment.
 
 MR07 supplies the runtime/OMS for MR08; portfolio integration (MR09) and venue
 adapters (MR11) follow those contracts. MR10 can qualify paper operations before
-MR11 external qualification. MR12 joins the report, operational and venue paths
-before MR13–MR14 qualify activation machinery and multiple instances. MR15 starts
-with research measurements and completes against the integrated runtime before
-MR17. MR16 can proceed alongside other work. The tables own exact prerequisites.
+MR11 external qualification; its final record includes the later venue and
+activation drills. MR13 depends on MR10's paper increment, not that final record,
+so their evidence integration introduces no circular implementation dependency.
+MR12 joins the report, operational and venue paths before MR13–MR14 complete
+activation machinery and multiple instances; essential telemetry accompanies
+each earlier capability. MR15 sets budgets at the start, accepts research capacity
+at G2 and completes against the integrated runtime before MR17. MR16 proceeds
+alongside delivery; packaging changes relevant to MR06 cannot wait until handoff.
+The tables own exact prerequisites; incremental acceptance never erases open scope.
+
+## Decisive acceptance scenarios
+
+Implement these at their owning boundary and reuse them in the final installed
+journey. Use independent expected results and targeted faults; do not repeat a
+full test matrix for every gate. Record actual bytes, configuration, environment,
+workload, outcomes and limits in the existing capability acceptance record.
+
+| Scenario | Required observable result | Owning MRs |
+| --- | --- | --- |
+| Universe and capability admission | Adding collection/research membership does not grant trading permission. Unsupported feeds, product economics, order types or feature signatures fail before executable work. | MR01/MR05/MR13 |
+| Historical reference change | A tick/lot or specification change resolves by valid time and knowledge time; older runs retain their specification and unknown source history is not replaced by current metadata. | MR01/MR03 |
+| Fresh research extension | Register a new feature/label, non-built-in estimator and strategy; selected implementations reach study, report, candidate and runtime without edits to generic runners or fallback to built-ins. | MR02/MR03/MR05/MR17 |
+| Feature-store parity and recovery | Matched definitions/entities/cutoffs reproduce admitted offline and online values within the declared numerical contract. Late corrections, TTL expiry, missing entities, materialization retry and version rollback remain explicit and cannot leak future values. | MR02/MR04/MR07 |
+| Shared-budget race | With no prior exposure, A and B each request 8,000 account-currency units against a shared 10,000 limit. Atomic admission rejects or policy-clips requests so admitted, pending and uncertain commitments never exceed 10,000; retry/restart cannot release unknown exposure. | MR08/MR09 |
+| Conflicting strategies and netting | Two active strategies on one instrument retain intent/child-order/fill ownership; self-trade conflicts follow explicit policy. Netting, partial fills, fees and residuals reconcile to both strategy allocations and physical account state; stopping one preserves the other's ownership. | MR09/MR14 |
+| External order uncertainty | Lost acknowledgement, duplicate events, rejects, partial fills, cancel/fill races, private-stream loss and restart with open orders cannot duplicate submissions or postings. Cancel acknowledgement alone does not release exposure; venue reconciliation resolves uncertainty. | MR07/MR08/MR11 |
+| Faults and operator actions | Market-data/private-stream disconnect, malformed messages, clock regression, queue overload, disk exhaustion, process/service loss and exchange timeout cause the declared visible response. Block, cancel and reduce remain distinct; telemetry loss cannot disable hard controls. Test recovery and alert delivery. | MR01/MR04/MR07/MR10–MR13 |
+| Trusted installation and restoration | Install the appropriate research or operating artifact in a clean environment; research/shadow lacks production submission authority. Reject incompatible state, restore data/features/artifacts/account state, and reconcile before resuming. | MR04/MR06/MR10/MR13 |
+| Architectural extension | Add a supported-family instrument by reference/configuration and another compatible adapter through its public boundary. Carry a non-book input and a non-24/7 calendar or different-economics fixture through relevant research/simulation consumers without disguising source semantics or changing unrelated code. Unsupported lifecycle behavior is rejected. | MR01–MR03/MR11/MR17 |
+
+## Deliverable coverage
+
+The quant-development work packages remain acceptance obligations inside this
+single roadmap. This mapping connects the original D01–D18 deliverables to the
+broader retained platform; it is not a second backlog or a completion score.
+
+| Deliverable | Owning MRs |
+| --- | --- |
+| D01 — Monorepo foundation and dependency boundaries | MR06/MR16 |
+| D02 — Domain model and versioned reference data | MR01/MR02 |
+| D03 — Typed configuration and four universes | MR01/MR05/MR09/MR13 |
+| D04 — Adapter interfaces and capability registry | MR01/MR05/MR11 |
+| D05 — Collectors and raw journal | MR01/MR04/MR15 |
+| D06 — Book reconstruction and data quality | MR01/MR07 |
+| D07 — Storage, catalog and dataset builder | MR01/MR04/MR15 |
+| D08 — Research SDK and feature computation, extended with offline/online feature store | MR02–MR04/MR07 |
+| D09 — Replay and execution-aware backtesting | MR03/MR05/MR07 |
+| D10 — Experiments, artifacts and production handoff | MR03–MR06 |
+| D11 — Strategy SDK and multi-strategy runtime | MR02/MR05/MR07/MR14 |
+| D12 — Portfolio coordination and centralized risk | MR08/MR09/MR13 |
+| D13 — OMS and execution gateways for both venues | MR07/MR11/MR13 |
+| D14 — Ledger, portfolio state and reconciliation | MR08/MR09/MR11 |
+| D15 — Deployment, security and release pipeline | MR04/MR06/MR13 |
+| D16 — Monitoring, operator controls and runbooks, extended with metric/chart APIs | MR10/MR12/MR13 |
+| D17 — Correctness, failure and capacity qualification | Each owning MR; integrated MR10/MR15/MR17 |
+| D18 — Operating documentation and extension demonstrations | Each owning guide; MR16/MR17 |
 
 ## QR onboarding acceptance
 
@@ -182,19 +290,27 @@ maintained examples and the documented environment, without a QR supplying missi
 infrastructure or selecting an alpha:
 
 1. Provision a clean workspace, discover/admit the declared inputs, and reopen
-   exact retained data/results with source quality and limitations visible.
+   exact retained data/results with source quality, specification versions and
+   limitations visible. Collection/research selections cannot authorize trading.
 2. Add fresh compatible feature/label, estimator and rule implementations plus
    a study specification. Execute rule-only and learned paths through temporal
    evaluation, costed backtesting and retained comparison reports. The extension
-   must not be one of the runner's built-in special cases.
+   must not be one of the runner's built-in special cases. Exercise both target
+   and order/quote decisions and the architectural extension scenario above.
 3. Define a custom metric and chart once through the supported contracts; inspect
    historical and paper/shadow outputs with declared applicability, units,
    missingness and alert behavior. No shared runner or dashboard-engine edit is needed.
-4. Package/load candidates, run multiple paper/shadow instances, and exercise
-   independent risk, account reconciliation, failure/restart and stop controls.
+4. Retrieve versioned offline features, materialize and serve them online, and
+   demonstrate parity, missing/stale/revised inputs, recovery and version rollback
+   through the provisioned feature store and candidate/runtime interfaces.
+5. Package/load candidates, run two distinct active strategies on shared and
+   isolated paper accounts, and exercise independent risk, compatible netting,
+   allocation reconciliation, order uncertainty, selective stop and recovery.
+   Retain separate OKX and Bitfinex execution/account conformance evidence.
    Reference components do not acquire live authority by being installed.
-5. Meet the MR15 workload budgets, recover data/artifacts/state from backup, and
-   show per-venue/service integration evidence and the runnable operational guide.
+6. Meet both MR15 research and runtime budgets, restore data/features/artifacts/state
+   from backup, and show independent operating-package installation, trusted
+   deployment/rollback, service integration and the runnable operational guide.
 
 Reuse milestone proofs for unchanged components; run an integrated fresh-entry
 journey to establish that provisioning, interfaces and retention compose. Retain
