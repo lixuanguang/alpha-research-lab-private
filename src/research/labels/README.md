@@ -29,3 +29,23 @@ The shared window's missing/stale/control rules, exact numerical representation,
 configuration, installed example, verification and reversal procedure live in the
 [feature contract](../features/README.md). Unsupported label formulas and fitted
 evaluation remain conditional on their actual consumers.
+
+## Generalized outcomes
+
+Owner: quant development. Implemented 2026-09-24. `Outcome` binds an arbitrary
+named exact label to a feature-vector identity, label definition, units, complete
+information interval, actual availability, missing reason and source lineage.
+`sample(vector)` constructs the existing `SampleInterval` with both byte identities;
+the generalized estimator verifies that record before fitting. Outcome generation
+is independent of feature execution and labels never enter `DecisionContext`.
+
+`LabelAdapter` admits custom formulas. `NumericDifference` is the reference
+non-return formula: future minus frozen base in unchanged units. The base must
+be known at the feature decision; the future observation must follow it. A missing
+or not-yet-observed endpoint stays pending with no invented availability. Both
+observations keep their own admitted source identities. Its definition identity includes the input signature and actual outcome horizon,
+so different horizons cannot be silently pooled into one fitted target. The caller
+explicitly selects endpoints, rather than the generator reading future history
+behind a decision interface. The fresh installed consumer implements a different
+future-level label through the same protocol. Source/venue completeness and
+empirical predictive acceptance are separate from these exact software contracts.

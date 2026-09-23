@@ -12,6 +12,9 @@ from research.exploration.analysis import (
     VerifiedFeatureRows,
 )
 from research.exploration.feature_study import FeatureStudy
+from research.exploration.projections import (
+    SavedDecisionSource,
+)
 from research.exploration.query import EdaQuery, QuerySummary
 from research.exploration.selection import (
     BookResearchInput,
@@ -50,6 +53,7 @@ __all__ = [
     "ResearchDataset",
     "ResearchReader",
     "ResearchSelection",
+    "SavedDecisionSource",
     "TradeCoverage",
     "TradeResearchInput",
     "TradeSelection",

@@ -8,6 +8,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
 # third party library imports
@@ -16,11 +17,17 @@ from msgspec.structs import replace
 from test_book_datasets import TestBookDatasets as _Books
 
 # project library imports
-from configuration import PublicDataJob
-from financial_units import Currency, Dimension, Price, Quantity, QuantityKind
+from configuration import CaptureConfig, PublicDataJob
+from financial_units import Currency, Dimension, ExactRatio, Price, Quantity, QuantityKind
 from market_data.acquisition import PublicAcquisition, PublicIngestion
 from market_data.adapters.sources import SourceAdapters
-from market_data.contracts import PublicRequest, RawObject, RequestBinding
+from market_data.contracts import (
+    CaptureRecord,
+    CaptureRequest,
+    PublicRequest,
+    RawObject,
+    RequestBinding,
+)
 from market_data.datasets import (
     BookInput,
     DatasetPublication,
@@ -29,16 +36,20 @@ from market_data.datasets import (
     SnapshotStore,
 )
 from market_data.query import BookQuery, BookQueryReader, PublicTradeQuery, PublicTradeReader
-from market_data.storage import RawStore
+from market_data.storage import CaptureJournal, RawStore
 from reference_data.catalogs import ReferenceHistory, VenueSpecification
 from research.exploration import (
+    BookSelection,
     PublicTradeResearchInput,
     PublicTradeSelection,
     ReferenceResearchInput,
     ReferenceSelection,
     ResearchReader,
     ResearchSelection,
+    SavedDecisionSource,
 )
+from research.features import FeatureSchema, FeatureSession, ProjectionFeature
+from research.observations import InputRequirement, NumericField
 from risk import SpotLimits
 from serialization import DomainCodec
 
@@ -123,7 +134,9 @@ class TestPublicData:
         return PublicDataJob.read(Path("configs/data-jobs/public-spot-trades.json"))
 
     @classmethod
-    def _acquire(cls, root: Path) -> tuple[PublicAcquisition, RawStore]:
+    def _acquire(
+        cls, root: Path, *, trades: bytes = _OKX_TRADES
+    ) -> tuple[PublicAcquisition, RawStore]:
         """Run complete reference and trade ingestion into a fresh raw store."""
         raw_path = root / "raw"
         raw_path.mkdir()
@@ -133,18 +146,18 @@ class TestPublicData:
             cls._job(),
             implementation_identity="a" * 64,
             path=root / "acquisition.json",
-            transport=_Transport(
-                (_OKX_REFERENCE, _BITFINEX_REFERENCE, _OKX_TRADES, _BITFINEX_TRADES)
-            ),
+            transport=_Transport((_OKX_REFERENCE, _BITFINEX_REFERENCE, trades, _BITFINEX_TRADES)),
             clock=clock.now,
             sleep=clock.sleep,
         )
         return state, raw
 
     @classmethod
-    def _published(cls, root: Path) -> tuple[PublicTradeQuery, RawStore]:
+    def _published(
+        cls, root: Path, *, trades: bytes = _OKX_TRADES
+    ) -> tuple[PublicTradeQuery, RawStore]:
         """Publish through the existing atomic snapshot store with raw re-decoding."""
-        state, raw = cls._acquire(root)
+        state, raw = cls._acquire(root, trades=trades)
         snapshots = root / "snapshots"
         snapshots.mkdir()
         manifest, payload = PublicTradeManifest.assemble(
@@ -216,6 +229,159 @@ class TestPublicData:
             is None
         )
         assert [i.quote_currency for i in result.instruments] == ["USDT", "USD"]
+
+    def test_named_trade_and_reference_features_use_actual_cutoffs(self, tmp_path: Path) -> None:
+        """Carry both venues through exact public/reference feature projections."""
+        query, raw = self._published(tmp_path)
+        reader = ResearchReader(tmp_path / "snapshots", raw, readers=SourceAdapters())
+        selection = ResearchSelection(
+            inputs=(
+                PublicTradeSelection(name="trades", query=query),
+                ReferenceSelection(name="rules", query=query),
+            )
+        )
+        for instrument, expected in zip(
+            self._job().instruments[:2], (Fraction("0.3"), Fraction("0.15")), strict=True
+        ):
+            requirements = (
+                InputRequirement(
+                    name="trades",
+                    family="trade",
+                    clock="event",
+                    field=NumericField(name="quantity", units=instrument.base_currency),
+                    max_age_us=7_200_000_000,
+                ),
+                InputRequirement(
+                    name="rules",
+                    family="reference",
+                    clock="valid",
+                    field=NumericField(name="minimum_quantity", units=instrument.base_currency),
+                    max_age_us=7_200_000_000,
+                ),
+            )
+            source = SavedDecisionSource(reader, selection, requirements)
+            schema = FeatureSchema(
+                implementation="named-projection-v1",
+                inputs=requirements,
+                outputs=(
+                    NumericField(name="size", units=instrument.base_currency),
+                    NumericField(name="minimum", units=instrument.base_currency),
+                ),
+                parameters=(),
+                mode="batch",
+                ttl_us=0,
+            )
+            session = FeatureSession(
+                ProjectionFeature(schema), instance="public", entity=str(instrument.instrument_id)
+            )
+            missing = session.evaluate(
+                source.read(str(instrument.instrument_id), _RECEIVED - timedelta(microseconds=1))
+            )
+            assert missing.values == (None, None)
+            observed = session.evaluate(source.read(str(instrument.instrument_id), query.known_at))
+            assert observed.values[0] == ExactRatio.from_fraction(expected)
+            assert observed.values[1] is not None
+            assert observed.information_start == _START + timedelta(milliseconds=200)
+            assert (
+                source.read(str(instrument.instrument_id), _RECEIVED - timedelta(microseconds=1))
+                .observations[0]
+                .value
+                is None
+            )
+
+    def test_equal_time_public_trades_use_native_position_tie_break(self, tmp_path: Path) -> None:
+        """Distinct same-millisecond trades remain valid and use the last retained position."""
+        query, raw = self._published(
+            tmp_path, trades=_OKX_TRADES.replace(b"1790164800100", b"1790164800200")
+        )
+        requirement = InputRequirement(
+            name="trades",
+            family="trade",
+            clock="event",
+            field=NumericField(name="quantity", units="BTC"),
+            max_age_us=7_200_000_000,
+        )
+        source = SavedDecisionSource(
+            ResearchReader(tmp_path / "snapshots", raw, readers=SourceAdapters()),
+            ResearchSelection(inputs=(PublicTradeSelection(name="trades", query=query),)),
+            (requirement,),
+        )
+        assert source.read(str(query.instruments[0]), query.known_at).observations[
+            0
+        ].value == ExactRatio(numerator="1", denominator="5")
+
+    def test_saved_book_features_keep_receipt_clock_and_invalidation(self, tmp_path: Path) -> None:
+        """Native L2 depth 3 versus 1 yields exactly 1/2; a later gap removes the value."""
+        config = CaptureConfig.read(Path("configs/live/okx-btc-usdt.json"))
+        request = CaptureRequest(
+            config=config,
+            recording_id="00000000-0000-0000-0000-000000000099",
+            implementation_identity="a" * 64,
+        )
+        journal = CaptureJournal(tmp_path / "capture", request)
+        journal.start()
+        journal.append(CaptureRecord(kind="session", epoch=0, received_ns=1))
+        journal.append(
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=1000,
+                raw=b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}',
+            )
+        )
+        journal.append(
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=2000,
+                raw=_Books._frame(
+                    "snapshot", -1, 10, '[["100","3","0","1"]]', '[["101","1","0","1"]]'
+                ),
+            )
+        )
+        journal.append(CaptureRecord(kind="gap", epoch=0, received_ns=4000, reason="unknown_loss"))
+        journal.append(CaptureRecord(kind="end", epoch=0, received_ns=5000, reason="message_limit"))
+        journal.finish(1)
+        (tmp_path / "raw").mkdir()
+        (tmp_path / "snapshots").mkdir()
+        raw = RawStore(tmp_path / "raw")
+        snapshot = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
+            (tmp_path / "capture",),
+            raw,
+            tmp_path / "snapshots",
+            max_records=16,
+            max_bytes=1_000_000,
+        )
+        epoch = datetime(1970, 1, 1, tzinfo=UTC)
+        query = BookQuery(
+            snapshot_id=snapshot,
+            request_identity=request.identity,
+            instrument=config.instrument_id,
+            start=epoch,
+            end=epoch + timedelta(seconds=1),
+            known_at=epoch + timedelta(seconds=1),
+            columns=("bids", "asks"),
+            batch_size=2,
+            max_bytes=1_000_000,
+        )
+        requirement = InputRequirement(
+            name="depth",
+            family="book",
+            clock="receipt",
+            field=NumericField(name="imbalance", units="dimensionless"),
+            max_age_us=100,
+        )
+        source = SavedDecisionSource(
+            ResearchReader(tmp_path / "snapshots", raw, readers=SourceAdapters()),
+            ResearchSelection(inputs=(BookSelection(name="depth", query=query),)),
+            (requirement,),
+        )
+        assert source.read(
+            str(config.instrument_id), epoch + timedelta(microseconds=3)
+        ).observations[0].value == ExactRatio(numerator="1", denominator="2")
+        gap = source.read(str(config.instrument_id), epoch + timedelta(microseconds=4))
+        assert gap.observations[0].value is None
+        assert gap.observations[0].reason == "invalid_book_control"
 
     def test_pending_receipt_resumes_without_refetch(self, tmp_path: Path) -> None:
         """Recover a durable object whose acknowledgement was lost using its original clock."""

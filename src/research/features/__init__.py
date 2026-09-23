@@ -2,6 +2,24 @@
 
 # project library imports
 from research.features.completed import CompletedReturn
+from research.features.contracts import (
+    FeatureCheckpoint,
+    FeatureKernel,
+    FeatureSchema,
+    FeatureSession,
+    FeatureTransition,
+    FeatureVector,
+    ProjectionFeature,
+    RunningMeanFeature,
+)
+from research.features.fitting import (
+    CenterColumns,
+    FittedTransform,
+    FittingRows,
+    TransformAdapter,
+    TransformVersion,
+    VectorSignature,
+)
 from research.features.offline import (
     FeastOfflineWorker,
     FeatureAccessError,
@@ -34,16 +52,25 @@ from research.features.windows import (
 )
 
 __all__ = [
+    "CenterColumns",
     "CompletedReturn",
     "FeastOfflineWorker",
     "FeatureAccessError",
+    "FeatureCheckpoint",
     "FeatureDefinition",
     "FeatureEntity",
     "FeatureFactory",
+    "FeatureKernel",
     "FeatureObservation",
     "FeatureParity",
     "FeatureRegistry",
+    "FeatureSchema",
+    "FeatureSession",
+    "FeatureTransition",
     "FeatureValue",
+    "FeatureVector",
+    "FittedTransform",
+    "FittingRows",
     "OfflineFeatureAccess",
     "OfflineFeatureBridge",
     "OfflineFeatureComparison",
@@ -52,11 +79,16 @@ __all__ = [
     "OfflineFeatureResult",
     "PricePoint",
     "PriceWindow",
+    "ProjectionFeature",
+    "RunningMeanFeature",
     "ScheduledFeatureCheckpoint",
     "ScheduledFeatureParity",
     "ScheduledFeatureSpec",
     "ScheduledFeatureValue",
     "ScheduledFeatures",
     "TrailingReturn",
+    "TransformAdapter",
+    "TransformVersion",
+    "VectorSignature",
     "WindowPolicy",
 ]

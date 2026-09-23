@@ -1,6 +1,12 @@
 """Expose exact model construction, versioned inference and retained input admission."""
 
 # project library imports
+from research.models.adapters import (
+    EstimatorAdapter,
+    EstimatorLifecycle,
+    EstimatorVersion,
+    NearestExample,
+)
 from research.models.inputs import ModelDataset, ModelFrame, ModelRow, ModelSignature
 from research.models.linear import (
     EstimatorFactory,
@@ -13,8 +19,11 @@ from research.models.linear import (
 from research.models.study import ModelStudy, RetainedResult
 
 __all__ = [
+    "EstimatorAdapter",
     "EstimatorFactory",
+    "EstimatorLifecycle",
     "EstimatorRegistry",
+    "EstimatorVersion",
     "LinearDefinition",
     "LinearModel",
     "LinearState",
@@ -24,5 +33,6 @@ __all__ = [
     "ModelSignature",
     "ModelStudy",
     "ModelVersion",
+    "NearestExample",
     "RetainedResult",
 ]

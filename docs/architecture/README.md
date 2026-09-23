@@ -15,6 +15,8 @@ are also available. Retained experiment attempts, temporal split admission and
 unfitted exploration studies, train-only models, bounded spot simulation/accounting
 and independent spot risk limits are implemented. Configured economic reports,
 serial local ClearML pipelines and pinned lakeFS dataset versions are also available.
+Named multi-feature, fitted-transform, estimator-state and restartable decision contracts
+now have [installed research consumers](../../src/research/features/README.md#generalized-feature-lifecycle).
 Portfolio allocation, venue order execution, deployment and live trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.

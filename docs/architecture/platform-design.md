@@ -664,6 +664,20 @@ capacity evidence cover source products, registry/state and serving recovery.
 
 ### Research-driven feature lifecycle
 
+**Current MR02 research SDK:** named source projections, ordered multi-feature
+schemas, train-only fitted transforms, arbitrary estimator state, separate labels,
+and target/exposure/order/quote policies now run through
+`applications.explore.run_decisions` / `inspect_decisions`. Pure feature/policy
+transitions retain isolated restart state; the installed consumer supplies fresh
+implementations without shared runner edits. The owning
+[feature guide](../../src/research/features/README.md#generalized-feature-lifecycle),
+[model guide](../../src/research/models/README.md#generalized-estimator-lifecycle),
+[observation guide](../../src/research/observations/README.md) and
+[strategy guide](../../src/strategies/README.md) define the exact supported scope.
+Generalized formal study/report APIs, feature-store services and candidate/runtime
+integration remain MR03/MR04/MR05; these research intents do not qualify execution.
+
+
 QR owns new formulas and research choices after onboarding; quant development
 first supplies the execution, alignment, lineage and state machinery plus concrete
 reference consumers. Pre-onboarding completion includes named trade/book/non-book features,

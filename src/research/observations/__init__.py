@@ -2,12 +2,28 @@
 
 # project library imports
 from research.observations.books import BookFeature, BookFeatures
+from research.observations.inputs import (
+    DecisionInputs,
+    DecisionSource,
+    InputRequirement,
+    NamedObservation,
+    NumericField,
+    NumericHistorySource,
+    ObservationHistory,
+)
 from research.observations.windows import Observation, Observations, ObservationState, TradePoint
 
 __all__ = [
     "BookFeature",
     "BookFeatures",
+    "DecisionInputs",
+    "DecisionSource",
+    "InputRequirement",
+    "NamedObservation",
+    "NumericField",
+    "NumericHistorySource",
     "Observation",
+    "ObservationHistory",
     "ObservationState",
     "Observations",
     "TradePoint",
