@@ -11,6 +11,7 @@ from market_data.contracts import (
     BookObservation,
     ByteReader,
     OccurrenceVerifier,
+    PublicSources,
     SavedPartitionReader,
     SourceRequest,
 )
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from market_data.datasets.books import BookInput
 
 
-class DatasetReaders(Protocol):
+class DatasetReaders(PublicSources, Protocol):
     """Supply selected saved readers and native verifiers without choosing an adapter."""
 
     def saved(self, manifest: AcquisitionManifest) -> tuple[SavedPartitionReader, ...]:

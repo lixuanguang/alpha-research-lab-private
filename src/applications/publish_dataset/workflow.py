@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 # project library imports
+from applications.publish_dataset.public import public_dataset
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.sources import SourceAdapters
 from market_data.datasets import DatasetInput, DatasetManifest, DatasetPublication, SnapshotStore
@@ -104,7 +105,17 @@ def main(argv: list[str] | None = None) -> int:
         SystemExit: Argparse handles help or invalid syntax.
         OSError: An unwritable terminal report propagates.
     """
-    parser = argparse.ArgumentParser(description=__doc__, prog="alpha-dataset")
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] in (["discover"], ["public-publish"], ["public-read"]):
+        return public_dataset(arguments)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        prog="alpha-dataset",
+        epilog=(
+            "Public data commands: alpha-dataset public-publish --help; "
+            "alpha-dataset public-read --help; alpha-dataset discover --help"
+        ),
+    )
     commands = parser.add_subparsers(dest="action", required=True)
     for action in ("publish", "inspect"):
         command = commands.add_parser(action)
@@ -122,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             command.add_argument("--snapshot-id", required=True)
-    args = parser.parse_args(argv, namespace=_DatasetArguments())
+    args = parser.parse_args(arguments, namespace=_DatasetArguments())
     output = _DatasetOutput()
     try:
         if args.max_bytes <= 0:

@@ -6,6 +6,7 @@ from market_data.adapters.venues.okx.history_discovery import OKXArchiveDiscover
 from market_data.adapters.venues.okx.history_reader import OKXArchiveReader
 from market_data.adapters.venues.okx.history_store import OKXArchiveStore
 from market_data.adapters.venues.okx.history_transport import OKXHistoryTransport
+from market_data.adapters.venues.okx.public import OKXPublic
 
 __all__ = [
     "OKXArchiveDiscovery",
@@ -13,4 +14,5 @@ __all__ = [
     "OKXArchiveStore",
     "OKXBook",
     "OKXHistoryTransport",
+    "OKXPublic",
 ]

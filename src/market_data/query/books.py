@@ -138,6 +138,8 @@ class BookQueryReader:
             if config.instrument_id != query.instrument:
                 raise ValueError("book query instrument differs from pinned request")
             capture = partition.selection.capture
+            if capture is not None and capture.universes is not None:
+                capture.universes.require(query.instrument, "research")
             is_l3 = capture is not None and capture.config.channel in ("R0", "level3")
             supported = ("orders",) if is_l3 else ("bids", "asks")
             if any(column not in supported for column in query.columns):

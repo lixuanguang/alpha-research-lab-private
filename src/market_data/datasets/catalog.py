@@ -13,6 +13,7 @@ import msgspec
 # project library imports
 from market_data.datasets.books import BookDatasetManifest
 from market_data.datasets.manifests import DatasetManifest
+from market_data.datasets.public_trades import PublicTradeManifest
 from serialization import DomainCodec
 
 
@@ -33,7 +34,7 @@ class SnapshotCatalog:
 
     def discover(
         self, *, max_entries: int, max_bytes: int
-    ) -> tuple[DatasetManifest | BookDatasetManifest, ...]:
+    ) -> tuple[DatasetManifest | BookDatasetManifest | PublicTradeManifest, ...]:
         """Inspect supported manifests in deterministic identity order within explicit bounds.
 
         Args:
@@ -50,7 +51,7 @@ class SnapshotCatalog:
         """
         if any(type(value) is not int or value <= 0 for value in (max_entries, max_bytes)):
             raise ValueError("catalog requires positive entry and manifest-byte limits")
-        manifests: list[DatasetManifest | BookDatasetManifest] = []
+        manifests: list[DatasetManifest | BookDatasetManifest | PublicTradeManifest] = []
         remaining = max_bytes
         codec = DomainCodec()
         for count, directory in enumerate(self._root.iterdir(), 1):
@@ -70,9 +71,11 @@ class SnapshotCatalog:
                 raise ValueError("catalog exceeds aggregate max_bytes")
             fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
             version = codec.decode_json(fields.get("schema_version", b"null"), str)
-            manifest: DatasetManifest | BookDatasetManifest
+            manifest: DatasetManifest | BookDatasetManifest | PublicTradeManifest
             if version == "book-dataset-v1":
                 manifest = codec.decode_json(payload, BookDatasetManifest)
+            elif version == "public-trades-v1":
+                manifest = codec.decode_json(payload, PublicTradeManifest)
             else:
                 manifest = codec.decode_json(payload, DatasetManifest)
             if manifest.identity != directory.name:
@@ -81,6 +84,6 @@ class SnapshotCatalog:
         return tuple(sorted(manifests, key=self._identity))
 
     @staticmethod
-    def _identity(manifest: DatasetManifest | BookDatasetManifest) -> str:
+    def _identity(manifest: DatasetManifest | BookDatasetManifest | PublicTradeManifest) -> str:
         """Order candidate metadata without implying chronology or availability."""
         return manifest.identity

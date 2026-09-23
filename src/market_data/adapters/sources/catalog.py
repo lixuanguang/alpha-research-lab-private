@@ -17,7 +17,13 @@ from market_data.adapters.providers.binance import BinanceArchiveOccurrences
 from market_data.adapters.providers.tardis import TardisTradeFixture
 from market_data.adapters.sources.books import BookAdapters
 from market_data.adapters.sources.verification import SourceOccurrenceVerifier
-from market_data.adapters.venues.okx import OKXArchiveDiscovery, OKXArchiveReader, OKXBook
+from market_data.adapters.venues.bitfinex import BitfinexPublic
+from market_data.adapters.venues.okx import (
+    OKXArchiveDiscovery,
+    OKXArchiveReader,
+    OKXBook,
+    OKXPublic,
+)
 from market_data.books import BookProjection, CaptureReplay
 from market_data.contracts import (
     BookObservation,
@@ -25,10 +31,12 @@ from market_data.contracts import (
     CaptureRecord,
     FixtureReader,
     OccurrenceVerifier,
+    PublicSource,
     SavedPartitionReader,
     SourceRequest,
 )
 from market_data.datasets import BookInput
+from reference_data.catalogs import InstrumentDefinition
 from serialization import DomainCodec
 
 type SavedFactory = Callable[[AcquisitionManifest], tuple[SavedPartitionReader, ...]]
@@ -53,6 +61,20 @@ _VERIFIER_FACTORIES: Final[Mapping[SourceCapability, VerifierFactory]] = Mapping
 
 class SourceAdapters:
     """Select the small declarative set of source capabilities installed here."""
+
+    @staticmethod
+    def public(instrument: InstrumentDefinition) -> PublicSource:
+        """Resolve installed public trade/reference adapters before any data access."""
+        factories: dict[str, type[OKXPublic] | type[BitfinexPublic]] = {
+            "okx": OKXPublic,
+            "bitfinex": BitfinexPublic,
+        }
+        factory = factories.get(instrument.venue)
+        if factory is None:
+            raise ValueError("unsupported public source venue")
+        source = factory()
+        source.capability.admit(instrument, channel="trades", mode="replay")
+        return source
 
     @staticmethod
     def saved(manifest: AcquisitionManifest) -> tuple[SavedPartitionReader, ...]:

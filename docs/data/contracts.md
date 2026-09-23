@@ -65,6 +65,55 @@ depth decoding is not book reconstruction or live gap recovery; a different-fami
 fixture is not admission to the spot ledger or executable trading. Ingestion, query/replay, simulation and operation each need evidence for their
 own capability and selected source/product.
 
+## Versioned venue specifications and scoped universes
+
+Owner: `reference_data.catalogs` for reference facts; `configuration` for explicit
+scope and requirements; venue adapters for source decoding. `InstrumentDefinition`
+retains canonical ID, native symbol, venue/product, base/quote units and calendar.
+`VenueSpecification` binds a content version to source bytes, half-open valid time,
+inclusive knowledge time, status, exact tick/lot/minimum quantity or explicit
+unknowns. `ReferenceHistory.resolve` returns the applicable known version or
+`None`. Corrections retain an explicit same-interval predecessor, later knowledge
+and unambiguous lineage; earlier decisions still resolve the predecessor.
+
+Current endpoint observations start conservatively at local durable observation;
+neither an endpoint's listing date nor an acquisition timestamp certifies earlier
+rules. OKX supplies observed tick/lot/minimum-size rules. The selected Bitfinex
+configuration supplies minimum size but no fixed price tick or quantity step;
+both fields remain `None`. In particular, decimal precision is not a fixed tick.
+Historical specifications, listing membership and changes during unobserved
+intervals are unknown unless independently evidenced. No source signature or
+exhaustive revision history is implied by a SHA-256.
+
+`ReferenceHistory.require_order` refuses unknown, stale, synthetic, non-spot,
+inactive or incomplete rules. `risk.SpotLimits.from_reference` turns an admitted
+version into the existing dimensioned spot grids while retaining its version and
+minimum order size; `order_reason` checks actual submitted size/price. Independent
+maximum exposure is caller-supplied. These checks confer no account access or
+trading authority; runtime risk/reservations and venue execution remain their
+own roadmap capabilities. Existing simulation assumptions keep their original
+serialization and do not become evidenced venue rules.
+
+`UniverseSelection` pins collection, research, strategy-evaluation and
+authorized-trading memberships independently. Public acquisition enforces the
+collection set; public queries enforce the selected research/strategy set;
+scoped native capture and book queries enforce collection/research respectively.
+Nonempty authorized-trading membership needs an external authorization reference,
+but this record alone cannot validate that authority or submit an order. The
+runtime and independent risk consumers must still enforce its future deployment
+envelope. Expanding one set never expands another.
+
+`DataCapability` declares the installed adapter version, product/channel,
+representation/depth, modes, source-clock and sequence meaning, observed/historical
+reference support, calendar profile and recovery behavior. Public source adapters
+and `BookAdapters` admit compatible inputs before network or book-state work.
+Current source adapters reject non-spot and non-continuous-calendar requests;
+the existing C02 calendar API retains its versioned non-24/7 contracts. This is
+the data/reference/calendar admission slice, not completion of the candidate,
+valuation, account or execution registries. The
+[public workflow](../../src/market_data/README.md#public-spot-data-plane) owns commands,
+resource ceilings, interruption and source limits.
+
 ## Historical eligibility assertions
 
 [`EligibilityAssertions`](../../src/reference_data/eligibility/assertions.py) reads a

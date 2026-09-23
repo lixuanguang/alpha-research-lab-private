@@ -9,5 +9,20 @@ from reference_data.catalogs.models import (
     SpotInstrument,
     Venue,
 )
+from reference_data.catalogs.specifications import (
+    InstrumentDefinition,
+    ReferenceHistory,
+    VenueSpecification,
+)
 
-__all__ = ["CatalogSnapshot", "MetadataBasis", "Product", "Source", "SpotInstrument", "Venue"]
+__all__ = [
+    "CatalogSnapshot",
+    "InstrumentDefinition",
+    "MetadataBasis",
+    "Product",
+    "ReferenceHistory",
+    "Source",
+    "SpotInstrument",
+    "Venue",
+    "VenueSpecification",
+]

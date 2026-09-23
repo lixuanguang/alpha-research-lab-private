@@ -19,7 +19,7 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from configuration import CaptureConfig, OKXHistoryConfig
+from configuration import CaptureConfig, OKXHistoryConfig, UniverseSelection
 from market_data.adapters.sources import SourceAdapters
 from market_data.adapters.venues.okx import OKXArchiveStore
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, OKXArchiveRequest
@@ -61,13 +61,21 @@ class TestBookDatasets:
         ).encode()
 
     @classmethod
-    def _capture(cls, root: Path, *, invalid: bool = False, gap: bool = False) -> Path:
+    def _capture(
+        cls,
+        root: Path,
+        *,
+        invalid: bool = False,
+        gap: bool = False,
+        universes: UniverseSelection | None = None,
+    ) -> Path:
         """Retain snapshot, absolute size update and deletion with exact receipt lineage."""
         config = CaptureConfig.read(_ROOT / "configs/live/okx-btc-usdt.json")
         request = CaptureRequest(
             config=config,
             recording_id="00000000-0000-0000-0000-000000000001",
             implementation_identity="a" * 64,
+            universes=universes,
         )
         journal = CaptureJournal(root, request)
         journal.start()

@@ -1,0 +1,36 @@
+{
+  "schema_version": "public-data-job-v1",
+  "name": "public-spot-trades",
+  "instruments": [
+    {
+      "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+      "venue": "okx", "symbol": "BTC-USDT", "product": "spot",
+      "base_currency": "BTC", "quote_currency": "USDT", "calendar": "continuous-utc"
+    },
+    {
+      "instrument_id": "c87d983f-e7ec-4e64-8d54-9f2be67a64b8",
+      "venue": "bitfinex", "symbol": "tBTCUSD", "product": "spot",
+      "base_currency": "BTC", "quote_currency": "USD", "calendar": "continuous-utc"
+    },
+    {
+      "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+      "venue": "okx", "symbol": "ETH-USDT", "product": "spot",
+      "base_currency": "ETH", "quote_currency": "USDT", "calendar": "continuous-utc"
+    }
+  ],
+  "universes": {
+    "collection": ["4476df8e-6342-4417-839e-e41b88f41446", "c87d983f-e7ec-4e64-8d54-9f2be67a64b8"],
+    "research": ["4476df8e-6342-4417-839e-e41b88f41446", "c87d983f-e7ec-4e64-8d54-9f2be67a64b8"],
+    "strategy": ["4476df8e-6342-4417-839e-e41b88f41446"],
+    "authorized_trading": []
+  },
+  "mode": "backfill",
+  "start": "2026-09-23T12:00:00Z",
+  "end": "2026-09-23T12:00:10Z",
+  "page_size": 100,
+  "max_pages": 100,
+  "max_bytes": 8000000,
+  "timeout_seconds": 20,
+  "poll_seconds": 5,
+  "rights_reference": "official public market-data endpoints; internal engineering observation; retain locally"
+}

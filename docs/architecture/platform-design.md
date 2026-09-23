@@ -255,8 +255,15 @@ exceptions, timestamps with unknown timezone semantics, and mutable registries s
 
 ## Configuration and active workflows
 
-This is a planned boundary under the
+The full runtime boundary remains planned under the
 [configuration-driven implementation standard](../coding_standards/README.md#generalized-code-and-configuration-driven-activation).
+**CURRENT data-plane slice:** `PublicDataJob` and `UniverseSelection` pin four
+independent scopes, public trade/reference requests, and named cutoff selections.
+Scoped native book requests also retain collection/research admission. Typed
+`DataCapability` records admit installed data/reference/calendar profiles. The
+[data contracts](../data/contracts.md#versioned-venue-specifications-and-scoped-universes)
+own these implemented interfaces. Candidate, account, valuation, execution and
+deployment admission remain planned; a scope record grants no executable authority.
 The current authored instrument catalog supplies reference facts and assumptions;
 it does not select active assets or strategies. Introduce a small typed file
 reader with the first acquisition consumer, then extend its records with reference
@@ -348,8 +355,11 @@ Specification revisions also retain when their source assertion became known.
 Queries resolve valid time and knowledge time together, and observations, orders
 and dataset manifests bind the selected version. A tick/lot change must not
 rewrite an earlier run; current endpoint metadata cannot establish historical
-specifications. This venue integration is planned separately from the implemented
-identity and authored research-assumption catalogs.
+specifications. The implemented `VenueSpecification` / `ReferenceHistory` boundary
+now resolves observed OKX/Bitfinex spot rules separately from authored research
+assumptions. Public trade observations retain the applicable version or explicit
+unknown; `SpotLimits.from_reference` consumes complete known rules for order-grid
+checks. General product lifecycle and execution adapter integration remain planned.
 
 Future lifecycle records represent listing, activation, trading halt, expiry, exercise, assignment, delivery, delisting,
 redenomination, and corporate-action effects as explicit versioned events. They retain the source assertion and

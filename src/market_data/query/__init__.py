@@ -9,6 +9,12 @@ from market_data.query.books import (
     BookQueryBatch,
     BookQueryReader,
 )
+from market_data.query.public_trades import (
+    PublicReplayCursor,
+    PublicTradeQuery,
+    PublicTradeReader,
+    PublicTradeResult,
+)
 from market_data.query.reader import (
     QueryBatch,
     QueryColumn,
@@ -29,6 +35,10 @@ __all__ = [
     "EconomicOrder",
     "InputBinding",
     "PointEvent",
+    "PublicReplayCursor",
+    "PublicTradeQuery",
+    "PublicTradeReader",
+    "PublicTradeResult",
     "QueryBatch",
     "QueryColumn",
     "QueryEvidence",

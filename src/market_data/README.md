@@ -29,6 +29,8 @@ owned adapter packages. Application composition belongs to
 | Named trade/book research inputs | `ResearchSelection`, `inspect_eda` | [Selection reference](#discover-and-reopen-research-selections) |
 | Native book publication/replay | `publish_books`, `BookReplay` | `alpha-collect`; [book boundaries](#bounded-saved-books) |
 | Reviewed source evidence | `ArchiveCapture`, `SourceQualification`, `QualityPolicy` | [Qualification sections](#witnessed-archive-availability) |
+| Public OKX/Bitfinex trades and observed rules | `PublicDataJob`, `PublicIngestion`, `PublicTradeManifest` | [Public data plane](#public-spot-data-plane) |
+| Four scoped universes and adapter admission | `UniverseSelection`, `DataCapability`, `BookAdapters.capability` | [Reference and scope contracts](../../docs/data/contracts.md#versioned-venue-specifications-and-scoped-universes) |
 
 The currently installed commands are `alpha-inspect-fixture`, `alpha-acquire`,
 `alpha-dataset`, `alpha-collect` and `alpha-backtest books`. Their command
@@ -58,6 +60,122 @@ Missing, unknown and degraded outcomes remain typed reasons. Byte limits bound
 the declared files or retained canonical inputs; they are not a process RSS
 limit. No API here resamples, forward-fills, converts USD/USDT or turns an empty
 result into a coverage claim.
+
+## Public spot data plane
+
+Owner: quant development. Implemented read-only scope: OKX native spot public REST
+trades/history and `books` L2 capture; Bitfinex native spot REST trades/history and
+R0 raw-book capture. Public REST polling is explicitly sampled capture, not a
+WebSocket trade feed or complete tape. Existing OKX module-4 book archives retain
+their separate source/sequence/availability limits. Bitfinex historical books are
+not advertised. Current-source contracts were checked on 2026-09-23 against
+[OKX market data](https://www.okx.com/docs-v5/en/#order-book-trading-market-data-rest-api-get-trades-history),
+[Bitfinex trades](https://docs.bitfinex.com/reference/rest-public-trades) and
+[Bitfinex configuration](https://docs.bitfinex.com/reference/rest-public-conf).
+
+`PublicDataJob` pins authored listing definitions, four independent universes,
+event/capture interval, adapter limits and an access/use/retention reference.
+The maintained [two-venue job](../../configs/data-jobs/public-spot-trades.json)
+collects BTC on both venues and also defines inactive OKX ETH. Selecting ETH is a
+configuration change using the same decoder and workflow; listing it activates
+nothing. Product, native units, calendar, channel and mode compatibility fail
+before source access. Only the continuous-UTC spot profile is admitted by these
+adapters. Other calendar/product implementations remain explicit extension work.
+
+From a clean local working directory, provide the absolute paths to a copied job
+and the installed commands. The output parent must already exist:
+
+```sh
+alpha-acquire public --config /absolute/public-spot-trades.json --output /absolute/run
+mkdir /absolute/run/snapshots
+alpha-dataset public-publish --acquisition /absolute/run/acquisition.json \
+  --store /absolute/run/raw --snapshots /absolute/run/snapshots --max-bytes 32000000
+alpha-dataset discover --snapshots /absolute/run/snapshots \
+  --max-entries 100 --max-bytes 32000000
+alpha-dataset public-read --query /absolute/pinned-query.json \
+  --store /absolute/run/raw --snapshots /absolute/run/snapshots --max-bytes 32000000
+```
+
+Within the checkout, prefix commands with `uv run --frozen --no-editable`.
+`mode="backfill"` selects `[start,end)` in UTC milliseconds, at most one day.
+OKX's history endpoint advertises a rolling three-month limit; expired or empty
+responses do not prove complete/quiet coverage. OKX pages backwards by native
+trade ID after the initial timestamp request, with at most 100 rows per response.
+Bitfinex pages forwards with inclusive timestamp overlap and at most 10,000 rows;
+a saturated single millisecond fails rather than skipping its remaining trades.
+Increase the page size in a new job when that diagnostic occurs. Each venue's
+native ordering, IDs, exact price/size and aggressor side remain distinct.
+
+For polling, select `mode="capture"` and explicit current/future UTC start/end
+times. The worker polls recent trades in round-robin order, under the same page
+and aggregate raw-byte budgets. It waits at least the configured five-second
+minimum between trade requests. Network inactivity is bounded; transient
+429/5xx responses receive at most two bounded retries. A paused process cannot
+repair an uncaptured interval. Publication retains unknown completeness and
+polling-loss reasons even when every request succeeded.
+
+Every run retains `acquisition.json` plus the existing content-addressed `raw/`
+store. Before validation, a pending response saves exact bytes and its original
+receipt through atomic replacement/fsync. After raw publication, the completion
+prefix is checkpointed. Re-run the identical command with the matching installed
+implementation to verify completed objects, reconcile a pending response without
+refetching it, and continue from the checked native cursor. Malformed saved bytes,
+changed jobs/implementations, missing objects or exhausted budgets fail closed.
+Backwards receipt/durable clocks fail without clamping timestamps; a publication
+clock failure leaves the original pending response available for recovery.
+Invalid responses stay pending for diagnosis; use a new output for a corrected
+job instead of rewriting the retained attempt. Exit 0 acknowledges completion,
+2 reports a retained failure, and 130 reports handled interruption.
+
+`PublicTradeManifest` pins the publishing implementation as well as acquisition
+provenance, using the existing atomic `SnapshotStore`, catalog discovery and raw
+re-decoding. `PublicTradeQuery` selects a pinned snapshot, instruments,
+half-open event window, inclusive knowledge cutoff and `research` or `strategy`
+purpose. It checks that purpose's saved universe. The result retains exact values,
+definitions, reference versions, selected duplicate counts and missingness reasons.
+Native pages, including values outside the query window, remain retained so a
+later observed correction is resolved **before** window filtering. Repeated
+identical values retain their first known version. `ts_knowledge` is the actual
+local durable observation, never inferred historical availability or exchange time.
+
+`PublicTradeReader.replay` preserves observed versions in knowledge/source-position
+order. It also delivers out-of-window revisions of selected trade IDs so consumers
+can retire earlier values. Save the returned `PublicReplayCursor` with consumer
+state; a different query identity refuses the cursor. This is data replay, not an
+execution model or a replacement for the simulation event scheduler.
+
+`ResearchSelection` now accepts named `PublicTradeSelection` and
+`ReferenceSelection` alongside existing trades/books. The latter exposes typed
+bitemporal venue metadata as a non-book input; it does not force reference facts
+into market-event rows. All inputs share a knowledge cutoff and retain independent
+windows, units, source clocks and quality. Missing/invalid bytes fail the complete
+assembly. Historical book availability remains unknown rather than acquiring
+receipt clocks from a trade input.
+
+New foreground book captures can use
+`--universes /absolute/public-spot-universes.json`, with the maintained
+[scope example](../../configs/live/public-spot-universes.json). The complete scope
+is part of `CaptureRequest` and therefore of raw, snapshot and query provenance;
+collection and research membership are enforced separately. Existing requests
+without this field keep their original wire identity and legacy bounded meaning.
+Scoped supervised capture is explicitly unsupported until its runtime consumer
+retains the scope too.
+
+Quant development's [installed reference consumer](../../tests/integration/consumers/datasets/public_data.py)
+publishes completed input, discovers identities, writes pinned queries/selections,
+invokes the real CLI readers, assembles trade/book/reference inputs and checks
+replay continuation. It requires no notebook-authored manifest:
+
+```sh
+/absolute/environment/bin/python -I /absolute/public_data.py \
+  --acquisition /absolute/run/acquisition.json --raw /absolute/run/raw \
+  --output /absolute/new-inspection \
+  --books /absolute/okx-recording /absolute/bitfinex-recording
+```
+
+The output is an engineering data-plane report, with all source limits visible.
+See the [roadmap acceptance record](../../docs/roadmap/README.md#mr01-delivery-and-acceptance)
+for observed inputs, validation and remaining infrastructure ownership.
 
 ## Read historical eligibility assertions
 

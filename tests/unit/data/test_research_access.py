@@ -400,17 +400,10 @@ class TestResearchAccess:
         """Persist failed reads and refuse changed final evaluation before exposing any values."""
         selection = self._selection(tmp_path)
         window = TimeWindow(start=_START, end=_START + timedelta(days=2))
-        inputs: list[TradeSelection | BookSelection] = []
-        for item in selection.inputs:
-            if isinstance(item, TradeSelection):
-                inputs.append(
-                    replace(item, query=replace(item.query, start=window.start, end=window.end))
-                )
-            else:
-                inputs.append(
-                    replace(item, query=replace(item.query, start=window.start, end=window.end))
-                )
-        selected_inputs = tuple(inputs)
+        selected_inputs = tuple(
+            replace(item, query=replace(item.query, start=window.start, end=window.end))
+            for item in selection.inputs
+        )
         selection = replace(selection, inputs=selected_inputs)
         study = ExplorationStudy(
             family="retained-inspection",
