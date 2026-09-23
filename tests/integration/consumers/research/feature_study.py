@@ -4,7 +4,6 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
-import os
 import shutil
 import subprocess
 import sys
@@ -24,7 +23,6 @@ from applications.explore import (
     compare_windows,
     evaluate_model,
     inspect_experiment,
-    publish_experiments,
 )
 from configuration import Configuration
 from financial_units import ExactRatio
@@ -63,7 +61,6 @@ from serialization import DomainCodec
 _START = datetime(2024, 6, 1, tzinfo=UTC)
 _CODEC = DomainCodec()
 _LIMIT = 262_144
-_RETAIN = AttemptStore.retain
 
 
 class _StudyFixture:
@@ -202,31 +199,7 @@ class _StudyFixture:
 
 
 class _ModelAcceptance:
-    """Exercise installed models with ClearML or an explicitly unavailable transport."""
-
-    @staticmethod
-    def _configure_server() -> bool:
-        """Load private local test credentials without putting them in retained manifests."""
-        location = os.environ.get("ALPHA_CLEARML_LOCAL_ENV")
-        if location is None:
-            return False
-        values = dict(line.split("=", 1) for line in Path(location).read_text().splitlines())
-        os.environ.update(
-            CLEARML_API_HOST="http://127.0.0.1:18008",
-            CLEARML_WEB_HOST="http://127.0.0.1:18080",
-            CLEARML_FILES_HOST="http://127.0.0.1:18081",
-            CLEARML_API_ACCESS_KEY=values["CLEARML_LOCAL_ACCESS_KEY"],
-            CLEARML_API_SECRET_KEY=values["CLEARML_LOCAL_SECRET_KEY"],
-            CLEARML_CACHE_DIR=str(Path(location).parent / "alpha-clearml-cache"),
-        )
-        return True
-
-    @staticmethod
-    def _interrupt_receipt(store: AttemptStore, attempt_id: str, name: str, payload: bytes) -> str:
-        """Simulate interruption after remote success but before durable local acknowledgement."""
-        if name == "clearml-receipt":
-            raise ConnectionError("injected receipt interruption")
-        return _RETAIN(store, attempt_id, name, payload)
+    """Exercise installed model state and outcomes with an unavailable publication transport."""
 
     @staticmethod
     def _selection_item(item: TradeSelection) -> TradeSelection:
@@ -242,8 +215,7 @@ class _ModelAcceptance:
 
     @classmethod
     def run(cls, inputs: Path, output: Path) -> None:
-        """Exercise installed models, terminal retention and optional actual server recovery."""
-        is_server = cls._configure_server()
+        """Exercise installed models, terminal retention and fresh-process recovery offline."""
         output.mkdir()
         (output / "raw").mkdir()
         (output / "snapshots").mkdir()
@@ -273,13 +245,14 @@ class _ModelAcceptance:
             api_uri="http://127.0.0.1:18008",
             files_uri="http://127.0.0.1:18081",
         )
-        history = inspect_experiment(
-            request,
-            output / "snapshots",
-            fixture.raw,
-            attempts=attempts,
-            tracking=destination if is_server else None,
-        )
+        with patch.object(ClearMLPublication, "publish"):
+            history = inspect_experiment(
+                request,
+                output / "snapshots",
+                fixture.raw,
+                attempts=attempts,
+                tracking=destination,
+            )
         payload = history.events[-1].result
         assert payload is not None
         dataset = ModelDataset.from_results((payload,))
@@ -316,36 +289,21 @@ class _ModelAcceptance:
         )
         config = output / "model.json"
         config.write_bytes(_CODEC.encode_json(study))
-        if is_server:
-            with patch.object(AttemptStore, "retain", new=cls._interrupt_receipt):
-                try:
-                    evaluate_model(config, attempts=attempts, tracking=destination)
-                except ConnectionError as error:
-                    assert str(error) == "injected receipt interruption"
-                else:
-                    raise AssertionError("publication interruption was not reached")
-        else:
-            with patch.object(
-                ClearMLPublication, "publish", side_effect=ConnectionError("unavailable transport")
-            ):
-                try:
-                    evaluate_model(config, attempts=attempts, tracking=destination)
-                except ConnectionError:
-                    pass
-                else:
-                    raise AssertionError("unavailable publication must be visible")
+        with patch.object(
+            ClearMLPublication, "publish", side_effect=ConnectionError("unavailable transport")
+        ):
+            try:
+                evaluate_model(config, attempts=attempts, tracking=destination)
+            except ConnectionError:
+                pass
+            else:
+                raise AssertionError("unavailable publication must be visible")
         retained = AttemptStore(attempts)
         models = tuple(h for h in retained.histories() if h.start.spec.family == study.family)
         assert len(models) == 1 and models[0].status == "completed"
         model_id = models[0].start.attempt_id
         model = _CODEC.decode_json(retained.artifact(model_id, "model-version"), ModelVersion)
         assert len(model.fit_rows) == 2
-        before = tuple(_CODEC.encode_json(h) for h in retained.histories())
-        if is_server:
-            receipts = publish_experiments(attempts)
-            assert len(receipts) == 2
-            assert publish_experiments(attempts) == receipts
-            assert tuple(_CODEC.encode_json(h) for h in retained.histories()) == before
         # Reload never calls construct, even when the state was rejected by selection.
         reload_study = replace(
             study,
@@ -357,18 +315,10 @@ class _ModelAcceptance:
         with patch(
             "research.models.LinearModel.construct", side_effect=AssertionError("implicit refit")
         ):
-            if is_server:
+            with patch.object(ClearMLPublication, "publish"):
                 reloaded = evaluate_model(config, attempts=attempts, tracking=destination)
-                assert reloaded.events[-1].result == models[0].events[-1].result
-            else:
-                with patch.object(
-                    ClearMLPublication, "publish", side_effect=ConnectionError("offline")
-                ):
-                    try:
-                        evaluate_model(config, attempts=attempts, tracking=destination)
-                    except ConnectionError:
-                        pass
-        if is_server:
+            assert reloaded.events[-1].result == models[0].events[-1].result
+        with patch.object(ClearMLPublication, "publish"):
             # A newly configured state is retained even when selection rejects it.
             rejected_study = replace(
                 study,
@@ -409,11 +359,6 @@ class _ModelAcceptance:
                     raise AssertionError("interruption was not propagated")
             aborted = tuple(h for h in retained.histories() if h.start.spec.family == "aborted-fit")
             assert len(aborted) == 1 and aborted[0].status == "abandoned"
-            publish_experiments(attempts)
-            assert all(
-                "clearml-receipt" in retained.artifacts(h.start.attempt_id)
-                for h in retained.histories()
-            )
         (output / "dataset.json").write_bytes(_CODEC.encode_json(dataset))
         (output / "model-attempt.txt").write_text(model_id)
         backup = output / "backup"
@@ -445,11 +390,6 @@ class _ModelAcceptance:
         print(
             "Installed saved-input model fit/reload, immutable history and backup bytes verified."
         )
-        print(
-            "ClearML server publication/reconciliation verified."
-            if is_server
-            else "ClearML transport unavailable by test design; no server claim."
-        )
 
     @staticmethod
     def reopen(output: Path) -> None:
@@ -467,7 +407,7 @@ class _ModelAcceptance:
 
 
 class _FactorAcceptance:
-    """Exercise retained factor reports and real optional ClearML artifact retrieval."""
+    """Exercise retained factor reports and publication failure independently of services."""
 
     @staticmethod
     def run(output: Path, source: AttemptHistory, payload: bytes) -> None:
@@ -509,7 +449,7 @@ class _FactorAcceptance:
             histories = [h for h in store.histories() if h.start.attempt_id not in before]
             assert len(histories) == 1 and histories[0].status == "completed"
             attempt_id = histories[0].start.attempt_id
-            manifest = ResultManifest.read(store, attempt_id)
+            ResultManifest.read(store, attempt_id)
             report = _CODEC.decode_json(
                 store.artifact(attempt_id, "factor-diagnostics"), AlphalensReport
             )
@@ -518,24 +458,6 @@ class _FactorAcceptance:
             coefficient = report.information_coefficients[0].value
             assert coefficient is not None and abs(coefficient - 1.0) < 1e-12
             assert not any(e.status == "holdout_consumed" for e in histories[0].events)
-            if _ModelAcceptance._configure_server():
-                receipt = ClearMLPublication(store, destination).publish(attempt_id)
-                # third party library imports
-                from clearml import Task
-
-                tasks = Task.get_tasks(
-                    project_name=destination.project,
-                    task_name=f"^attempt-{attempt_id}$",
-                    allow_archived=True,
-                )
-                assert len(tasks) == 1 and tasks[0].id == receipt.task_id
-                for artifact in manifest.artifacts:
-                    downloaded = tasks[0].artifacts[artifact.name].get_local_copy()
-                    assert downloaded is not None
-                    assert (
-                        hashlib.sha256(Path(downloaded).read_bytes()).hexdigest() == artifact.sha256
-                    )
-                (output / "factor-clearml-receipt.json").write_bytes(_CODEC.encode_json(receipt))
         print("Installed Alphalens IC and retained report bytes verified; holdout untouched.")
 
 
@@ -722,63 +644,7 @@ class _WindowAcceptance:
         (output / "window-attempts.json").write_bytes(
             _CODEC.encode_json(tuple(h.start.attempt_id for h in completed))
         )
-        if _ModelAcceptance._configure_server():
-            with patch.object(
-                WindowDiagnostics,
-                "evaluate",
-                side_effect=AssertionError("publication reran diagnostics"),
-            ):
-                with AttemptStore(attempts) as retained:
-                    with patch.object(
-                        AttemptStore, "retain", new=_ModelAcceptance._interrupt_receipt
-                    ):
-                        try:
-                            ClearMLPublication(retained, destination).publish(
-                                completed[0].start.attempt_id
-                            )
-                        except ConnectionError:
-                            pass
-                        else:
-                            raise AssertionError("lost publication receipt was not exercised")
-                    for history in (*completed, failed):
-                        receipt = ClearMLPublication(retained, destination).publish(
-                            history.start.attempt_id
-                        )
-                        assert (
-                            ClearMLPublication(retained, destination).publish(
-                                history.start.attempt_id
-                            )
-                            == receipt
-                        )
-                        cls._download(retained, history, receipt.task_id)
-        print("Installed SciPy windows, delayed labels, inapplicability and recovery verified.")
-
-    @staticmethod
-    def _download(store: AttemptStore, history: AttemptHistory, task_id: str) -> None:
-        """Download actual ClearML artifacts and verify their retained SHA-256 identities."""
-        # third party library imports
-        from clearml import Task
-
-        tasks = Task.get_tasks(
-            project_name="alpha-local-integration",
-            task_name=f"^attempt-{history.start.attempt_id}$",
-            allow_archived=True,
-        )
-        assert len(tasks) == 1 and tasks[0].id == task_id
-        names = (
-            tuple(
-                item.name for item in ResultManifest.read(store, history.start.attempt_id).artifacts
-            )
-            if history.status == "completed"
-            else ("feature-source-0", "window-study")
-        )
-        for name in names:
-            downloaded = tasks[0].artifacts[name].get_local_copy()
-            assert downloaded is not None
-            assert (
-                hashlib.sha256(Path(downloaded).read_bytes()).hexdigest()
-                == hashlib.sha256(store.artifact(history.start.attempt_id, name)).hexdigest()
-            )
+        print("Installed SciPy windows, delayed labels and inapplicability verified.")
 
 
 def main() -> None:

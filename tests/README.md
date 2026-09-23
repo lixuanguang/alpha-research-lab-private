@@ -46,7 +46,7 @@ children. Real orchestration belongs to `src/applications/`.
 | Maintained caller | Behavior retained |
 | --- | --- |
 | [Ingestion/feature tests](integration/test_ingestion_workflow.py) | Acquisition resume, publication, EDA, feature/label reproduction, models and diagnostics |
-| [Economic tests](integration/test_economic_workflow.py) | Exact trade-price economics, vectorbt/comparison reports, feature parity, publication failure and fresh-process resume; existing synthetic engineering-sample refusals |
+| [Economic tests](integration/test_economic_workflow.py) | Exact trade-price economics, vectorbt/comparison reports, feature parity, publication failure and fresh-process resume |
 | [Book tests](integration/test_book_backtest.py) | Saved OKX L2 CLI, independent accounts, second spot configuration, checkpoint restart and corrupt-source refusal |
 | [Capture recovery tests](unit/data/live/test_recovery.py) | Pending snapshots, duplicates, stale responses, recovery and installed replay CLI/API equality |
 | Component tests under `unit/data/` | Installed book, health and parity consumers alongside their domain regressions |
@@ -70,15 +70,19 @@ eligibility, query and EDA acceptance demos have been retired. Their maintained
 regressions are in `unit/data/`, `unit/pipelines/` and the ingestion workflow.
 Snapshot and command process-death tests remain. The as-of and replay consumers
 remain because the maintained notebooks execute them.
+The standalone engineering-sample demonstration is also retired; qualification,
+engineering scope, cost reconciliation and no-trade controls belong to their
+data, experiment and simulation regressions.
 
 ## Explicit service and saved-source checks
 
-The feature/model and economic consumers retain their optional local ClearML
-paths. With `ALPHA_CLEARML_LOCAL_ENV` pointing to the private loopback credential
-file, they check actual publication, artifact retrieval and receipt recovery.
-Ordinary test invocations use unavailable/fake transports and make no server claim.
-Follow the [ClearML runbook](../configs/development/clearml/README.md) for explicit
-service checks; no ordinary test starts Docker or an agent.
+Feature/model, economic and offline-feature consumers exercise domain behavior
+with unavailable/fake publication transports. Their output stores can be passed
+to the single [ClearML verifier](integration/consumers/research/clearml_publication.py)
+for actual publication, fresh-process receipt recovery and remote byte checks.
+The verifier reads `ALPHA_CLEARML_LOCAL_ENV`; ordinary domain
+runs make no server claim. The [ClearML runbook](../configs/development/clearml/README.md)
+owns its invocation; no ordinary test starts Docker or an agent.
 
 The [pipeline consumer](integration/consumers/backtest/pipeline_workflow.py)
 requires an explicitly running local agent and matching installed wheel. The
@@ -96,7 +100,7 @@ After running `feature_study.py`, copy it outside the checkout and invoke:
 ```
 
 It checks real SDK retrieval, pinned registry/source bytes, delayed corrections,
-missing entities and TTL expiry. ClearML publication remains separately opt-in.
+missing entities and TTL expiry. ClearML publication uses the separate verifier.
 It does not implicitly install Feast in the core CI environment.
 
 The [saved-source consumer](integration/consumers/backtest/source_acceptance.py)

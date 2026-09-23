@@ -56,6 +56,40 @@ The log is `/private/tmp/acceptance-scaffolding-local-ci.log`; wheel evidence is
 local CI as this change's merge gate because hosted credits were exhausted;
 the merge uses `[skip ci]` without changing repository CI configuration.
 
+### Second cleanup pass
+
+The follow-up pass retires the 408-line engineering-sample runner. Maintained
+qualification and economics tests retain its distinct CLI admission and unfitted
+configuration/report checks; the existing economic workflow retains installed
+reopen, report failure and fresh-process recovery. Frozen configurations and
+historical evidence remain available.
+
+Feature/model, economic and Feast consumers now run domain checks independently
+of ClearML. One explicit [service verifier](../../tests/integration/consumers/research/clearml_publication.py)
+owns local credential setup, lost-receipt recovery in a fresh process, idempotent
+publication, unique tasks and exact remote artifact checks. Model creation precedes
+reload publication. Former service-only rejected, failed and abandoned model
+assertions now execute in ordinary CI. The [service runbook](../../configs/development/clearml/README.md)
+documents the separate invocation. No runtime application or provider adapter changed.
+
+Acceptance scripts fall from 5,485 to 4,933 lines (another 10%; 33% below the
+original 7,381). This is the consumer-tree reduction, before accounting for the
+small domain-test additions and documentation edits. The bounded retirement and
+coverage migration used `gpt-5.6-luna` at `max`; the main agent reviewed and
+integrated it. Live ClearML and the separately installed Feast worker were not
+rerun in this cleanup; offline verifier probes do not claim service acceptance.
+
+Validation on 2026-09-23: `env -u ALPHA_CLEARML_LOCAL_ENV TMPDIR=/private/tmp
+make check` passed on CPython 3.14.7 / macOS arm64: **1,246 tests passed**, three
+performance cases deselected, zero skips, all configured static/security checks,
+and fresh installed-wheel OKX verification. The log is
+`/private/tmp/acceptance-scaffolding-second-local-ci.log`; the wheel/output is
+`/private/tmp/alpha-research-wheel-smoke-8768tha6/`. Offline probes over 11 actual
+model-workflow attempts exercised the service verifier's publication ordering,
+corrupt-byte refusal, receipt interruption and restart dispatch with fake remote
+transport. Local links passed across 51 Markdown documents, including component
+and runbook paths outside `docs/`.
+
 ## Original findings
 
 Priorities describe maintenance impact, not a request to reopen closed MRs.

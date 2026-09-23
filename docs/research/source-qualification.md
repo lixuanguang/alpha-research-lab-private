@@ -49,10 +49,13 @@ wrong request/archive/interval/count, missing/extra versions, inconsistent corre
 clocks/references, late or unbacked eligibility, observed gaps, tampered documents,
 future document claims, damaged prior archives and intrahour trading suspension.
 
-The [installed consumer](../../tests/integration/consumers/backtest/engineering_sample.py)
-now runs both witnessed and qualified synthetic inputs through both unchanged P1
-configurations, reports, complete checkpoints and fresh-process repeat/resume. These
-are deliberately fabricated **software fixtures**, never evidence for the real hour.
+The former installed engineering-sample consumer ran both witnessed and qualified
+synthetic inputs through both unchanged P1 configurations, reports, complete
+checkpoints and fresh-process repeat/resume. That demonstration was retired in the
+[scaffolding cleanup](../roadmap/post-mr9a-maintenance-review.md); qualification,
+CLI publication, engineering scope and economics remain in maintained tests.
+The results below are historical, deliberately fabricated **software fixtures**,
+never evidence for the real hour.
 The complete source lane passed **1,244 tests, three performance cases deselected,
 zero skips**, in 137.59 seconds. Ruff/format, strict mypy (353 files), native stubtest
 (1,562 modules), engineering/dependency/architecture checks, Bandit, dependency audit
