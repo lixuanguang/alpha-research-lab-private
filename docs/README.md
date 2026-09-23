@@ -1,7 +1,8 @@
 # Alpha Research Platform
 
-Research starts with an economic question: can an observable market state improve
-a trading decision after costs, delay and risk? The current agenda investigates
+After the entire infrastructure is built and accepted at MR17, quant research
+starts with an economic question: can an observable market state improve
+a trading decision after costs, delay and risk? The planned agenda investigates
 one execution venue and a narrow product/instrument scope, beginning with an
 opportunity map and pressure/replenishment hypotheses.
 
@@ -10,6 +11,11 @@ Start with the [research guide](../examples/README.md) and
 economic feasibility, selective liquidity-taking, liquidity shocks and selective
 liquidity provision. They specify experiments and summarize supplied study
 outputs; they do not contain empirical findings or run those strategies.
+
+The [research delivery milestones](roadmap/research-program.md#post-infrastructure-research-milestones)
+are research readiness, an executable end-to-end prototype, and an evidence-backed
+decision. They own QR-01–QR-18 and are all **planned, not started**. Only surviving
+candidates continue to forward validation and a deployment recommendation.
 
 The platform currently supports bounded local research from retained market data
 to exact spot simulation, model studies and reports. The

@@ -17,7 +17,8 @@ requirements. All MR01–MR17 outcomes remain mandatory before formal QR onboard
 
 The [QR implementation guide](../../examples/README.md) explains how researchers
 use the available capabilities. The [research program](research-program.md) owns
-methodology and experimental choices. The [platform design](../architecture/platform-design.md)
+post-handoff QR milestones, deliverables, methodology and experimental choices.
+The [platform design](../architecture/platform-design.md)
 owns shared contracts.
 
 ## Current platform
@@ -319,10 +320,30 @@ limits in the existing acceptance record. Do not substitute an API skeleton,
 mocked service, tiny fixture or closed milestone count for the boundary it cannot
 prove. An unverified required boundary keeps onboarding acceptance open.
 
-After this gate, QR owns empirical hypotheses, strategy/model content, backtest
-design, metrics/charts and their interpretation. Research acceptance and any
-strategy-specific operating qualification remain necessary before actual use;
-they do not retroactively become prerequisites for building the shared stack.
+## Research phase after full handoff
+
+Only after every MR01–MR16 outcome and MR17/G5 integrated acceptance does QR begin
+the [research milestones](research-program.md#post-infrastructure-research-milestones):
+
+1. **QR-M1 — Research-ready:** question-specific data acceptance, ranked hypotheses,
+   preliminary economics and an executable evaluation protocol.
+2. **QR-M2 — End-to-end prototype:** reproducible feature/label and rule/model code,
+   a complete policy, costed replay and ledger reconciliation.
+3. **QR-M3 — Evidence-backed decision:** robustness, final evaluation and
+   risk/capacity evidence supporting a forward-validation proposal or rejection.
+
+The research program owns QR-01–QR-18 across readiness, signal experiments,
+strategy prototypes and conditional candidate validation/handoff. All are planned
+and not started. Even QR-M1 waits for the full infrastructure; G2's research-ready
+engineering increment is not QR-M1. A losing or rejected study can be a completed
+research outcome. Surviving candidates need frozen reproduction/parity and forward
+evidence before a deployment recommendation; actual activation remains separate.
+
+These QR deliverables consume the accepted platform and add no infrastructure
+milestones. QR owns empirical content and candidate-specific assumptions; QD
+retains platform defects, extensions and operations. Research acceptance and
+strategy-specific operating qualification do not retroactively become prerequisites
+for building the shared stack.
 
 ## Execution and maintenance
 
