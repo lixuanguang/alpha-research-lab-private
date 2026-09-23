@@ -16,6 +16,16 @@ production monitoring remain future work. The [legacy P1 reproduction
 guide](../docs/research/legacy-p1-reproduction.md) preserves the deferred
 Binance/Tardis source-evidence handoff; it is not part of the current journey.
 
+These examples describe today's bounded capabilities. The
+[pre-onboarding roadmap](../docs/roadmap/README.md#infrastructure-completion-before-qr-onboarding)
+requires quant development to finish the initial OKX/Bitfinex spot stack using
+its own reference workloads before handing it to QR. QR will supply research
+formulas, strategies, backtest specifications, metrics and chart definitions
+through the completed public APIs. QR is not responsible for filling gaps in
+shared execution, data access, tracking, dashboards or recovery. The
+[onboarding acceptance](../docs/roadmap/README.md#qr-onboarding-acceptance) remains
+planned; the current notebooks are not evidence that it has passed.
+
 ## Start with your research question
 
 Choose one maintained reader journey, then use the operations guide for setup
@@ -218,6 +228,10 @@ source/schema, output contract, execution mechanic or runtime-state requirement
 needs a bounded platform request. Describe the blocked activity, smallest
 input/output example, missing capability, current limitation and observable
 acceptance; keep the hypothesis and comparison attempts in the research record.
+Under the revised roadmap, quant development closes all promised launch-scope
+gaps before onboarding. This request path applies to later scope expansion or
+defects discovered after handoff; it is not the trigger for building the initial
+infrastructure. A compatible QR extension must not require a shared-runner edit.
 
 ## Construct and evaluate a retained model
 

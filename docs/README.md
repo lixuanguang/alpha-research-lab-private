@@ -1,10 +1,13 @@
 # Alpha Research Platform
 
 Current scope: bounded local research from retained market data to exact spot
-simulation, model studies and reports. MRs 1–9A are implemented and closed within
-their recorded limits; [MR10–MR21](roadmap/README.md#delivery-order-and-dependencies) define future
-candidate, deployment and operating work. No paper or live trading service is
-qualified or activated.
+simulation, model studies and reports, including the completed MR09A saved-book
+baseline. The [remaining roadmap](roadmap/README.md#delivery-order-and-dependencies)
+requires quant development to complete the OKX/Bitfinex spot infrastructure stack
+before QR onboarding, including extensible research APIs, runtime, monitoring and
+capacity qualification. QR then supplies strategies, study specifications and
+research metrics/charts through those interfaces. This is planned delivery;
+no paper or live trading service is qualified or activated.
 
 Start with the [researcher guide](../examples/README.md). The maintained data
 journeys use [saved OKX L2 backtesting](research/l2-book-backtest.md) and
@@ -109,7 +112,6 @@ These records explain closed milestones or deferred work; they are not current
 quickstarts or additional implementation gates. Their hashes, measured results
 and limitations apply to the revisions and inputs identified in each record.
 
-- [MR1–MR9A delivery history](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md).
 - [Saved OKX baseline acceptance](research/saved-baseline-acceptance.md).
 - [Frozen P1 specification](research/p1-baseline.md),
   [qualification evidence](research/source-qualification.md) and

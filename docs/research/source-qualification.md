@@ -4,7 +4,7 @@ Owner: repository founder. Implementation date: 2026-09-23.
 Status: implementation delivered; actual frozen P1 source qualification remains
 unaccepted, with further Binance/Tardis work deferred by the founder.
 
-The later [MR8 scope amendment](saved-baseline-acceptance.md) replaces that milestone's
+The later [baseline scope amendment](saved-baseline-acceptance.md) replaces that milestone's
 target with reproducible saved-OKX simulation. It leaves this strict admission
 implementation and P1's own requirements unchanged. Historical verification below
 is retained under its original scope.
@@ -138,7 +138,7 @@ encode the reviewed bundle and existing eligibility/correction records, and reru
 the notebook. A passing source gate enables both unchanged costed engineering-sample
 runs and their exact no-trade/cash/position/NAV reconciliation and fresh-process
 repeat/resume. Those actual-source results are still required for P1 acceptance;
-they are outside the revised MR8 scope.
+they are outside the revised saved-data simulation scope.
 
 Supported admission is bounded saved Binance spot individual-trade archives, one
 source request per version history. Mixed scopes, general overlap reconciliation,

@@ -51,7 +51,7 @@ and an opt-in Spark collector. Versions and immutable image digests are pinned.
 MinIO `RELEASE.2025-09-07T16-13-09Z` is AGPL-3.0; Spark 4.0.1 is Apache-2.0.
 These are disposable synthetic acceptance tools, not a shared-service or deployment
 recommendation. Image pinning does not establish vulnerability qualification or
-source-to-image provenance. MR 11 retains those operating responsibilities.
+source-to-image provenance. MR06 retains those operating responsibilities.
 
 Its private environment file also sets `S3_LOCAL_ACCESS_KEY`,
 `S3_LOCAL_SECRET_KEY`, `LAKEFS_GC_FILES` (absolute private directory) and

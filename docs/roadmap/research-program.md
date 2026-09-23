@@ -1,7 +1,7 @@
 # Research program
 
-This page describes the empirical work needed to grow the repository from its current domain libraries into an
-institutional, multi-asset, multi-strategy research-to-production platform. It is a human-maintained program,
+This page describes the empirical research performed using the platform's
+capabilities. It is a human-maintained program,
 not an executable package catalog, registry service, or release gate. Acquisition,
 publication, bounded queries/replay, EDA, retained price feature/label diagnostics
 and collector health are implemented, alongside fitted model workflows and bounded
@@ -10,7 +10,7 @@ roadmap records exact supported scope.
 
 The immediate operating model is a single founder using the accepted
 [bounded saved-data simulation baseline](../research/saved-baseline-acceptance.md).
-MRs through 9A are implemented and closed. Future MR data comes from OKX or
+The MR09A saved-book baseline is implemented and closed. Future work uses OKX or
 Bitfinex where possible; Binance and Tardis are excluded because of availability,
 as specified by the [platform data policy](README.md#current-platform).
 The [frozen P1 hypothesis](../research/p1-baseline.md) remains deferred and unaccepted,
@@ -18,8 +18,19 @@ with historical source evidence unresolved. The single [implementation roadmap](
 orchestrator pipelines. The [QR implementation guide](../../examples/README.md#research-activities-and-journey)
 owns the activity-based journey and current usage; this page owns methodology and
 research records. Candidate research plans do not duplicate the infrastructure backlog.
-A production operating target remains a later decision. The long-term model can add asset classes, strategy families, shared
-portfolio construction, production execution, monitoring, and recovery. Independent research, model-risk,
+
+The [infrastructure completion policy](README.md#infrastructure-completion-before-qr-onboarding)
+requires quant development to build the complete initial OKX/Bitfinex spot stack
+before QR onboarding. Quant development owns reference studies, strategies and
+metric/chart examples that qualify its interfaces; none of the empirical
+workstreams below is a prerequisite for that delivery. QR then owns hypotheses,
+formulas, estimator/strategy content, backtest specifications, metrics/charts and
+their interpretation. A technically correct reference workload, even one with
+negative returns, can qualify infrastructure without qualifying an alpha.
+
+Actual production activation remains a later decision. The long-term model can
+add asset classes and strategy families beyond the initial spot infrastructure.
+Independent research, model-risk,
 risk, release, and activation controls become formal organizational controls when people are hired; they do
 not block the founder from implementing and reproducibly testing technical work now.
 
@@ -112,8 +123,10 @@ strategy implementations intended for publication or operation. Promote an idea
 when it has a concrete retained consumer or a selected reproducible strategy
 contract: extract cohesive logic, move incidental case assumptions into explicit
 inputs/configuration, validate its inputs and invariants, retain
-decisive regression cases and expose a callable interface. Package development
-can proceed in bounded tested slices before a complete strategy is ready.
+decisive regression cases and expose a callable interface. Shared infrastructure
+development proceeds through the roadmap's required reference consumers and does
+not wait for a complete QR strategy. QR-specific formula and strategy promotion
+follows the empirical contract above.
 After promotion, notebooks call that implementation for formal results; they
 remain useful for new variants without becoming a second production strategy.
 
@@ -362,18 +375,25 @@ tests and artifacts the founder produces now.
 
 ## Computing scale and implementation status
 
+Quant development must qualify the launch data, working-set, elapsed-time,
+concurrency and recovery budgets before QR onboarding, using the
+[MR15 reference workload](README.md#runtime-operations-and-handoff). This removes
+demonstration-size limits where they prevent the declared workload without
+requiring a QR to encounter them first. The guidance below governs technology
+choice and later growth beyond that accepted envelope.
+
 Run locally while data volume, working set, elapsed time, and trial count fit the existing environment.
 Consider a larger or parallel path only after measuring a reproducible bottleneck: local memory no longer
 fits, rolling/nested trials exceed a documented time budget, replay needs more throughput, or cross-asset
 comparison needs controlled parallelism. Record hardware, environment, seed, input identities, resource
 limits, and failure/retry behavior; keep a small reference run and compare scaled results against it.
 The roadmap's selected ClearML, data/feature and analytical integrations address
-concrete traceability, repeatability and researcher-usability needs from MR 4 onward;
+concrete traceability, repeatability and researcher-usability needs;
 their initial bounded consumers do not depend on a throughput bottleneck. Add larger
 or distributed infrastructure when measured workload or actual sharing requires it.
 Keep numerical search in Optuna, execution/tracking in ClearML, dataset versions in
 lakeFS and feature retrieval in Feast where those consumers are implemented. These
-choices do not expand the delivered MR 3 scope or authorize deployment.
+choices do not expand the delivered feature-study scope or authorize deployment.
 
 There is no research runner command today. Until one exists, use the existing `uv run --frozen` environment and
 affected pytest/static checks for iteration. `make check` remains the complete local entrypoint when full

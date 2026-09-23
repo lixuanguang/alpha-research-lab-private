@@ -4,6 +4,14 @@ This repository is maintained by one founder. The workflow follows the actual
 capability being built; a package catalog, role register, evidence bundle, or
 institutional approval is not a prerequisite for ordinary development.
 
+The [platform roadmap](../roadmap/README.md#infrastructure-completion-before-qr-onboarding)
+requires quant development to complete the initial OKX/Bitfinex spot stack before
+QR onboarding. Quant development authors reference research/runtime consumers and
+qualifies their public extension points; accepted QR strategies are not delivery
+prerequisites. The final handoff demonstrates new strategy/study/metric/chart
+content without changes to shared infrastructure. This policy changes planned
+delivery, not current capability or trading authority.
+
 ## Implement
 
 1. State the behavior, affected data or interfaces, and a short reversal plan.
@@ -43,14 +51,16 @@ rejects the absent consumer even if dependencies pass. It produces no artifact;
 unsupported invocations return a usage failure. Development wheel builds remain
 available under the existing allowance.
 
-[MR11](../roadmap/README.md#delivery-order-and-dependencies) owns the first
+[MR06](../roadmap/README.md#delivery-order-and-dependencies) owns the first
 trusted build/install consumer and must precede any deployed collector or
 paper/shadow runtime. It verifies trusted origin and builder identity, exact
 digests, provenance/inventory, safe archive members and configuration/state
 compatibility before installation. Tests must reject tampering, unexpected
 origins, unsafe paths, missing/unknown records and source/dependency mismatches.
 Its runbook owns signing, identity rotation, registry retention and rollback.
-Clearing the dependency restriction alone cannot supply this consumer.
+Clearing the dependency restriction alone cannot supply this consumer. Its
+reference deployment belongs to quant development and does not wait for an accepted
+QR candidate; actual installation still requires the declared target and authority.
 
 Build once from the locked environment and retain one release record containing:
 
@@ -70,6 +80,12 @@ Deployment and trading operation are planned; there are no activation, monitorin
 or stop commands in this repository yet. Add tested commands and venue-specific
 thresholds to the strategy's runbook before following this section in operation.
 
+Implement and qualify deployment, authorization, limits, stop/cancel and recovery
+machinery with reference paper/shadow and authorized venue-test workloads before
+QR onboarding. Completion of that infrastructure does not require an empirically
+selected strategy or live-capital experiment. A real strategy's qualification,
+deployment and activation are subsequent decisions using the completed machinery.
+
 The founder makes a separate, explicit activation decision for each actual
 strategy or service. Trading is off by default. Before activation, verify safe
 credential scope, venue and data entitlements, order/notional/exposure/loss
@@ -83,16 +99,19 @@ defined safe response while the founder is unavailable.
 
 Preserve technical design detail as the repository adds assets, strategies,
 packages and applications. The [platform design](../architecture/platform-design.md)
-describes intended boundaries; implementing one strategy first does not limit
-the eventual platform. Applications may have independent artifacts and release
-cadences while sharing tested domain contracts and a supported development path.
+describes intended boundaries; engineering reference strategies qualify the
+initial stack without limiting later QR content. Applications may have independent
+artifacts and release cadences while sharing tested domain contracts and a supported
+development path.
 
 Add people-dependent process when it has real participants: individual access and
 review ownership for another contributor, credential and incident handover for an
 operator, and explicit cross-team contracts when separate teams exist. Independent
 approvals, formal review programs and segregation of duties are the lowest
-speculative implementation priority. Onboarding can trigger this work at any
-technical stage; it does not wait for every platform capability to finish.
+speculative implementation priority. Staffing can trigger these organizational
+controls independently of technical delivery. QR's platform handoff follows the
+roadmap's mandatory infrastructure gate; adding an organizational role does not
+mark that technical work complete.
 
 Data correctness, accounting, runtime limits, reconciliation and recovery remain
 part of the features they protect, including during founder-only operation.

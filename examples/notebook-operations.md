@@ -194,7 +194,7 @@ orders execute against the exchange book on arrival. Resting orders, queue
 position, market impact and empirical latency calibration remain unsupported.
 The frozen P1 trade-price experiment is unchanged.
 
-The [replacement MR8 specification and report](../docs/research/saved-baseline-acceptance.md)
+The [replacement baseline specification and report](../docs/research/saved-baseline-acceptance.md)
 uses this exact saved configuration for simulation acceptance. Historical causal
 qualification remains separate: original receipt times, continuity, positive
 coverage, historical eligibility and correction history are unproven. Strict
@@ -383,7 +383,7 @@ selection cannot feed the current trade-only feature/backtest APIs.
 
 Model fitting and validation are disjoint by complete information interval, not just
 decision timestamp. The model comparison uses a fixed software threshold, and the
-backtest uses MR 5's supported no-trade/momentum policies; no model-to-order adapter
+backtest uses the supported no-trade/momentum policies; no model-to-order adapter
 is invented. The synthetic momentum loss is an expected reconciled result.
 
 ### Optional actual ClearML publication

@@ -7,9 +7,13 @@ failure responses to the strategy's runbook before operation. The repository
 does not claim live readiness.
 
 The operating destination includes multiple strategy instances, accounts, venues
-and asset classes. Start with the selected first deployment and add the relevant
-operational behavior with each capability in the
-[platform roadmap](../roadmap/README.md). The
+and asset classes. Quant development must deliver the initial OKX/Bitfinex spot
+operating infrastructure before QR onboarding, using reference instances and
+authorized test environments under the [platform roadmap](../roadmap/README.md).
+Its commands, dashboards, default operational metrics and recovery procedures
+must not wait for a selected QR strategy. QR later supplies strategy-specific
+metrics, chart definitions and diagnostic thresholds through supported interfaces;
+hard risk and activation authority remain independent. The
 [platform design](../architecture/platform-design.md) describes the planned state,
 execution and observability boundaries.
 
@@ -79,10 +83,13 @@ and pending-commitment reconciliation is mandatory. Shared allocation/arbitratio
 and allocation reconciliation must additionally pass before the second
 instance shares the account. Stop and recovery controls apply in either scope.
 
-Add dashboards, centralized telemetry and additional operators when the workload
-needs them. Minimum health, financial monitoring and tested recovery accompany the
-first live path. Staffing-dependent approval and review programs follow actual
-onboarding and are a separate, lower-priority workstream.
+The dashboard/metric/query/alert infrastructure and default health, execution,
+risk and account views are required before QR onboarding. Quant development tests
+custom metric/chart registration and alert delivery with the reference workloads;
+telemetry topology follows the launch capacity budget. Minimum monitoring and
+tested recovery accompany each capability as it is built. Additional operators
+and staffing-dependent approval/review programs follow actual organizational need
+and remain separate from technical completion.
 
 ## Incident record
 

@@ -5,9 +5,12 @@ below distinguishes implemented capabilities from planned infrastructure.
 
 The long-term goal is an institutional-grade monorepo for multi-asset, multi-strategy research, productionization, and
 monitoring. It should approach the engineering depth expected at a strong proprietary trading or hedge-fund platform
-through measured delivery. The founder is the only current operator, so implementation starts with one useful data-to-
-report workload. Staffing, independent review, operational separation, and broader organizational controls arrive as
-contributors and operators join.
+through measured delivery. Quant development delivers the complete initial
+OKX/Bitfinex spot infrastructure before QR onboarding, using its own reference
+research and operating workloads. The [roadmap's onboarding gate](../roadmap/README.md#infrastructure-completion-before-qr-onboarding)
+defines the required scope and separates software completion from empirical
+strategy acceptance and live activation. Staffing, independent review, operational
+separation and broader organizational controls arrive as contributors and operators join.
 
 This design records the technical destination and functional source owners without
 requiring empty skeletons or prematurely installed infrastructure. Every module, service, store, and native lane below is
@@ -23,6 +26,13 @@ execution gateway may have separate artifacts and release lifecycles while shari
 Canonical economic semantics are shared. Strategy variants, numerical methods, asset adapters, storage engines, and
 computation lanes are not forced into one universal implementation. A choice becomes shared when two consumers need the
 same invariant or a measured boundary makes the distinction valuable.
+
+Required platform consumers are authored by quant development before QR joins:
+rule-only and learned studies, stateful features, multi-instance paper workloads
+and custom report/monitoring components. A working-consumer requirement does not
+mean waiting for a QR hypothesis, selected model or profitable strategy. Reference
+workloads exercise real shared implementations; empty interfaces and fixed demos
+that cannot accept another compatible implementation do not complete a capability.
 
 Python is the initial implementation language. Rust or C++ may be introduced at a specific measured native boundary for
 memory safety, vendor interoperability, or latency. A native choice requires a typed ABI, ownership and error contract,
@@ -43,8 +53,10 @@ The current implementation uses functional packages directly under `src/`.
 Applications and libraries follow the public API and dependency rules below.
 
 Unannotated source capabilities in the following tree are **CURRENT**. Entries
-marked FUTURE, CONDITIONAL, PLANNED or OPTIONAL remain absent until their first
-working consumer requires them. The extra `market_data/books/` owner
+marked FUTURE or PLANNED remain unimplemented; the roadmap makes in-scope behavior
+mandatory before QR onboarding through reference consumers owned by quant development.
+CONDITIONAL or OPTIONAL layout/technology choices do not defer required behavior.
+The extra `market_data/books/` owner
 holds the existing shared book state/reconstruction used by capture and replay.
 
 ```text
@@ -84,7 +96,7 @@ src/
   simulation/               Delayed spot fills/costs/checkpoints and bounded vectorbt adapter
   accounting/               Exact spot ledger, rational attribution and reconciliation
   risk/                     Independent spot grids, holdings and affordability limits
-  portfolio/                CONDITIONAL: allocation and netting
+  portfolio/                PLANNED: allocation and netting before QR onboarding
   execution/                FUTURE: orders, journals and adapters
   runtime/                  Identity and supervision; future deployment/recovery
   telemetry/                Health/alerts; future runtime and economic monitoring
@@ -96,8 +108,8 @@ src/
     publish_dataset/        Existing dataset publish/inspect command
     inspect_fixture/        Existing configured fixture command
     explore/                EDA, feature/label/model studies and ClearML publication
-    train_model/            CONDITIONAL: fit and retain a model attempt
-    evaluate_model/         CONDITIONAL: research/delayed-outcome evaluation
+    train_model/            OPTIONAL source split; fit/state behavior required through explore or this owner
+    evaluate_model/         OPTIONAL source split; evaluation required through explore or this owner
     backtest/               Economic Python workflow and tracked vectorbt comparison
     paper/                  FUTURE: paper/shadow composition
     live/                   FUTURE: explicitly authorized operation
@@ -170,6 +182,15 @@ The engineering checker enforces imports, public APIs and entrypoints for the
 current source tree. New capabilities follow these rules when they gain a working
 consumer; no empty-folder or framework mandate is implied.
 
+The planned QR API completion must carry explicitly supplied compatible features,
+estimators, rules, execution/cost assumptions and metric/chart definitions through
+the public workflows, including retained reports and runtime binding. A high-level
+runner must not replace an injected implementation with its built-in default.
+Provide typed study configuration and typed result access alongside serialized
+reproduction inputs. Explicit local/deferred publication preserves attempts without
+making a tracking outage look like failed computation. These are planned changes;
+current component guides remain authoritative until their implementation lands.
+
 ## Dependency and interface graph
 
 The intended information flow is:
@@ -222,9 +243,10 @@ This is a planned boundary under the
 [configuration-driven implementation standard](../coding_standards/README.md#generalized-code-and-configuration-driven-activation).
 The current authored instrument catalog supplies reference facts and assumptions;
 it does not select active assets or strategies. Introduce a small typed file
-reader with the first acquisition consumer, then extend its records with actual
-strategy consumers. JSON fits the existing serialization boundary; multiple file
-formats, a registry service and a configuration programming language are unnecessary.
+reader with the first acquisition consumer, then extend its records with reference
+strategies supplied by quant development before onboarding. JSON fits the existing
+serialization boundary; multiple file formats, a registry service and a
+configuration programming language are unnecessary.
 
 Keep these responsibilities distinct, whether the records live in one file or
 in explicitly referenced versioned files:
@@ -347,9 +369,14 @@ source pointers and deterministic transform versions. Curated partitions are imm
 of partition digests, specification, code, dependencies, and source revisions. Publications are atomic: readers see
 either the old manifest or the new manifest, never a partially written partition.
 
-The first implementation may use ordinary files and a local database where that is enough for one workload. A lakehouse,
-object store, event log, or online feature store is **PLANNED**, not a prerequisite. Add one when measured volume,
-concurrent readers, retention, recovery, or cross-process latency requires it.
+Storage technology follows the declared launch workload. Provisioning, discovery,
+durable data/artifact storage, feature retrieval, concurrent job execution,
+retention and backup/restore are mandatory before QR onboarding. Ordinary files
+and a local database may satisfy a bounded deployment; a lakehouse, event log or
+online feature-store product is not mandatory by name. Quant development measures
+its reference workload and supplies any additional infrastructure needed for the
+published volume, concurrency, recovery and latency budgets without waiting for
+a QR to encounter a bottleneck.
 
 Dataset specifications declare universe eligibility, event fields, source priority, schedule, timezone, calendar,
 interval, lookback, warm-up, availability cutoff, correction policy, adjustment/roll policy, missing/stale rules,
@@ -493,7 +520,10 @@ reuses `research.observations` and one `CompletedReturn` formula across simulati
 and a bounded scheduled batch path. `applications.backtest.qualify_scheduled_features`
 and its `qualify-features` subcommand retain exact replay/batch/restart traces.
 This qualifies saved-input software only; runtime source/cadence qualification,
-conditional incremental/online retrieval and candidate promotion remain open.
+incremental/online retrieval and candidate promotion remain open. Their in-scope
+lifecycle and serving interfaces are now required before QR onboarding, exercised
+by reference consumers owned by quant development; a separate online-store product remains
+a workload-dependent technology choice.
 
 An experiment identity includes source and dataset manifests, code/artifact revision, resolved non-secret configuration,
 environment/toolchain identity, component versions, split rules, and random seeds. Wall-clock creation time is metadata,
@@ -536,7 +566,7 @@ The existing exploration/backtest applications compose these libraries; no libra
 imports an application or exposes a runnable command. Feast's incompatible pandas
 constraint is isolated in a separately locked local SDK worker, while core pandas
 remains 3.0.5. The
-[accepted diagnostic tool amendment](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
+[accepted diagnostic tool amendment](dependency-admission.md#diagnostic-tool-requirement-amendment)
 makes offline reference/current reports mandatory and Evidently optional. The
 consumer now belongs to `research.studies.WindowDiagnostics` and
 `WindowDiagnosticRun`, composed by `applications.explore.compare_windows` and
@@ -553,25 +583,28 @@ Once an exploratory result influences a candidate decision, it receives durable 
 
 ### Research-driven feature lifecycle
 
-Introduce a feature for a concrete research consumer: a diagnostic, factor/signal
-study, deterministic rule or model. A selected model is not required. This expands
-the earlier model-only trigger while retaining its ban on a mandatory starter
-catalog and unused abstractions. The QR owns the formula and research choices;
-the platform owns execution, alignment, lineage and applicable state contracts.
-Research dataset assembly supplies explicit inputs over the existing query
-contracts. Fitted preprocessing is added with its first learned consumer;
-incremental execution only with a candidate that needs it. Label generation and
-alignment remain separate from prediction inputs. Shared attempt and temporal
-split records now support retained exploration before a backtest or model exists.
-These contracts serve model-free studies and future learned candidates alike.
+QR owns new formulas and research choices after onboarding; quant development
+first supplies the execution, alignment, lineage and state machinery plus concrete
+reference consumers. Pre-onboarding completion includes named trade/book features,
+separate labels, multiple model inputs, fitted preprocessing, train/inference
+adapters and stateful batch/incremental execution. Demonstrate these through the
+roadmap's rule-only, learned and stateful examples. Support compatible definitions
+beyond the current trailing-return and linear-model schemas without adding every
+possible formula or estimator to a starter catalog.
+
+Research dataset assembly supplies explicit inputs over the query contracts.
+Label generation and alignment remain separate from prediction inputs. Shared
+attempt and temporal split records support retained exploration, fitting,
+walk-forward evaluation and backtests. QR does not need to select a model or
+candidate before this infrastructure can be implemented and qualified.
 
 Reusable transforms belong to `research/features/`; labels to `research/labels/`;
 trainers/inference to `research/models/`; split/attempt/candidate records to
 `research/experiments/`; retained feature-result contracts to `research/results/`;
 study/report integrations to `research/studies/`.
 The attempt/split owner now serves exploration; the
-model owner now serves the same application; other future owners appear only
-with working consumers.
+model owner now serves the same application; quant development supplies consumers
+for planned behavior before onboarding, with source owners added as needed.
 Notebooks may explore local variants; formal retained and promoted results call
 the accepted versioned implementations. A candidate binds its inputs, definitions,
 parameters, split/fit identity and fitted state where applicable. Rejected
@@ -587,9 +620,12 @@ semantics require new versions and affected validation.
 
 ### Candidate promotion contract
 
-Status: **planned**. A candidate manifest belongs in `research/experiments/` with
-its first strategy consumer. Learned fields are added with model artifacts and
-remain inapplicable for a rule-only candidate. Runtime binding consumes this same
+Status: **planned; required before QR onboarding**. Quant development implements
+the candidate manifest in `research/experiments/` using both rule-only and learned
+reference candidates. Learned fields remain inapplicable for a rule-only
+candidate. A reference engineering artifact is explicitly distinguished from a
+candidate with accepted empirical evidence; no profitable or selected QR strategy
+is a prerequisite for the loader or its qualification. Runtime binding consumes this same
 contract. Research can construct and validate a candidate without a paper runtime,
 venue connection or trading credentials. These are small versioned artifacts,
 not a registry service.
@@ -602,6 +638,7 @@ not a registry service.
 | Optional model | Serialization/version, expected feature signature, output meaning and numerical contract, training/label cutoff and permitted activation time |
 | Decision policy | Versioned prediction/signal-to-target implementation and parameters; rules need no model, and unsupported output contracts fail |
 | State and qualification | Warm-up/checkpoint/reset compatibility, batch/incremental requirements, retained parity/evaluation evidence and limitations |
+| Metrics and views | Versioned research/runtime metric and chart definitions, applicability, units and diagnostic thresholds; independent hard risk policy stays outside the candidate |
 
 A model is not a trading strategy. The QR's decision policy turns then-available
 predictions/signals into the supported target contract. Shared applications apply
@@ -691,7 +728,7 @@ or visibly bound unsupported liquidity-taking/capacity claims. A partial-fill
 option alone does not remove this limitation. Keep P1's declared trade-price
 model intact; book-based research needs a separate versioned experiment.
 
-The roadmap places paper qualification at MR15 in the
+The roadmap places paper qualification at MR10 in the
 [delivery sequence](../roadmap/README.md#delivery-order-and-dependencies).
 
 ## Portfolio, accounting, and position state
@@ -745,7 +782,12 @@ visible reason. Kill and cancel controls remain reachable when a strategy proces
 For the first dedicated single-instance paper account, qualify durable state,
 pending reservations, hard limits and base account reconciliation. Shared-account
 netting/allocation and its reconciliation become mandatory before a second
-instance shares the account, not before the first base reconciliation.
+instance shares the account, not before the first base reconciliation. Quant
+development supplies that second reference instance and completes shared-account
+qualification before QR onboarding; this is delivery sequencing rather than an
+optional capability waiting for research demand. Portfolio policy interfaces and
+a deterministic reference allocation ship with it; QR later supplies economic
+allocation choices within independently enforced limits.
 
 Initial strategies are trusted founder-authored code. Logical separation,
 immutable limits, per-instance state and final risk enforcement outside strategy
@@ -791,7 +833,9 @@ stress remain distinct calculations.
 **Fixed income and rates — PLANNED.** Add schedules, accrued and clean/dirty price, discount/projection curves, fixings,
 resets, issuer hierarchy, embedded options, financing, DV01, key-rate, and scenario risk.
 
-**Digital assets — OPTIONAL PLANNED.** For centralized venues, add continuous sessions, spot/perpetual contract rules,
+**Digital assets — CURRENT bounded spot; full initial stack PLANNED and required.**
+Complete OKX/Bitfinex spot data, simulation, account/risk and execution interfaces
+under the roadmap's pre-onboarding gate. Perpetuals and other later extensions add
 funding, index/mark prices, collateral haircuts, liquidation and venue credit risk. For on-chain strategies, add chain
 and token identity, finality, reorgs, gas, nonce and custody state, AMM/oracle semantics, MEV, and bridge/transfer risk.
 Apply stablecoin FX and venue/chain outage scenarios where relevant. Only the selected operating scope is required.
@@ -851,6 +895,15 @@ Every deployed strategy needs operational/economic monitoring; learned-model che
 add feature freshness, prediction behavior, inference failures and delayed-label
 evaluation through the same versioned research definitions.
 
+Before QR onboarding, quant development delivers the metric computation and
+query APIs, report/dashboard engine, default operational views, alert routing
+and retention. QR later defines strategy-specific metrics, charts and diagnostic
+thresholds through versioned interfaces. A reference metric and chart must work
+over both retained studies and paper/shadow telemetry, with explicit applicability,
+units, time aggregation, missingness and late-label behavior. Adding them must not
+require edits to shared collectors, runtime or dashboard rendering. Hard risk
+controls remain independently configured and cannot be replaced by chart thresholds.
+
 On a material signal, safe response stops new risk, cancels where safe, fences the affected process or account,
 preserves raw and normalized evidence, reconciles the venue, and records release/configuration identity. Restart follows
 state, schema, credential, limit, and fencing checks. Backup/restore, stop/cancel, replay, rollback, and alert delivery
@@ -885,6 +938,15 @@ their initial bounded integrations do not require a throughput bottleneck. Prese
 existing source, temporal and numerical contracts through their adapters. Measure before
 expanding to distributed execution, large/shared databases, a distributed event bus,
 another build system or HPC scheduling.
+
+Capacity qualification itself is required before QR onboarding. Quant development
+authors the launch workload and numeric acceptance budgets, covering more than
+the existing 1,024-row/close demonstrations: multi-day samples, multiple instruments,
+concurrent trials, ingestion, replay, reports and monitoring queries. Resource
+limits and supported workload must be explicit. Implement and measure the needed
+storage/compute path before handing it to QR; only expansion beyond the accepted
+launch envelope waits for a later workload. Architecture measurements determine
+the technology, not whether the capability is delivered.
 
 Useful triggers include a dataset build that misses research cadence, concurrent readers that contend on local storage,
 replay throughput that blocks iteration, recovery time beyond the operating target, or measured native latency/jitter
@@ -946,11 +1008,16 @@ after a representative workload measurement, preserving the reference semantics.
 
 The single [implementation roadmap](../roadmap/README.md) owns maturity, status,
 delivery dependencies and acceptance criteria.
-Validated historical data leads to EDA/replay and independent research/backtesting
-while reliable live capture advances alongside them. Features/models are added
-with their consumers; paper/shadow precedes controlled live operation. The people-triggered organizational workstream is last in
-speculative priority. Technical scaling does not require hiring first, and onboarding does not wait for platform scale.
+Quant development completes data/research APIs, candidate/runtime interfaces,
+portfolio/risk/OMS, venue adapters, deployment, observability, recovery and launch
+capacity using reference consumers before QR onboarding. Paper/shadow and permitted
+venue test evidence qualify infrastructure independently of empirical research;
+actual strategy activation remains a later explicit decision. The roadmap owns
+the clean-environment handoff gate. People-dependent organizational work remains
+separate from technical completion and follows actual staffing.
 
 Each slice leaves the previous path usable or provides a tested rollback. It states what is implemented, what remains
 planned, which identity is authoritative, and which failure response is safe. The architecture evolves by measured
-boundary decisions rather than by filling the planned tree in advance.
+boundary decisions against acceptance workloads owned by quant development. Required
+capabilities cannot be deferred merely because a QR has not supplied a consumer;
+optional directory/service choices do not require filling the planned tree.

@@ -296,6 +296,13 @@ ship with the behavior they protect; advanced analysis may follow later.
 Historical EDA and deterministic backtesting MUST NOT depend on an unused live
 feed, trained-model platform or particular storage product.
 
+Under the [pre-onboarding delivery policy](../roadmap/README.md#infrastructure-completion-before-qr-onboarding),
+quant development supplies concrete reference consumers for every required
+infrastructure layer. A consumer requirement MUST NOT be interpreted as waiting
+for QR progress or an accepted strategy. Required public extension points must
+be exercised by a fresh compatible implementation without edits to shared runners;
+empty interfaces and hardcoded reference cases do not establish that capability.
+
 Historical, replay and live paths MUST use compatible canonical contracts while
 preserving their distinct source/receipt/availability semantics. Promote the same
 versioned decision and feature logic between research and runtime. Evidence must

@@ -9,7 +9,7 @@ The existing software can admit reviewed evidence, but the additional public rec
 obtained in this investigation do **not** close the three factual gaps for Binance
 spot BTCUSDT, **2024-06-01 [00:00, 01:00) UTC**. No historical eligibility,
 completeness guarantee or correction availability was inferred to make admission pass.
-The [frozen acceptance criteria](p1-baseline.md#qr-handoff-to-finish-mr-8)
+The [frozen acceptance criteria](p1-baseline.md#qr-handoff-for-p1-source-qualification)
 and [admission implementation](source-qualification.md) remain unchanged.
 
 ## What was obtained and what it establishes
@@ -91,6 +91,6 @@ accounting and restart checks. If a provider cannot supply a required fact, reco
 that refusal; changing the frozen acceptance standard requires a separate founder
 decision.
 
-The subsequent [MR8 scope amendment](saved-baseline-acceptance.md) authorizes a
+The subsequent [baseline scope amendment](saved-baseline-acceptance.md) authorizes a
 separate saved-OKX simulation target. It does not accept P1 or reopen this deferred
 investigation; the original records and no-outreach decision remain preserved.

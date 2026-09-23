@@ -2,17 +2,17 @@
 
 Owner: repository founder. Specification fixed 2026-09-23 before new executions.
 Base: current `main`, `bcd68e23bda70ce9c27d09faa2b4b1cf2e424f99`, after PR #77.
-Status: **MR8 complete within the explicitly revised simulation scope**, accepted
+Status: **Baseline complete within the explicitly revised simulation scope**, accepted
 2026-09-23 Asia/Singapore (executions on 2026-09-22 UTC). P1 remains deferred and
 unaccepted; historical causal qualification is not established.
 
 ## Scope decision
 
-The founder explicitly authorized replacing MR8's Binance/Tardis acceptance target
-with a bounded baseline using preferred freely accessible data. MR8 now accepts
+The founder explicitly authorized replacing the Binance/Tardis baseline acceptance target
+with a bounded baseline using preferred freely accessible data. The baseline now accepts
 **reproducible offline simulation on real saved data**, under declared assumptions.
 It does not accept historical causal data qualification, strategy selection,
-profitability, paper operation or live readiness. This decision replaces the MR8
+profitability, paper operation or live readiness. This decision replaces the baseline
 milestone criterion; it does not revise the frozen P1 experiment's own criteria.
 
 [P1](p1-baseline.md), its economic configurations, attempts and results remain
@@ -23,7 +23,7 @@ strict causal dataset or grant deployment/trading authority.
 
 ## Fixed replacement specification
 
-Reuse the implemented [MR9A workflow and evidence](l2-book-backtest.md), the saved
+Reuse the implemented [MR09A workflow and evidence](l2-book-backtest.md), the saved
 OKX ETH-USDT spot archive at
 `data/okx/history/f62e64b7-1b40-4869-8b05-2ca911fefcef/`, and the unchanged
 [versioned configuration](../../configs/backtests/okx-eth-usdt-book-v1.json).
@@ -65,7 +65,7 @@ strict refusal behavior; never fill a gap with assumed evidence.
 
 ## Criteria and sufficient evidence
 
-All rows are required for the revised MR8; historical qualification is explicitly
+All rows are required for the revised baseline; historical qualification is explicitly
 outside its acceptance, not a criterion recorded as passed.
 
 | ID | Observable criterion | Evidence plan and reuse boundary |
@@ -74,18 +74,18 @@ outside its acceptance, not a criterion recorded as passed.
 | S2 | EDA → simple strategy and isolated no-trade control → orders/fills → cash/positions/P&L through shared owners | Reuse `run_books`, CLI, configuration, replay, risk, ledger and reports; inspect current code before adding any missing implementation. |
 | S3 | Exact financial agreement without tolerance | Independently sum saved signed fills, effective notionals, per-fill rounded fees and positions; reconcile every recorded valuation and both P&L attributions; control has zero orders/fills/costs and unchanged capital. |
 | S4 | Fresh-process repeat and interrupted/resumed equivalence across complete outputs | Current installed package: uninterrupted notebook, independent CLI repeat, CLI checkpoint with a pending order, then fresh CLI resume. Compare configuration, EDA, both full checkpoints, JSON and HTML reports byte for byte. Attempt IDs/clocks legitimately differ. |
-| S5 | Supported mechanics, causal scenario ordering, failures, units and isolation | Reuse MR9A hand/causal/stale/invalid/partial-fill/recovery/second-spot fixtures where owning runtime bytes are unchanged; rerun relevant configured tests only when impact requires it. Retain failures and do not weaken admission. |
+| S5 | Supported mechanics, causal scenario ordering, failures, units and isolation | Reuse MR09A hand/causal/stale/invalid/partial-fill/recovery/second-spot fixtures where owning runtime bytes are unchanged; rerun relevant configured tests only when impact requires it. Retain failures and do not weaken admission. |
 | S6 | Runnable maintained command and notebook calling installed shared code | Execute all cells of `examples/orderbook-research.ipynb`; expose exact accounting and limitations, retain executed copy separately, clear maintained outputs. |
-| S7 | Criterion-by-criterion result, reproducible retained artifacts and scope-correct roadmap/usage | Record actual results and hashes here, link from current usage and roadmap, preserve original MR9A and P1 evidence identities. |
+| S7 | Criterion-by-criterion result, reproducible retained artifacts and scope-correct roadmap/usage | Record actual results and hashes here, link from current usage and roadmap, preserve original MR09A and P1 evidence identities. |
 
 No new simulation abstraction, source adapter, configuration format or alternative
 runner is planned: each necessary consumer already exists. Notebook presentation
 may expose more existing ledger fields; domain calculations remain in shared
 owners. Renew actual-source process evidence because PR #77 changed installed
-identity since MR9A. Earlier runtime mechanics evidence remains attributable to its
+identity since MR09A. Earlier runtime mechanics evidence remains attributable to its
 tested bytes; it is not silently relabeled as a new run.
 
-Reversal: restore the previous MR8 milestone wording and remove the replacement
+Reversal: restore the previous baseline milestone wording and remove the replacement
 acceptance links/presentation changes together. Preserve frozen P1, saved archives,
 all old and new attempts and tested packages. No checkpoint schema, runtime API,
 strict admission policy or economic parameter changes are required.
@@ -106,9 +106,9 @@ resolved configuration identity is
 | S2 — shared complete economic path | **Pass** | Both accounts ran through the existing installed `run_books` and `alpha-backtest books`; each retained 360 decisions and 361 valuations. No missing shared implementation was found; runtime, configs and dependencies are unchanged. |
 | S3 — exact accounting | **Pass** | Independent signed-fill sums checked cash, holdings, fees, turnover and depth slippage at every one of 722 valuations; best-bid NAV, effective-price attribution and reference gross-to-net identities all matched exactly. All 78 rounded fees matched independently; the control had no orders/fills/costs. |
 | S4 — fresh-process repeat/restart | **Pass** | Notebook, independent CLI repeat and fresh CLI resume have identical configuration, EDA, both entire checkpoint files, JSON report and HTML report. Checkpoints cover all decisions/orders/fills/valuations, both book information sets, pending state and consumed size. Interruption at 00:00:08.010 UTC retained pending order `imbalance:0`, ten feed deliveries and zero fills. Attempt IDs/clocks differ as intended. |
-| S5 — mechanics, ordering and refusal | **Pass** | Existing current installed tests: **19 passed, zero skips/deselections**. They cover hand-calculated partial fills/fees, affordability/depletion, future perturbation, delayed information, stale/invalid inputs, seven restart boundaries, unsupported mechanics, second spot configuration, three isolated accounts and retained corrupt-source failure. MR9A's unchanged owning mechanics evidence is reused. |
+| S5 — mechanics, ordering and refusal | **Pass** | Existing current installed tests: **19 passed, zero skips/deselections**. They cover hand-calculated partial fills/fees, affordability/depletion, future perturbation, delayed information, stale/invalid inputs, seven restart boundaries, unsupported mechanics, second spot configuration, three isolated accounts and retained corrupt-source failure. MR09A's unchanged owning mechanics evidence is reused. |
 | S6 — maintained notebook/command | **Pass** | All **12 cells, six code cells** executed in a fresh installed-package kernel. The notebook calls shared `run_books` and reconstructs terminal balances with `Ledger`; exact attribution is displayed without converting money to floats. Chart inspected; executed copy retained and maintained outputs cleared. |
-| S7 — record, usage and roadmap | **Pass** | This report owns the replacement specification, identities, actual results and boundaries; roadmap and usage link here. P1 and MR9A history retain their original evidence and scope. |
+| S7 — record, usage and roadmap | **Pass** | This report owns the replacement specification, identities, actual results and boundaries; roadmap and usage link here. P1 and MR09A history retain their original evidence and scope. |
 
 | Instance | Decisions | Orders | Level fills | Terminal cash/NAV (USDT) | ETH position | Fees (USDT) | Net P&L (USDT) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -126,7 +126,7 @@ For the imbalance account, effective-price realized P&L before fees is
 1000 - 1.64150155 = 998.35849845 USDT
 ```
 
-The negative result reproduces MR9A without tuning. No real-window order needed
+The negative result reproduces MR09A without tuning. No real-window order needed
 partial cancellation; fixtures, not this window, establish partial-fill behavior.
 
 ## Run and reproduce
@@ -222,9 +222,9 @@ retained as abandoned and its resume as a new completed attempt.
 
 No new tests or shared implementation were needed. The unchanged full source
 lane from [PR #77's evidence](source-qualification.md#verification-and-results)
-and original MR9A mechanics evidence are reused only for their tested scope.
+and original MR09A mechanics evidence are reused only for their tested scope.
 Current wheel/API/real-data/recovery proof was renewed above because the installed
-identity differs from MR9A. The subsequent pre-merge check below renews the full
+identity differs from MR09A. The subsequent pre-merge check below renews the full
 local lane; no artifact release or activation is claimed.
 
 ## Pre-merge verification

@@ -114,7 +114,7 @@ eligibility check. The current fixture's `FeatureView` omits a registered
 revision metadata field, so its SDK rows carry `revision_identity=null`. Feast
 can expose a registered revision field when a view includes one; a future worker
 schema must explicitly map that field and never infer or synthesize an identity.
-The immutable source digest remains the retained snapshot identity. The MR3
+The immutable source digest remains the retained snapshot identity. The feature-result
 converter retains per-point revision identities when those are present in its
 verified source payload and never invents one for Feast.
 
@@ -134,11 +134,11 @@ is decoded:
 
 The maintained [installed consumer](../../../tests/integration/consumers/research/offline_features.py)
 passed against the real Feast 0.66.0 worker on 2026-09-21. It creates a local
-Parquet source and registry from a verified MR 3 feature attempt, then invokes
+Parquet source and registry from a verified feature-study attempt, then invokes
 the command module from the installed core wheel in the separate interpreter.
 The [test guide](../../../tests/README.md) owns the reproducible invocation.
 
-Baseline retrieval matched two exact MR 3 values and one explicit missing entity.
+Baseline retrieval matched two exact native feature values and one explicit missing entity.
 A late correction remains unavailable before its declared availability at
 `2024-06-01T00:00:10.250000Z` and returns exact `9/10` afterward; a one-second
 TTL request returns an explicit expired value. The source and registry digests
@@ -149,7 +149,7 @@ registry SHA-256: 2aa0fa0d9147cb4322e597709c2776d0803b4a2989610b4d475837dffb32c4
 source SHA-256:   5d26433546c43f61a7a60c98fc376eb5019e8a99ba74664aacf94beb1f6f2349
 ```
 
-The formal application retained the request, MR 3 source, causal reference, SDK
+The formal application retained the request, feature-study source, causal reference, SDK
 result and comparison in attempt `b3d1b68c75d0423dba90182d7abd0aa0`. ClearML task
 `1c58dfe1bf194ad4b5322a384000af3b` published all five artifacts, and downloaded
 bytes matched their manifest hashes. The complete all-marker worker lock audit

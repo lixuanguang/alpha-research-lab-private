@@ -6,7 +6,7 @@ for [model studies](../../../src/research/models/README.md) and
 [bounded economic comparisons](../../../src/simulation/README.md). It exposes API,
 web UI and files only on `127.0.0.1:18008`, `127.0.0.1:18080` and
 `127.0.0.1:18081`. Databases have no host ports. It creates no workers/agents,
-mounts no Docker socket, and has no automatic restart policy. MR 11 still owns
+mounts no Docker socket, and has no automatic restart policy. MR06 still owns
 shared-service/deployment qualification, authentication hardening and admission.
 
 Images are pinned to both versions and immutable registry digests in Compose:
@@ -120,12 +120,12 @@ docker compose --env-file "$CLEARML_LOCAL_ENV_FILE" \
 The SDK's missing PyPI source distribution is handled by the implemented,
 verified upstream source-archive admission rule. The native release restriction
 and shared-service qualification remain separate. See the
-[original acceptance evidence](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#fitted-preprocessing-and-model-evaluation)
+[source admission record](../../../docs/architecture/dependency-admission.md#verified-upstream-source-archives)
 and current [release requirements](../../../docs/governance/workflow.md#build-a-release).
 
 ## Serial installed research worker
 
-MR 6 adds the first explicit local worker consumer for
+The serial pipeline provides an explicit local worker consumer for
 [configured economics](../../../src/research/studies/README.md#configured-economics-reports-and-serial-pipelines).
 The Compose stack still starts no workers. The separate
 [worker lock](worker/uv.lock) pins ClearML Agent 3.0.3 and its 12 macOS dependencies;
@@ -172,7 +172,7 @@ alpha-backtest pipeline --config "$RUN/configured.json" \
 Retain the exact installed wheel supplied by `--wheel`; changed installed bytes
 or environment fail before a worker reads data. Caching and automatic retries
 are disabled. Selection/features precede economics/report with exact upstream
-attempt verification. Shared-store workflows serialize through MR 2's writer
+attempt verification. Shared-store workflows serialize through the attempt store's writer
 lock. Do not reset failed tasks to reuse IDs: start a fresh pipeline, preserving
 failed attempts and dependent non-completion. Publication recovery uses the
 existing attempt/task mapping through `alpha-backtest publish`.

@@ -100,8 +100,9 @@ now supplies currency-bearing rational basis/P&L and exact spot postings. C03
 financial-unit conventions and grids remain unchanged.
 
 Decision date: 2026-09-14. This originally resolved the P1 consumer contract before observations and ledger
-implementation. The consumer now implements it without widening C03's decimal grid. The [original MR5 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#first-economic-backtest)
-retains the first consumer's implementation evidence.
+implementation. The consumer now implements it without widening C03's decimal
+grid. The [simulation verification guide](../../src/simulation/README.md#verification-and-reversal)
+describes its accounting and recovery evidence.
 
 | Quantity | Representation and boundary |
 | --- | --- |

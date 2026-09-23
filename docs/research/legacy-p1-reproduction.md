@@ -136,10 +136,9 @@ separate eligibility must agree with the input's embedded history. See the
 The notebook records the complete input and original payload identities without
 filling unknown clocks. Hash verification cannot authenticate provider claims.
 
-Expected source refusal completes the evidence handoff with its original
-**MR 8 OPEN** label, without running economics. That retained label refers to
-the superseded P1 milestone target; P1 remains deferred and unaccepted. The
-current MR8 specification is the separate [saved-OKX simulation
+Expected source refusal completes the evidence handoff with an open P1 acceptance
+status, without running economics. P1 remains deferred and unaccepted. The
+current baseline specification is the separate [saved-OKX simulation
 scope](saved-baseline-acceptance.md). A completed notebook is not empirical
 acceptance. Unexpected input/runtime errors fail the run. The legacy handoff
 records remaining source investigation, external provider review, and subsequent

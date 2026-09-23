@@ -31,7 +31,8 @@ keeps Feast's pandas-below-3 dependency out of the core pandas 3.0.5 runtime.
 The selected offline path requires an eligibility-filtered immutable source and
 pins actual registry/source state. A normal event-time join alone is insufficient
 for delayed availability or revisions. This is offline research only; an online
-store and runtime consumer remain conditional MR 9 work.
+store remains a technology choice; serving and runtime interfaces are planned
+under the [infrastructure roadmap](../../../docs/roadmap/README.md#delivery-order-and-dependencies).
 
 ## Formula and clocks
 

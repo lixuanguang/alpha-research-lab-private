@@ -26,10 +26,13 @@ Wire records use frozen `msgspec.Struct` values with strict typed codecs;
 the C01, C02 and C03 foundation models retain their Pydantic contracts.
 Venue order submission and live execution remain planned.
 
-The [platform roadmap](../roadmap/README.md) selects future infrastructure work.
-Its first outcomes are researcher data access, auditable comparisons and a small
-costed backtest. Shared research interfaces support features, models and rules;
-the same accepted decision components later serve paper operation.
+The [platform roadmap](../roadmap/README.md) requires the complete initial
+OKX/Bitfinex spot infrastructure before QR onboarding. Quant development supplies
+reference rule/model studies, paper instances and metric/chart extensions to
+qualify the shared APIs without waiting for accepted QR research. The same
+versioned decision components serve research and runtime; actual research
+acceptance and trading activation remain separate. Current bounded capabilities
+above do not yet satisfy that planned gate.
 
 The full monorepo is one source tree with multiple deployables and release
 cadences. Shared economic semantics are canonical; strategy variants, asset
@@ -65,8 +68,8 @@ runtime and must pass before activation.
 The fixture and dataset publication workflows exist today. Published snapshots
 retain declared quality scope; current archive evidence supports exploratory
 degraded use, not causal dataset acceptance. Keep research code dependent on the
-implemented contracts, and add a data or broker adapter only when an actual
-workload needs it. Do not introduce a service
+implemented contracts. Quant development supplies launch workloads for required
+data and broker adapters before onboarding. Do not introduce a service
 mesh, event bus, schema platform, or distributed build system without a measured
 requirement.
 

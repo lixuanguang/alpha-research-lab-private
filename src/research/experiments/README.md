@@ -6,8 +6,7 @@ earlier-only temporal folds and append-only execution history. It has no command
 `applications.explore.inspect_experiment` is its first working consumer, using
 `research.exploration.ExplorationStudy` and the existing pinned research reader.
 The [research program](../../../docs/roadmap/research-program.md) owns
-methodology; [MR 2](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#experiment-attempts-and-temporal-splits)
-owns delivery acceptance. Feature/label definitions, model evaluations,
+methodology. Feature/label definitions, model evaluations,
 comparisons, diagnostics, configured reports and pipelines have their own
 [study guide](../studies/README.md).
 

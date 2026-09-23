@@ -134,10 +134,10 @@ Evidently is **not admitted or installed**. Compatible Evidently 0.4.36 and late
 audit with PYSEC-2026-3740 / CVE-2026-81726, and the
 [upstream advisory lists no patched release](https://github.com/advisories/GHSA-8mgp-746c-j5xp).
 Removing that unused graph restores a clean audit; no finding is waived. The
-[accepted MR 7 tool amendment](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
+[accepted diagnostic tool amendment](#diagnostic-tool-requirement-amendment)
 permits an admitted diagnostic implementation without Evidently. The subsequent
 [direct SciPy consumer](#direct-scipy-diagnostic-consumer) supplies that capability;
-MR 7 is now closed within its bounded offline scope.
+the diagnostic capability is complete within its bounded offline scope.
 The existing QuantLib allowance and release block remain unchanged.
 
 Re-review on expiry, any dependency/policy change, or the first release consumer.
@@ -207,9 +207,10 @@ then consider a separately locked, fully audited compatibility worker. Isolation
 unused NLP features, older affected NLTK versions and `--no-deps` installation
 cannot clear this blocker.
 
-The founder subsequently authorized an explicit
-[change to MR 7's tool requirement](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
-on 2026-09-21. The required reference/current diagnostic capability may now use
+## Diagnostic tool requirement amendment
+
+The founder authorized a change to the diagnostic tool requirement on
+2026-09-21. The required reference/current diagnostic capability may now use
 admitted computation dependencies; Evidently is optional. The existing lock and
 license records include SciPy 1.18.1, which provides an implementation candidate.
 The amendment neither implements a diagnostic consumer nor changes package
@@ -235,7 +236,8 @@ and Plotly 6.3.1 remain pinned. SciPy's existing source/wheel/native inventory a
 bundled license notices above continue to apply. The complete updated 179-package
 external lock graph passes the admission/audit wrapper with no vulnerability or
 coverage gap. The updated lock digest is in the owning TOML policy; installed
-boundary and report-consumer verification are recorded with MR 7 in the roadmap.
+boundary and report-consumer behavior are described in the
+[offline diagnostic contract](../../src/research/studies/README.md#offline-window-diagnostics).
 
 Evidently and NLTK remain absent from the admitted graph. Their rejected
 candidate locks, advisories and failed evidence remain historical records.

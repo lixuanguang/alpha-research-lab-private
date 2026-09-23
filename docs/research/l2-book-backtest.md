@@ -2,11 +2,11 @@
 
 Owner: repository founder. Status: implemented for bounded offline spot research.
 Acceptance date: 2026-09-22. Scope and original acceptance criteria:
-[MR 9A](../roadmap/README.md#closed-delivery-summary). This is an engineering
+[MR09A](../roadmap/README.md#closed-delivery-summary). This is an engineering
 example, not a selected alpha strategy or a live-execution qualification.
 
-The [replacement MR8 specification and acceptance record](saved-baseline-acceptance.md)
-reuses this workflow and its applicable MR9A evidence for bounded reproducible
+The [replacement baseline specification and acceptance record](saved-baseline-acceptance.md)
+reuses this workflow and its applicable MR09A evidence for bounded reproducible
 simulation. It records current post-PR-#77 verification separately; the original
 artifact identities and results below remain historical evidence. Original receipt
 times, sequence continuity, positive interval coverage, historical eligibility and

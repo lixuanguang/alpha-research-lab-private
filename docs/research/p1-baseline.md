@@ -13,9 +13,9 @@ and Bitfinex workflows can proceed independently. The conditional requirements
 below describe what this particular frozen case would need if explicitly resumed.
 
 **Milestone scope amendment, 2026-09-23:** the founder subsequently authorized
-[replacement MR8 acceptance](saved-baseline-acceptance.md) on saved OKX L2 data.
+[replacement baseline acceptance](saved-baseline-acceptance.md) on saved OKX L2 data.
 That revision changes the milestone, not this experiment, its parameters or its
-results. References below to closing MR8 describe the superseded P1 milestone
+results. References below to baseline closure describe the superseded P1 milestone
 target; the frozen P1 acceptance requirements remain binding only for P1.
 
 The [saved-source verification record](#saved-source-verification) records the
@@ -36,7 +36,7 @@ The founder selected `data/binance-archives/` for the local working copy and
 explicitly requested that downloaded contents be ignored by Git. No data purchase,
 account credential, trading access or capital use is involved.
 
-## QR handoff to finish MR 8
+## QR handoff for P1 source qualification
 
 If this deferred case is explicitly resumed, its remaining QR task is to qualify
 the saved data for **Binance BTCUSDT,
@@ -69,7 +69,7 @@ the installed package, and retain the report showing cash, holdings, fees and
 P&L. A fresh run and an interrupted/resumed run must reproduce the results.
 QR reviews the report's assumptions and remaining limitations. These actual-data
 execution and reproduction results are still needed to accept P1, independently
-of the revised MR8 milestone.
+of the revised saved-data baseline milestone.
 
 **A profitable result is not required.** A new strategy, parameter search or new
 backtester is not required. If the source cannot supply the missing facts, QR
@@ -270,7 +270,7 @@ remains open.
 The specification fixes scope and assumptions; it does not complete data
 feasibility or baseline acceptance. Actual endpoint/framing/timestamp/retention
 feasibility, historical eligibility, coverage and revision availability each need
-their applicable evidence. The [baseline delivery](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance)
+their applicable evidence. The [saved-source verification](#saved-source-verification)
 owns assembled saved-source and fresh-process acceptance. Investigate missing source
 evidence early; successful download cannot establish historical knowability.
 Absent evidence leaves the empirical causal baseline incomplete even when archive
@@ -294,8 +294,8 @@ retain the frozen values and disclose poor results rather than tune to pass.
 
 “Frozen P1 baseline accepted” means the assembled candidate meets every source,
 causal, quality, economic and reproduction requirement above, including the
-permitted-source and fresh-process proof in [baseline acceptance](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance).
-The [reusable research workflow](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#research-comparison-and-extension)
+permitted-source and fresh-process proof in [saved-source verification](#saved-source-verification).
+The [reusable research workflow](../../src/research/studies/README.md#bounded-comparison-and-factor-diagnostics)
 separately requires comparison, EDA/replay integration and instance-isolation
 acceptance. A synthetic slice or an installed development wheel establishes
 neither complete outcome. Completing one does not retire the other's requirements.
@@ -325,7 +325,7 @@ capture. The publisher sidecar's observed Last-Modified is
 | Revision availability | One retained archive and its current checksum do not establish the sequence and availability of previous economic versions. The published update listing supplies no per-trade history for this sample. |
 | Coverage | Native full-file decoding and observed continuity checks cannot prove that no trade was omitted upstream. There is no retained recorder health/disconnect evidence for this hour. |
 | Causal publication support | At the first delivery, `QualityPolicy` supported only degraded exploratory publication and rejected causal use. Evidence-backed causal admission needs its own concrete input contract and verification after the required source evidence is obtained; a caller-supplied completeness flag is insufficient. |
-| Frozen retained economic reports | At the first delivery, MR 6's configured attempt/report path required validation and holdout windows. P1 has neither. An explicit unfitted engineering-sample representation is still needed before a qualified P1 result can use that retained workflow; inventing split windows would change the frozen specification. |
+| Frozen retained economic reports | At the first delivery, the configured attempt/report path required validation and holdout windows. P1 has neither. An explicit unfitted engineering-sample representation is still needed before a qualified P1 result can use that retained workflow; inventing split windows would change the frozen specification. |
 
 The [installed source consumer](../../tests/integration/consumers/backtest/source_acceptance.py)
 exhausts the saved native reader, retains the real causal quality refusal, verifies
@@ -369,9 +369,8 @@ runtime lock and full validation logs are retained alongside that directory.
 Keep source bytes and bulky output outside Git. Original raw data remains in the
 selected `data/binance-archives/` store.
 
-Validation results are recorded in the
-[roadmap acceptance attempt](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-acceptance).
-Existing synthetic MR 5/6 evidence remains valid for exact accounting, delays,
+Validation output remains alongside the matching wheel and retained run described
+above. Existing synthetic economic/report evidence remains valid for exact accounting, delays,
 recovery and report atomicity because their runtime implementations are unchanged.
 It cannot fill the empirical gaps above. Reversal removes the consumer/configs and
 reverts these acceptance notes together while preserving original raw data,
@@ -388,7 +387,7 @@ retaining strict admission results and reproducing the evidence handoff. Follow 
 Completing this source investigation does not establish economic acceptance or
 change the frozen requirements below.
 
-Owner: repository founder. Updated 2026-09-22. **MR 8 acceptance remains open.**
+Owner: repository founder. Updated 2026-09-22. **P1 acceptance remains open.**
 Continuation starts at `2c93536`; fetched `origin/main` was still `86835ee80a4f420133416d6148886b9a1fbc0150`,
 already its parent. No merge or replacement PR was needed. The original ZIP,
 acquisition clocks, frozen configurations and previous failed attempts remain intact.
@@ -458,7 +457,7 @@ compare complete result manifests; admission failure produces no snapshot.
 The 2026-09-21 refusal output is reused only for its original state and non-admission
 claim. The continuation does not rerun that unchanged actual-source economics merely
 to produce another refusal. New runtime behavior requires new checks and installed
-proof, recorded in the [roadmap continuation](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#frozen-baseline-continuation).
+proof, retained with the continuation's matching artifacts and validation output.
 Original source integrity remains supported because its retained bytes and selection
 are unchanged. Existing independent monetary/rounding oracles remain authoritative.
 
@@ -499,7 +498,7 @@ were supplied. The retrieved Binance update table lists two replacement bundles
 dated 2022; it does not provide a per-trade historical publication/correction
 timeline for this hour. The notebook retains these observations without turning
 them into trading-status, completeness or full revision-history assertions.
-Strict publication still refuses the sample, so **MR 8 remains open**.
+Strict publication still refuses the sample, so **P1 acceptance remains open**.
 
 Outputs include `trading-status.json`, `coverage-checks.json`,
 `correction-checks.json`, a minute-count plot, a plain-language `handoff.md`, and
