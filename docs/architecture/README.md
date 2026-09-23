@@ -15,15 +15,16 @@ are also available. Retained experiment attempts, temporal split admission and
 unfitted exploration studies, train-only models, bounded spot simulation/accounting
 and independent spot risk limits are implemented. Configured economic reports,
 serial local ClearML pipelines and pinned lakeFS dataset versions are also available.
-Portfolio allocation, order execution, deployment and live trading monitoring remain planned. See the
+Portfolio allocation, venue order execution, deployment and live trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.
 
 The locked `msgspec` dependency supports the exact serialization boundary for
-financial values, canonical market-data records, configuration, acquisition and
-dataset records. These use frozen `msgspec.Struct` values with cached strict
-typed codecs. Order-intent and execution consumers remain planned; the established
-C01, C02 and C03 foundation contracts remain preserved.
+financial values, canonical market-data records, configuration, acquisition,
+datasets, simulation orders/fills/checkpoints and retained research reports.
+Wire records use frozen `msgspec.Struct` values with strict typed codecs;
+the C01, C02 and C03 foundation models retain their Pydantic contracts.
+Venue order submission and live execution remain planned.
 
 The [platform roadmap](../roadmap/README.md) selects future infrastructure work.
 Its first outcomes are researcher data access, auditable comparisons and a small
@@ -199,7 +200,7 @@ The retained development checks and release boundary are:
   [dependency-admission.toml](dependency-admission.toml) bind `pyproject.toml`,
   `uv.lock`, exact artifacts, sources, hashes, platforms, licenses, and
   vulnerability coverage.
-- [Artifact supply chain](artifact-supply-chain.md) rejects release use until
+- The [release workflow](../governance/workflow.md#build-a-release) rejects release use until
   dependency admission is resolved and a concrete trusted release consumer is
   implemented. The unused general bundle, signing and publication framework
   is retired. Future consumers must bind the artifact digest to its source,
@@ -238,7 +239,7 @@ review triggers and reversal requirements:
 
 | Decision | Current constraint |
 | --- | --- |
-| Serialization boundary | Financial values, market-data/configuration records, acquisition manifests and dataset reports use the [engineering serialization requirements](../coding_standards/README.md#classes-records-errors-and-resources). Order-intent and execution records remain planned. Pydantic remains available for cold administration and the C01/C02/C03 foundation APIs. |
+| Serialization boundary | Market data, configuration, simulation orders/fills/checkpoints and research results use the [engineering serialization requirements](../coding_standards/README.md#classes-records-errors-and-resources), including exact financial-value hooks. Venue execution remains planned. Pydantic remains available for cold administration and the C01/C02/C03 foundation APIs. |
 | Instrument identity models | C01 keeps strict immutable models while preserving its public constructors, temporal mappings, and graph invariants. |
 | Venue calendar adapter | C02 owns UTC/session semantics and uses `exchange_calendars` only behind a versioned adapter. |
 | [Wheel-only development allowance](dependency-admission.md#wheel-only-development-allowance) | An exact native package may receive an expiring development/CI allowance; its unverified source binding blocks release. |

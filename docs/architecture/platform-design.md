@@ -73,6 +73,7 @@ src/
     books/                  Shared book state and reconstruction contracts
   research/
     exploration/            EDA and pinned multi-input saved-data selections
+    results/                Shared retained feature-study wire contract
     observations/           Frozen completed decision observations and scoped controls
     features/               Versioned price diagnostics and scheduled saved-input parity; future fitted transforms
     labels/                 Separate forward-return outcomes and availability
@@ -102,7 +103,7 @@ src/
     live/                   FUTURE: explicitly authorized operation
     deploy/                 FUTURE: concrete artifact verification/installation
 
-configs/                    CURRENT: authored reference data; PLANNED: implementations, bindings and active instances
+configs/                    CURRENT: reference/source selections, studies, backtests and local services; FUTURE: deployment/activation bindings
 deploy/                     PLANNED: environment definitions and non-secret config
 packages/                   OPTIONAL: separate distributions when a consumer needs them
 tools/
@@ -535,7 +536,7 @@ The existing exploration/backtest applications compose these libraries; no libra
 imports an application or exposes a runnable command. Feast's incompatible pandas
 constraint is isolated in a separately locked local SDK worker, while core pandas
 remains 3.0.5. The
-[accepted diagnostic tool amendment](../roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
+[accepted diagnostic tool amendment](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
 makes offline reference/current reports mandatory and Evidently optional. The
 consumer now belongs to `research.studies.WindowDiagnostics` and
 `WindowDiagnosticRun`, composed by `applications.explore.compare_windows` and
@@ -690,7 +691,8 @@ or visibly bound unsupported liquidity-taking/capacity claims. A partial-fill
 option alone does not remove this limitation. Keep P1's declared trade-price
 model intact; book-based research needs a separate versioned experiment.
 
-The roadmap owns [capture and paper comparison acceptance](../roadmap/future-mr10-to-mr21.md#operations-and-paper-qualification).
+The roadmap places paper qualification at MR15 in the
+[delivery sequence](../roadmap/README.md#delivery-order-and-dependencies).
 
 ## Portfolio, accounting, and position state
 
@@ -802,7 +804,7 @@ simulator for an unmeasured hot path.
 
 The platform has three possible lanes with one shared semantic waist:
 
-1. **Batch/research — PLANNED.** Dataset construction, features, simulation, training, and reports run with reproducible inputs and bounded parallelism.
+1. **Batch/research — CURRENT, bounded local scope.** Saved datasets, features, model studies, simulation and reports run with reproducible inputs. Distributed execution and measured parallel scaling remain planned.
 2. **Ordinary event-driven — PLANNED.** Ingestion, strategy, portfolio, risk, OMS, accounting, and reconciliation run as supervised processes with durable state and explicit restarts.
 3. **Latency-sensitive — OPTIONAL PLANNED.** A native component or dedicated host is added only after a measured latency, jitter, or vendor ABI need. It consumes compatible schemas and remains behind independent risk and kill controls.
 
@@ -814,7 +816,7 @@ venues, instruments, capital, limits, duration, credentials, and stop conditions
 
 An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
 references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained
-[artifact boundary](artifact-supply-chain.md) is the reference for this identity and verification contract.
+[release workflow](../governance/workflow.md#build-a-release) owns this identity and verification contract.
 Its artifact verification consumer and admitted deployment graph precede the first actual deployment,
 including early capture and paper/shadow. Bounded activation later binds executable authority
 to the verified artifact; it cannot be the first installer for an earlier milestone.
@@ -877,8 +879,8 @@ block an ordinary local calculation by pretending unavailable roles are present.
 ## Scaling triggers and technology choices
 
 Keep the current Python/uv path while it is reproducible and within the workload budget.
-The roadmap's [selected research integrations](../roadmap/history-mr1-to-mr9a.md#selected-research-integrations)
-address concrete tracking, orchestration and data/feature-reuse consumers from MR 4 onward;
+The implemented [research integrations](../../src/research/studies/README.md#ownership-and-verification)
+address concrete tracking, orchestration and data/feature-reuse consumers;
 their initial bounded integrations do not require a throughput bottleneck. Preserve
 existing source, temporal and numerical contracts through their adapters. Measure before
 expanding to distributed execution, large/shared databases, a distributed event bus,

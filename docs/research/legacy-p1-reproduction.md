@@ -16,6 +16,14 @@ saved mode without a network call. Its deliverable is a reproducible
 source-evidence handoff. The archived notebook remains byte-identical to the
 tested historical checkout and keeps its original imports and source identity.
 
+Use checkout `1ec24eb` and its frozen environment for this record. Its
+`examples/research-foundations-live.ipynb` is byte-identical to the archived P1
+notebook (SHA-256 `1a4c6fdd3abbdd140f74aef0e6f5cdd26a95b2d7a28d8189f86daf248cf304e5`).
+The old notebook imports `ResultManifest` from `research.experiments`; that type
+now belongs to `research.studies`, so installing current `main` is not a compatible
+reproduction environment. The commands below refer to the original filename in
+that historical checkout, with its pinned notebook kernel and retained input files.
+
 ## Frozen source evidence
 
 Binance and Tardis are deprioritised. These instructions preserve reproduction
@@ -70,27 +78,28 @@ URLs, successful HTTP status, hashes, lengths and acquisition clocks before
 using these records. It preserves compressed original bytes and bounds decoding.
 Missing or altered selected files fail; there is no online fallback.
 
-For a deliberate refresh, fetch only those four small public provider records:
+From the matching historical checkout, saved reproduction uses:
 
 ```sh
-uv run --frozen --no-editable python -c 'from market_data.adapters.sources import SourceOccurrenceVerifier'
-ALPHA_P1_PUBLIC_MODE=refresh uv run --frozen --no-sync \
+uv run --frozen --no-editable python -c 'from research.experiments import ResultManifest'
+ALPHA_P1_PUBLIC_MODE=saved uv run --frozen --no-sync \
   --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
-  python examples/run_notebook.py examples/research-foundations-live-p1-evidence.ipynb \
+  python examples/run_notebook.py examples/research-foundations-live.ipynb \
   --kernel-python .venv/bin/python
 ```
 
-The existing kernel setup supplies `ipykernel`. Refresh permits one request per
-record, with a 15-second socket timeout and an 8 MiB raw/decoded byte limit. It
+The historical kernel setup supplies `ipykernel`. An explicitly resumed
+investigation can select `ALPHA_P1_PUBLIC_MODE=refresh` for those four records.
+Refresh permits one request per record, with a 15-second socket timeout and an
+8 MiB raw/decoded byte limit. It
 retains failures and stops, and does not purchase data, use credentials,
 download the archive again or change the frozen sample. Each successful response
 and its actual receipt is copied under the new study's `public/`. A new retrieval
 does not establish when a fact was known during the historical hour.
 
-To reproduce without network access, set `ALPHA_P1_PUBLIC_MODE=saved`,
-`ALPHA_P1_PUBLIC_DIRECTORY` to its exact `public/` directory, and
-`ALPHA_P1_REOPEN` to the study directory, then rerun the command without the
-refresh assignment. The notebook prints both paths. Refreshing again creates a
+To reproduce an earlier study, keep saved mode, set `ALPHA_P1_PUBLIC_DIRECTORY`
+to its exact `public/` directory and `ALPHA_P1_REOPEN` to the study directory.
+The notebook prints both paths. Refreshing again creates a
 new investigation because retrieval records change.
 
 To add evidence, copy the generated `review-template.json` to a separate

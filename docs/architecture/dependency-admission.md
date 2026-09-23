@@ -36,7 +36,7 @@ removed; historical records remain in Git.
 QuantLib 1.43 is used by the C03 date-convention adapter. Its allowance applies
 only to isolated development and CI from **2026-09-04 through 2026-10-04**.
 The source-to-wheel binding remains unverified, so the
-[artifact boundary](artifact-supply-chain.md) blocks release use for the graph.
+[release boundary](../governance/workflow.md#build-a-release) blocks release use for the graph.
 Removing the allowance alone does not clear the block: ordinary admission still
 rejects its missing source distribution.
 
@@ -89,7 +89,7 @@ and existing allowance expiry remain unchanged.
 ## First deployment dependency decision
 
 Status: planned deployment dependency decision, 2026-09-14; the current release block is unchanged.
-Before the [first trusted deployment consumer](../roadmap/future-mr10-to-mr21.md#trusted-deployment-artifact)
+Before the [first trusted deployment consumer](../roadmap/README.md#delivery-order-and-dependencies)
 needs an artifact, choose the smallest enforceable path for its actual graph:
 
 - Admit the required QuantLib build/source provenance under an implemented,
@@ -134,9 +134,10 @@ Evidently is **not admitted or installed**. Compatible Evidently 0.4.36 and late
 audit with PYSEC-2026-3740 / CVE-2026-81726, and the
 [upstream advisory lists no patched release](https://github.com/advisories/GHSA-8mgp-746c-j5xp).
 Removing that unused graph restores a clean audit; no finding is waived. The
-[accepted MR 7 tool amendment](../roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
-permits an admitted diagnostic implementation without Evidently. MR 7 remains
-incomplete until that consumer and its required verification exist.
+[accepted MR 7 tool amendment](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
+permits an admitted diagnostic implementation without Evidently. The subsequent
+[direct SciPy consumer](#direct-scipy-diagnostic-consumer) supplies that capability;
+MR 7 is now closed within its bounded offline scope.
 The existing QuantLib allowance and release block remain unchanged.
 
 Re-review on expiry, any dependency/policy change, or the first release consumer.
@@ -207,7 +208,7 @@ unused NLP features, older affected NLTK versions and `--no-deps` installation
 cannot clear this blocker.
 
 The founder subsequently authorized an explicit
-[change to MR 7's tool requirement](../roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
+[change to MR 7's tool requirement](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#diagnostic-tool-requirement-amendment)
 on 2026-09-21. The required reference/current diagnostic capability may now use
 admitted computation dependencies; Evidently is optional. The existing lock and
 license records include SciPy 1.18.1, which provides an implementation candidate.

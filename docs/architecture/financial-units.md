@@ -13,8 +13,8 @@ Python 3.12.14 warnings-as-errors import check with a native segmentation fault;
 1.43 passes without changing warning filters. The dependency policy's bounded
 profile admits 1.43 only for isolated development and CI through 2026-10-04.
 Authenticated wheel publication is not authenticated build provenance. The
-artifact boundary blocks artifact creation, signing, publication and verification
-for the graph while this admission remains. No production use is permitted.
+release boundary blocks production release, signing and publication while this
+admission remains. Development wheel builds and installation tests are permitted.
 
 ## Public values and operations
 
@@ -100,8 +100,8 @@ now supplies currency-bearing rational basis/P&L and exact spot postings. C03
 financial-unit conventions and grids remain unchanged.
 
 Decision date: 2026-09-14. This originally resolved the P1 consumer contract before observations and ledger
-implementation. The consumer now implements it without widening C03's decimal grid. The [P1 plan](../roadmap/history-mr1-to-mr9a.md#first-economic-backtest)
-owns delivery with the first consuming operations.
+implementation. The consumer now implements it without widening C03's decimal grid. The [original MR5 record](https://github.com/lixuanguang/alpha-research-lab-private/blob/31fcc842fa5a55daafe0764dd4d99912d082329c/docs/roadmap/history-mr1-to-mr9a.md#first-economic-backtest)
+retains the first consumer's implementation evidence.
 
 | Quantity | Representation and boundary |
 | --- | --- |
@@ -211,7 +211,7 @@ The direct [golden fixture](../../tests/golden/financial_units/c03_units.json)
 and focused tests are the behavioral evidence for this contract. Dependency and
 artifact checks retain the exact lock, source-origin and hash checks, vulnerability coverage,
 and release block described in the [dependency policy](dependency-admission.toml)
-and [artifact boundary](artifact-supply-chain.md).
+and [release workflow](../governance/workflow.md#build-a-release).
 
 ## Migration, rollout, rollback and runbook
 
@@ -228,11 +228,12 @@ canonical market-event codecs. Currency wire values persist both `code` and
 `minor_unit`; at currency, money, and price boundaries, known legacy preset
 strings resolve through the fixed packaged definitions and unknown bare codes
 are rejected. Market-event codecs preserve their closed tags and exact Decimal
-text. P1 configuration, quote/order-intent, execution, report, and run-loader
-schemas remain planned. The packaged JSON is an owned compatibility input;
+text. Configured backtests, simulated orders/fills, checkpoints and retained
+reports now use the shared serialization boundary; venue execution remains
+planned. The packaged JSON is an owned compatibility input;
 changing it changes package content and invalidates the corresponding uv cache
-key. QuantLib remains exactly 1.43. Later P1 consumers must add their own wire
-migration and evidence.
+key. QuantLib remains exactly 1.43. New consumer schemas require their own
+versioned compatibility and evidence.
 No deployment or activation is introduced.
 
 Rollback reverts Currency source, packaged definitions, shared serialization and
