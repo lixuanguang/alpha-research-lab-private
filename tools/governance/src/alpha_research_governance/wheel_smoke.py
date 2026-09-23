@@ -106,29 +106,12 @@ class _InstalledWheelCheck:
         environment["MPLCONFIGDIR"] = str(smoke_root / "matplotlib-cache")
         inputs = smoke_root / "inputs"
         inputs.mkdir()
-        for relative in (
-            "configs/data-jobs/fixture-inspection.json",
-            "configs/reference/binance-spot.json",
-            "tests/fixtures/market_data/tardis/btcusdt.txt",
-            "configs/data-jobs/binance-archive.json",
-            "configs/live/okx-btc-usdt.json",
-            "configs/reference/binance-archive-spot.json",
-            "tests/fixtures/eligibility/membership-corrections.json",
-            "tests/integration/consumers/datasets/ingestion_workflow.py",
-            "tests/integration/consumers/research/feature_study.py",
-            "tests/integration/consumers/backtest/economic_workflow.py",
-            "tests/integration/consumers/backtest/engineering_sample.py",
-            "configs/backtests/p1-btcusdt-return-v1.json",
-            "configs/backtests/p1-btcusdt-no-trade-v1.json",
-            "tests/fixtures/economics/spec.json",
-            "tests/support/subprocesses/interrupt_command.py",
-            "configs/live/coinbase-btc-usd.json",
-            "tests/fixtures/market_data/coinbase/coinbase-schema.json",
-            "tests/fixtures/market_data/coinbase/coinbase-snapshot.json",
-            "tests/integration/consumers/capture/recovery_consumer.py",
-            "tests/integration/consumers/wheel_layout.py",
+        for relative, name in (
+            ("configs/backtests/okx-eth-usdt-book-v1.json", "book-config.json"),
+            ("tests/integration/consumers/backtest/book_workflow.py", "book_workflow.py"),
+            ("tests/integration/consumers/wheel_layout.py", "wheel_layout.py"),
         ):
-            shutil.copyfile(repository_root / relative, inputs / Path(relative).name)
+            shutil.copyfile(repository_root / relative, inputs / name)
         shutil.copytree(
             repository_root / "tests/fixtures/datasets/historical_snapshot",
             inputs / "historical_snapshot",

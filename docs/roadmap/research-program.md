@@ -8,8 +8,11 @@ and collector health are implemented, alongside fitted model workflows and bound
 spot simulation. Broker integration and strategy monitoring remain planned; the
 roadmap records exact supported scope.
 
-The immediate operating model is a single founder verifying the
+The immediate operating model is a single founder using the accepted
 [bounded saved-data simulation baseline](../research/saved-baseline-acceptance.md).
+MRs through 9A are implemented and closed. Future MR data comes from OKX or
+Bitfinex where possible; Binance and Tardis are excluded because of availability,
+as specified by the [platform data policy](README.md#current-platform).
 The [frozen P1 hypothesis](../research/p1-baseline.md) remains deferred and unaccepted,
 with historical source evidence unresolved. The single [implementation roadmap](README.md) owns delivery of its library operations and
 orchestrator pipelines. The [QR implementation guide](../../examples/README.md#research-activities-and-journey)

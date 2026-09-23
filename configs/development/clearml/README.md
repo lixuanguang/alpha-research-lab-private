@@ -41,8 +41,9 @@ unsuitable for a public/shared host or untrusted local users.
 
 The UI is [local ClearML](http://127.0.0.1:18080). The API readiness check does not
 prove a model upload; the installed acceptance consumer exercises that boundary.
-It uses only synthetic data. `make wheel-smoke` exercises local model behavior
-with an explicitly unavailable transport and does not require Docker. For the
+It uses only synthetic data. The feature/model integration test exercises local
+model behavior with an explicitly unavailable transport; wheel smoke checks
+installation and a small OKX book run. Neither requires Docker. For the
 actual server acceptance run, set `ALPHA_CLEARML_LOCAL_ENV` to the private file
 and invoke the installed feature/model consumer with a fresh output directory
 and copied fixture inputs (`binance-archive.json`, `binance-archive-spot.json`,

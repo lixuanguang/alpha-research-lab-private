@@ -644,9 +644,8 @@ values and absent-capture provenance, followed by availability/quality consumers
 
 [`BinanceArchiveRows`](adapters/providers/binance/rows.py) selects expected daily partitions
 from an explicit `AcquisitionManifest` using its existing prefix validation.
-Its consumers include the row-boundary regression checks, the retained
-[installed consumer](../../tests/integration/consumers/datasets/read_saved.py) and the
-persisted occurrence pipeline. The reader constructs no acquisition or event decoder.
+Its consumers include the [row-boundary regressions](../../tests/unit/data/providers/binance/test_rows.py)
+and the persisted occurrence pipeline. The reader constructs no acquisition or event decoder.
 
 For an independently resolved `run`, explicit `manifest_path` and `store`:
 
@@ -775,8 +774,8 @@ unevidenced conflicts return no bytes; terminal saved-reader failures reject the
 entire prefix and mark unread rows unvalidated. The originals remain in the store.
 See the [quality contract](../../docs/data/contracts.md#canonical-partition-quality)
 for interval, units, ordering and count semantics, and the
-[retained installed consumer](../../tests/integration/consumers/datasets/validate_partition.py)
-for a complete synthetic saved-input example. The
+[quality regressions](../../tests/unit/data/test_quality.py)
+for synthetic saved-input boundary cases. The
 [QR notebook](../../examples/research-foundations.ipynb) retains quality and
 missingness alongside selected values.
 
@@ -830,7 +829,7 @@ path; qualified partitions can also retain earlier versions of the same archive
 request. It is not a query API or an atomic snapshot. The
 [manifest contract](../../docs/data/contracts.md#dataset-manifest-identity-and-verification)
 explains identity and version semantics; the
-[isolated consumer](../../tests/integration/consumers/datasets/identify_dataset.py) and the notebook example in
+[dataset regressions](../../tests/unit/data/test_datasets.py) and the notebook example in
 [research-foundations.ipynb](../../examples/research-foundations.ipynb) provide
 complete saved-input examples. Atomic publication follows below.
 
@@ -875,7 +874,7 @@ synchronization acknowledged. Abrupt process exits can leave hidden staging
 directories; no garbage collection is introduced.
 
 The [snapshot contract](../../docs/data/contracts.md#atomic-local-snapshots),
-[isolated installed consumer](../../tests/integration/consumers/datasets/publish_snapshot.py) and
+[snapshot regressions](../../tests/unit/data/test_snapshots.py) and
 diagnostics in [infrastructure-diagnostics.ipynb](../../examples/infrastructure-diagnostics.ipynb)
 show interruption, retry and preservation of complete inputs. These synthetic snapshots
 retain exploratory degraded scope; they do not establish empirical coverage,
@@ -1118,7 +1117,7 @@ as each output batch is built. Admission still runs completely when the reader i
 constructed; caching never invents knowledge or bypasses snapshot verification.
 
 This reader introduces no columnar backend or publication adapter. See the
-[query tests](../../tests/unit/data/test_query.py), [installed query consumer](../../tests/integration/consumers/query/query_consumer.py)
+[query tests](../../tests/unit/data/test_query.py)
 and [workload evidence](../../examples/notebook-operations.md#query-workload-evidence)
 for their respective correctness and measurement scopes.
 
@@ -1213,9 +1212,9 @@ per-query allocation; input blocks are not application reads and can be zero wit
 cached inputs. Snapshot admission still verifies full saved inputs; projection
 claims no I/O pushdown. The reader's canonical-byte cap is not an RSS bound.
 
-The [standalone consumer](../../tests/integration/consumers/query/eda_consumer.py) builds a
-small deterministic synthetic archive, publishes two instruments, retains EDA
-records and replays outside Jupyter. The
+The [installed ingestion workflow](../../tests/integration/consumers/datasets/ingestion_workflow.py)
+publishes synthetic saved inputs and retains EDA and fresh-process reproduction
+evidence outside Jupyter. The
 [QR notebook](../../examples/research-foundations.ipynb) uses the same EDA entry for
 named pinned trade/book inputs; its small prototype is a separate depth calculation.
 The [contract fixture](../../tests/fixtures/instruments/contract.json)

@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import subprocess
 import sys
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
 from importlib import import_module
 from importlib.metadata import distributions, version
@@ -15,11 +15,8 @@ from pathlib import Path
 
 # project library imports
 from financial_units import Currency, Money, QuantLibConventions
-from market_data.adapters.providers.tardis import TardisDecoder
-from market_data.adapters.sources import BookAdapters, SourceAdapters
-from market_data.adapters.venues.binance import BinancePayloadDecoder, MarketEventCodec
+from market_data.adapters.sources import SourceAdapters
 from market_data.datasets import SnapshotStore
-from market_data.replay import SavedCapture
 from market_data.storage import RawStore
 from reference_data.calendars import (
     CalendarAuthority,
@@ -29,7 +26,6 @@ from reference_data.calendars import (
     Venue,
     VenueId,
 )
-from reference_data.catalogs import CatalogSnapshot
 from runtime import ImplementationIdentity, InstalledIdentity, RuntimeFiles
 from serialization import DomainCodec
 
@@ -53,21 +49,9 @@ def main() -> None:
             module = import_module(name.removesuffix("/__init__.py").replace("/", "."))
             assert module.__file__ is not None
             assert Path(module.__file__).resolve() == path.resolve()
-    event_codec = MarketEventCodec()
     domain_codec = DomainCodec()
     amount = Money(value=Decimal("1.25"), currency=Currency.from_code("USD"))
     assert domain_codec.decode_json(domain_codec.encode_json(amount), Money) == amount
-    catalog = domain_codec.decode_json((inputs / "binance-spot.json").read_bytes(), CatalogSnapshot)
-    source_decoder = TardisDecoder(
-        BinancePayloadDecoder(catalog.instruments), "tardis.binance.spot"
-    )
-    event = source_decoder.decode_line(
-        "",
-        source_sequence=0,
-        local_received=datetime(2024, 6, 1, tzinfo=UTC),
-        disconnect_capture_time=datetime(2024, 6, 1, tzinfo=UTC),
-    )
-    assert event_codec.decode(event_codec.encode(event)) == event
     assert QuantLibConventions()
     venue = Venue(
         venue_id=VenueId.from_canonical_text("11111111-1111-4111-8111-111111111111"),
@@ -119,57 +103,21 @@ def main() -> None:
         timeout=30,
     )
     assert "feast-worker" in explore_help.stdout
-    fixture = subprocess.run(
+    subprocess.run(
         [
-            str(executable / "alpha-inspect-fixture"),
-            "--config",
-            str(inputs / "fixture-inspection.json"),
-            "--catalog",
-            str(inputs / "binance-spot.json"),
-            "--fixture",
-            str(inputs / "btcusdt.txt"),
-            "--job",
-            "btc-fixture",
-            "--received",
-            "2026-09-17T00:00:00+00:00",
-            "--ingested",
-            "2026-09-17T00:00:00+00:00",
-            "--sequence",
-            "0",
+            sys.executable,
+            "-I",
+            str(inputs / "book_workflow.py"),
+            str(inputs),
+            "--smoke",
         ],
         capture_output=True,
         text=True,
         check=True,
-        timeout=30,
-    )
-    assert "fixture_sha256" in fixture.stdout
-    for script, run in (
-        ("ingestion_workflow.py", "ingestion"),
-        ("feature_study.py", "features"),
-        ("economic_workflow.py", "economics"),
-        ("engineering_sample.py", "engineering-sample"),
-        ("recovery_consumer.py", "recovery"),
-    ):
-        subprocess.run(
-            [sys.executable, "-I", str(inputs / script), str(inputs), str(inputs / run)],
-            check=True,
-            timeout=60,
-            stdout=subprocess.PIPE,
-        )
-    # The recovery consumer retains a complete synthetic journal. Replay through the
-    # installed command must reproduce its single shared reconstruction implementation.
-    capture = inputs / "recovery/lineage"
-    replay = subprocess.run(
-        [str(executable / "alpha-collect"), "replay", "--capture", str(capture)],
-        check=True,
-        capture_output=True,
-        timeout=30,
-    )
-    assert replay.stdout.strip() == domain_codec.encode_json(
-        SavedCapture.read(capture, book_factory=BookAdapters.create).summary()
+        timeout=60,
     )
     assert InstalledIdentity.sha256() != ImplementationIdentity.sha256()
-    print("Installed APIs, commands, recovery and historical snapshot verified.")
+    print("Installed APIs, resources, historical snapshot and OKX book command verified.")
 
 
 if __name__ == "__main__":
