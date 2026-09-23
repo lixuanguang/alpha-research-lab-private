@@ -12,6 +12,13 @@ defines the required scope and separates software completion from empirical
 strategy acceptance and live activation. Staffing, independent review, operational
 separation and broader organizational controls arrive as contributors and operators join.
 
+The roadmap's intermediate research, shadow and operating gates improve delivery
+sequencing without reducing the complete destination. Versioned offline/online
+feature-store capabilities, both execution venues, portfolio allocation/netting,
+extensible dashboards and capacity qualification remain required. The initial
+spot integrations exercise generalized contracts for other sources, products and
+strategies; they do not define the limits of the monorepo's architecture.
+
 This design records the technical destination and functional source owners without
 requiring empty skeletons or prematurely installed infrastructure. Every module, service, store, and native lane below is
 **PLANNED** unless marked **CURRENT** or listed as an existing capability in the source tree.
@@ -22,6 +29,12 @@ Source-layout completion is not evidence for future capability or operational ac
 The monorepo is one source tree with many possible deployables. It is not one artifact, one process, one database, one
 runtime lane, one release train, or a globally coupled release. A strategy library, data normalizer, risk service, and
 execution gateway may have separate artifacts and release lifecycles while sharing versioned contracts and provenance.
+
+Qualify that separation with installed consumers: collector and execution
+artifacts must not require unrelated notebook, training, research-reporting or
+experiment SDKs. Keep the full research environment and separately locked workers
+available. Dependency isolation removes accidental coupling, not platform features;
+each deployed graph still satisfies admission and compatibility requirements.
 
 Canonical economic semantics are shared. Strategy variants, numerical methods, asset adapters, storage engines, and
 computation lanes are not forced into one universal implementation. A choice becomes shared when two consumers need the
@@ -209,7 +222,10 @@ canonical types and schemas
                                                         strategy kernel
                                                               |
                                                               v
-                                                        portfolio intent
+                                                   target/order/quote intent
+                                                              |
+                                                              v
+                                                     portfolio coordination
                                                               |
                                     positions + pending orders + limits
                                                               |
@@ -256,9 +272,23 @@ in explicitly referenced versioned files:
 | Implementation definitions | Stable IDs/versions for reviewed installed strategy, pipeline and adapter entry points, with their supported input/output contracts and capabilities. Configuration cannot grant capabilities absent from the implementation. | A configuration resolver validates references/records; the orchestrator loads, checks and constructs the selected implementation. Foundation/config libraries do not import pipelines or providers. |
 | Instrument/reference and universe definitions | Canonical IDs, temporal membership/source/venue mappings, applicable increments/multipliers/currencies and market rules, with evidence semantics. | Data, strategy and accounting validation. Catalog membership is not collection, research selection or trading authority. |
 | Data jobs and pipeline bindings | Job ID, source, dataset/stream type, pipeline, independently selected universe, historical/live mode, interval, policies and explicit raw/snapshot references. | Acquisition, dataset or live orchestration. The collection universe may exceed a strategy's universe. |
-| Strategy definitions | Strategy ID/version, implementation, parameters, declared input/output capabilities and named data/feature/model requirements. | Strategy-instance resolution and contract validation; formulas remain in strategy code. |
+| Strategy definitions | Strategy ID/version, implementation, parameters, target-position/exposure or order/quote output contract, and named data/feature/model requirements. | Strategy-instance resolution and capability validation; formulas remain in strategy code. |
 | Strategy instances | Instance ID, strategy reference, selected assets and dependency bindings, supported mode and isolated state namespace. Active instances are selected per workflow. | Research/runtime orchestrators and per-instance trials/results; multiple instances can share compatible immutable inputs. |
 | Deployment and authorization, when implemented | Deployment/environment, instance/artifact versions, account/venue/execution connections, independently approved instrument/limit/duration envelope and monitoring/risk bindings. | Runtime orchestration within existing release/operating boundaries. Research config cannot grant executable access. |
+
+Resolve four distinct universes: collection, research, strategy evaluation and
+authorized trading. Expanding one does not expand the others or transfer authority.
+Retain each resolved membership and its reference versions in the owning run or
+deployment manifest; startup and risk both enforce the authorized subset.
+
+The planned typed capability registry covers market data, reference data,
+calendars, valuation, account state and execution separately. An adapter declares
+its supported products, representations/channels, depth, clocks, freshness,
+operations/order types and recovery behavior as applicable. Candidates declare
+requirements; composition rejects incompatible bindings before work starts.
+Configuration selects reviewed installed implementations rather than granting
+unimplemented support. New compatible adapters and strategies extend registration
+and fixtures without editing generic decision, risk, OMS or accounting logic.
 
 For example, a `return_momentum` implementation can have a BTCUSDT instance and
 an ETHUSDT instance with different configured quantities. Both refer to their
@@ -313,6 +343,13 @@ relisting has its own ID linked to the economic root, as the current identity co
 add effective-dated quantity units, price units, multipliers, tick and lot rules, currencies, settlement, and lifecycle
 state. A derivative references an internal underlying ID. A continuous futures series is a derived research product and
 never a listed contract.
+
+Specification revisions also retain when their source assertion became known.
+Queries resolve valid time and knowledge time together, and observations, orders
+and dataset manifests bind the selected version. A tick/lot change must not
+rewrite an earlier run; current endpoint metadata cannot establish historical
+specifications. This venue integration is planned separately from the implemented
+identity and authored research-assumption catalogs.
 
 Future lifecycle records represent listing, activation, trading halt, expiry, exercise, assignment, delivery, delisting,
 redenomination, and corporate-action effects as explicit versioned events. They retain the source assertion and
@@ -370,13 +407,14 @@ of partition digests, specification, code, dependencies, and source revisions. P
 either the old manifest or the new manifest, never a partially written partition.
 
 Storage technology follows the declared launch workload. Provisioning, discovery,
-durable data/artifact storage, feature retrieval, concurrent job execution,
-retention and backup/restore are mandatory before QR onboarding. Ordinary files
-and a local database may satisfy a bounded deployment; a lakehouse, event log or
-online feature-store product is not mandatory by name. Quant development measures
-its reference workload and supplies any additional infrastructure needed for the
-published volume, concurrency, recovery and latency budgets without waiting for
-a QR to encounter a bottleneck.
+durable data/artifact storage, versioned offline/online feature-store access,
+concurrent job execution, retention and backup/restore are mandatory before QR
+onboarding. Preserve the existing lakeFS, Feast and experiment-store integrations
+and extend their owned interfaces. A bounded topology may use files and local
+services, but must supply all required retrieval, materialization, concurrency
+and recovery behavior. Quant development supplies infrastructure for its declared
+volume and latency budgets without waiting for a QR to encounter a bottleneck;
+changing a backend requires compatibility and migration evidence.
 
 Dataset specifications declare universe eligibility, event fields, source priority, schedule, timezone, calendar,
 interval, lookback, warm-up, availability cutoff, correction policy, adjustment/roll policy, missing/stale rules,
@@ -416,6 +454,13 @@ a changed source schema; retain the last working fixture and source version.
 | L2 market by price | Snapshot plus ordered changes reconstruct quantities at prices within declared coverage. This does not establish individual-order queue positions or L3 market-by-order history. |
 | Tickers | Best bid/offer, last trade and rolling statistics are distinct products. Record the chosen fields/window, update semantics, age and source; one cannot certify another's completeness. |
 | Klines | Enumerate the selected venue-supported intervals, timezone/boundaries and whether provisional updates or only closed bars are retained. Preserve close/finality and revision availability. Trade-derived bars have separate lineage and are not relabeled exchange klines. “Every kline” means the declared intervals and retained coverage, not an unspecified promise. |
+
+The initial OKX/Bitfinex data gate includes selected public trades alongside books,
+with explicit per-feed coverage and availability evidence. Non-book inputs use
+their own typed schemas and availability rules; a small reference dataset proves
+this extension boundary without claiming a new production source. Bitfinex's
+current R0 raw-book path and OKX L2 retain their distinct semantics; adding a
+representation never silently relabels either as a complete matching-engine log.
 
 For execution-sensitive inputs, prefer the direct feed for the actual venue and
 product, with its native order adapter. An aggregator remains useful for research
@@ -522,8 +567,8 @@ and its `qualify-features` subcommand retain exact replay/batch/restart traces.
 This qualifies saved-input software only; runtime source/cadence qualification,
 incremental/online retrieval and candidate promotion remain open. Their in-scope
 lifecycle and serving interfaces are now required before QR onboarding, exercised
-by reference consumers owned by quant development; a separate online-store product remains
-a workload-dependent technology choice.
+by reference consumers owned by quant development. The feature store must provide
+the offline and online behavior below; its service topology follows the workload.
 
 An experiment identity includes source and dataset manifests, code/artifact revision, resolved non-secret configuration,
 environment/toolchain identity, component versions, split rules, and random seeds. Wall-clock creation time is metadata,
@@ -581,11 +626,37 @@ Research reports state the economic mechanism, falsifiable hypothesis, target, s
 benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.
 Once an exploratory result influences a candidate decision, it receives durable identity and provenance.
 
+### Feature-store contract
+
+Status: **planned generalized capability; current offline Feast bridge retained**.
+MR02 owns feature definitions and result semantics; MR04 owns provisioned stores,
+materialization and retrieval; MR05/MR07 bind runtime consumers. The store serves
+versioned features across studies and strategy instances rather than a special
+case for the initial return diagnostic. Preserve Feast's independently locked
+worker and the core numerical/temporal contracts while extending its integration.
+
+Each retrieval binds entity/instrument keys, feature definition and schema,
+fitted-transform version where applicable, source/dataset revisions, event and
+availability clocks, missingness and freshness/TTL policy. Offline PIT retrieval
+preserves knowledge-time corrections. Online materialization is restartable and
+idempotent, publishes a named version atomically, and cannot expose a future or
+incompatible value. Latest-value retrieval is not historical replay; retained
+versions and inputs must permit reconstruction of decisions.
+
+Matched definitions, entities and cutoffs reproduce admitted offline and online
+values within declared numerical tolerances, retaining exact financial contracts.
+Exercise late corrections, missing entities, expired values, partial publication,
+retry and version rollback. Serving returns version and quality metadata; consumers
+refuse incompatible or stale state according to their declared policy. Loss of
+the serving service triggers the runtime's explicit pause or qualified fallback,
+never silent recomputation using different definitions. Backup/restore and MR15
+capacity evidence cover source products, registry/state and serving recovery.
+
 ### Research-driven feature lifecycle
 
 QR owns new formulas and research choices after onboarding; quant development
 first supplies the execution, alignment, lineage and state machinery plus concrete
-reference consumers. Pre-onboarding completion includes named trade/book features,
+reference consumers. Pre-onboarding completion includes named trade/book/non-book features,
 separate labels, multiple model inputs, fitted preprocessing, train/inference
 adapters and stateful batch/incremental execution. Demonstrate these through the
 roadmap's rule-only, learned and stateful examples. Support compatible definitions
@@ -634,22 +705,23 @@ not a registry service.
 | --- | --- |
 | Identity and reproduction | Candidate/component versions, code/environment identity, retrievable artifacts and accepted trial/report references; training input/split provenance remains retained |
 | Runtime input requirements | Named data bindings, schema/units, supported instrument/product, cadence, knowledge/availability rules, coverage/freshness and missingness policy; runtime bindings may differ from historical snapshots but must satisfy the same contract |
-| Features and fitted preprocessing | Definitions/parameters, input order/schema, accepted fitted-state bytes and fit cutoff; runtime does not refit implicitly |
+| Features and fitted preprocessing | Definitions/parameters, ordered input signature, entity/schema and feature-store version bindings, accepted fitted-state bytes and fit cutoff; runtime does not refit implicitly |
 | Optional model | Serialization/version, expected feature signature, output meaning and numerical contract, training/label cutoff and permitted activation time |
-| Decision policy | Versioned prediction/signal-to-target implementation and parameters; rules need no model, and unsupported output contracts fail |
+| Decision policy | Versioned prediction/signal-to-target-position/exposure or order/quote-intent implementation and parameters; rules need no model, and unsupported output contracts fail |
 | State and qualification | Warm-up/checkpoint/reset compatibility, batch/incremental requirements, retained parity/evaluation evidence and limitations |
 | Metrics and views | Versioned research/runtime metric and chart definitions, applicability, units and diagnostic thresholds; independent hard risk policy stays outside the candidate |
 
 A model is not a trading strategy. The QR's decision policy turns then-available
-predictions/signals into the supported target contract. Shared applications apply
-independent risk, simulation or execution and accounting outside that policy.
+predictions/signals into its declared target or order/quote-intent contract.
+Shared applications apply independent risk, simulation or execution and accounting
+outside that policy.
 Walk-forward evaluation chooses only artifacts that could have been fitted by the
 historical decision, including label availability and declared training/deployment
 timing. Never use a final full-history fit for earlier decisions.
 
 Promotion loads the accepted components and verifies compatible inputs/state;
-matched inputs reproduce features, predictions and targets under their declared
-contracts. Artifact verification precedes deployment; runtime binding and
+matched inputs reproduce features, predictions and decision outputs under their
+declared contracts. Artifact verification precedes deployment; runtime binding and
 paper/live qualification preserve the accepted candidate. Candidate evidence grants neither release
 admission nor trading authority. Retraining produces a new version and repeats
 affected qualification. Rollback compatibility is explicit and cannot undo fills.
@@ -658,6 +730,13 @@ affected qualification. Rollback compatibility is explicit and cannot undo fills
 
 The strategy kernel is typed deterministic logic with injected clocks, data, positions, risk decisions, and execution
 interfaces. It contains economic decision logic, not a broker client, database transaction, or self-approval path.
+
+Target-position/exposure strategies and order/quote-intent strategies use distinct
+typed outputs. Portfolio coordination resolves allocation and conflicts for each
+without forcing quotes into weights. Both enter the same independent risk and
+OMS boundary with instance ownership, instrument, account and version identity.
+Quant development supplies an active reference consumer of each output form;
+the no-trade control remains additional evidence, not the shared-account test.
 
 The same kernel runs in these modes:
 
@@ -710,9 +789,10 @@ coverage and sensitivity checks. Archive download time cannot measure historical
 feed latency. Use recorded or paper/sandbox evidence first; the existing authority
 rules continue to govern executable activity.
 
-Extend replay, strategy, fill, cost and order contracts for a selected quoting consumer only after its book,
-order lifecycle and product economics exist. Introduce pure order-lifecycle contracts
-with an offline simulator when needed; runtime binding remains a prerequisite
+Extend replay, strategy, fill, cost and order contracts for the required reference
+quoting consumer as its book, order lifecycle and product economics become available.
+Introduce pure order-lifecycle contracts with an offline simulator when needed;
+runtime binding remains a prerequisite
 for the paper runtime, not for those pure contracts. Saved-book research does not
 require a deployed collector. Define queue assumptions, maker/taker
 fees, supported order types, post-only rejection, partial fills and cancel/replace
@@ -779,15 +859,22 @@ Risk consumes authoritative positions, pending orders, market state, limits, ent
 or stale inputs, unavailable limits, timeout, unknown instrument, or failed authorization rejects new risk with a
 visible reason. Kill and cancel controls remain reachable when a strategy process is unhealthy.
 
+Admission reserves strategy/account/firm capacity atomically, including submitted
+orders with uncertain outcomes. A concurrent 8,000 + 8,000 request fixture under
+a shared 10,000 account-currency limit cannot admit both in full. Explicit conflict
+and self-trade policy applies across instances. Reservations survive restart and
+are released only after the corresponding outcome is established; database
+atomicity alone does not make an external submission exactly once.
+
 For the first dedicated single-instance paper account, qualify durable state,
-pending reservations, hard limits and base account reconciliation. Shared-account
-netting/allocation and its reconciliation become mandatory before a second
-instance shares the account, not before the first base reconciliation. Quant
-development supplies that second reference instance and completes shared-account
-qualification before QR onboarding; this is delivery sequencing rather than an
-optional capability waiting for research demand. Portfolio policy interfaces and
-a deterministic reference allocation ship with it; QR later supplies economic
-allocation choices within independently enforced limits.
+pending reservations, hard limits and base account reconciliation. A shared-account
+increment first qualifies tagged child orders, atomic budgets, conflict handling
+and attribution; it cannot enable netting until net allocations, costs and residuals
+also reconcile. Both stages are required within MR09 before QR onboarding. Quant
+development supplies two distinct active reference strategies on the same instrument
+and account; their selective stop/restart must preserve ownership and account safety.
+Portfolio policy interfaces and a deterministic reference allocation ship with
+compatible netting; QR later supplies economic allocation choices within limits.
 
 Initial strategies are trusted founder-authored code. Logical separation,
 immutable limits, per-instance state and final risk enforcement outside strategy
@@ -810,6 +897,13 @@ to the OMS and retain raw protocol messages for investigation.
 A retry cannot create a duplicate economic order. Where a venue lacks a native idempotency key, the adapter uses durable
 client identity and reconciles before retrying. Partial multi-leg fills remain explicit; temporary leg exposure is
 visible to risk. Decision, arrival, fill, fee, and benchmark prices are retained for transaction-cost analysis.
+
+Request acknowledgement, venue acceptance and final economic state are distinct.
+A cancel acknowledgement is not confirmed cancellation and cannot alone free a
+reservation. Private-stream loss, cancel/fill races and process restart reconcile
+against venue state before retry or resumption. One fenced owner may execute for
+an account. Qualify the first venue end to end, then the second through the same
+contracts; both OKX and Bitfinex conformance remain required for final acceptance.
 
 ## Asset-class specializations
 
@@ -865,6 +959,14 @@ Its artifact verification consumer and admitted deployment graph precede the fir
 including early capture and paper/shadow. Bounded activation later binds executable authority
 to the verified artifact; it cannot be the first installer for an earlier milestone.
 
+Keep dataset, experiment, candidate and deployment manifests distinct and linked.
+The deployment manifest binds executable/model/feature artifacts, instances,
+accounts, capabilities and operating configuration. A separate activation
+envelope binds authorized instruments, limits and duration. Research/shadow
+environments have no production submission authority; installed artifacts alone
+cannot grant it. Each operating package is installed and verified independently
+of unrelated research dependencies while retaining compatible shared schemas.
+
 Schema changes use explicit versions and compatibility windows. The normal migration is expand, dual-read/write where
 necessary, backfill or reconcile, cut over, then contract. A reader rejects unknown incompatible versions with a visible
 reason. State migration includes a replay fixture, compatibility check, rollback point, and proof that old orders/fills
@@ -909,6 +1011,14 @@ preserves raw and normalized evidence, reconciles the venue, and records release
 state, schema, credential, limit, and fencing checks. Backup/restore, stop/cancel, replay, rollback, and alert delivery
 are tested before a canary receives more exposure.
 
+Expose block-new-exposure, cancel-outstanding and reduce-position as distinct
+operations with explicit connectivity, freshness and liquidity requirements.
+Stopping a strategy does not imply immediate flattening or release of uncertain
+orders. The roadmap's failure scenarios cover disk/queue exhaustion, malformed
+inputs, clock anomalies, private-stream loss and exchange timeouts alongside
+process/service loss. Paper evidence is supplemented by each venue's external
+conformance before final operational acceptance.
+
 ### Feed health and observable loss
 
 Measure receipt-to-durable delay, advancing source/persistence cursors, interarrival
@@ -947,6 +1057,12 @@ limits and supported workload must be explicit. Implement and measure the needed
 storage/compute path before handing it to QR; only expansion beyond the accepted
 launch envelope waits for a later workload. Architecture measurements determine
 the technology, not whether the capability is delivered.
+
+Set research and operating budgets at the start of their delivery paths. Include
+offline retrieval and online feature materialization/serving alongside queries,
+ingestion and execution. Record throughput, p50/p95/p99 latency, memory/disk,
+concurrency, hardware/cache conditions and recovery targets. Research capacity
+can be accepted at G2; final runtime capacity and all services remain MR15 work.
 
 Useful triggers include a dataset build that misses research cadence, concurrent readers that contend on local storage,
 replay throughput that blocks iteration, recovery time beyond the operating target, or measured native latency/jitter
@@ -1008,13 +1124,21 @@ after a representative workload measurement, preserving the reference semantics.
 
 The single [implementation roadmap](../roadmap/README.md) owns maturity, status,
 delivery dependencies and acceptance criteria.
-Quant development completes data/research APIs, candidate/runtime interfaces,
-portfolio/risk/OMS, venue adapters, deployment, observability, recovery and launch
+Quant development completes data/research APIs, offline/online feature stores,
+candidate/runtime interfaces, portfolio/risk/OMS, venue adapters, deployment,
+observability, recovery and launch
 capacity using reference consumers before QR onboarding. Paper/shadow and permitted
 venue test evidence qualify infrastructure independently of empirical research;
 actual strategy activation remains a later explicit decision. The roadmap owns
 the clean-environment handoff gate. People-dependent organizational work remains
 separate from technical completion and follows actual staffing.
+
+G1–G5 record foundation, research, paper/shadow, integrated operating and generalized
+handoff acceptance. They preserve all MR outcomes and the full pre-onboarding
+gate. MR10 establishes paper drills first and incorporates later venue/activation
+evidence; MR13 uses that paper increment rather than waiting on MR10's final
+integrated record. Generalization is demonstrated by fresh installed extensions,
+including a non-book input and calendar/product fixture, with source limits intact.
 
 Each slice leaves the previous path usable or provides a tested rollback. It states what is implemented, what remains
 planned, which identity is authoritative, and which failure response is safe. The architecture evolves by measured
