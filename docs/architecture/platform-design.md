@@ -124,15 +124,16 @@ src/
     train_model/            OPTIONAL source split; fit/state behavior required through explore or this owner
     evaluate_model/         OPTIONAL source split; evaluation required through explore or this owner
     backtest/               Economic Python workflow and tracked vectorbt comparison
+    execute/                CURRENT: installed intent/risk admission with submission suppressed
     paper/                  FUTURE: paper/shadow composition
     live/                   FUTURE: explicitly authorized operation
-    deploy/                 FUTURE: concrete artifact verification/installation
+    deploy/                 OPTIONAL future composition; local installer is governance CLI
 
 configs/                    CURRENT: reference/source selections, studies, backtests and local services; FUTURE: deployment/activation bindings
 deploy/                     PLANNED: environment definitions and non-secret config
-packages/                   OPTIONAL: separate distributions when a consumer needs them
+packages/                   CURRENT: shared contracts and independent collector/execution distributions
 tools/
-  governance/               CURRENT: development checks and artifact boundaries
+  governance/               CURRENT: checks, signed operating releases and trusted local installation
   native/                   PLANNED: only when an admitted ABI exists
 tests/
   unit/                     CURRENT: domain behavior and focused contracts
@@ -989,6 +990,14 @@ immutable compatible artifact; it does not grant trading authority. Activation i
 venues, instruments, capital, limits, duration, credentials, and stop conditions.
 
 ## Artifact, schema, and state migration
+
+MR06 implements the [local signed installation boundary](../governance/operations.md#trusted-local-installation)
+for independent collector and intent-admission execution artifacts. It verifies
+actual wheel/source/lock/audit bytes, out-of-band builder trust, configuration and
+exact state compatibility before an offline installation. Rollback preserves
+current mutable state. The initial local target and acceptance record do not
+qualify remote production deployment, OMS state migration or venue recovery.
+The broader destination below remains required at its owning milestones.
 
 An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
 references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained

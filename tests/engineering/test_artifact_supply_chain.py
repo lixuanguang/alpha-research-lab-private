@@ -1,4 +1,4 @@
-"""Exercise the retained artifact command boundary."""
+"""Exercise explicit artifact command parsing and the whole-research release restriction."""
 
 from __future__ import annotations
 
@@ -9,128 +9,59 @@ from pathlib import Path
 import pytest
 
 # project library imports
-from alpha_research_governance.artifact_supply_chain import main
+from alpha_research_governance.artifact_supply_chain import ArtifactArguments, main
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 
 
-@pytest.mark.parametrize("arguments", ((), ("unknown",), ("release-check", "extra")))
-def test_unknown_or_malformed_commands_fail(
-    arguments: tuple[str, ...],
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Reject unsupported command shapes without entering a release path."""
-    monkeypatch.chdir(REPOSITORY_ROOT)
+class TestArtifactCommands:
+    """Keep unsupported invocations and unresolved research releases fail-closed."""
 
-    assert main(arguments) == 2
+    @pytest.mark.parametrize("arguments", ((), ("unknown",), ("release-check", "extra")))
+    def test_unknown_or_malformed_commands_fail(
+        self, arguments: tuple[str, ...], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Reject unsupported command shapes without entering a release path."""
+        assert main(arguments) == 2
+        assert "usage: alpha-governance-artifacts" in capsys.readouterr().err
 
-    captured = capsys.readouterr()
-    assert "usage: alpha-governance-artifacts" in captured.err
+    def test_whole_research_graph_retains_quantlib_block(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An independently admitted operating closure cannot exempt the research graph."""
+        monkeypatch.chdir(REPOSITORY_ROOT)
+        assert main(["release-check"]) == 1
+        assert "unresolved native dependency admission" in capsys.readouterr().err
 
+    def test_missing_repository_cannot_write_artifacts(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Reject absent admission inputs before any build or publication."""
+        monkeypatch.chdir(tmp_path)
+        assert main(["release-check"]) == 1
+        assert "dependency-admission.toml" in capsys.readouterr().err
+        assert list(tmp_path.iterdir()) == []
 
-def test_release_check_uses_the_current_quantlib_admission_block(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Keep unresolved QuantLib release admission ahead of consumer checks."""
-    monkeypatch.chdir(REPOSITORY_ROOT)
-
-    assert main(["release-check"]) == 1
-
-    captured = capsys.readouterr()
-    assert "unresolved native dependency admission" in captured.err
-
-
-def test_release_check_stays_blocked_without_a_trusted_consumer(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Keep the future release path closed after dependency admission is resolved."""
-    monkeypatch.chdir(REPOSITORY_ROOT)
-
-    def allow(_root: Path) -> None:
-        """Model a future successful dependency release admission.
-
-        Args:
-            _root: Repository root supplied to the dependency admission gate.
-        """
-
-    monkeypatch.setattr(
-        "alpha_research_governance.artifact_supply_chain.require_release_admission",
-        allow,
+    @pytest.mark.parametrize(
+        "arguments",
+        (
+            ("install",),
+            ("verify", "--policy", "absent", "--policy", "other"),
+            ("build", "--unknown", "path"),
+            ("run", "--target", "absent", "--policy", "absent"),
+        ),
     )
+    def test_new_commands_require_explicit_inputs(
+        self, arguments: tuple[str, ...], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A partial administrative command never supplies implicit trust or target paths."""
+        monkeypatch.chdir(tmp_path)
+        assert main(arguments) == 1
+        assert list(tmp_path.iterdir()) == []
 
-    assert main(["release-check"]) == 1
-
-    captured = capsys.readouterr()
-    assert "no trusted release consumer" in captured.err
-
-
-def test_release_check_does_not_write_when_admission_rejects(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Stop before any output when the delegated dependency gate rejects release use."""
-    monkeypatch.chdir(tmp_path)
-    calls: list[Path] = []
-
-    def reject(repository_root: Path) -> None:
-        """Record the repository passed to the release gate and reject it.
-
-        Args:
-            repository_root: Repository root supplied to the dependency admission gate.
-
-        Raises:
-            ValueError: Always, to model a dependency admission failure.
-        """
-        calls.append(repository_root)
-        raise ValueError("dependency admission rejected release")
-
-    monkeypatch.setattr(
-        "alpha_research_governance.artifact_supply_chain.require_release_admission", reject
-    )
-
-    assert main(["release-check"]) == 1
-
-    captured = capsys.readouterr()
-    assert calls == [tmp_path]
-    assert "dependency admission rejected release" in captured.err
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_release_check_delegates_admission_before_no_consumer_rejection(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Call dependency admission before applying the future no-consumer restriction."""
-    monkeypatch.chdir(REPOSITORY_ROOT)
-    calls: list[Path] = []
-
-    def allow(repository_root: Path) -> None:
-        """Record a successful dependency release admission.
-
-        Args:
-            repository_root: Repository root supplied to the dependency admission gate.
-        """
-        calls.append(repository_root)
-
-    monkeypatch.setattr(
-        "alpha_research_governance.artifact_supply_chain.require_release_admission", allow
-    )
-
-    assert main(["release-check"]) == 1
-
-    captured = capsys.readouterr()
-    assert calls == [REPOSITORY_ROOT]
-    assert "no trusted release consumer" in captured.err
-
-
-def test_release_check_fails_without_repository_inputs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Reject missing admission inputs without creating artifacts."""
-    monkeypatch.chdir(tmp_path)
-
-    assert main(["release-check"]) == 1
-
-    assert "dependency-admission.toml" in capsys.readouterr().err
-    assert list(tmp_path.iterdir()) == []
+    def test_explicit_options_preserve_paths(self, tmp_path: Path) -> None:
+        """Parse exact caller paths without interpreting them as shell syntax."""
+        path = tmp_path / "has spaces;literal"
+        assert ArtifactArguments.options(["--target", str(path)], {"--target"}, set()) == {
+            "--target": path
+        }

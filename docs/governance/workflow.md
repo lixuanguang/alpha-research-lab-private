@@ -43,24 +43,34 @@ authority.
 
 ## Build a release
 
-`make build` and `make wheel-smoke` build and test installation for development.
-Release use remains blocked by [dependency admission](../architecture/dependency-admission.md#quantlib-restriction)
-and the absence of a trusted release consumer. The diagnostic
-`uv run --frozen alpha-governance-artifacts release-check` checks admission, then
-rejects the absent consumer even if dependencies pass. It produces no artifact;
-unsupported invocations return a usage failure. Development wheel builds remain
-available under the existing allowance.
+`make build` and `make wheel-smoke` retain the complete research development
+environment. Its QuantLib convention adapter remains restricted by
+[dependency admission](../architecture/dependency-admission.md#quantlib-restriction).
+`alpha-governance-artifacts release-check` still refuses release of that whole
+graph; deleting an allowance cannot make it admissible.
 
-[MR06](../roadmap/README.md#delivery-order-and-dependencies) owns the first
-trusted build/install consumer and must precede any deployed collector or
-paper/shadow runtime. It verifies trusted origin and builder identity, exact
-digests, provenance/inventory, safe archive members and configuration/state
-compatibility before installation. Tests must reject tampering, unexpected
-origins, unsafe paths, missing/unknown records and source/dependency mismatches.
-Its runbook owns signing, identity rotation, registry retention and rollback.
-Clearing the dependency restriction alone cannot supply this consumer. Its
-reference deployment belongs to quant development and does not wait for an accepted
-QR candidate; actual installation still requires the declared target and authority.
+[MR06](../roadmap/README.md#mr06-delivery-and-acceptance) adds separate
+`alpha-research-contracts`, `alpha-research-collector` and
+`alpha-research-execution` wheels. The two applications have independently pinned
+locks and exact shared-contract versions. Their actual metadata closures must
+pass the existing full admission policy and a fresh complete vulnerability scan;
+an omitted dependency, unknown artifact or selected development-only package
+fails. This is a genuine packaging boundary, not a release exemption for the
+research graph. Feast and ClearML retain their independently locked worker
+environments and existing wire-version checks.
+
+The administrative `alpha-governance-artifacts` command now builds, signs,
+verifies, installs and rolls back these operating releases. The initial target
+is local Darwin arm64, standard-GIL CPython 3.14.7. Its signed record binds actual
+source bytes (including uncommitted changes separately from the base commit),
+build commands, root/operating locks, policy, audit, complete wheel inventory,
+configuration and initial state. An independently provisioned trust policy pins
+builder keys, permitted origins, target tools and compatible schemas. Verification
+checks signatures, archive/RECORD safety, exact metadata dependency closure,
+local source correspondence and compatibility before offline installation.
+The [operating runbook](operations.md#trusted-local-installation) owns commands,
+signing, rotation, retention and state-preserving rollback. Installation alone
+does not start a service or grant trading authority.
 
 Build once from the locked environment and retain one release record containing:
 

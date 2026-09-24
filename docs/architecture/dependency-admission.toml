@@ -47,8 +47,9 @@ native_python_packages = [
 ]
 
 [lock_digests]
-"uv.lock" = "67f115cf2763eaec492defa8b2245b20ea282876d235a45c2ecb28044cd58d37"
-
+"uv.lock" = "c63e5a4dc2b85800dbd179dd2ce4c48e6c50ab41ae4fff13d20c9da8fa3647f6"
+"packages/collector/uv.lock" = "8e96b87a10723532eb9888ce2e706dd74edd4519d409b125633033e5d9af757c"
+"packages/execution/uv.lock" = "c2bdc40aeb886b2fab467ec2febe5b19f911ec155e05a6a4b9607b559eab2686"
 [pip_audit]
 version = "2.10.1"
 service = "pypi"

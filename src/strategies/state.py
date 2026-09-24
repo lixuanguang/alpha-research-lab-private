@@ -12,10 +12,8 @@ from strategies.decisions import (
     DecisionContext,
     DecisionPolicy,
     DecisionRecord,
-    OrderIntent,
-    QuoteIntent,
-    TargetIntent,
 )
+from strategies.intents import OrderIntent, QuoteIntent, TargetIntent
 
 
 class DecisionState(WireRecord, frozen=True):

@@ -19,6 +19,13 @@ from configuration.data_jobs import Configuration, DataJob, ResolvedManifest, Un
 from configuration.decisions import (
     DecisionRun,
 )
+from configuration.execution import (
+    CredentialReference,
+    ExecutionConfiguration,
+    ExecutionInspection,
+    ExecutionMode,
+    ExecutionRequest,
+)
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
 
 __all__ = [
@@ -36,9 +43,14 @@ __all__ = [
     "CapabilitySelection",
     "CaptureConfig",
     "Configuration",
+    "CredentialReference",
     "DataCapability",
     "DataJob",
     "DecisionRun",
+    "ExecutionConfiguration",
+    "ExecutionInspection",
+    "ExecutionMode",
+    "ExecutionRequest",
     "OKXHistoryConfig",
     "PublicDataJob",
     "ResolvedManifest",

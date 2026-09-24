@@ -42,7 +42,11 @@ _ROOT_KEYS = {
     "source_archives",
     "license_groups",
 }
-_EXPECTED_LOCK_PATHS = ("uv.lock",)
+_EXPECTED_LOCK_PATHS = (
+    "uv.lock",
+    "packages/collector/uv.lock",
+    "packages/execution/uv.lock",
+)
 _RUNTIME_SCAN_ROOTS = ("src", "tools")
 _EXPECTED_LOCAL_PACKAGES = {"alpha-research-governance", "alpha-research-lab"}
 _HASH = re.compile(r"^sha256:[0-9a-f]{64}$")

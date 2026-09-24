@@ -153,9 +153,111 @@ class SourceLayoutChecker:
                     binding = node.target if isinstance(node, ast.AnnAssign) else node.name
                     if isinstance(binding, ast.Name):
                         bound.add(binding.id)
+            bound.update(cls._checked_lazy_exports(tree))
             for missing in sorted(cls._exports(source) - bound):
                 findings.append(f"{module}: public export {missing} is not bound")
         return tuple(findings)
+
+    @staticmethod
+    def _checked_lazy_exports(tree: ast.Module) -> frozenset[str]:
+        """Recognize only a typed and exhaustively named lazy public binding."""
+        type_imports: set[str] = set()
+        for node in tree.body:
+            if not (
+                isinstance(node, ast.If)
+                and isinstance(node.test, ast.Name)
+                and node.test.id == "TYPE_CHECKING"
+            ):
+                continue
+            for child in node.body:
+                if isinstance(child, ast.ImportFrom):
+                    type_imports.update(alias.asname or alias.name for alias in child.names)
+        getters = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "__getattr__"
+        ]
+        if len(getters) != 1:
+            return frozenset()
+        body = getters[0].body
+        if not (
+            body
+            and isinstance(body[-1], ast.Raise)
+            and isinstance(body[-1].exc, ast.Call)
+            and isinstance(body[-1].exc.func, ast.Name)
+            and body[-1].exc.func.id == "AttributeError"
+        ):
+            return frozenset()
+        bound: set[str] = set()
+        for branch in body:
+            if not (
+                isinstance(branch, ast.If)
+                and isinstance(branch.test, ast.Compare)
+                and isinstance(branch.test.left, ast.Name)
+                and branch.test.left.id == "name"
+                and len(branch.test.ops) == 1
+                and isinstance(branch.test.ops[0], ast.In)
+                and len(branch.test.comparators) == 1
+                and isinstance(branch.test.comparators[0], (ast.Set, ast.Tuple, ast.List))
+            ):
+                continue
+            guard_items = branch.test.comparators[0].elts
+            if not all(
+                isinstance(item, ast.Constant) and isinstance(item.value, str)
+                for item in guard_items
+            ):
+                continue
+            guard = {item.value for item in guard_items if isinstance(item, ast.Constant)}
+            module_aliases = {
+                alias.asname or alias.name
+                for child in branch.body
+                if isinstance(child, ast.ImportFrom)
+                for alias in child.names
+            }
+            maps: list[ast.Dict] = []
+            for child in branch.body:
+                if (
+                    isinstance(child, ast.AnnAssign)
+                    and isinstance(child.target, ast.Name)
+                    and child.target.id == "exports"
+                    and isinstance(child.value, ast.Dict)
+                ) or (
+                    isinstance(child, ast.Assign)
+                    and any(
+                        isinstance(target, ast.Name) and target.id == "exports"
+                        for target in child.targets
+                    )
+                    and isinstance(child.value, ast.Dict)
+                ):
+                    maps.append(child.value)
+            if len(maps) != 1 or not any(
+                isinstance(child, ast.Return)
+                and isinstance(child.value, ast.Subscript)
+                and isinstance(child.value.value, ast.Name)
+                and child.value.value.id == "exports"
+                and isinstance(child.value.slice, ast.Name)
+                and child.value.slice.id == "name"
+                for child in branch.body
+            ):
+                continue
+            mapping = maps[0]
+            if len(mapping.keys) != len(guard):
+                continue
+            mapped: set[str] = set()
+            for key, value in zip(mapping.keys, mapping.values, strict=True):
+                if not (
+                    isinstance(key, ast.Constant)
+                    and isinstance(key.value, str)
+                    and isinstance(value, ast.Attribute)
+                    and isinstance(value.value, ast.Name)
+                    and value.value.id in module_aliases
+                    and value.attr == key.value
+                ):
+                    break
+                mapped.add(key.value)
+            if mapped == guard:
+                bound.update(mapped & type_imports)
+        return frozenset(bound)
 
     @classmethod
     def _import_problem(cls, owner: str, target: str, names: tuple[str, ...]) -> str:

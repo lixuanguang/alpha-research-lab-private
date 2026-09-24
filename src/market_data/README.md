@@ -14,6 +14,17 @@ owned adapter packages. Application composition belongs to
 `applications.acquire`, `applications.collect`, `applications.publish_dataset`,
 `applications.inspect_fixture` and `applications.explore`.
 
+MR06 also ships `alpha-collect` in the independent `alpha-research-collector`
+distribution with exact shared-contract and locked dependency versions. It
+contains the market-data owners needed by capture/replay and retains lakeFS
+storage; unrelated research, notebook, model-training, reporting and QuantLib
+packages are absent. The full research distribution retains the wider command
+map below. Use the [trusted installation runbook](../../docs/governance/operations.md#trusted-local-installation)
+for signed builds, offline placement and compatible rollback. Installed capture
+and probe runs use the signed `CaptureConfig`; saved replay takes an explicit
+retained capture path. Packaging evidence does not renew historical source
+quality or qualify venue order execution.
+
 ## Capability and command map
 
 | Capability | Public boundary | Installed entry point or deeper home |

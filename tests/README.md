@@ -53,6 +53,7 @@ children. Real orchestration belongs to `src/applications/`.
 | [Public data tests](unit/data/test_public_data.py) | Both public source parsers, pending-response recovery, four scopes, PIT venue rules, source integrity and configuration-only onboarding |
 | [Decision workflow](integration/test_decision_workflow.py) | Fresh feature/label/estimator/quote implementations, retained fit bytes and fresh-process restart through installed public APIs |
 | [Public data consumer](integration/consumers/datasets/public_data.py) | Installed CLI publication/discovery/read, named public-trade/book/reference assembly and replay continuation; accepts completed actual captures |
+| [Trusted installation consumer](integration/consumers/deployment/trusted_installation.py) | Real signed execution releases, isolated package inventory, signed configuration changes, production-request refusal and rollback with current mutable state |
 
 Wheel smoke installs the hash-locked runtime without governance, checks every
 shipped API/resource and installed identity, reopens the historical snapshot,
@@ -67,6 +68,30 @@ an environment while tests, notebooks or workers use it. The historical snapshot
 original bytes and identity stay in `fixtures/datasets/historical_snapshot/`.
 Existing Binance/Tardis-shaped synthetic fixtures remain compatibility tests;
 new data-dependent work follows the [OKX/Bitfinex policy](../docs/roadmap/README.md#current-platform).
+
+The trusted installation consumer requires two independently verified releases,
+an out-of-band trust policy, an absent target, and authored admission requests.
+Copy it outside the checkout and run with the installed governance interpreter:
+
+```sh
+python -I -B /absolute/trusted_installation.py \
+  --policy /protected/target-policy.json \
+  --initial /absolute/registry/INITIAL_SHA256 \
+  --upgrade /absolute/registry/UPGRADE_SHA256 \
+  --target /absolute/new-operating-target \
+  --request /absolute/shadow-request.json \
+  --upgrade-request /absolute/shadow-upgrade-request.json \
+  --output /absolute/trusted-installation.json
+```
+
+Both releases must accept the base request with submission suppressed. Only the
+upgrade accepts the second request; initial installation and rollback must reject
+it. The consumer verifies the exact installed distribution graph and absence of
+research, notebook, training and reporting modules. The
+[installation runbook](../docs/governance/operations.md#trusted-local-installation)
+owns release preparation and trust provisioning. Signature, dependency and
+failure-transition regressions are ordinary engineering tests; this explicit
+consumer additionally crosses the real builder/signature/offline-install boundary.
 
 The old standalone row/occurrence, revision, quality, identity, publication,
 eligibility, query and EDA acceptance demos have been retired. Their maintained
