@@ -8,6 +8,10 @@ A reproducible simulation does not establish an empirical alpha or live executio
 
 ## Run the complete workflow
 
+Before starting or resuming this research workflow, run `make local-services-up`
+from the repository root and complete the
+[research-session prerequisites](../../examples/README.md#before-every-research-session).
+
 From the repository root, with the pinned uv environment and the existing saved
 archive present:
 

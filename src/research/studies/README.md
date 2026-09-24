@@ -7,6 +7,12 @@ use them. The [experiment core](../experiments/README.md) owns semantic run
 identity, temporal folds, holdout access and append-only attempt history. The
 [research program](../../../docs/roadmap/research-program.md) owns methodology.
 
+Before starting or resuming a researcher-run study, run `make local-services-up`
+from the repository root and complete the
+[research-session prerequisites](../../../examples/README.md#before-every-research-session).
+This workflow requirement includes studies with local or deferred publication;
+it does not change the API's explicit transport behavior described below.
+
 Integration SDKs load at their operations. Opening an attempt, local
 report or research selection does not initialize ClearML, Optuna, DuckDB or
 Polars; those dependencies load only when publication, parameter search,

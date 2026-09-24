@@ -2,12 +2,28 @@
 
 UV := uv
 PYTHON_PATHS := src tests tools/governance/src tools/typing/stubs
+LOCAL_SERVICES_ENV ?= secrets/local-services.env
 
 .PHONY: sync lock-check format format-check lint typecheck governance-check \
 	engineering-standards-check dependency-admission-check \
 	dependency-audit architecture-check \
 	ci-secrets-check security \
-	source-check integration-test performance-test test build wheel-smoke check
+	source-check integration-test performance-test test build wheel-smoke check \
+	local-services-up local-services-status local-services-down
+
+# Local development only. Compose reads credentials and retained project names
+# from the ignored environment file; no values are embedded in these commands.
+local-services-up:
+	docker compose --env-file "$(LOCAL_SERVICES_ENV)" -f configs/development/lakefs/compose.yaml up -d
+	docker compose --env-file "$(LOCAL_SERVICES_ENV)" -f configs/development/clearml/compose.yaml up -d
+
+local-services-status:
+	docker compose --env-file "$(LOCAL_SERVICES_ENV)" -f configs/development/lakefs/compose.yaml ps
+	docker compose --env-file "$(LOCAL_SERVICES_ENV)" -f configs/development/clearml/compose.yaml ps
+
+local-services-down:
+	docker compose --env-file "$(LOCAL_SERVICES_ENV)" -f configs/development/clearml/compose.yaml down
+	docker compose --env-file "$(LOCAL_SERVICES_ENV)" -f configs/development/lakefs/compose.yaml down
 
 sync:
 	$(UV) sync --frozen

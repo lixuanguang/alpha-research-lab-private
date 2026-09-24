@@ -47,6 +47,11 @@ uv python install
 uv sync --frozen
 ```
 
+Before starting or resuming any research or study, run `make local-services-up`
+from the repository root. The
+[research-session prerequisites](../examples/README.md#before-every-research-session)
+cover Docker Desktop, private local credentials and service access checks.
+
 Exact interpreter and dependency inputs live in
 [pyproject.toml](../pyproject.toml), [uv.lock](../uv.lock), and
 [.python-version](../.python-version). Git and Make support repository checks.
