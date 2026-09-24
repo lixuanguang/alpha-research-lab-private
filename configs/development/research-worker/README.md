@@ -1,6 +1,7 @@
-# Isolated Feast offline worker
+# Isolated Feast feature worker
 
-This environment is a local development worker for the Feast offline bridge. It
+This environment is a local development worker for Feast offline retrieval and
+versioned online materialization/serving. It
 is separate from the core research runtime because the core runtime pins
 `pandas==3.0.5`, while Feast 0.66.0 requires a pandas 2 release. The worker
 lock therefore carries its own CPython 3.14 environment:
@@ -84,6 +85,15 @@ the source file as a script; use the handoff above with the installed file so
 the worker executes the exact installed application bytes selected by the core
 consumer.
 
+For online work, invoke the same installed command with
+`main(["feast-serving-worker"])`. A materialization request carries one
+authoritative `FeatureMaterialization` projection as
+`feast-serving-snapshot-v1`; a serving request names the exact generation and
+entity. The core `FeastServingBridge` supplies and validates these versioned
+JSON records. Keep the virtual environment executable path itself in the
+subprocess command: resolving its symlink to the base interpreter drops the
+worker's Feast site-packages.
+
 ## What the worker admits
 
 The worker is deliberately limited to a local Feast `FileSource` and an
@@ -161,11 +171,55 @@ The fixture's local paths and generated registry identity are acceptance
 evidence, not release inputs. Retained owner-only output is under the primary
 checkout's ignored `logs/research-comparison-acceptance/2026-09-21/` directory.
 
+## Versioned local online serving
+
+The generalized `VersionedFeatureStore` selects values and corrections at a
+declared knowledge cutoff. `FeastServingSnapshot.from_materialization` copies
+that complete named snapshot, including exact rational strings, missingness,
+source/dataset revisions and clocks. The worker does not decide revision or
+availability eligibility. It rejects a future event or availability clock.
+
+For each snapshot identity, the worker authors a local Parquet `FileSource`,
+registers one Feast `FeatureView`, and uses Feast 0.66.0's
+`write_to_online_store` SDK call to populate its SQLite online store from the
+same pinned Parquet bytes. Each entity is read back through
+`get_online_features` before publication; exact strings and row identities
+must match the admitted snapshot. The worker writes config, source, registry,
+SQLite and a hash manifest in a staging directory, then atomically renames the
+complete directory to its snapshot identity. Retrying an existing identity
+verifies all four file hashes and every online row. A failed stage cannot change
+the core store's active version; activation happens only after the application
+has a verified Feast receipt.
+
+The receipt is `feast-generation-v1`. `open_generation(snapshot, root)` checks
+its pinned bytes after restart or backup/restore without rematerializing. The
+paths inside the Feast repository are relative, so a copied generation remains
+readable at a new workspace root. Serving checks file hashes again in the
+worker and compares Feast's exact online strings to the authoritative row.
+Freshness and TTL use the row's retained clocks; an expired value is returned
+as an explicit null with `expired` quality. Feast's latest-value SQLite lookup
+is not historical replay: select the retained version/cutoff in the core store
+before reading a generation. Rollback selects an older retained generation; it
+does not overwrite the newer one.
+
+The focused real-SDK check is:
+
+```sh
+ALPHA_FEAST_WORKER_PYTHON=/absolute/worker/.venv/bin/python \
+  uv run --frozen --no-editable pytest -q -m integration \
+  tests/unit/research/test_feast_serving.py
+```
+
+It covers exact values, a late correction, missing entities, expiry, retry,
+copied-workspace recovery, rollback and altered-source refusal. The installed
+application consumer additionally exercises the full workspace handoff.
+
 ## Scope and limitations
 
 This worker is local-only synthetic research infrastructure. It does not start
-Feast servers, materialize an online store, read an online feature API, acquire
-remote sources, or authorize deployment or trading. Local file sources with
+Feast servers, acquire remote sources, or authorize deployment or trading.
+Online generations are local SQLite repositories, not a remotely hosted feature
+service. Local file sources with
 retained bytes are the only admitted source class. Remote/object-store paths,
 missing registry/source evidence, absent source clocks and SDK-version drift
 fail closed. The worker lock is an environment for the bounded consumer, not a

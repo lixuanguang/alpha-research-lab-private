@@ -133,3 +133,32 @@ rule decisions, and retains the actual source/config/result identities in the
 existing attempt store. It requires retained eligible book states for both supplied
 venue listings. It establishes source reopening and decision composition, not
 simulated fills, execution qualification or empirical research acceptance.
+
+## Feature serving and scheduled workspace acceptance
+
+The [feature workspace consumer](integration/consumers/research/feature_workspace.py)
+requires the independently locked real Feast worker. Copy it outside the checkout
+and select the worker's virtual-environment executable without resolving its
+symlink to the base interpreter:
+
+```sh
+/absolute/core/bin/python -I /absolute/feature_workspace.py \
+  /absolute/fresh-feature-workspace --worker-python /absolute/feast-venv/bin/python
+```
+
+It uses authored multi-entity inputs, exact incremental features, the real Feast
+online store and the intent-only application consumer. It checks restart, retries,
+PIT corrections, expiry/service-loss pauses, rollback and restored serving bytes.
+The regular feature-store and runtime tests require no service. The explicit
+Feast integration case is selected separately by the worker guide; the ordinary
+full gate reports its skip when no worker is selected.
+
+The existing [versioned-storage consumer](integration/consumers/datasets/versioned_storage.py)
+accepts `FEATURE_WORKSPACE OUTPUT feature-workspace` to publish those retained
+`raw`, `snapshots` and `features` bytes to the selected local lakeFS service.
+`FEATURE_WORKSPACE OUTPUT feature-reopen` reopens the saved commit without another
+publication, including after a service-volume restore. Use absolute
+`ALPHA_LAKEFS_CREDENTIALS` and `ALPHA_CLEARML_LOCAL_ENV` paths because recovery
+checks deliberately change working directories. The study consumer now also
+checks scheduled jobs and workspace restore; its existing ClearML verifier
+checks the selected deferred attempts against the actual local service.

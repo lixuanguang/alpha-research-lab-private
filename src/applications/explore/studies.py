@@ -135,6 +135,7 @@ def evaluate_study(
     components: StudyComponents,
     attempts: Path,
     publication: PublicationPolicy,
+    idempotency_key: str | None = None,
 ) -> AttemptHistory:
     """Execute a typed or serialized formal study, retaining local results before publication.
 
@@ -143,6 +144,10 @@ def evaluate_study(
     mode attempts publication after terminal computation; a transport failure
     propagates while the completed result remains readable. Holdout access is
     recorded before features, outcomes or execution inputs are read.
+
+    An optional job key reopens a completed attempt after a lost acknowledgement.
+    It is bound to the exact run, installed implementation and publication policy.
+    Failed/interrupted attempts remain in the same family history on retry.
     """
     run = DecisionStudy.read(config) if isinstance(config, Path) else config
     run = DomainCodec().decode_json(DomainCodec().encode_json(run), DecisionStudy)
@@ -151,6 +156,31 @@ def evaluate_study(
         ImplementationIdentity.sha256(), ExperimentSpec.installed_environment()
     )
     with AttemptStore(attempts) as store:
+        if idempotency_key is not None:
+            if not idempotency_key or idempotency_key != idempotency_key.strip():
+                raise ValueError("study idempotency key must be nonempty trimmed text")
+            for previous in store.histories():
+                previous_id = previous.start.attempt_id
+                if "job-key" not in store.artifacts(previous_id):
+                    continue
+                if store.artifact(previous_id, "job-key") != idempotency_key.encode():
+                    continue
+                if previous.start.spec != spec or store.artifact(
+                    previous_id, "publication-policy"
+                ) != DomainCodec().encode_json(publication):
+                    raise ValueError("study job key already binds different inputs or publication")
+                if previous.status == "completed":
+                    StudyResult.read(store, previous_id)
+                    if publication.mode == "immediate" and publication.destination is not None:
+                        ClearMLPublication(store, publication.destination).publish(previous_id)
+                    return previous
+                if previous.status == "incomplete":
+                    store.finish(
+                        previous_id,
+                        status="abandoned",
+                        at=datetime.now(UTC),
+                        reason="interrupted job attempt retained before retry",
+                    )
         start = store.start(
             spec,
             at=datetime.now(UTC),
@@ -165,6 +195,8 @@ def evaluate_study(
         )
         try:
             store.retain(attempt, "publication-policy", DomainCodec().encode_json(publication))
+            if idempotency_key is not None:
+                store.retain(attempt, "job-key", idempotency_key.encode())
             if publisher is not None:
                 publisher.enqueue(attempt)
             components.admit(run)

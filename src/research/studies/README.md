@@ -385,3 +385,42 @@ in the [market-data guide](../../market_data/README.md), and historical evidence
 in dated `docs/research/` records. Focused regressions and installed consumers
 are the executable evidence; local service or synthetic results do not establish
 empirical alpha, source coverage or production readiness.
+
+## Scheduled studies and reproducible workspaces
+
+`applications.explore.schedule_study` submits a typed `DecisionStudy` and a local
+or deferred `PublicationPolicy` to `runtime.JobQueue`. `StudyJobHandler` resolves
+explicit `StudyComponents` by the study identity; it verifies the installed
+implementation, dependency environment, configuration and both decision/economic
+source identities before work. The [runtime guide](../../runtime/README.md) owns
+queue scheduling, concurrency, cancellation, progress and backup interfaces.
+Distinct study families can run concurrently. Each family retains one exclusive
+attempt store, preserving its frozen holdout and unsuccessful attempts across jobs.
+A competing writer retries through the bounded queue rather than mutating that store.
+
+`evaluate_study(..., idempotency_key=...)` adds optional lost-acknowledgement
+recovery. A completed result is validated and reopened for the same key, exact
+run and publication policy. Changed selections under the key fail. Interrupted
+attempts become abandoned before another attempt begins; their holdout access
+and artifacts remain retained. Without a key, repeated invocations continue to
+create separate attempts. A job can finish its bounded study after cancellation
+is requested; cancellation prevents queue-result publication, not reversal of
+already retained research evidence. Remote publication remains an explicit
+`publish_experiments` operation through the existing idempotent ClearML outbox.
+
+The [installed study consumer](../../../tests/integration/consumers/research/decision_study.py)
+now injects an acknowledgement loss after the actual study completes. It requires
+two job attempts to retain exactly one completed study, then verifies a backup
+restored into an absent workspace reopens the same queue and typed results. Copy
+that consumer outside the checkout and run with the installed interpreter:
+
+```sh
+/absolute/core/bin/python -I /absolute/decision_study.py /absolute/fresh-workspace
+```
+
+The generated `workspace/jobs` and `workspace/studies` directories are selected
+explicitly for `WorkspaceBackup.create`. Keep separately pinned source inputs,
+installed artifacts and compatible worker locks with their owners; a local
+workspace manifest does not replace the lakeFS commit or ClearML remote record.
+Current service evidence and outstanding deployment/capacity boundaries are in
+[MR04](../../../docs/roadmap/README.md#mr04-delivery-and-acceptance).

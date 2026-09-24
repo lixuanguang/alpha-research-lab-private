@@ -95,10 +95,11 @@ class DecisionContext(WireRecord, frozen=True):
 
     features: FeatureVector
     prediction: Prediction | None
+    evaluated_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """Reject foreign predictions and future or expired feature state."""
-        self.features.require_available(self.features.decision_at)
+        self.features.require_available(self.decision_at)
         if self.prediction is not None:
             self.prediction.__post_init__()
             if (
@@ -107,6 +108,13 @@ class DecisionContext(WireRecord, frozen=True):
                 self.prediction.decision_at,
             ) != (self.features.identity, self.features.entity, self.features.decision_at):
                 raise ValueError("prediction does not belong to decision features")
+
+    @property
+    def decision_at(self) -> datetime:
+        """Return the consuming decision clock without rewriting stored feature provenance."""
+        at = self.features.decision_at if self.evaluated_at is None else self.evaluated_at
+        self._require_utc(at, field_name="decision at")
+        return at
 
 
 class DecisionTransition(WireRecord, frozen=True):

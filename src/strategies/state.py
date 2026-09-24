@@ -75,7 +75,7 @@ class DecisionSession:
             context.features.fields,
             None if context.prediction is None else context.prediction.field,
         )
-        at = context.features.decision_at
+        at = context.decision_at
         if (
             context.features.entity != self._entity
             or self._policy.identity != self._policy_identity

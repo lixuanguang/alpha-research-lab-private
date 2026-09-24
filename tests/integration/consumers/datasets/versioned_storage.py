@@ -23,6 +23,8 @@ from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
 from market_data.storage import DatasetVersion, LakeFSStorage, RawStore, VersionedObject
 from research.experiments import AttemptStore
+from research.features import FeatureStoreDefinition, VersionedFeatureStore
+from research.observations import NamedObservation, NumericHistorySource
 from research.studies import BacktestRun, ResearchInputs
 from serialization import DomainCodec
 
@@ -94,6 +96,83 @@ class _Service:
         return msgspec.json.decode(fields["id"], type=str)
 
 
+class _FeatureWorkspaceVersion:
+    """Pin actual named source and feature-history bytes through the existing lakeFS API."""
+
+    @staticmethod
+    def run(
+        source: Path, output: Path, service: _Service, storage: LakeFSStorage, *, reopen: bool
+    ) -> None:
+        """Publish once or restore retained bytes into a new workspace without recomputation."""
+        codec = DomainCodec()
+        if reopen:
+            version = codec.decode_json(
+                (output / "feature-version.json").read_bytes(), DatasetVersion
+            )
+        else:
+            repository = "features-" + uuid4().hex[:16]
+            service.request(
+                "POST",
+                "/repositories",
+                codec.encode_json(
+                    {
+                        "name": repository,
+                        "storage_namespace": "local://" + repository,
+                        "default_branch": "main",
+                    }
+                ),
+            )
+            payloads = {
+                path.relative_to(source).as_posix(): path.read_bytes()
+                for component in ("raw", "snapshots", "features")
+                for path in (source / component).rglob("*")
+                if path.is_file()
+            }
+            inventory: list[VersionedObject] = []
+            for name, payload in sorted(payloads.items()):
+                service.upload(repository, "main", name, payload)
+                inventory.append(
+                    VersionedObject(
+                        path=name,
+                        sha256=hashlib.sha256(payload).hexdigest(),
+                        size_bytes=len(payload),
+                    )
+                )
+            commit = service.commit(repository, "main", "Retain versioned feature workspace")
+            version = storage.resolve(repository, commit, kind="commit", objects=tuple(inventory))
+            (output / "feature-version.json").write_bytes(codec.encode_json(version))
+        destination = output / ("restored" if reopen else "reopened")
+        storage.materialize(version, destination, max_bytes=64 * 1024 * 1024)
+        definition = codec.decode_json(
+            (destination / "features" / "definition.json").read_bytes(), FeatureStoreDefinition
+        )
+        rows = msgspec.json.decode(
+            (destination / "raw" / "source.json").read_bytes(), type=tuple[NamedObservation, ...]
+        )
+        selected = NumericHistorySource(rows, definition.schema.inputs)
+        source_manifest = msgspec.json.decode(
+            (destination / "snapshots" / "source.json").read_bytes(), type=dict[str, str]
+        )
+        assert selected.identity == source_manifest["source_identity"]
+        store = VersionedFeatureStore.open(destination / "features" / "history.sqlite3")
+        materialization = store.get_materialization(definition, "current")
+        for row in materialization.rows:
+            assert (
+                store.retrieve_offline(definition, row.entity, materialization.at).require_ready()
+                == row.require_ready()
+            )
+        print(
+            codec.encode_json(
+                {
+                    "feature_version": version.identity,
+                    "commit": version.commit_id,
+                    "objects": len(version.objects),
+                    "source_and_features_reopened": True,
+                }
+            ).decode()
+        )
+
+
 def main() -> None:
     """Reopen exact dataset/feature bytes before and after a new-branch correction.
 
@@ -112,6 +191,11 @@ def main() -> None:
     )
     try:
         storage = LakeFSStorage(client)
+        if len(sys.argv) > 3 and sys.argv[3] in ("feature-workspace", "feature-reopen"):
+            _FeatureWorkspaceVersion.run(
+                source, output, service, storage, reopen=sys.argv[3] == "feature-reopen"
+            )
+            return
         if len(sys.argv) > 3:
             version = codec.decode_json((output / "version.json").read_bytes(), DatasetVersion)
             storage.materialize(version, output / sys.argv[3], max_bytes=10_000_000)
