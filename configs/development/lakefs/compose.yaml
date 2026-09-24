@@ -1,4 +1,4 @@
-name: alpha-lakefs-local
+name: ${LAKEFS_LOCAL_PROJECT:-alpha-lakefs-local}
 services:
   initialize:
     image: treeverse/lakefs:1.86.0@sha256:fb7a0d90f77e3f893e8b8c6f3be131c090f6f0160c2d6c7784c4378cf7e66ea1

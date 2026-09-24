@@ -1,10 +1,15 @@
 # Notebook setup and retained results
 
 Start with the [research guide](README.md) and [study protocol](study-protocol.md).
-Updated 2026-09-23. This page owns execution of the new research worksheets.
+Updated 2026-09-24. This page owns execution of the new research worksheets.
 The [market-data guide](../src/market_data/README.md) owns source acquisition and
 selection; the [saved L2 workflow](../docs/research/l2-book-backtest.md) owns the
 existing simulation command.
+
+Before any research notebook session, run `make local-services-up` from the
+repository root and complete the [research-session prerequisites](README.md#before-every-research-session).
+Confirm lakeFS and ClearML are accessible before executing the worksheet or
+starting or resuming a study.
 
 ## Research workbooks
 

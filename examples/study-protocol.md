@@ -1,7 +1,7 @@
 # Study protocol and decision record
 
 Use this record for a concrete experiment from the [agenda](research-agenda.md).
-Owner: the researcher conducting the study. Status: template, updated 2026-09-23.
+Owner: the researcher conducting the study. Status: template, updated 2026-09-24.
 Fill it before formal comparison; retain changes and the trials that prompted
 them. The [research program](../docs/roadmap/research-program.md#rules-for-every-workstream)
 owns formal methodology.
@@ -9,6 +9,10 @@ owns formal methodology.
 Use this template only after MR17/G5 accepts the full infrastructure. Link the
 study to the [QR milestones and deliverables](../docs/roadmap/research-program.md#post-infrastructure-research-milestones);
 an empty record or successfully executed worksheet completes none of them.
+
+Before starting or resuming any study, run `make local-services-up` from the
+repository root and complete the [research-session prerequisites](README.md#before-every-research-session),
+including access to lakeFS and ClearML. Keep both services running during the study.
 
 ## Research ticket
 

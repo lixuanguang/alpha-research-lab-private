@@ -16,6 +16,31 @@ All research milestones are planned, not started. The
 owns the three milestones and QR-01–QR-18 deliverables. Earlier engineering
 increments and the current worksheets do not complete any QR milestone.
 
+## Before every research session
+
+Before starting or resuming any research, notebook analysis or study, start
+Docker Desktop and run these commands from the repository root:
+
+```sh
+make local-services-up
+make local-services-status
+```
+
+`make local-services-up` is a required researcher-workflow prerequisite. It
+starts lakeFS and ClearML using the ignored `secrets/local-services.env`; follow
+the [local service setup](../configs/development/lakefs/README.md#local-services)
+to provision the private keys and select the retained Compose projects first.
+Keep the environment file and `secrets/lakefs-credentials.json` owner-readable
+only; never put their values in notebooks or research records.
+
+Container startup can precede application readiness. Confirm access to
+[lakeFS](http://127.0.0.1:18000) and [ClearML](http://127.0.0.1:18080) before
+beginning work; resolve startup or access failures before proceeding. This
+prerequisite also applies to researcher-run studies using local or deferred
+publication. Their existing publication behavior and the MR17/G5 onboarding
+gate remain unchanged. Services stay running for the research session;
+`make local-services-down` stops them afterward while retaining their volumes.
+
 ## Start here
 
 Work on one execution venue, one or two instruments, and one product initially.

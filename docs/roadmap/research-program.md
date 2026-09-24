@@ -153,6 +153,13 @@ when applicable; it is not another mandatory sequence.
 
 ## Rules for every workstream
 
+Before starting or resuming any research or study, run `make local-services-up`
+from the repository root and complete the
+[research-session prerequisites](../../examples/README.md#before-every-research-session).
+Confirm access to lakeFS and ClearML and keep them running for the session.
+The infrastructure and MR17/G5 acceptance requirement still governs when formal
+QR research may begin.
+
 Before formal comparison, record the economic hypothesis, target or decision variable, decision and fill
 timing, universe, horizon, rebalance rule, constraints, cost and financing conventions, primary selection
 rule, and no-trade and transparent baselines. A paper or published result is a hypothesis source, not evidence

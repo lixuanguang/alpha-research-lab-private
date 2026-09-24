@@ -24,6 +24,18 @@ Docker Desktop must be running. Create a private environment file outside Git
 containing fresh values for `CLEARML_LOCAL_ACCESS_KEY` and
 `CLEARML_LOCAL_SECRET_KEY`; restrict its permissions to the owner. These replace
 the upstream public default test-user credentials. Do not use production secrets.
+
+For repeat use, the existing keys can live in the Git-ignored, mode-600
+`secrets/local-services.env`. `make local-services-up` loads it automatically and
+starts both local services; `make local-services-status` shows their state, and
+`make local-services-down` stops them without deleting volumes. The private file's
+`CLEARML_LOCAL_PROJECT` selects an existing project (this workspace retains
+`alpha-workspace-studies-restored`); omission preserves `alpha-clearml-local`.
+See the [lakeFS startup guide](../lakefs/README.md#local-services) for the shared
+file and project selection. SDK callers still explicitly select this file via
+`ALPHA_CLEARML_LOCAL_ENV` when using the publication verifier. Browser sign-in
+remains separate from the server's SDK keys.
+
 Both manual consumers accept blank lines and whole-line comments, including
 indented comments, in this `KEY=value` file.
 With its absolute path in `CLEARML_LOCAL_ENV_FILE`:

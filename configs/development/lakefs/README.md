@@ -44,6 +44,25 @@ configs/development/lakefs/compose.yaml up -d`. Perform first-user setup through
 `POST /api/v1/setup_lakefs` with an explicit local username; save its credentials
 privately. No upstream public example credentials are supplied.
 
+For repeat local use, retain the encryption key in the Git-ignored
+`secrets/local-services.env` and the existing access keys in
+`secrets/lakefs-credentials.json`, both with mode 600. The JSON fields are
+`access_key_id` and `secret_access_key`; these are also the two fields on the
+[local lakeFS login page](http://127.0.0.1:18000/auth/login).
+Keep the encryption key paired with the retained volume; copying credentials
+does not initialize a new service or rotate a key.
+
+From the repository root, `make local-services-up` automatically loads that env
+file and starts lakeFS plus ClearML. Set `LAKEFS_LOCAL_PROJECT` and
+`CLEARML_LOCAL_PROJECT` in the private env file to select existing Compose
+projects. This workspace uses `alpha-workspace-features-restored` and
+`alpha-workspace-studies-restored` for the retained MR04 data. Omitted project
+names preserve each Compose file's original default. Use
+`make local-services-status` to inspect them and `make local-services-down` to
+stop them while retaining volumes. `LOCAL_SERVICES_ENV=/absolute/private.env`
+overrides the file. The launcher loads service credentials; browser sign-in
+uses lakeFS's authenticated session and requires the keys again after expiry.
+
 The local-file backend does not support the Community Spark sweep. The separate
 [gc-compose.yaml](gc-compose.yaml) is the first working S3 retention fixture:
 loopback lakeFS at port 18002, an internal MinIO object store with no host listener,
