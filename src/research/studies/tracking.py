@@ -244,16 +244,28 @@ class ClearMLPublication:
                     item for item in history.start.spec.inputs if item.name == "variant"
                 )
                 if variants:
-                    variant = self._codec.decode_json(history.start.request, BacktestRun)
-                    if variant.identity != variants[0].sha256:
+                    variant_sha256 = hashlib.sha256(history.start.request).hexdigest()
+                    if variant_sha256 != variants[0].sha256:
                         raise ValueError("trial configuration differs from its retained identity")
-                    parameters.update(
-                        {
-                            "comparison/variant": variant.identity,
-                            "comparison/rule": variant.economics.rule,
-                            "comparison/instance": variant.economics.instance,
-                        }
+                    parameters["comparison/variant"] = variant_sha256
+                    fields = msgspec.json.decode(history.start.request, type=dict[str, msgspec.Raw])
+                    schema = self._codec.decode_json(
+                        fields.get("schema_version", b'"configured-backtest-v1"'), str
                     )
+                    if schema in (
+                        "configured-backtest-v1",
+                        "configured-engineering-sample-v1",
+                    ):
+                        variant = self._codec.decode_json(history.start.request, BacktestRun)
+                        variant.__post_init__()
+                        parameters.update(
+                            {
+                                "comparison/rule": variant.economics.rule,
+                                "comparison/instance": variant.economics.instance,
+                            }
+                        )
+                    elif not schema:
+                        raise ValueError("trial configuration requires a schema version")
                 if "trial-evaluation" in names:
                     trial_evaluation = self._codec.decode_json(
                         self._store.artifact(attempt_id, "trial-evaluation"), TrialEvaluation

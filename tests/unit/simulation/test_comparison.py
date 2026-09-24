@@ -33,6 +33,7 @@ from research.studies import (
     ResultManifest,
     TrialEvaluation,
 )
+from research.studies.publication import PublicationPolicy
 from serialization import DomainCodec
 
 _RETAIN = AttemptStore.retain
@@ -68,6 +69,11 @@ class _Publication:
             history_sha256="a" * 64,
             published_at=datetime(2026, 9, 21, tzinfo=UTC),
         )
+
+    @staticmethod
+    def unavailable(self: ClearMLPublication, attempt_id: str) -> PublicationReceipt:
+        """Fail if a local or deferred search contacts ClearML during evaluation."""
+        raise AssertionError(f"unexpected publication of {attempt_id}")
 
 
 class _FailedEvaluation:
@@ -158,7 +164,7 @@ class TestParameterComparison:
         ), EconomicComparison(reader, selection)
 
     @staticmethod
-    def _search(definition: ComparisonStudy, path: Path) -> ParameterComparison:
+    def _search(definition: ComparisonStudy, path: Path) -> ParameterComparison[BacktestRun]:
         """Pin synthetic implementation/environment identities for cross-invocation tests."""
         return ParameterComparison(
             definition, journal=path / "optuna.log", implementation="a" * 64, environment="b" * 64
@@ -294,6 +300,67 @@ class TestParameterComparison:
         with AttemptStore(tmp_path / "wrong-attempts") as other:
             with pytest.raises(ValueError, match="mapping differs"):
                 self._search(definition, tmp_path).run(other, evaluator, self._tracking())
+
+    def test_local_and_deferred_search_retain_without_contacting_clearml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Keep exact local results and deferred outbox intent independent of transport."""
+        monkeypatch.setattr(ClearMLPublication, "publish", _Publication.unavailable)
+        definition, evaluator = self._definition()
+        for mode in ("local", "deferred"):
+            path = tmp_path / mode
+            destination = None if mode == "local" else self._tracking()
+            policy = PublicationPolicy(mode=mode, destination=destination)
+            with AttemptStore(path / "attempts") as store:
+                attempts = self._search(definition, path).run(store, evaluator, publication=policy)
+                assert len(attempts) == 2
+                for attempt in attempts:
+                    ResultManifest.read(store, attempt)
+                    names = store.artifacts(attempt)
+                    assert ("clearml-destination" in names) == (mode == "deferred")
+                    assert "clearml-receipt" not in names
+                    assert not any(
+                        event.status == "holdout_consumed" for event in store.read(attempt).events
+                    )
+                assert (
+                    self._search(definition, path).run(store, evaluator, publication=policy)
+                    == attempts
+                )
+
+    def test_publication_policy_rejects_contradictory_selection(self, tmp_path: Path) -> None:
+        """Require explicit local versus destination-backed publication semantics."""
+        with pytest.raises(ValueError, match="local publication"):
+            PublicationPolicy(mode="local", destination=self._tracking())
+        with pytest.raises(ValueError, match="requires a destination"):
+            PublicationPolicy(mode="deferred")
+        definition, evaluator = self._definition()
+        with AttemptStore(tmp_path / "attempts") as store:
+            with pytest.raises(ValueError, match="either legacy tracking"):
+                self._search(definition, tmp_path).run(
+                    store,
+                    evaluator,
+                    self._tracking(),
+                    publication=PublicationPolicy(mode="local"),
+                )
+
+    def test_deferred_resume_enqueues_prior_local_trials(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A later explicit deferred choice retains publication intent for all prior trials."""
+        monkeypatch.setattr(ClearMLPublication, "publish", _Publication.unavailable)
+        definition, evaluator = self._definition()
+        with AttemptStore(tmp_path / "attempts") as store:
+            early = self._search(definition, tmp_path).run(
+                store, evaluator, publication=PublicationPolicy(mode="local"), max_trials=1
+            )
+            assert "clearml-destination" not in store.artifacts(early[0])
+            resumed = self._search(definition, tmp_path).run(
+                store,
+                evaluator,
+                publication=PublicationPolicy(mode="deferred", destination=self._tracking()),
+            )
+            assert len(resumed) == 2
+            assert all("clearml-destination" in store.artifacts(item) for item in resumed)
 
 
 def test_comparison_configuration_byte_limit(tmp_path: Path) -> None:

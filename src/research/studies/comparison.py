@@ -18,6 +18,7 @@ from financial_units import ExactRatio
 from research.experiments import AttemptStore, ExperimentSpec, Fingerprint
 from research.studies.configuration import BacktestRun
 from research.studies.evaluation import TrialEvaluation
+from research.studies.publication import PublicationPolicy
 from research.studies.results import ResultManifest
 from research.studies.tracking import ClearMLDestination, ClearMLPublication
 from serialization import DomainCodec, WireRecord
@@ -142,11 +143,62 @@ class ComparisonStudy(WireRecord, frozen=True):
         )
 
 
-class ComparisonEvaluator(Protocol):
+class SearchVariant(Protocol):
+    """Require an immutable serialized configuration with a stable content identity."""
+
+    @property
+    def identity(self) -> str:
+        """Identify the complete resolved variant without its execution path."""
+        ...
+
+
+class SearchDefinition[Variant: SearchVariant](Protocol):
+    """Describe one bounded validation search without prescribing its study schema."""
+
+    @property
+    def name(self) -> str:
+        """Identify the local Optuna journal study."""
+        ...
+
+    @property
+    def variants(self) -> tuple[Variant, ...]:
+        """Return complete resolved variants in frozen order."""
+        ...
+
+    @property
+    def budget(self) -> int:
+        """Bound the total number of attempted trials."""
+        ...
+
+    @property
+    def seed(self) -> int:
+        """Seed the retained grid sampler."""
+        ...
+
+    @property
+    def minimum_return(self) -> ExactRatio:
+        """Return the frozen exact acceptance threshold."""
+        ...
+
+    @property
+    def prune_below(self) -> ExactRatio | None:
+        """Return the optional frozen projected pruning threshold."""
+        ...
+
+    def __post_init__(self) -> None:
+        """Validate the complete search, its variants and their shared evaluation scope."""
+        ...
+
+    def specification(self, implementation: str, environment: str) -> ExperimentSpec:
+        """Bind the search to the installed implementation and environment."""
+        ...
+
+
+class ComparisonEvaluator[Variant: SearchVariant](Protocol):
     """Require a real application evaluation with artifacts retained before returning."""
 
     def evaluate(
-        self, run: BacktestRun, trial: Trial, store: AttemptStore, attempt_id: str
+        self, run: Variant, trial: Trial, store: AttemptStore, attempt_id: str
     ) -> TrialEvaluation:
         """Evaluate one isolated instance through its authoritative economic path.
 
@@ -170,7 +222,7 @@ class _EvaluationError(RuntimeError):
     """Preserve failed evaluation history while allowing the remaining declared trials."""
 
 
-class ParameterComparison:
+class ParameterComparison[Variant: SearchVariant]:
     """Own serial sampling, durable trial mapping and fail-closed interruption recovery.
 
     GridSampler's seed and grid are frozen in the run identity. Its grid IDs and
@@ -180,7 +232,7 @@ class ParameterComparison:
 
     def __init__(
         self,
-        study: ComparisonStudy,
+        study: SearchDefinition[Variant],
         *,
         journal: Path,
         implementation: str,
@@ -202,9 +254,10 @@ class ParameterComparison:
     def run(
         self,
         store: AttemptStore,
-        evaluator: ComparisonEvaluator,
-        tracking: ClearMLDestination,
+        evaluator: ComparisonEvaluator[Variant],
+        tracking: ClearMLDestination | None = None,
         *,
+        publication: PublicationPolicy | None = None,
         max_trials: int | None = None,
     ) -> tuple[str, ...]:
         """Resume the fixed budget, retaining and publishing every attempted variant.
@@ -212,7 +265,8 @@ class ParameterComparison:
         Args:
             store: Entered sole writer, serializing all runs sharing mutable attempt state.
             evaluator: Actual installed application composing economics and vectorbt.
-            tracking: Required retained ClearML destination for each attempt.
+            tracking: Legacy immediate ClearML destination; mutually exclusive with publication.
+            publication: Explicit local, deferred or immediate publication policy.
             max_trials: Optional invocation chunk size; does not change the frozen total budget.
 
         Returns:
@@ -232,6 +286,13 @@ class ParameterComparison:
 
         if max_trials is not None and (type(max_trials) is not int or max_trials < 1):
             raise ValueError("max_trials must be a positive invocation bound")
+        if tracking is not None and publication is not None:
+            raise ValueError("select either legacy tracking or a publication policy")
+        if publication is None:
+            if tracking is None:
+                raise ValueError("comparison requires an explicit publication policy")
+            publication = PublicationPolicy(mode="immediate", destination=tracking)
+        publication.__post_init__()
         self._journal.parent.mkdir(parents=True, exist_ok=True)
         sampler = GridSampler(
             {"variant": list(range(len(self._definition.variants)))}, seed=self._definition.seed
@@ -252,7 +313,9 @@ class ParameterComparison:
             study.set_user_attr("run_identity", self._spec.identity)
         elif identity != self._spec.identity:
             raise ValueError("resumed search configuration, code or environment differs")
-        objective = _ComparisonObjective(self._definition, self._spec, store, evaluator, tracking)
+        objective = _ComparisonObjective(
+            self._definition, self._spec, store, evaluator, publication
+        )
         for trial in study.get_trials(deepcopy=False):
             mapped: object = trial.user_attrs.get("attempt_id")  # type: ignore[misc]  # [owner=research; rationale=narrow SDK JSON metadata before mapping retained attempts; expires=2026-12-01]
             retained = tuple(
@@ -305,30 +368,42 @@ class ParameterComparison:
         if count:
             study.optimize(objective, n_trials=count, catch=(_RejectedError, _EvaluationError))
         attempts: list[str] = []
+        publisher = (
+            None
+            if publication.destination is None
+            else ClearMLPublication(store, publication.destination)
+        )
         for history in store.histories():
             if ("search", self._spec.identity) in history.start.spec.parameters:
                 attempts.append(history.start.attempt_id)
-                ClearMLPublication(store, tracking).publish(history.start.attempt_id)
+                if publisher is not None:
+                    publisher.enqueue(history.start.attempt_id)
+                    if publication.mode == "immediate":
+                        publisher.publish(history.start.attempt_id)
         return tuple(attempts)
 
 
-class _ComparisonObjective:
+class _ComparisonObjective[Variant: SearchVariant]:
     """Commit attempt outcomes around one Optuna callback, preserving partial artifacts."""
 
     def __init__(
         self,
-        definition: ComparisonStudy,
+        definition: SearchDefinition[Variant],
         spec: ExperimentSpec,
         store: AttemptStore,
-        evaluator: ComparisonEvaluator,
-        tracking: ClearMLDestination,
+        evaluator: ComparisonEvaluator[Variant],
+        publication: PublicationPolicy,
     ) -> None:
         """Bind the active single-writer evaluation lifetime."""
         self._definition = definition
         self._spec = spec
         self._store = store
         self._evaluator = evaluator
-        self._publication = ClearMLPublication(store, tracking)
+        self._publication = (
+            None
+            if publication.destination is None
+            else ClearMLPublication(store, publication.destination)
+        )
 
     def __call__(self, trial: Trial) -> float:
         """Retain every evaluated combination before invoking application code."""
@@ -337,6 +412,7 @@ class _ComparisonObjective:
 
         selected = trial.suggest_int("variant", 0, len(self._definition.variants) - 1)
         run = self._definition.variants[selected]
+        request = DomainCodec().encode_json(run)
         inputs: tuple[Fingerprint, ...] = (
             *(
                 Fingerprint(name=item.name, sha256=run.identity)
@@ -360,12 +436,17 @@ class _ComparisonObjective:
             spec,
             at=datetime.now(UTC),
             invocation="alpha-backtest compare",
-            request=DomainCodec().encode_json(run),
+            request=request,
         )
         attempt = start.attempt_id
         try:
             trial.set_user_attr("attempt_id", attempt)
-            self._publication.enqueue(attempt)
+            if hashlib.sha256(request).hexdigest() != run.identity:
+                raise ValueError(
+                    "search variant identity differs from its serialized configuration"
+                )
+            if self._publication is not None:
+                self._publication.enqueue(attempt)
             self._store.retain(
                 attempt, "comparison-definition", DomainCodec().encode_json(self._definition)
             )
@@ -430,7 +511,8 @@ class _ComparisonObjective:
             invocation="alpha-backtest compare recovery",
             request=DomainCodec().encode_json(self._definition),
         )
-        self._publication.enqueue(start.attempt_id)
+        if self._publication is not None:
+            self._publication.enqueue(start.attempt_id)
         self._store.finish(
             start.attempt_id,
             status="abandoned",

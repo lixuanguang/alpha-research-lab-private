@@ -93,6 +93,15 @@ Use the [market-data interfaces](../src/market_data/README.md),
 study. The [platform roadmap](../docs/roadmap/README.md) owns missing capabilities
 and onboarding status. The researcher owns the hypothesis and economic decision.
 
+The [generalized study API](../src/research/studies/README.md#generalized-decision-studies)
+accepts typed or serialized configuration and explicitly supplied compatible
+features, transforms, estimators, policies, execution/cost models and reports.
+Quant development maintains the [installed reference consumer](../tests/integration/consumers/research/decision_study.py)
+and [captured-source consumer](../tests/integration/consumers/research/captured_study.py)
+as executable engineering acceptance. Their losing/no-trade and queue-sensitivity
+cases are not QR deliverables or empirical strategy evidence. Formal QR research
+still starts only after all infrastructure and MR17/G5 acceptance.
+
 The former infrastructure demonstrations have been removed from the active
 examples. Their source remains in Git history; saved data and historical run
 records retain their original identities.

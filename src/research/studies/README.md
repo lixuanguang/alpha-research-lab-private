@@ -1,7 +1,7 @@
 # Research studies, diagnostics and reports
 
 Owner: repository founder. Status: implemented for bounded local research;
-updated 2026-09-23. This guide owns the `research.studies` records and the
+updated 2026-09-24. This guide owns the `research.studies` records and the
 comparison, diagnostic, report, publication and serial-pipeline consumers that
 use them. The [experiment core](../experiments/README.md) owns semantic run
 identity, temporal folds, holdout access and append-only attempt history. The
@@ -32,6 +32,129 @@ diagnostics retain their own missing-label and aligned-row rules.
 The saved L2 `BookReport` record belongs to the [saved L2 workflow](../../../docs/research/l2-book-backtest.md),
 which documents its current bundle reader and compatibility with historical
 reports. This page does not duplicate that report schema.
+
+## Generalized decision studies
+
+`applications.explore.evaluate_study` composes the MR02 named-input feature,
+fitted-transform, estimator and policy contracts with the
+[offline intent simulator](../../simulation/README.md#offline-decision-intent-studies).
+It accepts a `DecisionStudy` value or a path to the same strict versioned JSON.
+`StudyComponents` supplies the actual source, market reader, feature, policy,
+optional transform/model/outcome reader, execution/cost models and metric/chart
+implementations. Every configured identity must match; missing selections fail
+without substituting a built-in implementation. This is an installed callable
+API; no new command or dynamic Python import from configuration is introduced.
+
+`StudyFold` freezes training/evaluation schedules, an authored `TemporalSplit`
+with an empty sample inventory, and a label-evaluation cutoff. The application
+derives sample identities and information intervals from actual feature/outcome
+bytes, retains the resolved split and fitting exclusions, and passes only
+admitted earlier rows to fitting. Transform/model bytes are retained before
+reload-only inference. Missing learned inputs are explicitly excluded;
+unavailable labels retain their reasons in exact predictive diagnostics.
+Feature/policy sessions and exact cash accounts start independently in every
+fold. Up to 32 nonoverlapping evaluation folds and 1,024 decisions per schedule
+are supported; this is bounded materialized research, not MR15 scale acceptance.
+
+All folds share one frozen final holdout. Validation label cutoffs must precede
+it. If validation ends where holdout begins, the inclusive market-input cutoff
+stops one microsecond before that boundary; terminal valuation uses the last
+fresh prior book. A `partition="holdout"` study has one fold and records
+consumption before any source, feature, label or market read. Failed holdout
+work remains consumed. The existing family store denies a changed run another
+final-sample read; an identical run can reproduce its earlier access.
+
+Custom implementations are trusted code, not sandboxed plugins. Retain external
+source/package bytes as `StudyArtifact` values in `StudyComponents.artifacts`,
+with matching `DecisionStudy.extensions` fingerprints. The application checks
+digests, includes them alongside the installed distribution in experiment
+identity, and retains the bytes before source access. An empty extension list
+is appropriate only when the installed distribution contains all component code.
+These checks cannot prove arbitrary supplied Python truthfully declares its
+version or obeys its pure-transition protocol. MR06 owns trusted release admission.
+
+Publication is explicit through `PublicationPolicy`:
+
+- `local` retains attempts/reports without initializing tracking transport.
+- `deferred` retains the existing ClearML destination/outbox before computation
+  and returns local completion without contacting the server.
+- `immediate` publishes after local completion. Transport failure propagates,
+  while the completed result remains readable and retryable.
+
+`applications.explore.publish_experiments(attempts)` retries retained outbox bytes
+without reevaluating folds or consuming holdouts. Older configured consumers
+retain their existing immediate-tracking signatures below. The new policy is
+also supported by the existing `ParameterComparison` controller.
+
+The following is the result-reading portion of a workflow after the caller
+constructs its `components` through the public protocols:
+
+```python
+from pathlib import Path
+from applications.explore import evaluate_study
+from research.experiments import AttemptStore
+from research.studies import DecisionStudy, PublicationPolicy, StudyReportReader, StudyResult
+
+root = Path("/absolute/path/to/study")
+history = evaluate_study(
+    DecisionStudy.read(root / "study.json"),
+    components=components,
+    attempts=root / "attempts",
+    publication=PublicationPolicy(mode="local"),
+)
+store = AttemptStore(root / "attempts")
+result = StudyResult.read(store, history.start.attempt_id)
+report = StudyReportReader.read(store, history.start.attempt_id)
+```
+
+Both readers require a completed `ResultManifest` and verify every committed
+artifact digest. Results retain original configuration, actual inputs, resolved
+splits, fitted bytes, predictions, decisions, feature/policy state, order outcomes
+and exact ledgers. Reports retain versioned exact metrics, units, missingness,
+selected charts and safe self-contained HTML/SVG. `MetricDefinition` and
+`ChartDefinition` consume a typed `ReportContext` of fold ledgers, sampled marks
+and predictive diagnostics. Their identities and returned definitions must
+match the selections. `NetReturnMetric` and `LedgerCurveChart` are explicit
+reference choices. Initial/terminal NAV points do not describe intraperiod
+drawdown; separate fold returns do not describe a continuous investment account.
+Runtime dashboard/alert integration remains MR12.
+
+`applications.explore.compare_studies` accepts a typed/serialized
+`DecisionComparison`, exact variant-to-`StudyComponents` bindings, an attempt
+root, Optuna journal and publication policy. It reuses `ParameterComparison`.
+Variants share source, folds, capital, report definitions, extension artifacts
+and authored seeds. The exact objective is the arithmetic mean of independent
+fold net returns; Optuna receives only its finite float projection. The 1–32
+variant grid, total budget, sampler seed, rejection threshold and optional
+pruning threshold are frozen. Search never reads holdout. Failures, interruptions,
+exclusions, rejected/pruned trials and publication retries preserve original
+attempts and consume their budget slots. Resumption requires identical code,
+configuration and environment.
+
+The runnable [installed extension consumer](../../../tests/integration/consumers/research/decision_study.py)
+authors fresh feature, estimator, strategy, metric and chart implementations,
+exercises typed/JSON inputs, walk-forward fitting, exact losing/no-trade cases,
+search recovery and failed holdout access, and reopens results in a fresh process.
+The [captured-source consumer](../../../tests/integration/consumers/research/captured_study.py)
+uses `SavedDecisionSource` and `CapturedStudyMarket` to reopen retained
+OKX/Bitfinex trades, references and native books. Its invocation and evidence
+belong to the [MR03 acceptance record](../../../docs/roadmap/README.md#mr03-delivery-and-acceptance).
+
+`CapturedStudyMarket` reuses `BookInput.admit`, `DatasetReaders` and `RawStore`
+verification. It requires the original capture's research universe, preserving
+the separate collection, research, strategy and trading declarations. A study's
+instance/entity is an offline selection, not account authorization.
+The explicit `receipt-as-matching-v1` scenario models matching at the original
+receipt clock, rounded upward to microseconds; native exchange timestamps remain
+retained. Bitfinex visible orders are aggregated into depth without inferring
+queue priority. No trade prints are invented, so these book-only source runs
+cannot prove passive fills. Unknown archive receipts are refused. Source
+coverage, venue execution, profitability and deployment remain separate claims.
+
+Reversal removes these additive APIs and consumers together; existing BacktestRun,
+book, feature/model and result schemas remain supported. Preserve new attempt
+roots, original data, extension artifacts and the matching wheel. Older wheels
+cannot read the new schemas; do not hand-edit retained identities as a migration.
 
 ## Inspect a retained saved-data study
 

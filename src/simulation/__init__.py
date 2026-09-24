@@ -20,6 +20,20 @@ from simulation.economics import (
     PendingIntent,
     SpotSimulation,
 )
+from simulation.intents import (
+    IntentCostModel,
+    IntentDecisionOutcome,
+    IntentExecutionModel,
+    IntentMarket,
+    IntentOrderOutcome,
+    IntentSimulation,
+    IntentSimulationResult,
+    IntentSimulationSpec,
+    IntentTrade,
+    LimitExecutionConfig,
+    LimitOrderExecution,
+    SpotFeeModel,
+)
 from simulation.vectorized import VectorbtAdapter, VectorbtOrder, VectorbtResult
 
 __all__ = [
@@ -35,8 +49,20 @@ __all__ = [
     "EconomicEvent",
     "EconomicResult",
     "EconomicState",
+    "IntentCostModel",
+    "IntentDecisionOutcome",
+    "IntentExecutionModel",
+    "IntentMarket",
+    "IntentOrderOutcome",
+    "IntentSimulation",
+    "IntentSimulationResult",
+    "IntentSimulationSpec",
+    "IntentTrade",
+    "LimitExecutionConfig",
+    "LimitOrderExecution",
     "PendingIntent",
     "SpotCosts",
+    "SpotFeeModel",
     "SpotSimulation",
     "VectorbtAdapter",
     "VectorbtOrder",
