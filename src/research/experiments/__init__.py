@@ -7,6 +7,15 @@ initialize their third-party SDKs.
 """
 
 # project library imports
+from research.experiments.candidates import (
+    CandidateArtifact,
+    CandidateAssessment,
+    CandidateBundle,
+    CandidateComponent,
+    CandidateManifest,
+    CandidateMetricContract,
+    CandidateStateContract,
+)
 from research.experiments.identity import ExperimentSpec, Fingerprint
 from research.experiments.splits import SampleInterval, TemporalSplit, TimeWindow
 from research.experiments.store import AttemptEvent, AttemptHistory, AttemptStart, AttemptStore
@@ -16,6 +25,13 @@ __all__ = [
     "AttemptHistory",
     "AttemptStart",
     "AttemptStore",
+    "CandidateArtifact",
+    "CandidateAssessment",
+    "CandidateBundle",
+    "CandidateComponent",
+    "CandidateManifest",
+    "CandidateMetricContract",
+    "CandidateStateContract",
     "ExperimentSpec",
     "Fingerprint",
     "SampleInterval",

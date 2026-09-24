@@ -12,6 +12,9 @@ comparisons, diagnostics, configured reports and pipelines have their own
 
 ## Import boundary
 
+The candidate records described below remain lightweight and do not import model,
+study, reporting or worker implementations.
+
 The package exports only the lightweight records needed to describe and retain
 an experiment:
 
@@ -174,3 +177,42 @@ The experiment core continues to own their attempt identity and holdout policy.
 Engineering-sample mode moved to the [studies guide](../studies/README.md#unfitted-engineering-samples).
 It remains a distinct no-holdout software sample and cannot be converted into a
 validation family to bypass evidence controls.
+
+## Candidate bundles
+
+`CandidateManifest` and `CandidateBundle` package a completed generalized
+`DecisionStudy` for local replay and runtime binding. Both rule-only and learned
+candidates retain the exact resolved dataset selection, `ExperimentSpec`,
+`AttemptHistory`, report, feature schema, component parameter JSON and implementation
+digests. Learned candidates additionally retain the chosen fold's `TransformVersion`
+and `EstimatorVersion`; inference reloads those bytes without fitting again.
+The selection record names original sources and economic scope; it is not a copy
+or qualification of all underlying market history.
+
+The manifest binds named inputs and units, cadence, entity/product/calendar,
+capability requirements, a feature-store definition when serving is used, state
+and warm-up policy, and versioned metric/chart contracts. `available_at` means
+declared decision eligibility, including fitted-state availability; it does not
+claim that a later report existed at an earlier historical time.
+`qualification="engineering"` retains reference-workload evidence. Empirical
+qualification requires a temporal study and a retained acceptance assessment of
+that exact report; the record does not prove profitability or grant authority.
+
+`CandidateBundle(root).publish(manifest, artifacts)` verifies the exact named byte
+inventory and completed-study links before atomically publishing `manifest.json`.
+Objects are stored by SHA-256. Identical retries are idempotent; another manifest
+requires another root. `read()` verifies every object and provenance link.
+`artifact(reference)` returns verified member bytes. Unknown schemas, changed
+objects, unsafe names, symlinks, incomplete/failed attempts, substituted components
+or fitted artifacts absent from the completed result fail. Digests establish
+integrity and compatibility; trusted installation remains MR06.
+
+Use `applications.explore.run_candidate` and the
+[`runtime.CandidateLoader`](../../runtime/README.md#candidate-loading-and-intent-evaluation)
+to reconstruct registered components. Configuration never imports arbitrary code
+or executes serialized expressions. The
+[installed candidate consumer](../../../tests/integration/consumers/research/candidate_workflow.py)
+packages actual studies with fresh factories, exercises the same candidates in
+replay/runtime and Feast serving, and reopens checkpoints in another process.
+Older result formats require an explicit verified adapter; they are not silently
+treated as generalized study provenance.

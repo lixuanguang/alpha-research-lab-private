@@ -32,8 +32,9 @@ Digests detect accidental corruption, not hostile code or forgery.
 source/feature/policy/fitted identities, required capabilities and explicit UTC
 schedule. Available capabilities are supplied by the composing environment.
 Unsupported requirements, signatures or fitted-state availability fail before
-source access. This is the research admission slice; the full MR05 capability
-registry and candidate manifest remain open. A declared capability is not venue
+source access. Packaged study candidates use the typed capability registry and
+[`CandidateLoader`](../runtime/README.md#candidate-loading-and-intent-evaluation)
+for resolved replay/runtime admission. A declared capability is not venue
 qualification or trading authority.
 
 `applications.explore.run_decisions` composes the selected source, feature,
@@ -51,5 +52,6 @@ authors a feature, label, non-built-in estimator and quote policy outside shared
 orchestration. Its training/prediction/quote goldens and fresh-process continuation
 prove these extension points. The
 [domain tests](../../tests/unit/research/test_decision_contracts.py) exercise rule-only,
-learned, stateful and separate-instrument instances. Shared accounts, passive fill
-models, service state migration and runtime promotion remain separate milestones.
+learned, stateful and separate-instrument instances. Shared accounts, supervised
+order handling and service state migration remain separate milestones. Candidate
+loading now reconstructs the selected policy and rejects changed state or outputs.

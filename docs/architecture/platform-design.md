@@ -204,7 +204,8 @@ Local/deferred publication preserves attempts independently of tracking availabi
 The [study guide](../../src/research/studies/README.md#generalized-decision-studies)
 owns the bounded spot implementation and installed consumers. No runner may replace
 a selected implementation with its built-in default. Candidate/runtime binding
-remains MR05; MR04 services and MR12 runtime telemetry extend these contracts.
+is implemented by MR05's local candidate loader; MR04 services and MR12 runtime
+telemetry extend these contracts.
 
 ## Dependency and interface graph
 
@@ -576,8 +577,9 @@ observations or a book/macro formula. The separate completed-price feature now
 reuses `research.observations` and one `CompletedReturn` formula across simulation
 and a bounded scheduled batch path. `applications.backtest.qualify_scheduled_features`
 and its `qualify-features` subcommand retain exact replay/batch/restart traces.
-This qualifies saved-input software only; runtime source/cadence qualification,
-incremental/online retrieval and candidate promotion remain open. Their in-scope
+This qualifies saved-input software only; live source/cadence qualification
+remains open. MR04 online retrieval and MR05 local candidate binding now implement
+their declared boundaries. Their in-scope
 lifecycle and serving interfaces are now required before QR onboarding, exercised
 by reference consumers owned by quant development. The feature store must provide
 the offline and online behavior below; its service topology follows the workload.
@@ -607,7 +609,7 @@ and train-only centered least-squares state, reload-only inference and exact
 predictive evaluation. ClearML publication is a separate recoverable outbox;
 terminal attempts and holdout history remain authoritative locally. ClearML source admission verifies
 the locked wheel against its pinned upstream archive. Configured economic reports and local serial installed pipelines are now implemented;
-candidate promotion remains planned. Explicit unfitted engineering samples use the
+local candidate packaging/binding is now implemented. Explicit unfitted engineering samples use the
 same backtest workflow and retained stores without designating a validation or holdout
 window. Family declarations prevent crossing design modes to bypass holdout controls.
 Native archive capture corroboration lives in existing market-data owners; scoped
@@ -641,11 +643,11 @@ Once an exploratory result influences a candidate decision, it receives durable 
 ### Feature-store contract
 
 Status: **implemented local versioned feature store and isolated Feast serving;
-deployment and full candidate/OMS integration remain separate**.
+deployment and supervised OMS integration remain separate**.
 MR02 owns feature definitions and result semantics; MR04 owns provisioned stores,
 materialization and retrieval. The MR04 intent-only consumer supplies the initial
-MR05/MR07 online feature/policy binding; full candidates and supervised OMS remain
-with those milestones. The store serves
+MR05/MR07 online feature/policy binding; MR05 now loads complete candidates through
+that store, while supervised OMS remains MR07. The store serves
 versioned features across studies and strategy instances rather than a special
 case for the initial return diagnostic. Preserve Feast's independently locked
 worker and the core numerical/temporal contracts while extending its integration.
@@ -681,8 +683,9 @@ implementations without shared runner edits. The owning
 [strategy guide](../../src/strategies/README.md) define the exact supported scope.
 MR03 now composes these definitions into costed temporal studies, search and
 extensible retained reports. The [feature guide](../../src/research/features/README.md) now owns MR04 local
-feature-store services and intent-only online consumption. Candidate deployment
-and complete runtime integration remain MR05/MR07; offline study fills do not
+feature-store services and intent-only online consumption. Candidate packaging
+and runtime binding are implemented locally under MR05; supervised runtime integration remains
+MR07. Offline study fills do not
 qualify venue execution.
 
 
@@ -723,7 +726,10 @@ semantics require new versions and affected validation.
 
 ### Candidate promotion contract
 
-Status: **planned; required before QR onboarding**. Quant development implements
+Status: **implemented for local candidate packaging and intent-only runtime binding**.
+The [candidate guide](../../src/research/experiments/README.md#candidate-bundles) and
+[runtime guide](../../src/runtime/README.md#candidate-loading-and-intent-evaluation)
+own the installed interfaces. Quant development implements
 the candidate manifest in `research/experiments/` using both rule-only and learned
 reference candidates. Learned fields remain inapplicable for a rule-only
 candidate. A reference engineering artifact is explicitly distinguished from a

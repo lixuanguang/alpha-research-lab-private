@@ -409,5 +409,7 @@ branch and shared formula use together; preserve matching wheels and retained st
 Older wheels cannot read these new feature-state/parity schemas. Existing study
 and economic schemas are unchanged. For this completed-price consumer,
 incremental execution remains separate from the generalized feature lifecycle
-above. The local Feast serving path is described above; candidate packaging,
-deployment and trading remain subsequent work.
+above. The local Feast serving path is described above;
+[candidate packaging and binding](../../runtime/README.md#candidate-loading-and-intent-evaluation)
+now consume these definitions and fitted versions. Deployment and trading remain
+subsequent work.
