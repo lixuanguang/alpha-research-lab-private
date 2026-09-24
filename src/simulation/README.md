@@ -6,6 +6,41 @@ Each study declares its own [policy and economic assumptions](../../examples/stu
 This library does not establish historical source coverage, empirical
 alpha, executable liquidity, release admission or trading authority.
 
+## Offline decision-intent studies
+
+`IntentSimulation` composes an explicitly supplied `IntentExecutionModel`,
+`IntentCostModel` and the existing exact `Ledger`. The
+[study application](../research/studies/README.md#generalized-decision-studies)
+carries target, exposure, order and quote decisions through this public boundary.
+`LimitOrderExecution` supports bounded long-only spot IOC and limit orders,
+post-only admission, partial depth, cancellation/replacement and expiry. Independent
+`SpotLimits` check tick/lot dimensions, cash and position limits. Optional retained
+`ReferenceHistory` resolves limits by valid and knowledge time at each event;
+missing/stale reference fails. Fixed authored limits remain a declared assumption.
+
+The configured entry/cancel delays and lifetime are microseconds. A replacement
+waits for cancellation and then entry delay. Books and prints become available
+at the later source/knowledge clock; controls invalidate pending orders. Consumed
+depth is not repeatedly offered while its level remains present. Passive orders
+start behind `visible quantity * queue_ahead_fraction`; only opposite-aggressor
+prints at the eligible price advance that queue. Book shrinkage is not a second
+fill signal. Queue fraction is a sensitivity parameter, not measured queue position.
+`SpotFeeModel` supplies explicit maker/taker costs; price arithmetic, ledger
+postings and net return remain exact. Completion cancels outstanding orders and
+marks retained holdings against a fresh bid; it never invents a terminal sale.
+
+The [installed study consumer](../../tests/integration/consumers/research/decision_study.py)
+tests a losing target study and passive queue sensitivity through the same
+application. [Focused lifecycle tests](../../tests/unit/simulation/test_intent_simulation.py)
+cover cancel/replace, partial IOC, controls, source clocks, reference changes and
+target/exposure/order/quote support. `CapturedStudyMarket` can retain actual
+capture bytes with an explicit receipt-as-matching assumption, aggregating L3
+visible orders without inventing trades. It therefore cannot prove passive fills.
+These contracts deliver MR07's offline lifecycle prerequisite slice for MR03;
+shared-account OMS, venue conformance and deployed execution remain open under
+MR05/MR07–MR11. The engine's one-account spot support rejects unsupported products
+and does not qualify venue latency, historical queue position or empirical alpha.
+
 ## Saved L2 IOC research
 
 `applications.backtest.run_books` and `alpha-backtest books` now compose verified

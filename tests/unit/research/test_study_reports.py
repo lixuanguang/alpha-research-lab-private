@@ -1,0 +1,361 @@
+"""Prove exact selected study extensions and completed artifact reading."""
+
+from __future__ import annotations
+
+# standard library imports
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from fractions import Fraction
+from pathlib import Path
+
+# third party library imports
+import pytest
+from msgspec.structs import replace
+
+# project library imports
+from accounting import Fill, Ledger, LedgerState
+from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
+from reference_data.instruments import InstrumentId
+from research.experiments import AttemptStore, ExperimentSpec, Fingerprint, TimeWindow
+from research.studies.extensions import (
+    ChartSpec,
+    FoldSummary,
+    LedgerCurveChart,
+    LedgerPoint,
+    MetricValue,
+    NetReturnMetric,
+    ReportContext,
+    ReportObservation,
+    StudyReport,
+    StudyReportBuilder,
+    StudyReportReader,
+)
+from research.studies.results import ResultManifest
+from serialization import DomainCodec
+
+
+class _ForecastErrorMetric:
+    """Exercise a new metric implementation without changing the report builder."""
+
+    identity = Fingerprint(name="forecast-error", sha256="d" * 64)
+
+    def evaluate(self, context: ReportContext) -> MetricValue:
+        """Average only the exact diagnostic errors supplied by the study runner."""
+        observations = tuple(fold.diagnostics[0] for fold in context.folds)
+        values = [
+            Fraction(int(observation.value.numerator), int(observation.value.denominator))
+            for observation in observations
+            if observation.value is not None
+        ]
+        return MetricValue(
+            definition=self.identity,
+            name="Forecast error <custom>",
+            version="forecast-v1",
+            units="ratio",
+            value=ExactRatio.from_fraction(sum(values, Fraction(0)) / len(values)),
+            observations=observations,
+        )
+
+
+class _ForecastChart:
+    """Exercise a fresh chart that carries potentially unsafe user-authored labels."""
+
+    identity = Fingerprint(name="forecast-chart", sha256="e" * 64)
+
+    def evaluate(self, context: ReportContext) -> ChartSpec:
+        """Reference exact error observations supplied by the study runner."""
+        return ChartSpec(
+            definition=self.identity,
+            title="Error <script>alert(1)</script>",
+            kind="bar",
+            data_references=("error<script>",),
+            observations=tuple(fold.diagnostics[0] for fold in context.folds),
+        )
+
+
+class _SubstitutedMetric:
+    """Identify the selected metric but return an unrelated output identity."""
+
+    identity = _ForecastErrorMetric.identity
+
+    def evaluate(self, context: ReportContext) -> MetricValue:
+        """Produce a forged output to prove the builder rejects silent substitution."""
+        return MetricValue(
+            definition=NetReturnMetric.identity,
+            name="wrong output",
+            version="1",
+            units="ratio",
+            value=ExactRatio.from_fraction(Fraction(0)),
+        )
+
+
+class TestStudyReports:
+    """Use small posted ledgers, explicit clocks and real retained attempts."""
+
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    currency = Currency(code="TEST", minor_unit=Decimal("0.01"))
+    dimension = Dimension(
+        instrument_id=InstrumentId.from_canonical_text("11111111-1111-4111-8111-111111111111"),
+        kind=QuantityKind.BASE_UNIT,
+    )
+
+    @classmethod
+    def _fold(cls, fold_id: str, offset: int) -> FoldSummary:
+        """Post one exact buy and retain an unavailable intermediate valuation."""
+        start = cls.start + timedelta(hours=offset)
+        end = start + timedelta(hours=2)
+        price = Price(value=Decimal("100"), currency=cls.currency, per=cls.dimension)
+        state = LedgerState(
+            initial_cash=Money(value=Decimal("1000"), currency=cls.currency),
+            dimension=cls.dimension,
+        )
+        ledger = Ledger(state)
+        initial_mark = ledger.mark(None)
+        ledger.apply(
+            Fill(
+                identity=f"buy-{fold_id}",
+                decision_at=start + timedelta(minutes=10),
+                filled_at=start + timedelta(minutes=11),
+                quantity=Quantity(value=Decimal("1"), dimension=cls.dimension),
+                reference=price,
+                effective=price,
+                fee=Money(value=Decimal("0"), currency=cls.currency),
+            )
+        )
+        terminal = ledger.mark(
+            Price(value=Decimal("110"), currency=cls.currency, per=cls.dimension)
+        )
+        return FoldSummary(
+            fold_id=fold_id,
+            window=TimeWindow(start=start, end=end),
+            ledger=ledger.state,
+            terminal_mark=terminal,
+            curve=(
+                LedgerPoint(at=start, mark=initial_mark),
+                LedgerPoint(
+                    at=start + timedelta(hours=1),
+                    mark=None,
+                    missing_reason="quote unavailable <late>",
+                ),
+                LedgerPoint(
+                    at=start + timedelta(minutes=90),
+                    mark=ledger.mark(
+                        Price(value=Decimal("105"), currency=cls.currency, per=cls.dimension)
+                    ),
+                ),
+                LedgerPoint(at=end, mark=terminal),
+            ),
+            diagnostics=(
+                ReportObservation(
+                    fold_id=fold_id,
+                    name="error<script>",
+                    at=start + timedelta(minutes=10),
+                    units="ratio",
+                    value=ExactRatio.from_fraction(Fraction(1, 3)),
+                ),
+            ),
+        )
+
+    @classmethod
+    def _context(cls, identity: str = "a" * 64) -> ReportContext:
+        """Provide two independent fold ledgers under one semantic study identity."""
+        return ReportContext(
+            study_identity=identity,
+            folds=(cls._fold("first", 0), cls._fold("second", 3)),
+        )
+
+    @staticmethod
+    def _report(context: ReportContext) -> StudyReport:
+        """Bind both builtins and new extensions in explicit configured order."""
+        return StudyReportBuilder.build(
+            context,
+            expected_metrics=(NetReturnMetric.identity, _ForecastErrorMetric.identity),
+            expected_charts=(LedgerCurveChart.identity, _ForecastChart.identity),
+            metrics=(NetReturnMetric(), _ForecastErrorMetric()),
+            charts=(LedgerCurveChart(), _ForecastChart()),
+            limitations=("Engineering result; <no deployment authority>.",),
+        )
+
+    @classmethod
+    def _spec(cls) -> ExperimentSpec:
+        """Construct a real engineering attempt for the artifact reader."""
+        return ExperimentSpec(
+            schema_version="experiment-engineering-sample-v1",
+            family="typed-report-consumer",
+            inputs=(Fingerprint(name="input", sha256="a" * 64),),
+            components=(Fingerprint(name="implementation", sha256="b" * 64),),
+            parameters=(),
+            seeds=(),
+            environment_sha256="c" * 64,
+            split=None,
+            engineering_sample=TimeWindow(start=cls.start, end=cls.start + timedelta(hours=5)),
+        )
+
+    def test_custom_extensions_preserve_selection_exact_values_and_escaped_html(self) -> None:
+        """Keep custom identities, rational arithmetic, missing marks and safe display text."""
+        report = self._report(self._context())
+        assert report.selected_metrics == (
+            NetReturnMetric.identity,
+            _ForecastErrorMetric.identity,
+        )
+        assert report.selected_charts == (LedgerCurveChart.identity, _ForecastChart.identity)
+        assert report.metrics[0].value == ExactRatio.from_fraction(Fraction(1, 100))
+        assert report.metrics[1].value == ExactRatio.from_fraction(Fraction(1, 3))
+        assert report.charts[0].observations[1].missing_reason == "quote unavailable <late>"
+        assert report.charts[0].observations[-1].value == ExactRatio.from_fraction(Fraction(1010))
+        assert DomainCodec().decode_json(DomainCodec().encode_json(report), StudyReport) == report
+        rendered = report.render().decode()
+        assert "1/100" in rendered and "1/3" in rendered
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rendered
+        assert "<script>" not in rendered
+        assert '<svg viewBox="0 0 760 230"' in rendered
+        assert rendered.count("<polyline") == 2
+        assert rendered.count("<circle") == 2
+        assert "<rect x=" in rendered
+        assert "&lt;no deployment authority&gt;" in rendered
+        assert "quote unavailable &lt;late&gt;" in rendered
+
+    def test_missing_values_and_bad_ledger_marks_are_explicit(self) -> None:
+        """Withhold zero-capital returns and reject invented terminal NAV."""
+        zero = LedgerState(
+            initial_cash=Money(value=Decimal("0"), currency=self.currency),
+            dimension=self.dimension,
+        )
+        window = TimeWindow(start=self.start, end=self.start + timedelta(hours=1))
+        mark = Ledger(zero).mark(None)
+        fold = FoldSummary(
+            fold_id="zero",
+            window=window,
+            ledger=zero,
+            terminal_mark=mark,
+            curve=(LedgerPoint(at=window.end, mark=mark),),
+        )
+        result = NetReturnMetric().evaluate(ReportContext(study_identity="a" * 64, folds=(fold,)))
+        assert result.value is None
+        assert result.missing_reason == "at least one fold has zero initial cash"
+        assert result.observations[0].missing_reason == "initial cash is zero"
+        original = self._fold("first", 0)
+        forged = replace(
+            original.terminal_mark,
+            nav=Money(value=Decimal("1020"), currency=self.currency),
+        )
+        with pytest.raises(ValueError, match="reconcile"):
+            replace(
+                original,
+                terminal_mark=forged,
+                curve=(
+                    original.curve[0],
+                    original.curve[1],
+                    original.curve[2],
+                    LedgerPoint(at=original.window.end, mark=forged),
+                ),
+            )
+        with pytest.raises(ValueError, match="reason"):
+            ReportObservation(
+                fold_id="first", name="missing", at=self.start, units="ratio", value=None
+            )
+
+    def test_selected_definitions_cannot_be_replaced_or_omitted(self) -> None:
+        """Require both implementation and evaluated output identities to match selection."""
+        context = self._context()
+        with pytest.raises(ValueError, match="exactly match"):
+            StudyReportBuilder.build(
+                context,
+                expected_metrics=(NetReturnMetric.identity,),
+                expected_charts=(LedgerCurveChart.identity,),
+                metrics=(),
+                charts=(LedgerCurveChart(),),
+            )
+        with pytest.raises(ValueError, match="metric implementation differs"):
+            StudyReportBuilder.build(
+                context,
+                expected_metrics=(_ForecastErrorMetric.identity,),
+                expected_charts=(LedgerCurveChart.identity,),
+                metrics=(NetReturnMetric(),),
+                charts=(LedgerCurveChart(),),
+            )
+        with pytest.raises(ValueError, match="replaced"):
+            StudyReportBuilder.build(
+                context,
+                expected_metrics=(_ForecastErrorMetric.identity,),
+                expected_charts=(LedgerCurveChart.identity,),
+                metrics=(_SubstitutedMetric(),),
+                charts=(LedgerCurveChart(),),
+            )
+
+    def test_chart_rejects_mixed_units_and_reordered_series(self) -> None:
+        """A plotted series has one dimensional scale and increasing fold clocks."""
+        chart = _ForecastChart().evaluate(self._context())
+        with pytest.raises(ValueError, match="incompatible units"):
+            replace(
+                chart,
+                observations=(
+                    chart.observations[0],
+                    replace(chart.observations[1], units="DIFFERENT"),
+                ),
+            )
+        with pytest.raises(ValueError, match="series clocks"):
+            replace(
+                chart,
+                observations=(chart.observations[0], chart.observations[0]),
+            )
+
+    def test_reader_requires_completed_matching_digest_verified_artifact(
+        self, tmp_path: Path
+    ) -> None:
+        """Refuse interrupted, failed, cross-run and mutated committed report bytes."""
+        root = tmp_path / "attempts"
+        spec = self._spec()
+        with AttemptStore(root) as writer:
+            incomplete = writer.start(spec, at=self.start, invocation="report incomplete")
+            report = self._report(self._context(spec.identity))
+            writer.retain(incomplete.attempt_id, "study-report", DomainCodec().encode_json(report))
+            with pytest.raises(ValueError, match="completed"):
+                StudyReportReader.read(writer, incomplete.attempt_id)
+            writer.finish(
+                incomplete.attempt_id,
+                status="failed",
+                at=self.start + timedelta(seconds=1),
+                reason="deliberate failure",
+            )
+            with pytest.raises(ValueError, match="completed"):
+                StudyReportReader.read(writer, incomplete.attempt_id)
+            completed = writer.start(spec, at=self.start, invocation="report completed")
+            manifest = ResultManifest.retain(
+                writer,
+                completed.attempt_id,
+                {"study-report": DomainCodec().encode_json(report), "html": report.render()},
+            )
+            writer.finish(
+                completed.attempt_id,
+                status="completed",
+                at=self.start + timedelta(seconds=1),
+                reason="verified report",
+                result=DomainCodec().encode_json(manifest),
+            )
+        reader = AttemptStore(root)
+        assert StudyReportReader.read(reader, completed.attempt_id) == report
+        artifact = root / completed.attempt_id / "artifact-study-report.bin"
+        artifact.chmod(0o600)
+        artifact.write_bytes(b"mutated")
+        with pytest.raises(ValueError, match="digest mismatch"):
+            StudyReportReader.read(reader, completed.attempt_id)
+
+    def test_reader_rejects_a_report_from_another_semantic_run(self, tmp_path: Path) -> None:
+        """A verified artifact still has to match its enclosing attempt identity."""
+        spec = self._spec()
+        report = self._report(self._context("f" * 64))
+        with AttemptStore(tmp_path / "attempts") as writer:
+            start = writer.start(spec, at=self.start, invocation="wrong study report")
+            manifest = ResultManifest.retain(
+                writer, start.attempt_id, {"study-report": DomainCodec().encode_json(report)}
+            )
+            writer.finish(
+                start.attempt_id,
+                status="completed",
+                at=self.start + timedelta(seconds=1),
+                reason="wrong semantic identity",
+                result=DomainCodec().encode_json(manifest),
+            )
+        with pytest.raises(ValueError, match="identity differs"):
+            StudyReportReader.read(AttemptStore(tmp_path / "attempts"), start.attempt_id)

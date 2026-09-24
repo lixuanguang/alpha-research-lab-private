@@ -11,15 +11,19 @@ from applications.explore.decisions import (
 from applications.explore.diagnostics import compare_factors, compare_windows
 from applications.explore.models import evaluate_model, publish_experiments
 from applications.explore.offline import compare_offline_features
+from applications.explore.studies import StudyComponents, compare_studies, evaluate_study
 from applications.explore.workflow import inspect_eda, inspect_experiment
 
 __all__ = [
     "DecisionCheckpoint",
     "DecisionResult",
+    "StudyComponents",
     "compare_factors",
     "compare_offline_features",
+    "compare_studies",
     "compare_windows",
     "evaluate_model",
+    "evaluate_study",
     "inspect_decisions",
     "inspect_eda",
     "inspect_experiment",

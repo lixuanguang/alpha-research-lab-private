@@ -195,14 +195,16 @@ The engineering checker enforces imports, public APIs and entrypoints for the
 current source tree. New capabilities follow these rules when they gain a working
 consumer; no empty-folder or framework mandate is implied.
 
-The planned QR API completion must carry explicitly supplied compatible features,
-estimators, rules, execution/cost assumptions and metric/chart definitions through
-the public workflows, including retained reports and runtime binding. A high-level
-runner must not replace an injected implementation with its built-in default.
-Provide typed study configuration and typed result access alongside serialized
-reproduction inputs. Explicit local/deferred publication preserves attempts without
-making a tracking outage look like failed computation. These are planned changes;
-current component guides remain authoritative until their implementation lands.
+The MR03 offline study API carries explicitly supplied compatible features,
+transforms, estimators, rules, execution/cost assumptions and metric/chart definitions
+through `applications.explore.evaluate_study` and `compare_studies`. Typed and
+serialized configuration identify the same run; retained implementation bytes,
+resolved folds and typed result/report readers preserve reproduction inputs.
+Local/deferred publication preserves attempts independently of tracking availability.
+The [study guide](../../src/research/studies/README.md#generalized-decision-studies)
+owns the bounded spot implementation and installed consumers. No runner may replace
+a selected implementation with its built-in default. Candidate/runtime binding
+remains MR05; MR04 services and MR12 runtime telemetry extend these contracts.
 
 ## Dependency and interface graph
 
@@ -674,8 +676,9 @@ implementations without shared runner edits. The owning
 [model guide](../../src/research/models/README.md#generalized-estimator-lifecycle),
 [observation guide](../../src/research/observations/README.md) and
 [strategy guide](../../src/strategies/README.md) define the exact supported scope.
-Generalized formal study/report APIs, feature-store services and candidate/runtime
-integration remain MR03/MR04/MR05; these research intents do not qualify execution.
+MR03 now composes these definitions into costed temporal studies, search and
+extensible retained reports. Feature-store services and candidate/runtime integration
+remain MR04/MR05; offline study fills do not qualify venue execution.
 
 
 QR owns new formulas and research choices after onboarding; quant development

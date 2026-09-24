@@ -97,6 +97,14 @@ inapplicable instead of manufacturing training data.
 
 ## Holdout consumption and atomic outcomes
 
+The [generalized study application](../studies/README.md#generalized-decision-studies)
+derives these sample intervals from retained feature/label bytes, persists actual
+resolved splits and fitting exclusions, and consumes holdout before source access.
+Validation source reads stop strictly before holdout, including a terminal book
+when validation and holdout share a boundary. Typed readers validate manifest
+digests and the attempt's requested configuration. Local, deferred and immediate
+publication use this same history; publication retries never recompute a study.
+
 Use one retained `AttemptStore` root for an experiment family. Its first start
 atomically freezes the family's final holdout window. A changed window is a
 retained rejected attempt; new untouched evidence requires a new family. Moving
