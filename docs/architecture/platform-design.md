@@ -100,7 +100,7 @@ src/
     exploration/            EDA and pinned multi-input saved-data selections
     results/                Shared retained feature-study wire contract
     observations/           Frozen completed decision observations and scoped controls
-    features/               Versioned price diagnostics and scheduled saved-input parity; future fitted transforms
+    features/               Versioned definitions/fitting, causal history, incremental state and isolated Feast serving
     labels/                 Separate forward-return outcomes and availability
     models/                 Exact linear construction, retained state and inference
     experiments/            Attempt storage, semantic identities and temporal splits; FUTURE: candidates
@@ -111,7 +111,7 @@ src/
   risk/                     Independent spot grids, holdings and affordability limits
   portfolio/                PLANNED: allocation and netting before QR onboarding
   execution/                FUTURE: orders, journals and adapters
-  runtime/                  Identity and supervision; future deployment/recovery
+  runtime/                  Identity, supervision, bounded durable jobs and workspace recovery; future deployment
   telemetry/                Health/alerts; future runtime and economic monitoring
   configuration/            Typed definitions and explicit selection
   serialization/            Exact domain codecs and strict wire records
@@ -640,9 +640,12 @@ Once an exploratory result influences a candidate decision, it receives durable 
 
 ### Feature-store contract
 
-Status: **planned generalized capability; current offline Feast bridge retained**.
+Status: **implemented local versioned feature store and isolated Feast serving;
+deployment and full candidate/OMS integration remain separate**.
 MR02 owns feature definitions and result semantics; MR04 owns provisioned stores,
-materialization and retrieval; MR05/MR07 bind runtime consumers. The store serves
+materialization and retrieval. The MR04 intent-only consumer supplies the initial
+MR05/MR07 online feature/policy binding; full candidates and supervised OMS remain
+with those milestones. The store serves
 versioned features across studies and strategy instances rather than a special
 case for the initial return diagnostic. Preserve Feast's independently locked
 worker and the core numerical/temporal contracts while extending its integration.
@@ -677,8 +680,10 @@ implementations without shared runner edits. The owning
 [observation guide](../../src/research/observations/README.md) and
 [strategy guide](../../src/strategies/README.md) define the exact supported scope.
 MR03 now composes these definitions into costed temporal studies, search and
-extensible retained reports. Feature-store services and candidate/runtime integration
-remain MR04/MR05; offline study fills do not qualify venue execution.
+extensible retained reports. The [feature guide](../../src/research/features/README.md) now owns MR04 local
+feature-store services and intent-only online consumption. Candidate deployment
+and complete runtime integration remain MR05/MR07; offline study fills do not
+qualify venue execution.
 
 
 QR owns new formulas and research choices after onboarding; quant development

@@ -122,3 +122,15 @@ these local services and restores the previous wheel/lock while preserving their
 records. Existing raw stores and snapshot schemas are unchanged. Shared operation,
 long-duration deletion policy, object-store disaster recovery and hostile concurrent
 mutation remain unqualified. No deployment or trading authority is granted.
+
+## Feature workspace recovery qualification
+
+MR04 extends the existing installed versioned-storage consumer with the
+`feature-workspace` and `feature-reopen` actions documented in the
+[test guide](../../../tests/README.md#feature-serving-and-scheduled-workspace-acceptance).
+It stores the authored named-input bytes, their source identity and the exact
+versioned feature history; reopening reconstructs the public source adapter and
+checks its identity, then retrieves the retained materialization through
+`VersionedFeatureStore`. The same manifest is used after stopped-volume restore.
+This is local service qualification for generalized non-book inputs, not new
+historical OKX/Bitfinex source evidence or shared-service deployment.

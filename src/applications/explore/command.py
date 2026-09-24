@@ -8,6 +8,7 @@ import base64
 import hashlib
 import importlib
 import json
+import runpy
 import sys
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
@@ -97,6 +98,22 @@ class _JsonDumper(Protocol):
 
     def __call__(self, value: object, *, separators: tuple[str, str]) -> str:
         """Encode one JSON-compatible object."""
+        ...
+
+
+class _ServingWorker(Protocol):
+    """Describe the isolated Feast generation worker loaded beside this command."""
+
+    def run(self, payload: bytes) -> bytes:
+        """Execute one versioned online materialization or retrieval request."""
+        ...
+
+
+class _ServingWorkerFactory(Protocol):
+    """Describe the installed sibling worker constructor."""
+
+    def __call__(self) -> _ServingWorker:
+        """Create one stateless serving request worker."""
         ...
 
 
@@ -496,10 +513,10 @@ def main(argv: list[str] | None = None) -> int:
         SystemExit: ``argparse`` reports ``--help`` or invalid action arguments.
     """
     parser = argparse.ArgumentParser(prog="alpha-explore")
-    parser.add_argument("action", choices=("feast-worker",))
+    parser.add_argument("action", choices=("feast-worker", "feast-serving-worker"))
     arguments = parser.parse_args(argv)
     action = cast(object, arguments.action)
-    if action != "feast-worker":
+    if action not in ("feast-worker", "feast-serving-worker"):
         parser.error("unsupported explore action")
     try:
         input_stream = cast(BinaryIO, getattr(sys.stdin, "buffer"))
@@ -507,7 +524,13 @@ def main(argv: list[str] | None = None) -> int:
         payload = input_stream.read(_MAX_WORKER_INPUT_BYTES + 1)
         if not payload or len(payload) > _MAX_WORKER_INPUT_BYTES:
             raise ValueError("feast worker request exceeds the bounded JSON budget")
-        output = FeastWorkerCommand().run(payload)
+        if action == "feast-worker":
+            output = FeastWorkerCommand().run(payload)
+        else:
+            sibling = Path(__file__).with_name("feast_serving.py")
+            serving_module = cast(Mapping[str, object], runpy.run_path(str(sibling)))
+            factory = cast(_ServingWorkerFactory, serving_module["FeastServingWorkerCommand"])
+            output = factory().run(payload)
         output_stream.write(output)
         output_stream.write(b"\n")
         return 0

@@ -56,10 +56,9 @@ The regression consumer selects and normalizes one column using only training da
 
 The store-facing `FeatureVector`/`VectorSignature` contracts bind entity,
 feature/schema and fitted version, source/revision lineage, clocks, TTL and
-missingness. MR04 still owns generalized Feast registration, offline/online
-serving, materialization, rollback and service recovery. The current offline
-Feast bridge is retained unchanged and is not presented as accepting these new
-vector schemas automatically.
+missingness. The [versioned feature-store path](#versioned-feature-store-and-local-feast-serving)
+now consumes these vectors. The older offline Feast bridge remains a separate
+supported contract; it does not accept the new vector schemas automatically.
 
 `applications.explore.run_decisions` and `inspect_decisions` are the first
 integrated consumers; the [strategy guide](../../strategies/README.md) owns
@@ -86,6 +85,90 @@ schemas need no migration. Preserve the matching new wheel for new vector/state
 records; prior wheels cannot interpret them. Checkpoint digests are integrity
 checks, not a trust or signing boundary.
 
+## Versioned feature store and local Feast serving
+
+Owner: `research.features`, composed by `applications.explore`; implemented local
+MR04 feature-store slice, 2026-09-24. `FeatureStoreDefinition` pins a name, entity
+type, `FeatureSchema`, an instance for incremental state, and an optional fitted
+transform identity with its ordered served output fields. `StoredFeature` binds an
+exact `FeatureVector` to caller-supplied source and dataset versions/digests plus
+a correction revision. `VersionedFeatureStore.open(path)` keeps definitions, rows,
+checkpoints, staged snapshots and the active version in durable SQLite state.
+
+`append(definition, feature, checkpoint=...)` commits an incremental vector and
+its successor checkpoint in one transaction. A restart calls
+`get_checkpoint(definition, instance, entity, source_version=...,
+source_sha256=..., dataset_version=..., dataset_sha256=...)`; changed lineage is
+rejected before skipping completed cutoffs. Incremental definitions require an
+instance, so two strategy instances cannot share one state stream. An exact row
+retry is idempotent; a conflicting retry fails. For an incremental stream with
+changed source or dataset bytes, choose a new instance and replay the affected
+history. A late correction to an already checkpointed incremental decision
+cannot rewrite its successor state in place; regenerate the affected and later
+decisions under that new instance. A batch `StoredFeature` can retain a correction
+for the same decision only when its `available_at` advances beyond the prior
+revision.
+
+`retrieve_offline(definition, entity, at)` selects the latest decision and
+revision whose decision and availability clocks are no later than `at`.
+Knowledge-time corrections therefore leave earlier cutoffs unchanged. It never
+falls back to an older value when the latest eligible vector is expired or
+missing. `FeatureStoreResult` retains exact values, reasons, clocks, source and
+dataset lineage, definition identity, and explicit `ready`, `partial`, `missing`
+or `expired` quality. The served path also reports `future`, `stale` and
+`unmaterialized`. `require_ready()` admits only a complete fresh vector.
+
+`materialize(definition, version, at, entities)` stages one immutable named
+snapshot without changing the active version. The application projects it with
+`FeastServingSnapshot.from_materialization`, writes and reads a separate local
+Feast 0.66 generation through `FeastServingBridge`, verifies every entity's
+exact values, then calls `activate_if_current` with the active version observed
+before preparation. A competing worker's newer publication makes the older
+activation fail; an exact retry is idempotent. Failed or partial publication
+leaves the previous active pointer intact. `get_materialization` reopens a pinned
+version after restart; explicit `activate` rolls back to an older complete
+version. `retrieve_online` reads only the active snapshot and can apply
+an explicit maximum materialization age; a missing or future value is never
+silently recomputed. The local store's `backup`/`restore` preserves SQLite
+history; `WorkspaceBackup` retains both that history and the Feast generations.
+
+`applications.explore.materialize_features` is the executable source →
+`FeatureSession` → store → Feast composition. It requires a matching source
+identity and schema, an incremental instance, and ordered decisions; it resumes
+a checkpointed incremental stream and activates only after Feast parity. The
+currently composed path runs unfitted kernels; fitted vectors use the explicit
+definition/output-signature and append boundary. `run_served_decision` verifies
+the pinned Feast generation before passing a ready vector to the same
+`DecisionSession` used in research. It returns a visible pause with unchanged
+decision state on missing, expired or unavailable serving; it emits intents and
+grants no order or account authority. This runtime consumer currently relies on
+the vector expiry policy; callers needing a shorter materialization-age limit
+can supply it to `retrieve_online` and must carry that policy into their
+serving composition.
+
+The [installed workspace consumer](../../../tests/integration/consumers/research/feature_workspace.py)
+uses independently locked core and Feast interpreters. From installed wheels,
+copy the consumer outside the checkout and use a fresh output directory:
+
+```sh
+cp tests/integration/consumers/research/feature_workspace.py /private/tmp/feature_workspace.py
+/absolute/core-environment/bin/python -I /private/tmp/feature_workspace.py \
+  /private/tmp/unused-feature-workspace \
+  --worker-python /absolute/feast-environment/bin/python
+```
+
+The retained local [run output](../../../logs/mr04/feature-workspace-2.log) from
+the installed `/private/tmp/ar04-core` and `/private/tmp/ar04-feast` environments
+passed against real Feast 0.66. It checked two entities, exact matched-cutoff
+offline/online values, checkpoint restart and retry, a late batch correction,
+active-version pointer rollback, an intent at a later consuming time, expiry and
+service-loss pauses, and restored local Feast access. This is authored-input
+software evidence. Caller-supplied source/dataset digests must come from
+retained bytes; the run does not qualify OKX/Bitfinex source clocks, a profitable
+strategy, deployed service recovery or live orders. MR06 installation/deployment
+and MR15 capacity acceptance remain open in the
+[infrastructure roadmap](../../../docs/roadmap/README.md#delivery-order-and-dependencies).
+
 ## Compatible implementations and offline reuse
 
 `FeatureRegistry` accepts an explicit implementation ID and a typed factory over
@@ -105,11 +188,10 @@ late and expired observations stay explicit; no zero fill is introduced.
 
 The [separate local worker](../../../configs/development/research-worker/README.md)
 keeps Feast's pandas-below-3 dependency out of the core pandas 3.0.5 runtime.
-The selected offline path requires an eligibility-filtered immutable source and
-pins actual registry/source state. A normal event-time join alone is insufficient
-for delayed availability or revisions. This is offline research only; an online
-store remains a technology choice; serving and runtime interfaces are planned
-under the [infrastructure roadmap](../../../docs/roadmap/README.md#delivery-order-and-dependencies).
+The selected legacy offline path requires an eligibility-filtered immutable source
+and pins actual registry/source state. A normal event-time join alone is insufficient
+for delayed availability or revisions. The generalized local online path above
+publishes its own immutable, causally selected Feast generation.
 
 ## Formula and clocks
 
@@ -325,6 +407,7 @@ compare complete replay and batch traces and locate the first differing decision
 The roadmap records exact validation results. Revert these APIs, their command
 branch and shared formula use together; preserve matching wheels and retained state.
 Older wheels cannot read these new feature-state/parity schemas. Existing study
-and economic schemas are unchanged. For this completed-price consumer, incremental execution remains separate from
-the generalized feature lifecycle above. Feast online retrieval/materialization,
-candidate packaging, deployment and trading remain subsequent work.
+and economic schemas are unchanged. For this completed-price consumer,
+incremental execution remains separate from the generalized feature lifecycle
+above. The local Feast serving path is described above; candidate packaging,
+deployment and trading remain subsequent work.

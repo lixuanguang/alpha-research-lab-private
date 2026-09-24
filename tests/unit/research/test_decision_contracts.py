@@ -43,7 +43,7 @@ from research.observations import (
     NumericHistorySource,
 )
 from serialization import DomainCodec
-from strategies import ConfirmedSignal, TargetIntent
+from strategies import ConfirmedSignal, DecisionContext, DecisionSession, TargetIntent
 
 _START = datetime(2026, 9, 23, tzinfo=UTC)
 _ENTITY = "4476df8e-6342-4417-839e-e41b88f41446"
@@ -236,6 +236,32 @@ class _NormalizeFirst:
 
 class TestDecisionContracts:
     """Exercise causal input admission, portable state and executable generic composition."""
+
+    def test_served_feature_preserves_origin_and_uses_consuming_clock(self) -> None:
+        """Accept exact TTL boundary and reject future/expired values without state advance."""
+        source = _Scenario.source()
+        features = FeatureSession(
+            ProjectionFeature(_Scenario.schema(source)), instance="served", entity=_ENTITY
+        )
+        vector = features.evaluate(source.read(_ENTITY, _Scenario.at(10)))
+        session = DecisionSession(
+            _Scenario.policy(), run_identity="served-run", instance="served", entity=_ENTITY
+        )
+        decision = session.evaluate(
+            DecisionContext(features=vector, prediction=None, evaluated_at=_Scenario.at(11))
+        )
+        assert decision.at == _Scenario.at(11)
+        assert decision.feature_identity == vector.identity
+        assert vector.decision_at == _Scenario.at(10)
+        checkpoint = session.checkpoint()
+        for second in (9, 12):
+            with pytest.raises(ValueError, match="unavailable or expired"):
+                session.evaluate(
+                    DecisionContext(
+                        features=vector, prediction=None, evaluated_at=_Scenario.at(second)
+                    )
+                )
+        assert session.checkpoint() == checkpoint
 
     def test_train_only_transform_non_linear_fit_and_reload(self) -> None:
         """Independent means (2,12) and nearest target 6 survive state serialization."""

@@ -18,7 +18,13 @@ import msgspec
 from msgspec.structs import replace
 
 # project library imports
-from applications.explore import StudyComponents, compare_studies, evaluate_study
+from applications.explore import (
+    StudyComponents,
+    StudyJobHandler,
+    compare_studies,
+    evaluate_study,
+    schedule_study,
+)
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from market_data.contracts import BookObservation, Level
 from reference_data.instruments import InstrumentId
@@ -48,6 +54,14 @@ from research.studies import (
     StudyResult,
 )
 from risk import SpotLimits
+from runtime import (
+    ImplementationIdentity,
+    JobQueue,
+    JobRun,
+    JobSpec,
+    JobWorkerPool,
+    WorkspaceBackup,
+)
 from serialization import DomainCodec
 from simulation import (
     IntentMarket,
@@ -735,6 +749,23 @@ class _Scenario:
         )
 
 
+class _LostStudyAcknowledgement:
+    """Lose one response after a real completed study to exercise retry reconciliation."""
+
+    def __init__(self, handler: StudyJobHandler) -> None:
+        """Bind the actual installed workflow and one bounded transport failure."""
+        self._handler = handler
+        self._lost = False
+
+    def execute(self, spec: JobSpec, run: JobRun) -> bytes:
+        """Retain the real completed effect before the first artificial response loss."""
+        result = self._handler.execute(spec, run)
+        if not self._lost:
+            self._lost = True
+            raise OSError("injected completed-study acknowledgement loss")
+        return result
+
+
 class _Run:
     """Assert the installed API's retained behavior with independent hand economics."""
 
@@ -757,6 +788,49 @@ class _Run:
             assert b"Custom fold net profit" in store.artifact(attempt, "report-html")
 
     @staticmethod
+    def jobs(
+        root: Path, scenario: _Scenario, components: StudyComponents, study: DecisionStudy
+    ) -> None:
+        """Recover completed study effects and reopen queue/results after a clean restore."""
+        workspace = root / "workspace"
+        queue = JobQueue(workspace / "jobs")
+        handler = StudyJobHandler({study.identity: components}, workspace / "studies")
+        spec = schedule_study(
+            queue,
+            study,
+            job_id="retained-study",
+            run_at=scenario.at(0),
+            publication=PublicationPolicy(mode="local"),
+            retry_delay_seconds=0,
+        )
+        pool = JobWorkerPool(
+            queue,
+            {"decision-study": _LostStudyAcknowledgement(handler)},
+            max_workers=2,
+            implementation_sha256=ImplementationIdentity.sha256(),
+            environment_sha256=StudyJobHandler.environment_sha256(),
+        )
+        pool.run_until_idle()
+        state = queue.read(spec.job_id)
+        assert state.status == "completed" and state.attempts == 2
+        family = hashlib.sha256(study.family.encode()).hexdigest()
+        store = AttemptStore(workspace / "studies" / family)
+        histories = store.histories()
+        assert len(histories) == 1 and histories[0].status == "completed"
+        assert len(StudyResult.read(store, histories[0].start.attempt_id).folds) == 2
+        queue.submit(spec)
+        assert queue.read(spec.job_id) == state
+        WorkspaceBackup.create(workspace, root / "workspace-backup", components=("jobs", "studies"))
+        restored = root / "workspace-restored"
+        WorkspaceBackup.restore(root / "workspace-backup", restored)
+        assert JobQueue(restored / "jobs").read(spec.job_id) == state
+        reopened = AttemptStore(restored / "studies" / family)
+        assert reopened.histories() == histories
+        assert StudyResult.read(reopened, histories[0].start.attempt_id) == StudyResult.read(
+            store, histories[0].start.attempt_id
+        )
+
+    @staticmethod
     def execute(root: Path) -> None:
         """Run typed, serialized, search, local/deferred and holdout paths."""
         root.mkdir(exist_ok=True)
@@ -766,6 +840,7 @@ class _Run:
         failing = _TargetPolicy(scenario.dimension, threshold=5, fail=True)
         study = scenario.study(buy, fitted=True)
         components = scenario.components(buy, fitted=True)
+        _Run.jobs(root, scenario, components, study)
         changed_payload = scenario.artifact.payload + b"\n# changed extension bytes\n"
         changed_artifact = StudyArtifact(
             fingerprint=Fingerprint(
@@ -1091,6 +1166,7 @@ class _Run:
                     "deferred_retained": True,
                     "search_attempts": len(searched),
                     "failed_holdout_recorded": True,
+                    "job_retry_single_study_and_workspace_restore": True,
                 }
             ).decode()
         )

@@ -186,3 +186,20 @@ economics. Pass retained configured output, a fresh acceptance output, and the
 exact wheel as its three arguments, with `ALPHA_CLEARML_LOCAL_ENV` pointing to the
 private local credentials. Stop the foreground agent with Ctrl-C when acceptance
 ends. This does not authorize unattended jobs, shared service or trading.
+
+## Scheduled study workspaces
+
+MR04's bounded concurrent scheduler composes the existing MR03 study API and
+ClearML outbox; it does not replace an active ClearML agent or alter its locked
+environment. See the [scheduled study contract](../../../src/research/studies/README.md#scheduled-studies-and-reproducible-workspaces).
+Jobs select local or deferred publication, retain a stable idempotency key, and
+reopen completed attempts after lost acknowledgement. Publish the retained
+outbox with the existing public API or installed publication verifier. The
+verifier accepts an **absolute** `ALPHA_CLEARML_LOCAL_ENV` path because its fresh
+reconciliation subprocess changes directory.
+
+MR04's local service run uses separate `alpha-workspace-studies` and
+`alpha-workspace-studies-restored` projects with task-owned volumes and the same
+pinned images. The owning [acceptance record](../../../docs/roadmap/README.md#mr04-delivery-and-acceptance)
+links the stopped-volume backup and post-restore byte checks. Pre-existing
+ClearML volumes and the serial worker environment remain unchanged.
