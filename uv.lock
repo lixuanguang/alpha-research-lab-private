@@ -41,11 +41,15 @@ name = "alpha-research-governance"
 version = "0.1.0"
 source = { directory = "tools/governance" }
 dependencies = [
+    { name = "packaging" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = "==2.13.5" }]
+requires-dist = [
+    { name = "packaging", specifier = "==26.3" },
+    { name = "pydantic", specifier = "==2.13.5" },
+]
 
 [[package]]
 name = "alpha-research-lab"

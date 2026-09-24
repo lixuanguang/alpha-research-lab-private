@@ -16,6 +16,17 @@ Authenticated wheel publication is not authenticated build provenance. The
 release boundary blocks production release, signing and publication while this
 admission remains. Development wheel builds and installation tests are permitted.
 
+MR06 separates the operating value closure from this optional adapter:
+`alpha-research-contracts` ships exact values, ratios and currency definitions,
+without `conventions.py` or QuantLib. The complete research wheel retains both.
+Existing explicit public convention imports remain available in that research
+environment through Python's lazy module-attribute hook; ordinary financial-value
+imports no longer initialize the native adapter. Requesting a convention API in
+an operating-only environment fails because its implementation is absent. The
+[selected-closure admission](dependency-admission.md#first-deployment-dependency-decision)
+qualifies actual installed operating artifacts and preserves the separate
+QuantLib restriction.
+
 ## Public values and operations
 
 | Interface | Meaning and invariant |

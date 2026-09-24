@@ -1,5 +1,14 @@
 # Runtime services and candidate binding
 
+MR06's [trusted local installer](../../docs/governance/operations.md#trusted-local-installation)
+is an administrative artifact consumer. It installs the independent collector
+and execution-admission packages, fences installed invocations, and preserves
+compatible current state during rollback. It does not convert these local
+job/candidate services into deployed services. The full research distribution
+retains this guide's APIs; the collector's smaller runtime surface contains
+identity and supervision only. Optional research exports fail when their owning
+distribution is absent rather than importing research into the collector closure.
+
 Status: implemented local MR04 service. Owner: `runtime`. These services schedule
 offline application work and preserve selected local stores. The application owns
 the study, dataset or feature operation and supplies its handler; `runtime` owns

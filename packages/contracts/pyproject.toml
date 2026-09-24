@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alpha-research-contracts"
+version = "0.1.0"
+description = "Shared typed contracts for Alpha Research operating applications"
+requires-python = "==3.14.*"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = ["msgspec==0.21.1", "pydantic==2.13.5"]
+
+[tool.uv]
+required-version = "==0.12.7"
+default-groups = []
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+[tool.hatch.build.targets.wheel.force-include]
+"../../src/configuration" = "configuration"
+"../../src/reference_data" = "reference_data"
+"../../src/risk" = "risk"
+"../../src/serialization" = "serialization"
+"../../src/financial_units/__init__.py" = "financial_units/__init__.py"
+"../../src/financial_units/default_currencies.json" = "financial_units/default_currencies.json"
+"../../src/financial_units/models.py" = "financial_units/models.py"
+"../../src/financial_units/ratios.py" = "financial_units/ratios.py"
+"../../src/financial_units/py.typed" = "financial_units/py.typed"
+"../../src/strategies/__init__.py" = "strategies/__init__.py"
+"../../src/strategies/intents.py" = "strategies/intents.py"
+"../../src/strategies/py.typed" = "strategies/py.typed"

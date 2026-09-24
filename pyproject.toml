@@ -36,6 +36,7 @@ alpha-collect = "applications.collect:main"
 alpha-acquire = "applications.acquire:main"
 alpha-dataset = "applications.publish_dataset:main"
 alpha-inspect-fixture = "applications.inspect_fixture:main"
+alpha-execute = "applications.execute:main"
 
 [dependency-groups]
 dev = [

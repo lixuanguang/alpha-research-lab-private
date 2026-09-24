@@ -9,7 +9,8 @@ policy consumed by the checker.
 Schema version 5 binds the frozen `uv.lock` to exact package versions, artifact
 hashes and URLs, the reviewed PyPI simple index, Darwin arm64 and Linux x86_64
 wheel coverage, dependency edges, licenses, and vulnerability coverage. The
-checker fixes the lock path and `src`/`tools` runtime scan roots directly.
+checker fixes the root lock, independent collector/execution lock paths and
+`src`/`tools` runtime scan roots directly.
 `uv lock --check` separately ties that lock to the project manifest. The checker
 rejects missing, duplicate, mutable or unsafe identities. Development tools
 remain outside the runtime package. `pip-audit` must cover the complete admitted
@@ -88,26 +89,35 @@ and existing allowance expiry remain unchanged.
 
 ## First deployment dependency decision
 
-Status: planned deployment dependency decision, 2026-09-14; the current release block is unchanged.
-Before the [first trusted deployment consumer](../roadmap/README.md#delivery-order-and-dependencies)
-needs an artifact, choose the smallest enforceable path for its actual graph:
+Status: MR06 implements the distinct-closure choice, 2026-09-24. The root
+research distribution retains QuantLib and its development-only restriction.
+The operating `alpha-research-contracts` wheel contains exact financial values
+and omits `financial_units/conventions.py`; collector and execution have their
+own distributions and locked metadata closures. A compatible research environment
+retains the convention adapter and its conformance tests.
 
-- Admit the required QuantLib build/source provenance under an implemented,
-  tested policy; or
-- Separate pure financial values from the optional date-convention adapter into
-  genuinely distinct runtime dependency closures, if the selected spot/collector
-  consumer does not use conventions. This requires packaging metadata, public
-  import boundaries, dependency policy and tests to agree, including a fresh
-  installation of the selected artifact without QuantLib and retained adapter
-  conformance in its own closure.
+`SelectedClosureAdmission` validates the full existing root policy first, then
+verifies the selected operating lock, every actual wheel, active
+Requires-Dist/extras/markers and complete transitive closure for the declared
+Darwin arm64 CPython 3.14.7 target. External versions, origin, filenames and hashes
+must match both the selected lock and root admissions. Local names, source files,
+project metadata and shared-contract versions are explicit. Missing/extra wheels,
+unsafe members, corrupt/incomplete RECORD inventories, unexpected entrypoints,
+source/dependency drift and any selected wheel-only allowance fail closed.
+Signed releases retain both locks and the policy; installation repeats the
+graph and wheel checks without needing the build checkout.
 
-A closure split is a future code/packaging change, not permission to exempt the
-current graph. Lazy imports, deleting an allowance or omitting a scan do not
-resolve admission. The present policy scans the whole graph; any selected-closure
-admission must be implemented and tested before it can permit release. Record
-the decision and affected installed/import proof in artifact verification; do not redesign packaging
-merely to run synthetic research. Review the existing 2026-10-04 allowance expiry
-on its actual deadline even if deployment is later.
+The selected locks are SHA-256-bound in the existing policy. Release builds run
+the pinned scanner against the complete unfiltered root package set and retain
+fresh output; selected closure admission never waives a finding or omits a root
+scan. `packaging==26.3` is a direct governance dependency for standards-based
+metadata/marker/tag validation; no external version changes were required.
+Lazy compatibility exports preserve existing research imports, while actual
+wheel manifests and independent installed consumers establish the separation.
+The [MR06 record](../roadmap/README.md#mr06-delivery-and-acceptance) owns acceptance
+results; the [runbook](../governance/operations.md#trusted-local-installation)
+owns signing and installation. Review the QuantLib allowance on its unchanged
+2026-10-04 deadline.
 
 ## Review and reversal
 

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alpha-research-execution"
+version = "0.1.0"
+description = "Independent Alpha Research execution admission application"
+requires-python = "==3.14.*"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = ["alpha-research-contracts==0.1.0"]
+
+[project.scripts]
+alpha-execute = "applications.execute:main"
+
+[tool.uv]
+required-version = "==0.12.7"
+default-groups = []
+
+[tool.uv.sources]
+alpha-research-contracts = { path = "../contracts", editable = false }
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+[tool.hatch.build.targets.wheel.force-include]
+"../../src/applications/__init__.py" = "applications/__init__.py"
+"../../src/applications/py.typed" = "applications/py.typed"
+"../../src/applications/execute" = "applications/execute"

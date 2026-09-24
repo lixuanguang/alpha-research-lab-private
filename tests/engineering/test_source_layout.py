@@ -122,6 +122,40 @@ class TestFunctionalOwnership:
         assert SourceLayoutChecker.scan("serialization", "pass", is_api=True)
         assert SourceLayoutChecker.scan("serialization", '__all__ = ["Missing"]', is_api=True)
 
+    def test_lazy_public_export_requires_typed_exact_mapping(self) -> None:
+        """Permit a deferred owner import only when its runtime and type bindings agree."""
+        source = (
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from risk.admission import AdmissionDecision\n"
+            "def __getattr__(name: str) -> object:\n"
+            "    if name in {'AdmissionDecision'}:\n"
+            "        from risk import admission\n"
+            "        exports: dict[str, object] = "
+            "{'AdmissionDecision': admission.AdmissionDecision}\n"
+            "        return exports[name]\n"
+            "    raise AttributeError(name)\n"
+            "__all__ = ['AdmissionDecision']\n"
+        )
+        assert SourceLayoutChecker.scan("risk", source, is_api=True) == ()
+        mismapped = source.replace("admission.AdmissionDecision", "admission.OtherDecision")
+        assert any(
+            "public export AdmissionDecision is not bound" in issue
+            for issue in SourceLayoutChecker.scan("risk", mismapped, is_api=True)
+        )
+        untyped = source.replace(
+            "if TYPE_CHECKING:\n    from risk.admission import AdmissionDecision\n", ""
+        )
+        assert any(
+            "public export AdmissionDecision is not bound" in issue
+            for issue in SourceLayoutChecker.scan("risk", untyped, is_api=True)
+        )
+        unguarded = source.replace("'AdmissionDecision'}", "'OtherDecision'}")
+        assert any(
+            "public export AdmissionDecision is not bound" in issue
+            for issue in SourceLayoutChecker.scan("risk", unguarded, is_api=True)
+        )
+
     def test_duplicate_entrypoints_and_metadata(self, tmp_path: Path) -> None:
         """Detect separate mains in one application and non-API command bindings."""
         app = tmp_path / "src/applications/example"

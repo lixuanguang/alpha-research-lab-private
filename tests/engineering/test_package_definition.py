@@ -111,6 +111,7 @@ class TestPackageDefinitionContracts:
             "alpha-collect": "applications.collect:main",
             "alpha-dataset": "applications.publish_dataset:main",
             "alpha-inspect-fixture": "applications.inspect_fixture:main",
+            "alpha-execute": "applications.execute:main",
         }
         installed_commands = {
             entry.name
@@ -123,6 +124,7 @@ class TestPackageDefinitionContracts:
             "alpha-collect",
             "alpha-dataset",
             "alpha-inspect-fixture",
+            "alpha-execute",
         }
 
     def test_wheel_smoke_is_the_build_install_boundary(self) -> None:

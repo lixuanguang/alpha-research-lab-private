@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alpha-research-collector"
+version = "0.1.0"
+description = "Independent Alpha Research market data collector"
+requires-python = "==3.14.*"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = [
+    "alpha-research-contracts==0.1.0",
+    "lakefs-sdk==1.86.0",
+    "websockets==16.0",
+]
+
+[project.scripts]
+alpha-collect = "applications.collect:main"
+
+[tool.uv]
+required-version = "==0.12.7"
+default-groups = []
+constraint-dependencies = ["urllib3==2.7.0"]
+
+[tool.uv.sources]
+alpha-research-contracts = { path = "../contracts", editable = false }
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+[tool.hatch.build.targets.wheel.force-include]
+"../../src/market_data" = "market_data"
+"../../src/telemetry" = "telemetry"
+"../../src/applications/__init__.py" = "applications/__init__.py"
+"../../src/applications/py.typed" = "applications/py.typed"
+"../../src/applications/collect" = "applications/collect"
+"../../src/runtime/__init__.py" = "runtime/__init__.py"
+"../../src/runtime/identity.py" = "runtime/identity.py"
+"../../src/runtime/supervision.py" = "runtime/supervision.py"
+"../../src/runtime/py.typed" = "runtime/py.typed"

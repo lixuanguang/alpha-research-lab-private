@@ -17,7 +17,8 @@ and independent spot risk limits are implemented. Configured economic reports,
 serial local ClearML pipelines and pinned lakeFS dataset versions are also available.
 Named multi-feature, fitted-transform, estimator-state and restartable decision contracts
 now have [installed research consumers](../../src/research/features/README.md#generalized-feature-lifecycle).
-Portfolio allocation, venue order execution, deployment and live trading monitoring remain planned. See the
+MR06 adds independent operating packages and trusted local installation. Portfolio allocation,
+venue order execution, deployed services and live trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.
 
@@ -175,7 +176,8 @@ commands are:
 | `make test` | Correctness tests with performance cases excluded |
 | `make engineering-standards-check` | Required typing, import, and Google-style docstring rules |
 | `make dependency-admission-check` and `make dependency-audit` | Frozen lock/source checks and vulnerability coverage |
-| `uv run --frozen alpha-governance-artifacts release-check` | Fail-closed release-readiness diagnostic; no artifact lifecycle is implemented |
+| `uv run --frozen alpha-governance-artifacts release-check` | Refuse the full research release graph while its QuantLib source binding is unresolved |
+| `uv run --frozen alpha-governance-artifacts build / verify / install / rollback / run` | Signed operating artifacts, complete closure admission, offline local installation and compatible state-preserving rollback; see the runbook |
 | `make architecture-check` | Repository-local links and heading fragments in `docs/**/*.md`; explicitly include component READMEs when changed |
 | `make build` and `make wheel-smoke` | Build the runtime wheel and test it outside the checkout |
 | `make source-check` | Compose source, policy, security, and correctness checks |
@@ -205,21 +207,22 @@ The retained development checks and release boundary are:
   [dependency-admission.toml](dependency-admission.toml) bind `pyproject.toml`,
   `uv.lock`, exact artifacts, sources, hashes, platforms, licenses, and
   vulnerability coverage.
-- The [release workflow](../governance/workflow.md#build-a-release) rejects release use until
-  dependency admission is resolved and a concrete trusted release consumer is
-  implemented. The unused general bundle, signing and publication framework
-  is retired. Future consumers must bind the artifact digest to its source,
-  lock, provenance and trusted origin before use.
+- The [release workflow](../governance/workflow.md#build-a-release) builds and
+  signs independent collector/execution releases after actual source, lock,
+  inventory and vulnerability verification. An independently provisioned builder
+  trust policy precedes installation. The administrative installer promotes the
+  same authenticated bytes into a clean local environment and preserves compatible
+  current state during rollback.
 
-QuantLib 1.43 is still used by C03's convention adapter under a bounded
-development/CI admission through **2026-10-04**. Its source-to-wheel binding is
-unverified, so artifact release, signing, publication, and consumer verification
-remain blocked for the graph. The small
-[wheel-only allowance](dependency-admission.md#wheel-only-development-allowance)
-records this limit. Native adapter conformance tests and domain goldens remain;
-CI no longer verifies publication signatures. The development
-[workflow](../governance/workflow.md) and [runbook](../governance/operations.md)
-own release and activation decisions.
+QuantLib 1.43 remains in the complete research graph under its bounded
+[development/CI allowance](dependency-admission.md#wheel-only-development-allowance)
+through **2026-10-04**. Its source-to-wheel binding is unverified; the whole graph
+still cannot be released. MR06's actual operating closures omit that adapter and
+unrelated research dependencies. This selected-closure admission retains the full
+root policy and vulnerability checks and does not resolve QuantLib's own source
+binding. Native adapter conformance and domain goldens remain in research checks.
+The [runbook](../governance/operations.md#trusted-local-installation) owns local
+trust, signing, installation, key rotation and rollback limits.
 
 ## Release and operation boundary
 

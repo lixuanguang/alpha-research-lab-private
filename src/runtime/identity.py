@@ -5,7 +5,7 @@ from __future__ import annotations
 # standard library imports
 import csv
 import hashlib
-from importlib.metadata import distribution, version
+from importlib.metadata import PackageNotFoundError, distribution, version
 from importlib.util import find_spec
 from pathlib import Path, PurePosixPath
 from typing import ClassVar
@@ -32,6 +32,31 @@ class RuntimeFiles:
         "serialization",
         "telemetry",
     )
+    operating_roots: ClassVar[dict[str, tuple[str, ...]]] = {
+        "alpha-research-contracts": (
+            "configuration",
+            "financial_units",
+            "reference_data",
+            "risk",
+            "serialization",
+            "strategies",
+        ),
+        "alpha-research-collector": ("applications", "market_data", "runtime", "telemetry"),
+        "alpha-research-execution": ("applications",),
+    }
+
+    @classmethod
+    def distributions(cls) -> tuple[str, ...]:
+        """Choose the complete research wheel or an independently installed operating pair."""
+        try:
+            distribution("alpha-research-lab")
+        except PackageNotFoundError:
+            try:
+                distribution("alpha-research-collector")
+            except PackageNotFoundError:
+                return ("alpha-research-contracts", "alpha-research-execution")
+            return ("alpha-research-contracts", "alpha-research-collector")
+        return ("alpha-research-lab",)
 
     @classmethod
     def inputs(cls) -> tuple[tuple[str, Path], ...]:
@@ -43,35 +68,44 @@ class RuntimeFiles:
         Raises:
             ValueError: Metadata is absent, a required file is missing or a root is shadowed.
         """
-        installed = distribution("alpha-research-lab")
-        # Distribution.files in Python 3.14 silently filters missing files. Read
-        # the wheel inventory itself so a deleted implementation cannot disappear
-        # from the fingerprint without an explicit failure.
-        record = installed.read_text("RECORD")
-        if not record:
-            raise ValueError("runtime distribution has no installed wheel inventory")
         files: dict[str, Path] = {}
-        for row in csv.reader(record.splitlines(), strict=True):
-            if len(row) != 3 or not row[0]:
-                raise ValueError("invalid runtime distribution inventory row")
-            entry = PurePosixPath(row[0])
-            if entry.parts[0] not in cls.roots:
-                continue
-            if entry.suffix not in {".py", ".json"} and entry.name != "py.typed":
-                continue
-            if any(part in (".", "..") for part in entry.parts) or entry.is_absolute():
-                raise ValueError("runtime distribution contains an unsafe owned path")
-            if entry.as_posix() in files:
-                raise ValueError(f"duplicate runtime identity input: {entry}")
-            path = Path(str(installed.locate_file(entry)))
-            if not path.is_file():
-                raise ValueError(f"missing runtime identity input: {entry}")
-            files[entry.as_posix()] = path
-        required = {f"{root}/{name}" for root in cls.roots for name in ("__init__.py", "py.typed")}
+        required: set[str] = set()
+        selected = cls.distributions()
+        for distribution_name in selected:
+            installed = distribution(distribution_name)
+            roots = (
+                cls.roots
+                if distribution_name == "alpha-research-lab"
+                else cls.operating_roots[distribution_name]
+            )
+            required.update(
+                f"{root}/{name}" for root in roots for name in ("__init__.py", "py.typed")
+            )
+            # Distribution.files in Python 3.14 silently filters missing files. Read
+            # the wheel inventory itself so deletion cannot hide from the fingerprint.
+            record = installed.read_text("RECORD")
+            if not record:
+                raise ValueError("runtime distribution has no installed wheel inventory")
+            for row in csv.reader(record.splitlines(), strict=True):
+                if len(row) != 3 or not row[0]:
+                    raise ValueError("invalid runtime distribution inventory row")
+                entry = PurePosixPath(row[0])
+                if entry.parts[0] not in roots:
+                    continue
+                if entry.suffix not in {".py", ".json"} and entry.name != "py.typed":
+                    continue
+                if any(part in (".", "..") for part in entry.parts) or entry.is_absolute():
+                    raise ValueError("runtime distribution contains an unsafe owned path")
+                if entry.as_posix() in files:
+                    raise ValueError(f"duplicate runtime identity input: {entry}")
+                path = Path(str(installed.locate_file(entry)))
+                if not path.is_file():
+                    raise ValueError(f"missing runtime identity input: {entry}")
+                files[entry.as_posix()] = path
         required.add("financial_units/default_currencies.json")
         if required - files.keys():
             raise ValueError(f"missing required runtime inputs: {sorted(required - files.keys())}")
-        for root in cls.roots:
+        for root in {name.split("/", 1)[0] for name in required}:
             spec = find_spec(root)
             if (
                 spec is None
@@ -115,6 +149,6 @@ class ImplementationIdentity:
             for name, path in RuntimeFiles.inputs()
         ]
         dependencies = tuple(
-            (name, version(name)) for name in ("alpha-research-lab", "msgspec", "pydantic")
+            (name, version(name)) for name in (*RuntimeFiles.distributions(), "msgspec", "pydantic")
         )
         return hashlib.sha256(DomainCodec().encode_json((inputs, dependencies))).hexdigest()

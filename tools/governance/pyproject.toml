@@ -9,6 +9,7 @@ description = "Repository-local governance validation tooling"
 requires-python = "==3.14.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
+    "packaging==26.3",
     "pydantic==2.13.5",
 ]
 
