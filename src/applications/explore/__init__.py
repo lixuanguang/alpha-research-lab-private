@@ -1,6 +1,7 @@
 """Expose the applications explore public contract."""
 
 # project library imports
+from applications.explore.candidates import CandidateRunResult, run_candidate, run_candidate_feature
 from applications.explore.command import main
 from applications.explore.decisions import (
     DecisionCheckpoint,
@@ -21,6 +22,7 @@ from applications.explore.studies import StudyComponents, compare_studies, evalu
 from applications.explore.workflow import inspect_eda, inspect_experiment
 
 __all__ = [
+    "CandidateRunResult",
     "DecisionCheckpoint",
     "DecisionResult",
     "QueuedStudy",
@@ -39,6 +41,8 @@ __all__ = [
     "main",
     "materialize_features",
     "publish_experiments",
+    "run_candidate",
+    "run_candidate_feature",
     "run_decisions",
     "run_served_decision",
     "schedule_study",

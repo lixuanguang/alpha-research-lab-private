@@ -9,8 +9,10 @@ MR09A saved-book baseline retains its historical identity. The remaining work
 is numbered MR01–MR17. MR01 is complete for its declared read-only data/reference
 scope; MR02 is complete for its declared research/decision SDK scope; MR03 is
 complete for its bounded offline study/backtest/report scope; MR04 is complete
-for its declared local feature-store, workspace and job-service scope. MR05–MR17
-remain planned. The [MR04 record](#mr04-delivery-and-acceptance) states its service
+for its declared local feature-store, workspace and job-service scope. MR05 is
+complete for candidate packaging and local intent-only runtime binding; MR06–MR17
+remain planned. The [MR05 record](#mr05-delivery-and-acceptance) states its evidence
+and operating boundaries. The [MR04 record](#mr04-delivery-and-acceptance) states its service
 evidence and later runtime/deployment boundaries. The [MR03 record](#mr03-delivery-and-acceptance) and
 [MR02 record](#mr02-delivery-and-acceptance) state their evidence
 and the later integration boundaries. The [MR01 record](#mr01-delivery-and-acceptance)
@@ -604,11 +606,104 @@ Reversal preserves all retained stores and selects the prior feature generation
 or prior compatible installed workspace. Restore to a new destination; do not
 replace an active worker environment or edit a checkpoint to change its identity.
 
+### MR05 delivery and acceptance
+
+Status: **complete for candidate packaging and local intent-only runtime binding**,
+2026-09-24. Owner: quant development. This is the current infrastructure MR05;
+it does not accept a QR strategy, deploy a service or activate trading.
+
+Delivered through existing functional owners:
+
+- `research.experiments.CandidateBundle` retains immutable rule-only and learned
+  manifests and verified content objects. The resolved dataset selection, completed
+  MR03 experiment/attempt, exact report, feature schema, chosen fold's fitted bytes,
+  component implementation/parameter identities, and candidate remain linked.
+  Changed or unrelated components cannot borrow another report's acceptance.
+- `configuration.CapabilityRegistry` resolves all six capability families through
+  explicit environment selections. Product, venue, calendar, mode, named channel,
+  depth, clock, field units, freshness, lifecycle and order operations fail closed.
+  Requirements remain distinct from fixture/read-only/external qualification.
+- `runtime.CandidateLoader` recreates the registered feature, policy, optional
+  transform/model and metric/chart definitions. Replay and runtime use identical
+  candidate bytes without implicit refitting, dynamic import or built-in fallback.
+  `CandidateDeployment` links placement to the candidate and its resolved input,
+  instance, universe and profile identities without adding executable authority.
+- `applications.explore.run_candidate` and `run_candidate_feature` provide the
+  public source and offline/online feature paths. Exact fitted-state availability,
+  signatures, warm-up, cadence and combined feature/policy checkpoints preserve
+  causal state. Invalid transitions cannot partially commit. Stale, missing,
+  changed-version or unavailable online features pause with unchanged state.
+
+The [candidate guide](../../src/research/experiments/README.md#candidate-bundles)
+and [runtime guide](../../src/runtime/README.md#candidate-loading-and-intent-evaluation)
+own supported interfaces and failure behavior. The installed reference consumer
+authors a fresh feature, transform, estimator, order/target policies, metric and
+chart through those interfaces. Both candidates originate in completed costed
+MR03 studies; their outputs and fitted provenance remain engineering evidence.
+
+Acceptance commands and retained evidence live in ignored `logs/mr05/`:
+
+| Boundary | Evidence and result |
+| --- | --- |
+| Candidate integrity and provenance | `bundle-focused.log`: completed-attempt/result linkage, exact selected artifacts, substitution/corruption, unsafe paths, qualification and idempotent publication |
+| Typed admission | Focused registry tests cover all six families, incompatible signatures/modes, unknown selections and explicit OKX/Bitfinex clock distinctions |
+| Atomic state and failure semantics | `runtime-focused.log`: policy/order failure rollback, cadence, warm-up, gap reset/pause, restart isolation, corrupt checkpoint and real SQLite freshness/missing/expiry boundaries |
+| Installed fresh extensions | `candidate-focused-final.log`, `candidate-installed-source.log`: rule-order and learned-target studies/bundles; replay/runtime/source/offline parity; five pre-read rejection scenarios per candidate; exact fresh-process restart |
+| Actual feature-store adapter | `candidate-feast.log`, `candidate-installed-feast.log`: same bundles through isolated Feast 0.66.0; source/offline/online parity and stale/service-loss/version-change pauses |
+| Final local gate | `make-check.log` retains the complete `make check`, including isolated wheel installation. `final-installed-source.log` and `final-installed-feast.log` renew candidate proofs against that wheel; `final-source/` and `final-feast/` retain the actual bundles, attempts, deployments, traces and summaries |
+
+Reproduce the focused installed workflow and complete gate from the repository:
+
+```sh
+ALPHA_FEAST_WORKER_PYTHON=/absolute/pinned-feast-worker/bin/python \
+  uv run --frozen --no-editable pytest -q -m integration \
+  --basetemp=/private/tmp/mr05-accept \
+  tests/integration/test_candidate_workflow.py
+
+PYTEST_ADDOPTS=--basetemp=/private/tmp/mr05-check \
+  ALPHA_FEAST_WORKER_PYTHON=/absolute/pinned-feast-worker/bin/python \
+  make check > logs/mr05/make-check.log 2>&1
+```
+
+The final outside-checkout consumer uses the clean wheel-smoke interpreter with
+`-I`, copied `candidate_workflow.py` and `decision_study.py`, an absolute output
+directory, and optional final argument `feast`. Its worker executes the installed
+`applications.explore.command` bytes in the independently locked environment.
+No production service or private venue API is used. Existing MR01 source and
+MR04 service/restore evidence remains valid because their protocols and stores
+are unchanged; new candidate consumption is qualified separately above.
+
+Dependency ownership remains explicit. MR07 owns the delivered intent-evaluation,
+atomic checkpoint and serving-pause prerequisite slice; supervision, live inputs,
+durable order journal, OMS, risk reservation and reconciliation remain open.
+MR12 owns the carried metric/chart definitions, while runtime dashboards and
+alert delivery remain open. MR13 owns the placement-identity slice; its independent
+activation envelope, limits and recovery controls remain open. No entire later
+milestone, G3–G5 or formal QR onboarding is accepted by this work.
+
+The accepted economic scope remains bounded spot `DecisionStudy` candidates with
+named market/reference/non-book inputs. Registry contracts preserve generalized
+products and sources, but unimplemented economics reject explicitly. The OKX and
+Bitfinex read-only profiles preserve their distinct clocks/representations;
+neither is private execution conformance. Actual MR11 venue adapters and evidence
+can be registered when available. Current runtime modes only emit intents;
+account/execution requirements describe that suppressed boundary. Component
+digests are integrity checks, not MR06 trusted installation. Exact environment
+matching is currently required; independent deployable graphs, trusted compatibility,
+and the existing QuantLib release restriction remain MR06. Feature generations
+are pinned; selecting another version requires an explicit new binding. No
+capacity, empirical alpha, live-input fidelity or deployment readiness is claimed.
+
+Reversal removes the new candidate workflows, records and factory exports together;
+retain matching wheels/bundles/checkpoints for reproduction. Existing study,
+source, feature-store and job record schemas are unchanged. Older runtimes reject
+the new candidate schemas and must not silently reinterpret their state.
+
 ### Runtime, operations and handoff
 
 | MR | Planned delivered behavior and sufficient completion evidence | Dependencies |
 | --- | --- | --- |
-| MR05 | **[Candidate packaging and runtime binding](../architecture/platform-design.md#candidate-promotion-contract).** Package rule-only and learned reference candidates with input/feature-store/state/metric contracts and target or order/quote outputs; load the same components into replay and runtime. Resolve a typed capability registry for market data, reference data, calendars, valuation, account and execution interfaces; reject unsupported product/channel/order/freshness combinations before startup. Bind dataset → experiment → candidate → deployment identities without granting authority. | MR02–MR03; integrate MR04 serving interfaces and MR11 conformance when available |
+| MR05 | **[Candidate packaging and runtime binding](../architecture/platform-design.md#candidate-promotion-contract) — complete for the [declared local scope](#mr05-delivery-and-acceptance).** Package rule-only and learned reference candidates with input/feature-store/state/metric contracts and target or order/quote outputs; load the same components into replay and runtime. Resolve a typed capability registry for market data, reference data, calendars, valuation, account and execution interfaces; reject unsupported product/channel/order/freshness combinations before startup. Bind dataset → experiment → candidate → deployment identities without granting authority. | MR02–MR03; integrate MR04 serving interfaces and MR11 conformance when available |
 | MR06 | **[Independent deployable packages and trusted installation](../governance/workflow.md#build-a-release).** Build, verify, install and roll back pinned artifacts/configuration/state on the declared target; reject provenance, dependency, signature and compatibility failures. Prove that collector/execution applications install without unrelated research, notebook, training or reporting dependencies; shared contracts and independently locked workers retain compatible versions and release cadences. Resolve current release restrictions and verify research/shadow credentials cannot submit production orders. | Existing build/admission and MR16 package contracts; MR04 local environment profile supplies the target; MR06 does not wait for full MR04 or MR16 completion |
 | MR07 | **[Paper/shadow runtime and OMS](../architecture/platform-design.md#oms-and-venue-adapter-design).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
 | MR08 | **[Independent risk and account reconciliation](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Unknown sends, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate physical venue reconciliation through MR11. | MR07 and existing risk/accounting; base paper acceptance precedes MR11 external evidence |

@@ -23,7 +23,9 @@ to exact spot simulation, model studies and reports. The
 [remaining roadmap](roadmap/README.md#delivery-order-and-dependencies)
 owns completion of the OKX/Bitfinex spot stack before QR onboarding, including
 research extension points, runtime, monitoring and capacity qualification.
-No paper or live trading service is qualified or activated.
+Candidate bundles now load the same rule/model components into replay and local
+intent-only runtime, including versioned Feast features. No paper or live trading
+service is qualified or activated.
 
 The [architecture](architecture/README.md) owns package boundaries;
 [research methodology](roadmap/research-program.md) owns evaluation and trial

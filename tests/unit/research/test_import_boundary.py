@@ -50,7 +50,7 @@ optional_modules = {
     or name == "research.studies"
     or name.startswith("research.studies.")
     or name.startswith("research.experiments.")
-    and name.rsplit(".", 1)[-1] not in {"identity", "splits", "store"}
+    and name.rsplit(".", 1)[-1] not in {"identity", "splits", "store", "candidates"}
 }
 assert not optional_modules, sorted(optional_modules)
 """
