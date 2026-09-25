@@ -101,6 +101,7 @@ class PythonSourceChecker:
         "research",
         "accounting",
         "execution",
+        "portfolio",
         "risk",
         "simulation",
         "strategies",

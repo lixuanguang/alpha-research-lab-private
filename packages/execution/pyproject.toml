@@ -29,3 +29,4 @@ bypass-selection = true
 "../../src/applications/execute" = "applications/execute"
 "../../src/execution" = "execution"
 "../../src/accounting" = "accounting"
+"../../src/portfolio" = "portfolio"

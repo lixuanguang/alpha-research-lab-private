@@ -38,16 +38,38 @@ if TYPE_CHECKING:
     )
     from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
     from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
+    from runtime.portfolio import (
+        SharedDecisionCheckpoint,
+        SharedDecisionRuntime,
+        SharedStrategyBinding,
+        SharedStrategyInput,
+    )
     from runtime.workspace import WorkspaceBackup, WorkspaceFile, WorkspaceManifest
 
 
 def __getattr__(name: str) -> object:
     """Load research and workspace services only for their explicit consumers."""
+    if name in {
+        "SharedDecisionCheckpoint",
+        "SharedDecisionRuntime",
+        "SharedStrategyBinding",
+        "SharedStrategyInput",
+    }:
+        # project library imports
+        from runtime import portfolio
+
+        exports: dict[str, object] = {
+            "SharedDecisionCheckpoint": portfolio.SharedDecisionCheckpoint,
+            "SharedDecisionRuntime": portfolio.SharedDecisionRuntime,
+            "SharedStrategyBinding": portfolio.SharedStrategyBinding,
+            "SharedStrategyInput": portfolio.SharedStrategyInput,
+        }
+        return exports[name]
     if name in {"LiveBookDelivery", "PaperCaptureObserver"}:
         # project library imports
         from runtime import live_paper
 
-        exports: dict[str, object] = {
+        exports = {
             "LiveBookDelivery": live_paper.LiveBookDelivery,
             "PaperCaptureObserver": live_paper.PaperCaptureObserver,
         }
@@ -175,6 +197,10 @@ __all__ = [
     "PolicyFactory",
     "ProcessSupervisor",
     "RuntimeFiles",
+    "SharedDecisionCheckpoint",
+    "SharedDecisionRuntime",
+    "SharedStrategyBinding",
+    "SharedStrategyInput",
     "TransformFactory",
     "WorkspaceBackup",
     "WorkspaceFile",

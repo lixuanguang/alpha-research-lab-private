@@ -77,6 +77,21 @@ fill therefore keeps its original fill identity; a voided fill leaves the
 effective set. Account-level and instance projections are distinct views of the
 same retained posting history.
 
+Shared portfolio execution allocates a physical fill into identified strategy
+postings before calling this ledger. The [account journal](../execution/README.md#portfolio-coordination-and-recovery)
+retains the original physical fill and its child mapping and verifies their
+quantity, cash and cost totals. Ledger fill IDs therefore identify attributed
+effects; physical source IDs remain at the execution boundary. Explicit
+internal crossing uses paired owned inventory/cash postings with zero fee and
+no aggregate physical cash or position change. It is not a venue execution.
+
+Revise a shared physical fill's fee through `AccountJournal.correct_net_fee`
+with an identified `NetFeeCorrection`. The journal applies the original
+per-fill allocation weights, appends fee revisions here, updates order cost
+reservations and requires reconciliation before new risk. Repeated and voided
+revisions retain their original posting lineage. Editing an allocated fee
+independently cannot establish agreement with its physical source total.
+
 The [financial-unit contract](../../docs/architecture/financial-units.md#public-values-and-operations)
 defines `Money`, `Price`, `Quantity`, `Currency`, `Dimension` and the exact
 1e-18 grid. Account balances and cost totals remain separate by currency;

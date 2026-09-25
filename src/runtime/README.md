@@ -148,6 +148,47 @@ matching currently precedes loading; independent deployable environments and
 trusted compatibility admission are provided by MR06 for its independent operating
 closures; the broader research release restriction remains open.
 
+## Shared decision runtime
+
+Owner: `runtime`; account admission, tagged orders and portfolio coordination
+belong to [`execution`](../execution/README.md). Application composition belongs
+to [`applications.paper`](../applications/paper/README.md). This local
+paper/shadow increment reuses the public `strategies.DecisionPolicy` and
+`DecisionSession` contracts for a selected set of account instances. It does not
+load candidates or grant execution authority.
+
+`SharedStrategyBinding` pins an instance, account, entity, policy,
+`PortfolioContext` and maximum fee. Construction checks that the configured
+instance owns the account and entity and that the fee uses the account's
+valuation currency. `SharedStrategyInput` supplies that instance's causal
+`DecisionContext` and an `AccountQuote`; the quote must be no later than the
+decision, and the journal independently verifies it was observed for risk use.
+The application supplies an explicit batch identity, a UTC coordination time
+later than each decision, and a crossing policy.
+
+`SharedDecisionRuntime.evaluate()` orders inputs by instance ID and evaluates
+each policy in its own `DecisionSession`. Session identity binds the selected
+account configuration, instance, entity, policy, portfolio context and fee
+reserve. Target/exposure and order/quote decisions both pass through the same
+independent account admission. Policy continuations use the
+`shared-decision-v1` checkpoint and are committed with their portfolio batch.
+Each request carries the digest of the previously saved instance checkpoint;
+the account transaction checks that precondition before committing, so a stale
+concurrent decision cannot overwrite a newer policy state. Exact batch retries
+reopen their saved result, while changed input bytes or an incompatible restored
+binding fail closed.
+
+The shared runtime stages decisions only. It does not observe markets, reconcile
+accounts or synthesize order events; those facts remain explicit inputs to the
+account journal. A business rejection has no partial account reservations; it
+does retain the evaluated policy continuations and rejected outcome, so retry
+cannot evaluate a different decision from the same state. Identity, policy and
+stale-checkpoint preflight failures leave continuation unchanged. Retrying an
+older accepted or rejected batch cannot rewind a newer checkpoint. The account
+journal owns selective instance stop/restart
+and retains reservations on shared physical orders until their terminal outcome
+is established. The broader installed multi-instance deployment remains MR14.
+
 ## Paper candidate supervision
 
 Owner: `runtime`; application composition belongs to
@@ -209,6 +250,9 @@ timer identities uses the same source, feature, policy, matcher and OMS classes.
 The initial native binding covers OKX `books` L2 and Bitfinex `R0` L3 spot input.
 The generic candidate source/feature interfaces retain named multi-source inputs.
 The live convenience application currently binds one book source and one
-dedicated account/instance. Shared accounts, private execution/account adapters,
-production deployment, alert routing and capacity qualification remain with
-MR08–MR15; paper matching is an explicit model, not venue fill evidence.
+dedicated account/instance. `SharedDecisionRuntime` supplies a separate local
+multi-instance decision path over a shared account journal; it consumes explicit
+normalized account and order events and does not add a venue adapter or automatic
+matching. Private execution/account adapters, production deployment, alert
+routing and capacity qualification remain later work; paper matching is an
+explicit model, not venue fill evidence.

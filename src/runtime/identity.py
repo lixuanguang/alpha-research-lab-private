@@ -20,6 +20,7 @@ class RuntimeFiles:
     roots: ClassVar[tuple[str, ...]] = (
         "accounting",
         "execution",
+        "portfolio",
         "risk",
         "simulation",
         "strategies",
@@ -43,7 +44,7 @@ class RuntimeFiles:
             "strategies",
         ),
         "alpha-research-collector": ("applications", "market_data", "runtime", "telemetry"),
-        "alpha-research-execution": ("applications", "execution", "accounting"),
+        "alpha-research-execution": ("applications", "execution", "accounting", "portfolio"),
     }
 
     @classmethod

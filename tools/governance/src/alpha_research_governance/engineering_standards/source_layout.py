@@ -302,6 +302,7 @@ class SourceLayoutChecker:
             "research",
             "accounting",
             "execution",
+            "portfolio",
             "risk",
             "simulation",
             "strategies",

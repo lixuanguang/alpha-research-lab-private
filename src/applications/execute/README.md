@@ -1,4 +1,4 @@
-# Installed execution admission and dedicated paper OMS
+# Installed execution admission and paper accounts
 
 Owner: quant development. The original `inspect` and `admit` commands accept
 exact spot limit intents through the existing capability, reference and
@@ -132,4 +132,30 @@ modeled local input; no success is a physical venue observation. A contradiction
 returns a nonzero CLI exit and retains the account block. The maintained
 [shared-account consumer](../../../tests/integration/consumers/runtime/shared_account.py)
 generates concrete configurations and requests and exercises the installed
-command outside the checkout. Production authority and netting remain absent.
+command outside the checkout. Production authority remains absent.
+
+The same command accepts the shared portfolio operations:
+
+| Action | Required payload and result |
+| --- | --- |
+| `coordinate` | `batch: PortfolioBatch` retains strategy/revision metadata, all pre-net decisions, the explicit crossing policy and a stable batch identity. Gross risk admission and any internal crossing/physical order creation commit atomically. `portfolio` contains the original durable outcome. |
+| `net_event` | `net_event: OrderEvent` names a physical parent. The journal applies its lifecycle and allocates its fill/cost effects to strategy children in one transaction. |
+| `net_cost` | `net_cost: NetFeeCorrection` identifies a physical fill and its revised total fee. Append-only child corrections retain the original event and require account reconciliation before admission resumes. |
+| `stop_instance` | `instance_id`, UTC `at`. Block the selected instance and request shared-parent cancellation while retaining unresolved reservations. This action does not flatten positions or claim an exchange cancellation. |
+| `reissue_pending` | `account_id`, UTC `at`. After confirmed cancellation and complete reconciliation, route the unaffected strategy's reserved residuals through new physical parents. |
+| `restart_instance` | `instance_id`, UTC `at`. Resume local decision admission only after the journal's recovery conditions hold; independent account blocks remain in force. |
+
+Results expose both `orders` (attributed children) and `net_orders` (physical
+parents), plus `stopped_instances`, retained `failed_net_events` and unroutable
+`residuals` with their owner, quantity and physical-grid reason. Use the
+parent identity when supplying normalized physical events;
+strategy child identities remain accounting and risk lineage. Inspection and
+all mutations report `submission_attempted=false`. Failed physical facts remain
+durable and block new risk. See the [portfolio journal contract](../../execution/README.md#portfolio-coordination-and-recovery)
+for compatibility, costs, residuals and the stop/reconciliation sequence.
+
+The [portfolio consumer](../../../tests/integration/consumers/runtime/portfolio_account.py)
+authors configured target and order-intent strategies, retains every request and
+result, and exercises the installed CLI using both OKX/USDT and Bitfinex/USD
+fixture labels. These are local spot accounting scenarios, not private account
+observations or venue-rule qualification.

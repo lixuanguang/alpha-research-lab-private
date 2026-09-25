@@ -79,8 +79,9 @@ and commits all child legs and the opaque candidate checkpoint. Competing
 clients cannot both consume the same headroom. An unfilled sell does not offset
 held exposure; buys reserve limit notional and remaining fee allowance. Instance
 positions are tagged, targets use only their own positions, and quote legs are
-atomic. Crossing opposite orders in an account are rejected. Allocation and
-compatible netting remain MR09 work.
+atomic. The direct tagged-order path rejects crossing opposite orders. The
+coordinated portfolio path below adds explicit compatible crossing and physical
+aggregation.
 
 `apply_event(OrderEvent)` distinguishes request/accept/cancel acknowledgements,
 partial fills, confirmed terminal outcomes and uncertainty. Here `event.at` is
@@ -119,3 +120,85 @@ state document and histories per transaction. It establishes correctness for
 the reference workload, not MR15 throughput, bounded retention or deployment
 readiness. Retain the journal with its configuration and compatible artifact;
 never edit accounting history to make a rollback appear compatible.
+
+## Portfolio coordination and recovery
+
+`AccountJournal.coordinate(PortfolioBatch)` composes the same independent account
+admission with [portfolio context and allocation](../portfolio/README.md).
+The batch retains every original `AccountDecision` and its complete
+`PortfolioContext`. Its coordination time must be strictly later than each
+decision cutoff. A stable batch identity binds the original bytes and outcome;
+an exact retry cannot create another reservation, internal transfer or physical
+order. A failed batch leaves no partial economic effects.
+
+Targets and exposures lower against only their owner's attributed holdings;
+order and quote intents retain their native child legs. All pre-net children
+pass instance/account/firm gross budgets, instrument authority, cash/inventory,
+freshness and spot mechanics before coordination. Netting cannot create budget
+headroom by hiding an opposing strategy's commitment.
+
+`orders()` retains tagged strategy children. `net_orders()` retains physical
+parents and their child allocations. A compatible group must share account,
+instrument/currency, portfolio, venue, settlement, risk bucket and authority,
+plus the selected order mechanics and quote. Strategy and revision identities
+stay on each child. Separate accounts, venue listings or currency denominations
+never net through an assumed equivalence or FX rate.
+
+The default crossing policy rejects self-trade conflicts. Explicit
+`internal_at_quote` transfers owned spot inventory between compatible opposing
+strategies at their common independently observed quote, within both limits.
+It posts paired, identified strategy cash/quantity effects with zero internal
+fee; aggregate physical cash and inventory do not change. These are declared
+internal allocations, never invented venue fills. Incompatible scope, unknown
+outcomes, unavailable inventory and unsupported post-only crossing fail closed.
+The selected crossing policy is pinned when the journal first admits a batch.
+
+`apply_net_event(OrderEvent)` names a physical parent and commits its transition,
+allocated child fills/costs and physical-to-child lineage in one transaction.
+The reference policy retains prior allocations, assigns deterministic residuals
+and never charges beyond reserved costs. The physical fill identity is distinct
+from the allocated posting identities. Complete reconciliation checks physical
+open orders and physical fill totals against the strategy ledger, alongside the
+existing cash, position, fee/rebate and transfer checks.
+
+`correct_net_fee(NetFeeCorrection)` revises the total cost of one identified
+physical fill. It retains the original fill, uses the pinned original per-fill
+fee-reservation weights and appends attributed ledger revisions. Repeated
+corrections, voiding and restoration follow the existing current-revision
+contract. Parent and child fee totals change together; unreserved costs fail
+and a successful revision requires complete reconciliation before new risk.
+
+`stop_instance(instance_id, at)` blocks new decisions for that strategy. A shared
+parent must be cancelled as one physical order; the other strategy's child
+reservation and remaining quantity survive. Neither cancel request nor cancel
+acknowledgement releases uncertain exposure. After confirmed terminal state and
+complete reconciliation, `reissue_pending(account_id, at)` creates physical
+orders for unaffected residuals. `restart_instance(instance_id, at)` requires
+the stopped strategy's unresolved orders to be settled and the account recovery
+conditions to hold. Stop, physical cancellation and position reduction remain
+distinct operations. Account-level protection applies throughout.
+Residual reissue also rechecks fresh independent quotes, gross budgets, price
+deviation and funding; an old opening reconciliation cannot authorize recovery.
+The same fresh-mark check applies at the coordination cutoff, after all gross
+admissions and before any internal allocation or physical order is created.
+`portfolio_residuals(account_id)` and application inspection expose child
+quantities that cannot form a valid physical lot. These quantities stay reserved;
+they are never silently rounded away or reported as a matched target. Stopping
+their owning instance can retire an unattached reservation without inventing a
+physical cancellation.
+
+The [installed account command](../applications/execute/README.md#shared-account-command)
+exposes these operations without a transport or credentials. The
+[shared decision application](../applications/paper/README.md) stages existing
+research decision policies, binds their inputs/revisions and stores per-instance
+continuations in the same transaction. Compatible restart retains decisions,
+reservations and allocations; a changed binding or stale continuation is refused.
+Keep the journal, configuration and compatible artifact together for reversal.
+Older artifacts must not be forced to read expanded portfolio state by removing
+fields or rewriting accounting history.
+
+Initial evidence is local cash-funded spot under authored OKX/Bitfinex-shaped
+configurations. Physical private account observations, authenticated submission,
+venue fee rules, deployment, capacity and activation remain separately qualified
+capabilities. The [MR09 record](../../docs/roadmap/README.md#mr09-delivery-and-acceptance)
+distinguishes their status from software acceptance.

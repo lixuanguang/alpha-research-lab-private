@@ -288,7 +288,7 @@ PYTEST_ADDOPTS=--basetemp=/private/tmp/mr07-check \
 ```
 
 
-## Shared account acceptance
+## Shared account admission and reconciliation
 
 The [account consumer](integration/consumers/runtime/shared_account.py) runs
 `AccountExecutionApplication` and the installed `alpha-execute account` command
@@ -307,6 +307,39 @@ the checkout and run with the actual installed execution interpreter:
 knowledge clocks, independent quote binding and underfunded-reservation failures.
 `unit/risk/test_budgets.py` tests every limit scope with independent amounts;
 `unit/accounting/test_accounts.py` tests exact multi-currency replay and corrections.
-These software tests do not qualify a venue, empirical strategy, live capital,
-portfolio netting or capacity. The MR08 roadmap record owns actual commands,
-results and remaining MR11 physical reconciliation evidence.
+This MR08 software proof does not qualify a venue, empirical strategy, live
+capital, portfolio netting or capacity. The MR08 roadmap record owns its actual
+commands and results; physical venue reconciliation remains MR11 evidence.
+
+## Shared portfolio workflow
+
+The local MR09 increment composes per-instance decision state through
+`runtime.SharedDecisionRuntime` and `applications.paper.run_shared_paper`; see
+the [runtime](../src/runtime/README.md#shared-decision-runtime) and
+[paper application](../src/applications/paper/README.md#shared-account-paper-workflow)
+contracts. The installed execution workflow exercises the account journal with
+two authored intents on one instrument/account: a target decision and an order
+intent. It checks shared budget rejection, compatible physical netting, partial
+fill and fee allocation, per-instance/aggregate balances, changed retry bytes,
+selective stop and reissue after cancellation/reconciliation, explicit internal
+crossing, and parity between the application and installed CLI.
+
+The [installed consumer](integration/consumers/runtime/portfolio_account.py)
+and [discovered regression](integration/test_portfolio_workflow.py) run the
+same authored workload under OKX/USDT and Bitfinex/USD fixture labels. Those
+labels and instrument identities are test inputs; the consumer records
+`local-paper-fixture` qualification and `physical_venue_evidence=false`. The
+workflow test covers `AccountExecutionApplication` and the installed
+`alpha-execute account` command. The [shared decision consumer](unit/runtime/test_shared_decisions.py)
+also drives `run_shared_paper` with two distinct executable decision policies,
+checks exact physical and attributed balances, restores policy continuation,
+and retries an older batch without rewinding newer state. The direct
+[allocation tests](unit/portfolio/test_allocation.py) and
+[account coordination tests](unit/execution/test_portfolio_accounts.py) cover
+exact quantity/fee splits, net fill retry, child ownership, stop/restart and
+internal crossing. Actual commands, results and retained artifact identities
+belong to the [MR09 acceptance record](../docs/roadmap/README.md#mr09-delivery-and-acceptance).
+
+These are local software proofs over authored account and order facts. They do
+not qualify physical OKX or Bitfinex private streams, order handling or account
+state; those venue conformance results belong to MR11.
