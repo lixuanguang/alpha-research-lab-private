@@ -100,6 +100,7 @@ class PythonSourceChecker:
         "reference_data",
         "research",
         "accounting",
+        "execution",
         "risk",
         "simulation",
         "strategies",

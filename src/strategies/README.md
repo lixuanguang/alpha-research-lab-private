@@ -6,6 +6,15 @@ their behavior. The generalized interface is `DecisionPolicy`: explicit identity
 output family, signature admission, initial/validated state, and a pure
 `decide(context, state)` transition. A policy cannot submit orders or approve risk.
 
+For MR07 supervision, a policy may also implement `DecisionLifecycle.on_event`.
+`StrategyEvent` carries explicit start/recovery, timer, market, order, account,
+fault or stop identity and UTC availability, with paired order and cash/holding
+fields where applicable. The callback returns validated policy state bytes; it
+does not submit an intent, read a venue or change independent account protection.
+The [paper runtime](../runtime/README.md#paper-candidate-supervision) persists the
+state and callback cursor together. Policies without lifecycle callbacks retain
+their existing pure decision behavior.
+
 `DecisionContext` contains a then-available multi-feature vector and an optional
 prediction bound to that exact vector, entity and decision. Labels are absent.
 `TargetIntent` requests an absolute dimensioned position; `ExposureIntent` requests

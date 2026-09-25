@@ -3,21 +3,13 @@
 from __future__ import annotations
 
 # standard library imports
-import sqlite3
 from datetime import datetime
 from itertools import pairwise
-from pathlib import Path
 from typing import Literal
 
 # project library imports
 from configuration import CandidateDeployment, CapabilityRegistry
 from research.experiments import CandidateBundle
-from research.features import (
-    FeastServingBridge,
-    FeastServingSnapshot,
-    FeatureAccessError,
-    VersionedFeatureStore,
-)
 from research.observations import DecisionSource
 from runtime import (
     CandidateCheckpoint,
@@ -120,74 +112,3 @@ def run_candidate(
         steps=tuple(steps),
         checkpoint=session.checkpoint(),
     )
-
-
-def run_candidate_feature(
-    session: CandidateSession,
-    store: VersionedFeatureStore,
-    *,
-    at: datetime,
-    bridge: FeastServingBridge | None = None,
-    serving_root: Path | None = None,
-) -> CandidateStep:
-    """Consume an exact packaged store version and pause on missing, stale or lost serving.
-
-    Offline consumption compares the selected immutable materialization with
-    authoritative PIT retrieval at its cutoff. Online consumption additionally
-    verifies the actual Feast generation and active pointer. A version change
-    requires an explicit new deployment binding; it cannot silently alter a
-    running candidate. Fitted transforms already in the store are never reapplied.
-    """
-    loaded = session.loaded
-    deployment, definition = loaded.deployment, loaded.store_definition
-    if (
-        definition is None
-        or deployment.feature_version is None
-        or deployment.input_mode == "source"
-    ):
-        raise ValueError("candidate deployment has no feature-store binding")
-    if deployment.input_mode == "online_features" and (bridge is None or serving_root is None):
-        raise ValueError("online candidate requires its isolated Feast bridge")
-    session.admit_cutoff(at)
-    try:
-        materialization = store.get_materialization(definition, deployment.feature_version)
-        if materialization.identity != deployment.source_identity:
-            raise ValueError("candidate materialization differs from pinned deployment")
-        if deployment.input_mode == "offline_features":
-            if at != materialization.at:
-                raise ValueError("offline candidate cutoff differs from pinned materialization")
-            result = store.retrieve_offline(definition, deployment.entity, at)
-            pinned = next((r for r in materialization.rows if r.entity == deployment.entity), None)
-            if pinned is None or pinned.feature != result.feature or pinned.status != result.status:
-                raise ValueError("candidate PIT retrieval differs from pinned materialization")
-        else:
-            result = store.retrieve_online(
-                definition,
-                deployment.entity,
-                at,
-                max_materialization_age_us=min(
-                    *(item.max_age_us for item in loaded.manifest.inputs),
-                    *(
-                        requirement.max_freshness_us
-                        for requirement in loaded.manifest.requirements
-                        if requirement.name in {item.name for item in loaded.manifest.inputs}
-                        and requirement.max_freshness_us is not None
-                    ),
-                ),
-            )
-            if result.version != deployment.feature_version:
-                return session.pause(at, "feature-version-changed")
-            if result.status != "ready":
-                return session.pause(at, result.status)
-            if bridge is None or serving_root is None:
-                raise ValueError("online candidate requires its isolated Feast bridge")
-            snapshot = FeastServingSnapshot.from_materialization(materialization)
-            generation = bridge.open_generation(snapshot, serving_root)
-            served = bridge.retrieve(snapshot, generation, deployment.entity, at)
-            if served.status != "ready":
-                return session.pause(at, served.status)
-        if result.status != "ready":
-            return session.pause(at, result.status)
-    except FeatureAccessError, OSError, sqlite3.Error:
-        return session.pause(at, "feature-service-unavailable")
-    return session.evaluate_feature(result.require_ready(), at)

@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 # third party library imports
@@ -56,6 +57,23 @@ class TestCandidateWorkflow:
             proof = summary[f"{name}_features"]
             assert isinstance(proof, dict)
             assert proof["source_offline_equal"] is True
+            paper = summary[f"{name}_paper"]
+            assert isinstance(paper, dict)
+            assert paper["paper_shadow_intent_equal"] is True
+            assert paper["paper_status"] == "filled"
+            assert paper["shadow_status"] == "intent"
+            for field, expected in (
+                ("paper_fill_quantity", "1"),
+                ("paper_fill_price", "99" if name == "rule" else "100"),
+                ("paper_fee", "0.20"),
+                ("paper_cash", "900.80" if name == "rule" else "899.80"),
+            ):
+                actual = paper[field]
+                assert isinstance(actual, str)
+                assert Decimal(actual) == Decimal(expected)
+            assert paper["shadow_zero_fills"] is True
+            assert paper["restart_no_duplicate_effects"] is True
+            assert paper["submission_attempted"] is False
 
     @pytest.mark.integration
     def test_real_feast_serving_preserves_candidate_intent(self, tmp_path: Path) -> None:
@@ -88,6 +106,10 @@ class TestCandidateWorkflow:
             proof = summary[name]
             assert isinstance(proof, dict)
             assert proof["source_offline_online_equal"] is True
+            assert proof["online_paper_intent_equal"] is True
+            assert proof["online_paper_fill_count"] == 1
+            assert proof["online_paper_service_loss_paused"] is True
+            assert proof["online_paper_version_change_paused"] is True
             assert proof["stale_paused"] is True
             assert proof["service_loss_paused"] is True
             assert proof["version_change_paused"] is True

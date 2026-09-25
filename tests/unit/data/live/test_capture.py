@@ -293,7 +293,7 @@ class TestCapture:
             )
         )
         try:
-            with patch("applications.collect.workflow.SavedCapture.read", side_effect=reader):
+            with patch("market_data.collection.runner.SavedCapture.read", side_effect=reader):
                 assert await asyncio.to_thread(started.wait, 5)
                 before = health.snapshot()
                 await asyncio.sleep(0.35)
@@ -328,7 +328,7 @@ class TestCapture:
             )
         )
         try:
-            with patch("applications.collect.workflow.SavedCapture.read", side_effect=reader):
+            with patch("market_data.collection.runner.SavedCapture.read", side_effect=reader):
                 assert await asyncio.to_thread(started.wait, 5)
                 task.cancel()
                 await asyncio.sleep(0)
@@ -480,8 +480,8 @@ class TestCapture:
         transport = ScriptedTransport(config, (_FRAMES,))
         consumer = CaptureReplay(config, book_factory=BookAdapters.create)
         with (
-            patch("applications.collect.workflow.CaptureJournal", FailingJournal),
-            patch("applications.collect.workflow.CaptureReplay", return_value=consumer),
+            patch("market_data.collection.runner.CaptureJournal", FailingJournal),
+            patch("market_data.collection.runner.CaptureReplay", return_value=consumer),
         ):
             with pytest.raises(OSError, match="disk full"):
                 asyncio.run(
@@ -591,7 +591,7 @@ class TestCapture:
         transport = ScriptedTransport(config, ())
         with (
             patch.object(transport, "open", return_value=socket),
-            patch("applications.collect.workflow.CaptureReplay", SlowReplay),
+            patch("market_data.collection.runner.CaptureReplay", SlowReplay),
         ):
             result = asyncio.run(
                 collect(config, tmp_path, implementation_identity="a" * 64, transport=transport)

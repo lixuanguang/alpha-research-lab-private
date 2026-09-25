@@ -142,8 +142,8 @@ def recovery(directory: Path, output: Path, mode: str) -> dict[str, object]:
             return outcome
 
     with (
-        patch("applications.collect.workflow.CaptureReplay", ObservedReplay),
-        patch("applications.collect.workflow.asyncio.sleep", transport.pause),
+        patch("market_data.collection.runner.CaptureReplay", ObservedReplay),
+        patch("market_data.collection.runner.asyncio.sleep", transport.pause),
     ):
         result = asyncio.run(
             collect(

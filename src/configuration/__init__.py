@@ -26,6 +26,7 @@ from configuration.execution import (
     ExecutionMode,
     ExecutionRequest,
 )
+from configuration.paper import PaperConfiguration
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
 
 __all__ = [
@@ -52,6 +53,7 @@ __all__ = [
     "ExecutionMode",
     "ExecutionRequest",
     "OKXHistoryConfig",
+    "PaperConfiguration",
     "PublicDataJob",
     "ResolvedManifest",
     "Universe",

@@ -1,17 +1,19 @@
-# Installed execution admission
+# Installed execution admission and dedicated paper OMS
 
-Owner: quant development; initial MR06 execution package consumer. This
-application accepts exact spot limit intents through the existing capability,
-reference and independent risk contracts. Its output is either a rejection or a
-suppressed admissible intent. It has no venue submission client, credential
-resolver, OMS, live order command or capital authority.
+Owner: quant development. The original `inspect` and `admit` commands accept
+exact spot limit intents through the existing capability, reference and
+independent risk contracts. Their output is either a rejection or a suppressed
+admissible intent. The separate `paper` command owns a durable local order
+journal and account state. Neither command has a venue submission client,
+credential resolver, live order command or capital authority.
 
 `ExecutionConfiguration` (`execution-admission-v1`) binds the environment,
 research/paper/shadow mode, mode-scoped credential reference, execution capability
 profile, reference history, maximum quantity and quote currency. Credential
 values never appear in the configuration. A production mode, executable profile,
 foreign environment or mismatched credential mode fails before reading an intent.
-The initial state schema is `none-v1`; it does not represent an order journal.
+The legacy admission state schema is `none-v1`; its requests do not mutate the
+paper order journal.
 
 `ExecutionRequest` separately supplies an `OrderIntent`, account cash/holdings,
 maximum fee, pending-intent flag, reference valid/knowledge cutoffs and maximum
@@ -28,7 +30,46 @@ The standalone development commands are:
 ```sh
 alpha-execute inspect --config /absolute/config.json
 alpha-execute admit --config /absolute/config.json --request /absolute/request.json
+alpha-execute paper --config /absolute/paper-config.json \
+  --journal /absolute/paper.sqlite3 --instance example-instance \
+  --request /absolute/paper-request.json
+alpha-execute paper --config /absolute/paper-config.json \
+  --journal /absolute/paper.sqlite3 --instance example-instance
 ```
+
+The last form inspects the local paper account without a request. `paper` loads
+`PaperConfiguration` (`paper-runtime-v1`) with a dedicated flat initial account,
+fixed spot tick/lot/holding limits, bounded fee and market scenario. The journal
+binds the full configuration identity and explicit instance; changing either
+cannot reopen the same state. Fixed authored grids have `qualification=fixture`
+and do not establish venue rule fidelity. Each result reports
+`submission_attempted=false`, current exact cash/holdings, pending reservations,
+orders, event sequence and any durable account break.
+
+The `PaperExecutionRequest` JSON selects one action. `decide` supplies a portable
+`OrderDecision`, a stable request identity, optional target conversion price and
+opaque checkpoint bytes; the command atomically journals the candidate
+continuation, admission result and child orders. `replace` supplies the old
+order ID plus a new decision, optional reference and checkpoint; it admits a
+replacement with durable lineage only after the old order has a confirmed
+terminal outcome. A cancel request or acknowledgement alone does not permit
+replacement. `market` supplies a finite
+`PaperMarket` quote for deterministic paper matching; shadow mode rejects this
+action. `event` applies an identified lifecycle fact, including acceptance,
+partial fill, rejection and confirmed cancellation; shadow mode refuses fills.
+`cancel` records a cancel request and keeps the reservation until a later
+confirmed outcome. `reconcile` compares caller-observed paper cash, holdings
+and open order IDs, blocking new risk on a break. `inspect` is read only. The
+request uses the shared exact `DomainCodec` wire representation. Decision,
+replacement and
+market step IDs reject changed retry bytes; order event IDs reject changed
+event payloads. Reconciliation accepts a fresh caller-observed account snapshot.
+
+Paper matches are bounded top-of-book assumptions with finite displayed
+liquidity. Order acknowledgement, acceptance, fill and cancellation remain
+distinct durable events. See the [paper journal](../../execution/README.md) for
+reservations, fencing and known reconciliation limits. Physical venue account
+reconciliation and venue adapters remain separate work.
 
 A trusted installation supplies its signed configuration automatically:
 

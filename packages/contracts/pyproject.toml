@@ -29,4 +29,5 @@ bypass-selection = true
 "../../src/financial_units/py.typed" = "financial_units/py.typed"
 "../../src/strategies/__init__.py" = "strategies/__init__.py"
 "../../src/strategies/intents.py" = "strategies/intents.py"
+"../../src/strategies/lifecycle.py" = "strategies/lifecycle.py"
 "../../src/strategies/py.typed" = "strategies/py.typed"
