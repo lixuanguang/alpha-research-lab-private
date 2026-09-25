@@ -13,12 +13,19 @@ Native Bitfinex/OKX acquisition, dataset queries as of a cutoff and bounded book
 replay, bounded saved-snapshot discovery and pinned multi-input research selections
 are also available. Retained experiment attempts, temporal split admission and
 unfitted exploration studies, train-only models, bounded spot simulation/accounting
-and independent spot risk limits are implemented. Configured economic reports,
+and independent spot risk limits are implemented. The codebase now also includes
+a local shared-account portfolio increment: it commits selected strategy decisions
+through independent budgets, retains tagged child orders, nets compatible spot
+orders, and allocates normalized fills and fees back to their owners. The
+[MR09 acceptance record](../roadmap/README.md#mr09-delivery-and-acceptance) owns
+its validation status; physical venue execution remains separately qualified.
+Configured economic reports,
 serial local ClearML pipelines and pinned lakeFS dataset versions are also available.
 Named multi-feature, fitted-transform, estimator-state and restartable decision contracts
 now have [installed research consumers](../../src/research/features/README.md#generalized-feature-lifecycle).
-MR06 adds independent operating packages and trusted local installation. Portfolio allocation,
-venue order execution, deployed services and live trading monitoring remain planned. See the
+MR06 adds independent operating packages and trusted local installation. Economic
+portfolio construction, physical venue order execution, deployed services and live
+trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.
 
@@ -120,15 +127,26 @@ Current dependency direction is organized by functional owner:
   owns separate forward outcomes. `research/models/`, `strategies/`, `simulation/`,
   `accounting/` and `risk/` provide the bounded spot research path. The sole
   `alpha-backtest` command composes its configured and pipeline actions.
+- `portfolio/` owns the shared-account portfolio context and exact deterministic
+  allocation primitives. It preserves intent scope and resolves fill/fee residuals;
+  it is not yet a general economic portfolio optimizer.
 - `configuration/` resolves definitions and selections. `runtime/` and `telemetry/`
   supply identity, supervision and observations without importing applications.
+  `runtime.SharedDecisionRuntime` reuses one `DecisionSession` per selected
+  instance and restores its policy state from the account journal.
 - [`execution/`](../../src/execution/README.md) owns the portable paper/shadow
   order journal, lifecycle, pending reservations and modeled matching. It consumes
   independent risk and accounting; candidate supervision stays in `runtime/`.
   Its shared `AccountJournal` adds atomic firm/account/instance admission, tagged
-  postings and complete local reconciliation. [Risk](../../src/risk/README.md)
-  owns independent policy and [accounting](../../src/accounting/README.md) owns
-  exact multi-currency postings and append-only corrections.
+  child orders, compatible physical net orders, allocated event postings and
+  complete local reconciliation. [Risk](../../src/risk/README.md) owns independent
+  policy and [accounting](../../src/accounting/README.md) owns exact multi-currency
+  postings and append-only corrections. Physical venue reconciliation remains
+  with MR11.
+- [`applications.paper`](../../src/applications/paper/README.md) composes the
+  existing dedicated-account candidate flows and `run_shared_paper`, which
+  consumes explicit normalized account/order events without venue submission or
+  automatic shared-order matching.
 - `applications/` composes these libraries and exposes the installed commands.
   Libraries never import applications; applications never import sibling workflows.
 
@@ -136,8 +154,10 @@ Foundational contracts do not depend on notebooks, research-only approximations,
 deployment composition roots, or workstation configuration. Provider details
 stay inside adapters: Tardis framing owns capture and blank-line behavior, while
 the Binance venue decoder owns combined-stream `stream`/`data` payload
-interpretation. Portfolio construction emits targets; execution turns an
-intent into orders only after an independent risk boundary. Cross-process
+interpretation. Strategy policy emits target/exposure or order/quote intents.
+Shared-account coordination preserves their child ownership while combining only
+compatible orders; independent risk admission remains in force. Economic portfolio
+construction and venue submission remain separate capabilities. Cross-process
 interfaces will use versioned schemas when such a boundary is introduced.
 
 The [dataset library](../../src/market_data/datasets/publication.py) assembles
@@ -156,6 +176,7 @@ golden/property evidence.
 | C03 | [Financial units and conventions](financial-units.md) | Dimension-safe exact arithmetic, explicit rounding, and an isolated date-based convention adapter |
 | Historical data | [Market-data contracts](../data/contracts.md) | Exact metadata/events, verified acquisition, occurrence/revision lineage, eligibility selection, quality reports and immutable snapshots with explicit use scope |
 | Native books | [Collector contracts](../data/l3-collectors.md), [OKX data](../data/okx-market-data.md) | Source-specific capture, persistence, recovery and bounded offline replay |
+| Shared spot account coordination | [Execution account contract](../../src/execution/README.md#shared-account-admission-and-reconciliation) | Atomic decision admission, tagged child orders, compatible physical net orders, allocated normalized fills/fees and local reconciliation |
 
 The contracts preserve strict external validation, immutable values, explicit
 time semantics, and independent hand-calculated or declared goldens. Their

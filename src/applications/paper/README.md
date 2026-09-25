@@ -9,6 +9,55 @@ durable checkpoint, ledger, orders and `submission_attempted=False`. Completing
 an event prefix releases ownership without canceling orders. A later invocation
 restores that same journal and its unresolved reservations.
 
+## Shared account paper workflow
+
+`run_shared_paper` composes selected `SharedStrategyBinding` values,
+`SharedStrategyInput` records and an `AccountConfiguration` through one
+`AccountJournal` and `SharedDecisionRuntime`. Import the application entry point
+and records from `applications.paper`; policy bindings and inputs are public
+runtime records. Each binding selects an instance/account/entity, an existing
+`DecisionPolicy`, complete `PortfolioContext`, and maximum fee. Each input
+supplies that instance's causal `DecisionContext` together with an `AccountQuote`
+that the journal has already observed independently.
+
+The finite event stream contains observed quotes, complete local
+`AccountObservation` reconciliation facts, `SharedPaperDecision` batches, and
+normalized `OrderEvent` facts for physical net orders. A batch has a stable
+identity, a coordination time later than every policy decision, and an explicit
+crossing policy (`reject` by default or `internal_at_quote`). The account must
+reconcile before admission, and a policy input cannot substitute for the
+journal's market quote. Both target/exposure and order/quote intents enter the
+same instance/account/firm budget checks.
+
+The journal first admits attributable child orders, then groups compatible
+same-side children into physical net orders. Grouping requires a shared account,
+observed quote, portfolio/venue/settlement/risk/authority context, side, limit and
+time-in-force. With `internal_at_quote`, compatible opposite interests may cross
+at their common observed quote when their limits permit it. An otherwise
+crossable post-only child rejects the internal-crossing batch. The remaining
+physical child quantities and reserved fee ceilings remain attributed to their
+source instances. Physical partial fills are split using monotone cumulative
+pro-rata quantity allocation on the exact financial grid; fees use remaining
+child fee capacity and stable child-order identity for residual atoms. Each
+normalized parent event and its child postings commit together, and conflicting
+retries or attribution breaks are rejected and retained by the account journal.
+
+Reopening with the same journal and bindings restores the account and each
+instance's `shared-decision-v1` policy continuation. The continuation digest is
+an optimistic precondition on the account transaction, so a stale concurrent
+writer cannot replace a newer instance checkpoint. Selective instance stop and
+restart remain account-journal operations; unresolved shared parents retain
+their reservations until a terminal outcome and reconciliation. The result
+returns current account views, tagged child orders, physical net orders and
+batch outcomes with `submission_attempted=False`.
+
+This workflow processes explicit local paper/account facts. It does not connect
+to venue private streams, submit orders, or infer fills from observed book
+liquidity. Shadow mode refuses fill events. Physical OKX and Bitfinex execution
+and account conformance remain MR11 qualification; broader multiple-instance
+deployment remains MR14. `run_paper` and `run_live_paper` continue to provide the
+existing dedicated-account candidate and live-input paths.
+
 `run_live_paper` is an asynchronous bounded public-book workflow. It accepts the
 same candidate/configuration plus a `CaptureRequest`, capture output and journal
 path. It injects native adapters and transport into `market_data.collection.CaptureRunner`
@@ -48,6 +97,6 @@ the execution wheel owns only the portable order/account boundary.
 
 All modes are local and non-executable. Native input supports declared OKX/Bitfinex
 spot books; other named sources use `run_paper` and must satisfy the candidate's
-admitted signatures. Dedicated one-instrument cash-funded accounts are the current
-economic envelope. Venue order/account conformance, shared account portfolios and
-production activation are separate roadmap outcomes.
+admitted signatures. Shared-account coordination is a local paper/shadow spot
+increment over normalized events. Venue order/account conformance, full MR14
+multi-instance deployment and production activation remain separate outcomes.

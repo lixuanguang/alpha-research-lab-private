@@ -7,6 +7,13 @@ from execution.accounts import (
     AccountObservation,
     AccountQuote,
     AccountView,
+    NetAllocation,
+    NetFeeCorrection,
+    NetOrder,
+    PortfolioBatch,
+    PortfolioCommit,
+    PortfolioDecision,
+    PortfolioResidual,
     TaggedOrder,
 )
 from execution.journal import PaperOrderJournal
@@ -22,6 +29,7 @@ from execution.records import (
     StepCommit,
     StepRecord,
 )
+from portfolio import PortfolioContext
 
 __all__ = [
     "AccountDecision",
@@ -32,12 +40,20 @@ __all__ = [
     "AccountView",
     "EventKind",
     "JournalEvent",
+    "NetAllocation",
+    "NetFeeCorrection",
+    "NetOrder",
     "OrderDecision",
     "OrderEvent",
     "OrderState",
     "PaperMarket",
     "PaperMatcher",
     "PaperOrderJournal",
+    "PortfolioBatch",
+    "PortfolioCommit",
+    "PortfolioContext",
+    "PortfolioDecision",
+    "PortfolioResidual",
     "SpotOrderLifecycle",
     "StepCommit",
     "StepRecord",

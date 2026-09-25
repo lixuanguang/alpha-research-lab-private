@@ -109,9 +109,9 @@ src/
   simulation/               Delayed spot fills/costs/checkpoints and bounded vectorbt adapter
   accounting/               Exact spot attribution and identified account postings/corrections
   risk/                     Independent spot grids, authority and instance/account/firm budgets
-  portfolio/                PLANNED: allocation and netting before QR onboarding
-  execution/                Paper OMS, atomic shared-account journal and matching; future venue adapters
-  runtime/                  Candidate/paper supervision, identity, bounded durable jobs and workspace recovery
+  portfolio/                Shared-account context and exact fill/fee allocation; economic optimizer planned
+  execution/                Paper OMS, shared-account admission/netting and matching; future venue adapters
+  runtime/                  Candidate/shared-decision supervision, identity, bounded jobs and workspace recovery
   telemetry/                Health/alerts; future runtime and economic monitoring
   configuration/            Typed definitions and explicit selection
   serialization/            Exact domain codecs and strict wire records
@@ -125,7 +125,7 @@ src/
     evaluate_model/         OPTIONAL source split; evaluation required through explore or this owner
     backtest/               Economic Python workflow and tracked vectorbt comparison
     execute/                CURRENT: installed intent/risk admission with submission suppressed
-    paper/                  FUTURE: paper/shadow composition
+    paper/                  CURRENT: dedicated and shared-account paper/shadow composition
     live/                   FUTURE: explicitly authorized operation
     deploy/                 OPTIONAL future composition; local installer is governance CLI
 
@@ -787,6 +787,15 @@ OMS boundary with instance ownership, instrument, account and version identity.
 Quant development supplies an active reference consumer of each output form;
 the no-trade control remains additional evidence, not the shared-account test.
 
+The local shared-account path reuses `DecisionSession` for each selected policy
+and persists one policy continuation per configured instance. `runtime`
+`SharedDecisionRuntime` stages the typed decisions; `applications.paper`
+`run_shared_paper` composes them with observed account quotes, complete local
+account observations and normalized physical order events. This finite event
+workflow does not connect to private venue streams, submit orders or infer fills
+from book liquidity. Dedicated candidate supervision remains in
+`PaperCandidateRuntime`.
+
 The same kernel runs in these modes:
 
 | Mode | Purpose and boundary |
@@ -866,6 +875,11 @@ Portfolio construction consumes forecasts, current positions, risk budgets, cost
 constraints. It produces dimensioned desired exposures or quantities with a validity interval and fallback. It never
 places orders. An infeasible or stale input takes a deterministic conservative path.
 
+That economic portfolio optimizer remains planned. The implemented local
+`portfolio` package supplies shared-account metadata compatibility and
+`ProRataAllocator`; `execution.AccountJournal` owns the account transaction,
+order lifecycle and physical-to-child posting boundary that consumes them.
+
 The planned accounting boundary owns positions, lots or contract quantities, cash by currency, accrued amounts,
 margin/collateral, financing, fees, dividends, coupons, funding, variation margin, exercise, assignment, delivery, and
 settlement events for supported asset classes. Money and quantities use the current exact financial-unit contract;
@@ -899,6 +913,26 @@ Netting is permitted only when account, currency, venue, instrument contract, se
 scope are compatible. It never erases strategy attribution, prevents a strategy-level stop, or transfers a loss budget
 without policy. Residual and shared costs use a stable documented method and remain reversible for reconciliation.
 
+The current local increment coordinates a finite selected batch of spot decisions
+through one `AccountJournal` transaction. It first reserves gross child intent
+under the existing account budgets. Same-side children become one physical parent
+only when they share an account, exact observed quote, compatible
+portfolio/venue/settlement/risk/authority context, instrument, limit and
+time-in-force. `PortfolioContext` retains each child's strategy and revision
+metadata even when those values differ across compatible children. Opposite
+interests are rejected by default; the explicit `internal_at_quote` policy can
+cross compatible, non-post-only children at their common observed quote when
+their limits allow it.
+
+Each physical parent retains its child IDs and reserved quantities. Cumulative
+partial fills are allocated on the exact financial grid in proportion to the
+original child quantities, without reversing earlier child fills. Physical fees
+are split against remaining child fee reservations, with residual atoms assigned
+by stable child identity. A physical event and all child fill/cost postings commit
+together. Local account observations can verify the resulting physical and
+per-instance projections; they are supplied paper facts, not authenticated venue
+observations.
+
 The implemented local account boundary enforces marked gross exposure and pending
 commitments across instance/account/firm budgets, authorized instruments, price,
 size, freshness, inventory and cash. Its [account guide](../../src/execution/README.md#shared-account-admission-and-reconciliation)
@@ -919,15 +953,23 @@ and self-trade policy applies across instances. Reservations survive restart and
 are released only after the corresponding outcome is established; database
 atomicity alone does not make an external submission exactly once.
 
-For the first dedicated single-instance paper account, qualify durable state,
-pending reservations, hard limits and base account reconciliation. A shared-account
-increment first qualifies tagged child orders, atomic budgets, conflict handling
-and attribution; it cannot enable netting until net allocations, costs and residuals
-also reconcile. Both stages are required within MR09 before QR onboarding. Quant
-development supplies two distinct active reference strategies on the same instrument
-and account; their selective stop/restart must preserve ownership and account safety.
-Portfolio policy interfaces and a deterministic reference allocation ship with
-compatible netting; QR later supplies economic allocation choices within limits.
+The dedicated single-instance paper account qualifies durable state, pending
+reservations, hard limits and base account reconciliation. The local shared-account
+increment adds tagged child orders, atomic budgets, conflict handling, attribution,
+compatible netting and deterministic allocation of fills, fees and residual units.
+MR09 acceptance requires two distinct active reference strategies on the
+same instrument/account to reconcile separately and together, including selective
+stop/restart with ownership and account safety. A stopped child in a physical
+parent retains its reservation until a terminal outcome; unaffected residuals are
+reissued only after reconciliation and current mark/budget/funding checks.
+Unroutable physical-lot residuals stay visible and reserved; a completed child
+retains fee capacity while its physical parent can still receive costs.
+The [MR09 record](../roadmap/README.md#mr09-delivery-and-acceptance) retains the
+reference workload and its verification. Quant development supplies the deterministic
+reference policy; QR later supplies economic allocation choices within limits.
+This local paper/software proof does not establish OKX or Bitfinex private-stream,
+order, fill or account conformance; each venue remains separately qualified by
+MR11 in its authorized test environment.
 
 Initial strategies are trusted founder-authored code. Logical separation,
 immutable limits, per-instance state and final risk enforcement outside strategy
@@ -947,9 +989,11 @@ admission commit together; stable IDs and recorded event bytes reject conflictin
 retries. Independent spot limits reserve pending and uncertain exposure. The OMS
 does not decide economic targets or override risk. The additional `AccountJournal`
 shares the same intent/lifecycle owner and adds
-atomic instance/account/firm admission, tagged account postings and append-only
-corrections. Portfolio/net-order coordination and physical venue reconciliation
-remain open.
+atomic instance/account/firm admission, tagged child orders and postings, compatible
+physical net orders, deterministic fill/fee allocation, append-only corrections
+and complete local reconciliation. Physical venue reconciliation and authenticated
+execution remain MR11 work; the local workflow does not turn normalized events into
+venue evidence.
 
 [`runtime.PaperCandidateRuntime`](../../src/runtime/README.md#paper-candidate-supervision)
 delivers lifecycle, timer, market, order and account callbacks to the same
@@ -1015,7 +1059,7 @@ simulator for an unmeasured hot path.
 The platform has three possible lanes with one shared semantic waist:
 
 1. **Batch/research — CURRENT, bounded local scope.** Saved datasets, features, model studies, simulation and reports run with reproducible inputs. Distributed execution and measured parallel scaling remain planned.
-2. **Ordinary event-driven — CURRENT local paper/shadow increment; broader deployment PLANNED.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. Shared portfolio coordination, physical venue reconciliation and deployed operating qualification remain open.
+2. **Ordinary event-driven — CURRENT local paper/shadow increments; broader deployment PLANNED.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. A separate local shared-account workflow reuses per-instance decision sessions and coordinates attributable child and physical orders over normalized events. Private venue reconciliation and deployed operating qualification remain open.
 3. **Latency-sensitive — OPTIONAL PLANNED.** A native component or dedicated host is added only after a measured latency, jitter, or vendor ABI need. It consumes compatible schemas and remains behind independent risk and kill controls.
 
 Lanes may use different artifacts, process models, stores, and release cadences. A deployment is placement of an
