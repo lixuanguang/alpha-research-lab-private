@@ -326,10 +326,6 @@ class TestAccountJournal:
         assert partial_snapshot.fees == (self._money("0.20"),)
         assert partial_snapshot.fill_ids == ("fill-two",)
         assert journal.apply_event(partial_event) == partial_order
-        with pytest.raises(ValueError, match="different content"):
-            journal.apply_event(
-                replace(partial_event, at=first_fill_at + timedelta(microseconds=1))
-            )
         assert (
             AccountLedger(AccountJournal(path, self._config()).accounts()[0].ledger).snapshot()
             == partial_snapshot
@@ -421,6 +417,210 @@ class TestAccountJournal:
         assert attributed.transfers == (self._money("0"),)
         assert attributed.fill_ids == ("fill-two", "fill-seventy-eight")
         assert recovered.accounts()[0].fault is None
+
+    def test_conflicting_direct_facts_persist_and_block_matching_reconciliation(
+        self, tmp_path: Path
+    ) -> None:
+        """Changed receipts and fill economics retain evidence without double posting."""
+        path = tmp_path / "direct-event-conflict.sqlite3"
+        journal = AccountJournal(path, self._config())
+        assert journal.reconcile(
+            self._observation("opening", self.opening_at, self._opening_snapshot())
+        )
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("100"), at=decision_at))
+        admitted = journal.admit(
+            self._decision("alpha-conflict-source", "alpha", decision_at, maximum_fee="1")
+        )
+        order_id = admitted.orders[0].identity
+        fill_at = decision_at + timedelta(seconds=1)
+        source_fill = Fill(
+            identity="direct-conflicting-fill",
+            decision_at=decision_at,
+            filled_at=fill_at,
+            quantity=self._quantity("2"),
+            reference=self._price("100"),
+            effective=self._price("100"),
+            fee=self._money("0.20"),
+        )
+        source = self._event("direct-source-receipt", order_id, fill_at, "fill", source_fill)
+        partial = journal.apply_event(source)
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert journal.apply_event(source) == partial
+        changed_receipt = replace(
+            source,
+            order_id="unknown-conflicting-order",
+            at=fill_at + timedelta(microseconds=1),
+        )
+        with pytest.raises(ValueError, match="different content"):
+            journal.apply_event(changed_receipt)
+        conflicting_economics = self._event(
+            "direct-second-receipt",
+            order_id,
+            fill_at + timedelta(microseconds=2),
+            "fill",
+            replace(source_fill, quantity=self._quantity("3")),
+        )
+        with pytest.raises(ValueError, match="different economics"):
+            journal.apply_event(conflicting_economics)
+        with pytest.raises(ValueError, match="different content"):
+            journal.apply_event(changed_receipt)
+
+        recovered = AccountJournal(path, self._config())
+        assert recovered.failed_events() == (changed_receipt, conflicting_economics)
+        assert recovered.accounts()[0].fault == "order_event_break"
+        assert recovered.orders()[0].order == partial
+        assert AccountLedger(recovered.accounts()[0].ledger).snapshot() == snapshot
+        assert recovered.apply_event(source) == partial
+        assert recovered.accounts()[0].fault == "order_event_break"
+        assert AccountLedger(recovered.accounts()[0].ledger).snapshot() == snapshot
+
+        blocked_at = fill_at + timedelta(seconds=1)
+        recovered.observe(AccountQuote(price=self._price("100"), at=blocked_at))
+        blocked = recovered.admit(self._decision("beta-after-conflict", "beta", blocked_at))
+        assert (blocked.status, blocked.reason) == ("rejected", "order_event_break")
+        assert not recovered.reconcile(
+            self._observation(
+                "matching-after-direct-conflict",
+                blocked_at,
+                snapshot,
+                (partial,),
+            )
+        )
+        restarted = AccountJournal(path, self._config())
+        assert restarted.failed_events() == (changed_receipt, conflicting_economics)
+        assert restarted.accounts()[0].fault == "account_break"
+        assert AccountLedger(restarted.accounts()[0].ledger).snapshot() == snapshot
+
+    def test_conflicting_receipt_fences_source_and_second_named_account(
+        self, tmp_path: Path
+    ) -> None:
+        """A receipt reassigned across known orders blocks both named accounts."""
+        config = AccountConfiguration(
+            mode="paper",
+            opening_at=self.opening_at,
+            accounts=(
+                OpeningAccount(account_id="shared", cash=(self._money("20000"),)),
+                OpeningAccount(account_id="secondary", cash=(self._money("20000"),)),
+            ),
+            instruments=(
+                SpotLimits(
+                    maximum=self._quantity("200"),
+                    lot=self._quantity("1"),
+                    tick=self._price("0.01"),
+                    product="spot",
+                ),
+            ),
+            budgets=BudgetPolicy(
+                valuation_currency=self.currency,
+                firm_maximum=self._money("40000"),
+                accounts=(
+                    AccountLimit(account_id="shared", maximum=self._money("10000")),
+                    AccountLimit(account_id="secondary", maximum=self._money("10000")),
+                ),
+                instances=(
+                    InstanceLimit(
+                        instance_id="alpha",
+                        account_id="shared",
+                        maximum=self._money("9000"),
+                        instruments=(self.dimension.instrument_id,),
+                    ),
+                    InstanceLimit(
+                        instance_id="gamma",
+                        account_id="secondary",
+                        maximum=self._money("9000"),
+                        instruments=(self.dimension.instrument_id,),
+                    ),
+                ),
+                max_quote_age_us=1_000_000,
+                max_state_age_us=86_400_000_000,
+                max_price_deviation_bps=100,
+                max_order_notional=self._money("9000"),
+            ),
+        )
+        journal = AccountJournal(tmp_path / "cross-account-conflict.sqlite3", config)
+        shared_snapshot = self._opening_snapshot()
+        secondary_snapshot = replace(shared_snapshot, account_id="secondary")
+        assert journal.reconcile(
+            self._observation("shared-opening", self.opening_at, shared_snapshot)
+        )
+        assert journal.reconcile(
+            self._observation("secondary-opening", self.opening_at, secondary_snapshot)
+        )
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("100"), at=decision_at))
+        shared_order = journal.admit(self._decision("shared-source", "alpha", decision_at)).orders[
+            0
+        ]
+        secondary_request = replace(
+            self._decision("secondary-source", "gamma", decision_at),
+            account_id="secondary",
+        )
+        secondary_order = journal.admit(secondary_request).orders[0]
+        accepted_at = decision_at + timedelta(seconds=1)
+        accepted = journal.apply_event(
+            self._event("cross-account-receipt", shared_order.identity, accepted_at, "accepted")
+        )
+        conflict = self._event(
+            "cross-account-receipt",
+            secondary_order.identity,
+            accepted_at + timedelta(microseconds=1),
+            "accepted",
+        )
+        with pytest.raises(ValueError, match="different content"):
+            journal.apply_event(conflict)
+
+        recovered = AccountJournal(journal.path, config)
+        assert recovered.failed_events() == (conflict,)
+        assert {account.ledger.account_id: account.fault for account in recovered.accounts()} == {
+            "shared": "order_event_break",
+            "secondary": "order_event_break",
+        }
+        assert not recovered.reconcile(
+            self._observation(
+                "shared-conflict-observation",
+                conflict.at,
+                shared_snapshot,
+                (accepted,),
+            )
+        )
+        assert not recovered.reconcile(
+            self._observation(
+                "secondary-conflict-observation",
+                conflict.at,
+                secondary_snapshot,
+                (secondary_order,),
+            )
+        )
+
+    def test_failed_receipt_accepted_unchanged_can_reconcile(self, tmp_path: Path) -> None:
+        """A later-valid identical receipt remains repairable rather than contradictory."""
+        journal = AccountJournal(tmp_path / "repaired-event.sqlite3", self._config())
+        snapshot = self._opening_snapshot()
+        assert journal.reconcile(self._observation("opening", self.opening_at, snapshot))
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("100"), at=decision_at))
+        order = journal.admit(self._decision("repairable-event", "alpha", decision_at)).orders[0]
+        event_at = decision_at + timedelta(seconds=1)
+        acknowledgement = self._event("early-cancel-ack", order.identity, event_at, "cancel_ack")
+        with pytest.raises(ValueError, match="cancel acknowledgement requires"):
+            journal.apply_event(acknowledgement)
+        assert journal.failed_events() == (acknowledgement,)
+        journal.apply_event(
+            self._event("cancel-request", order.identity, event_at, "cancel_requested")
+        )
+        accepted = journal.apply_event(acknowledgement)
+        assert accepted.status == "cancel_ack"
+        assert journal.failed_events() == (acknowledgement,)
+        assert journal.reconcile(
+            self._observation(
+                "repaired-receipt-observation",
+                event_at,
+                snapshot,
+                (accepted,),
+            )
+        )
+        assert journal.accounts()[0].fault is None
 
     def test_unauthorized_stale_and_bad_price_requests_leave_no_orders(
         self, tmp_path: Path

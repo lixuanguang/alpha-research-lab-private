@@ -65,6 +65,7 @@ class TestPortfolioWorkflow:
         assert summary["internal_fill_count"] == 2
         assert summary["incompatible_rejection"] == "incompatible_crossing_scope"
         assert summary["crossing_rejection"] == "self_trade_conflict"
+        assert summary["conflicting_receipt_rejection"] == "physical_event_break"
         assert summary["malformed_request_rejected"] is True
         assert summary["submission_attempted"] is False
         assert summary["physical_venue_evidence"] is False

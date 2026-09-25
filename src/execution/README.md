@@ -99,7 +99,9 @@ become uncertain until a normalized terminal/open reconciliation resolves them.
 Unpostable source facts remain visible through `failed_postings()` or
 `failed_events()` with a durable block. Unsupported shorting, borrowing,
 base-asset fee conversion or contradictory source facts cannot be forced into
-balance by changing journal bytes.
+balance by changing journal bytes. A receipt or fill identity reused with changed
+content retains both the accepted fact and contradictory source fact; restart or
+a matching account observation cannot clear that unresolved contradiction.
 
 `reconcile(AccountObservation)` compares currency cash, positions, fees, rebates,
 transfers, posting/fill identities and complete cumulative open-order state.

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -12,7 +14,7 @@ from pathlib import Path
 import pytest
 
 # project library imports
-from runtime import JobQueue, JobRun, JobSpec, JobWorkerPool
+from runtime import JobQueue, JobRun, JobSpec, JobState, JobWorkerPool
 
 _PIN = hashlib.sha256(b"installed-test-artifact").hexdigest()
 _ENVIRONMENT = hashlib.sha256(b"test-environment").hexdigest()
@@ -28,6 +30,7 @@ class _Jobs:
         run_at: datetime | None = None,
         max_attempts: int = 3,
         retry_delay_seconds: int = 0,
+        request: bytes = b"pinned-input",
     ) -> JobSpec:
         """Create one valid local test request."""
         return JobSpec(
@@ -38,10 +41,76 @@ class _Jobs:
             configuration_sha256=hashlib.sha256(b"config").hexdigest(),
             input_sha256=hashlib.sha256(b"input").hexdigest(),
             environment_sha256=_ENVIRONMENT,
-            request=b"pinned-input",
+            request=request,
             max_attempts=max_attempts,
             retry_delay_seconds=retry_delay_seconds,
         )
+
+
+class _SubmitCollisionTrace:
+    """Force deferred submitters to reach their inserts before either can write."""
+
+    def __init__(self, barrier: threading.Barrier) -> None:
+        """Coordinate inserts unless submit already owns an immediate transaction."""
+        self._barrier = barrier
+        self._immediate_transaction = False
+
+    def __call__(self, statement: str) -> None:
+        """Hold only the unsafe deferred-insert sequence at a shared barrier."""
+        if statement == "BEGIN IMMEDIATE":
+            self._immediate_transaction = True
+        elif statement.startswith("INSERT INTO jobs") and not self._immediate_transaction:
+            self._barrier.wait(timeout=5)
+
+
+class _CoordinatedSubmitQueue(JobQueue):
+    """Expose a deterministic collision when submission does not lock before reading."""
+
+    def __init__(self, root: Path, barrier: threading.Barrier) -> None:
+        """Share one deferred-insert barrier across independent queue connections."""
+        self._submit_barrier = barrier
+        super().__init__(root)
+
+    def _connect(self) -> sqlite3.Connection:
+        """Trace each connection so unsafe deferred inserts wait for their peer."""
+        connection = super()._connect()
+        connection.set_trace_callback(_SubmitCollisionTrace(self._submit_barrier))
+        return connection
+
+
+class _ClaimCountingQueue(JobQueue):
+    """Count worker polls while retaining the real empty-queue behavior."""
+
+    def __init__(self, root: Path) -> None:
+        """Start with no observed claims."""
+        self.claim_calls = 0
+        super().__init__(root)
+
+    def _claim(self) -> JobState | None:
+        """Record one poll before delegating to the durable queue."""
+        self.claim_calls += 1
+        return super()._claim()
+
+
+class _StopAfterIdleWait(threading.Event):
+    """Record the idle wait and stop synchronously without elapsed-time assertions."""
+
+    def __init__(self) -> None:
+        """Retain wait arguments and bound legacy busy-loop execution."""
+        super().__init__()
+        self.wait_timeouts: list[float | None] = []
+        self._checks = 0
+
+    def is_set(self) -> bool:
+        """Stop after one loop even if the worker never performs the expected wait."""
+        self._checks += 1
+        return super().is_set() or self._checks > 1
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Capture the requested interval and model an immediate stop signal."""
+        self.wait_timeouts.append(timeout)
+        self.set()
+        return super().wait(timeout)
 
 
 class _RetryHandler:
@@ -103,6 +172,80 @@ class _BlockingHandler:
         finally:
             with self.lock:
                 self.active -= 1
+
+
+class TestJobQueueSubmissionConcurrency:
+    """Protect stable job identity across concurrent queue instances."""
+
+    def test_identical_submissions_share_one_job(self, tmp_path: Path) -> None:
+        """Concurrent identical submissions both reopen the single retained job."""
+        barrier = threading.Barrier(2)
+        root = tmp_path / "jobs"
+        queues = (
+            _CoordinatedSubmitQueue(root, barrier),
+            _CoordinatedSubmitQueue(root, barrier),
+        )
+        spec = _Jobs.spec("concurrent-job")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = tuple(executor.submit(queue.submit, spec) for queue in queues)
+            states = tuple(future.result(timeout=5) for future in futures)
+
+        assert tuple(state.spec for state in states) == (spec, spec)
+        assert tuple(state.status for state in states) == ("queued", "queued")
+        assert tuple(state.spec.job_id for state in queues[0].list()) == (spec.job_id,)
+
+    def test_conflicting_submissions_preserve_first_identity(self, tmp_path: Path) -> None:
+        """Concurrent different bytes retain one binding and reject the other explicitly."""
+        barrier = threading.Barrier(2)
+        root = tmp_path / "jobs"
+        queues = (
+            _CoordinatedSubmitQueue(root, barrier),
+            _CoordinatedSubmitQueue(root, barrier),
+        )
+        specs = (
+            _Jobs.spec("conflicting-job", request=b"first-input"),
+            _Jobs.spec("conflicting-job", request=b"second-input"),
+        )
+        outcomes: list[JobState | ValueError] = []
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = tuple(
+                executor.submit(queue.submit, spec)
+                for queue, spec in zip(queues, specs, strict=True)
+            )
+            for future in futures:
+                try:
+                    outcomes.append(future.result(timeout=5))
+                except ValueError as error:
+                    outcomes.append(error)
+
+        states = tuple(outcome for outcome in outcomes if isinstance(outcome, JobState))
+        failures = tuple(outcome for outcome in outcomes if isinstance(outcome, ValueError))
+        assert len(states) == 1
+        assert len(failures) == 1
+        assert str(failures[0]) == "job ID already binds different pinned inputs"
+        assert queues[0].read("conflicting-job").spec.request in (b"first-input", b"second-input")
+        assert len(queues[0].list()) == 1
+
+
+class TestJobWorkerPoolServing:
+    """Protect worker polling and stop behavior while the queue is idle."""
+
+    def test_idle_poll_waits_interruptibly(self, tmp_path: Path) -> None:
+        """An empty queue waits once on the stop signal before polling again."""
+        queue = _ClaimCountingQueue(tmp_path / "jobs")
+        stop_event = _StopAfterIdleWait()
+        pool = JobWorkerPool(
+            queue,
+            {},
+            max_workers=1,
+            implementation_sha256=_PIN,
+            environment_sha256=_ENVIRONMENT,
+        )
+
+        pool.serve(stop_event, poll_seconds=1.25)
+
+        assert queue.claim_calls == 1
+        assert stop_event.wait_timeouts == [1.25]
 
 
 def test_scheduling_and_queued_cancel_survive_reopening(tmp_path: Path) -> None:

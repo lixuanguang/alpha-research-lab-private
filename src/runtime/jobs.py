@@ -327,6 +327,7 @@ class JobQueue:
         spec.__post_init__()
         payload = DomainCodec().encode_json(spec)
         with self._mutation_lock(), closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
             existing = self._query_one(
                 connection, "SELECT spec FROM jobs WHERE job_id = ?", (spec.job_id,)
             )
@@ -796,6 +797,9 @@ class JobWorkerPool:
                         if claimed is None:
                             break
                         pending.add(executor.submit(self._execute, claimed))
+                    if not pending:
+                        stop_event.wait(timeout=poll_seconds)
+                        continue
                     completed, pending = wait(pending, timeout=poll_seconds)
                     for future in completed:
                         future.result()

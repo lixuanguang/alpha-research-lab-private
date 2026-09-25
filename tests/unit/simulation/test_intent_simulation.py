@@ -37,7 +37,13 @@ from strategies import DecisionRecord, ExposureIntent, OrderIntent, QuoteIntent,
 class _Case:
     """Build one spot account and deterministic source facts with exact hand values."""
 
-    def __init__(self, *, queue_ahead: str = "1") -> None:
+    def __init__(
+        self,
+        *,
+        queue_ahead: str = "1",
+        entry_delay_us: int = 1_000_000,
+        cancel_delay_us: int = 0,
+    ) -> None:
         """Bind explicit model versions and a ten-second independent sample."""
         self.start = datetime(2026, 9, 23, tzinfo=UTC)
         self.entity = "4476df8e-6342-4417-839e-e41b88f41446"
@@ -59,8 +65,8 @@ class _Case:
         self.costs = SpotFeeModel(maker=maker, taker=taker)
         self.execution = LimitOrderExecution(
             LimitExecutionConfig(
-                entry_delay_us=1_000_000,
-                cancel_delay_us=0,
+                entry_delay_us=entry_delay_us,
+                cancel_delay_us=cancel_delay_us,
                 lifetime_us=6_000_000,
                 max_book_age_us=20_000_000,
                 take_fraction=Decimal("1"),
@@ -268,6 +274,62 @@ class TestIntentSimulation:
         assert result.ledger.fills[0].quantity == case.quantity("2")
         assert result.ledger.fills[0].filled_at == case.at(3)
         assert result.mark.net == case.money("-4.40")
+
+    def test_idle_decisions_pay_entry_latency_without_cancel_latency(self) -> None:
+        """First and post-fill decisions have no outstanding work to cancel."""
+        case = _Case(cancel_delay_us=8_000_000)
+        target = TargetIntent(quantity=case.quantity("1"))
+        bid = OrderIntent(
+            side="buy",
+            quantity=case.quantity("1"),
+            limit=case.price("99"),
+            time_in_force="post-only",
+        )
+        result = case.run(
+            (case.decision(2, target), case.decision(4, bid)),
+            (case.book(1), case.book(10)),
+        )
+        assert tuple(order.placed_at for order in result.orders) == (case.at(3), case.at(5))
+        assert result.ledger.fills[0].filled_at == case.at(3)
+        assert result.orders[1].reason == "sample_end"
+
+    def test_resting_replacement_waits_for_cancel_then_entry_latency(self) -> None:
+        """A resting order closes after cancel latency before its replacement arrives."""
+        case = _Case(cancel_delay_us=2_000_000)
+        first = OrderIntent(
+            side="buy",
+            quantity=case.quantity("1"),
+            limit=case.price("99"),
+            time_in_force="post-only",
+        )
+        second = replace(first, limit=case.price("98"))
+        result = case.run(
+            (case.decision(2, first), case.decision(4, second)),
+            (case.book(1), case.book(10)),
+        )
+        assert result.orders[0].placed_at == case.at(3)
+        assert result.orders[0].closed_at == case.at(6)
+        assert result.orders[0].reason == "replaced"
+        assert result.orders[1].placed_at == case.at(7)
+
+    def test_in_flight_replacement_keeps_cancel_before_arrival_priority(self) -> None:
+        """Cancellation at an older plan's arrival prevents that plan from submitting."""
+        case = _Case(entry_delay_us=3_000_000, cancel_delay_us=2_000_000)
+        first = OrderIntent(
+            side="buy",
+            quantity=case.quantity("1"),
+            limit=case.price("99"),
+            time_in_force="post-only",
+        )
+        second = replace(first, limit=case.price("98"))
+        result = case.run(
+            (case.decision(2, first), case.decision(3, second)),
+            (case.book(1), case.book(10)),
+        )
+        assert result.decisions[0].reason == "replaced_before_arrival"
+        assert len(result.orders) == 1
+        assert result.orders[0].requested == second
+        assert result.orders[0].placed_at == case.at(8)
 
     def test_passive_queue_sensitivity_and_replacement(self) -> None:
         """Only future same-price sell trades deplete a bid queue; replacement cancels it."""

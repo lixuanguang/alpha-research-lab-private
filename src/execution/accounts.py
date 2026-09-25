@@ -827,49 +827,56 @@ class AccountJournal:
         """Apply one physical fact and all attributable strategy effects atomically."""
         event.__post_init__()
         failure: str | None = None
+        result: NetOrder | None = None
         with self._write() as tx:
             for saved in tx.state.net_events:
                 if saved.event.identity == event.identity:
                     if saved.event != event:
-                        raise ValueError("physical event identity reused with different content")
+                        failure = "physical event identity reused with different content"
+                        self._record_failed_net_event(tx, event)
+                        break
                     return saved.result
-                if (
-                    event.fill is not None
-                    and saved.event.fill is not None
-                    and event.fill.identity == saved.event.fill.identity
-                ):
-                    if event.order_id != saved.event.order_id or event.fill != saved.event.fill:
-                        raise ValueError("physical fill identity reused with different economics")
-                    return tx.net_order(event.order_id)
-            parent = tx.net_order(event.order_id)
-            before = tx.state
-            try:
-                result, fill_ids, fee_ids, fee_allocations = self._net_event(tx, parent, event)
-            except ValueError as error:
-                failure = str(error)
-                tx.state = before
-                account = tx.account(parent.account_id)
-                tx.save_account(replace(account, fault="physical_event_break"))
-                failed_net_events: tuple[OrderEvent, ...] = (*tx.state.failed_net_events, event)
-                tx.state = replace(tx.state, failed_net_events=failed_net_events)
-                result = parent
-            else:
-                net_events: tuple[_SavedNetEvent, ...] = (
-                    *tx.state.net_events,
-                    _SavedNetEvent(
-                        event=event,
-                        result=result,
-                        child_fill_ids=fill_ids,
-                        fee_only_ids=fee_ids,
-                        fee_allocations=fee_allocations,
-                    ),
-                )
-                tx.state = replace(
-                    tx.state,
-                    net_events=net_events,
-                )
+            if failure is None:
+                for saved in tx.state.net_events:
+                    if (
+                        event.fill is not None
+                        and saved.event.fill is not None
+                        and event.fill.identity == saved.event.fill.identity
+                    ):
+                        if event.order_id != saved.event.order_id or event.fill != saved.event.fill:
+                            failure = "physical fill identity reused with different economics"
+                            self._record_failed_net_event(tx, event)
+                            break
+                        return tx.net_order(event.order_id)
+            if failure is None:
+                parent = tx.net_order(event.order_id)
+                before = tx.state
+                try:
+                    result, fill_ids, fee_ids, fee_allocations = self._net_event(tx, parent, event)
+                except ValueError as error:
+                    failure = str(error)
+                    tx.state = before
+                    self._record_failed_net_event(tx, event)
+                    result = parent
+                else:
+                    net_events: tuple[_SavedNetEvent, ...] = (
+                        *tx.state.net_events,
+                        _SavedNetEvent(
+                            event=event,
+                            result=result,
+                            child_fill_ids=fill_ids,
+                            fee_only_ids=fee_ids,
+                            fee_allocations=fee_allocations,
+                        ),
+                    )
+                    tx.state = replace(
+                        tx.state,
+                        net_events=net_events,
+                    )
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
+        if result is None:
+            raise AssertionError("physical event completed without a result")
         return result
 
     def correct_net_fee(self, correction: NetFeeCorrection) -> NetOrder:
@@ -1180,43 +1187,49 @@ class AccountJournal:
         """Post normalized order/fill facts once; contradictions durably block risk."""
         event.__post_init__()
         failure: str | None = None
+        result: OrderState | None = None
         with self._write() as tx:
             for saved in tx.state.events:
                 if saved.event.identity == event.identity:
                     if saved.event != event:
-                        raise ValueError("event identity reused with different content")
+                        failure = "event identity reused with different content"
+                        self._record_failed_event(tx, event)
+                        break
                     return saved.result
-            tagged = tx.order(event.order_id)
-            if tagged.context is not None:
-                raise ValueError("portfolio child events require physical parent routing")
-            for saved in tx.state.events:
-                if (
-                    event.fill is not None
-                    and saved.event.fill is not None
-                    and saved.event.fill.identity == event.fill.identity
-                ):
-                    if event.order_id != saved.event.order_id or event.fill != saved.event.fill:
-                        raise ValueError("fill identity reused with different economics")
-                    return tagged.order
-            if self.config.mode == "shadow" and event.fill is not None:
-                raise ValueError("shadow mode cannot post modeled fills")
-            account = tx.account(tagged.account_id)
-            try:
-                result = self._event(tx, tagged, event)
-            except ValueError as error:
-                failure = str(error)
-                tx.save_account(replace(account, fault="order_event_break"))
-                failed_events: tuple[OrderEvent, ...] = (*tx.state.failed_events, event)
-                tx.state = replace(tx.state, failed_events=failed_events)
-                result = tagged.order
-            else:
-                events: tuple[_SavedEvent, ...] = (
-                    *tx.state.events,
-                    _SavedEvent(event=event, result=result),
-                )
-                tx.state = replace(tx.state, events=events)
+            if failure is None:
+                for saved in tx.state.events:
+                    if (
+                        event.fill is not None
+                        and saved.event.fill is not None
+                        and saved.event.fill.identity == event.fill.identity
+                    ):
+                        if event.order_id != saved.event.order_id or event.fill != saved.event.fill:
+                            failure = "fill identity reused with different economics"
+                            self._record_failed_event(tx, event)
+                            break
+                        return tx.order(event.order_id).order
+            if failure is None:
+                tagged = tx.order(event.order_id)
+                if tagged.context is not None:
+                    raise ValueError("portfolio child events require physical parent routing")
+                if self.config.mode == "shadow" and event.fill is not None:
+                    raise ValueError("shadow mode cannot post modeled fills")
+                try:
+                    result = self._event(tx, tagged, event)
+                except ValueError as error:
+                    failure = str(error)
+                    self._record_failed_event(tx, event)
+                    result = tagged.order
+                else:
+                    events: tuple[_SavedEvent, ...] = (
+                        *tx.state.events,
+                        _SavedEvent(event=event, result=result),
+                    )
+                    tx.state = replace(tx.state, events=events)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
+        if result is None:
+            raise AssertionError("order event completed without a result")
         return result
 
     def post(self, posting: AccountPosting) -> AccountSnapshot:
@@ -1338,14 +1351,19 @@ class AccountJournal:
                     for p in tx.state.failed_postings
                 )
                 and not any(
-                    failed.fill is not None
-                    and tx.order(failed.order_id).account_id == account.ledger.account_id
-                    and failed.fill.identity
-                    not in tuple(p.identity for p in account.ledger.postings)
+                    account.ledger.account_id in self._failed_event_account_ids(tx, failed)
+                    and (
+                        self._failed_event_conflicts_with_accepted_fact(tx, failed)
+                        or (
+                            failed.fill is not None
+                            and failed.fill.identity
+                            not in tuple(posting.identity for posting in account.ledger.postings)
+                        )
+                    )
                     for failed in tx.state.failed_events
                 )
                 and not any(
-                    tx.net_order(failed.order_id).account_id == account.ledger.account_id
+                    account.ledger.account_id in self._failed_net_event_account_ids(tx, failed)
                     for failed in tx.state.failed_net_events
                 )
             )
@@ -1384,7 +1402,7 @@ class AccountJournal:
         clocks.extend(
             event.at
             for event in tx.state.failed_events
-            if tx.order(event.order_id).account_id == account_id
+            if account_id in self._failed_event_account_ids(tx, event)
         )
         clocks.extend(
             parent.order.decision_at
@@ -1399,7 +1417,7 @@ class AccountJournal:
         clocks.extend(
             event.at
             for event in tx.state.failed_net_events
-            if tx.net_order(event.order_id).account_id == account_id
+            if account_id in self._failed_net_event_account_ids(tx, event)
         )
         clocks.extend(
             control.at
@@ -1407,6 +1425,88 @@ class AccountJournal:
             if self._instance_account(control.instance_id) == account_id
         )
         return max(clocks)
+
+    @staticmethod
+    def _record_failed_event(tx: _AccountTransaction, event: OrderEvent) -> None:
+        """Retain one rejected direct fact and durably fence its account."""
+        failed_events = tx.state.failed_events
+        if event not in failed_events:
+            failed_events = (*failed_events, event)
+        for account_id in AccountJournal._failed_event_account_ids(tx, event):
+            tx.save_account(replace(tx.account(account_id), fault="order_event_break"))
+        tx.state = replace(tx.state, failed_events=failed_events)
+
+    @staticmethod
+    def _record_failed_net_event(tx: _AccountTransaction, event: OrderEvent) -> None:
+        """Retain one rejected physical fact and durably fence its account."""
+        failed_net_events = tx.state.failed_net_events
+        if event not in failed_net_events:
+            failed_net_events = (*failed_net_events, event)
+        for account_id in AccountJournal._failed_net_event_account_ids(tx, event):
+            tx.save_account(replace(tx.account(account_id), fault="physical_event_break"))
+        tx.state = replace(tx.state, failed_net_events=failed_net_events)
+
+    @staticmethod
+    def _failed_event_account_ids(tx: _AccountTransaction, event: OrderEvent) -> tuple[str, ...]:
+        """Resolve every account named by a rejected direct source fact."""
+        account_ids: list[str] = []
+        for saved in tx.state.events:
+            if saved.event.identity == event.identity or (
+                event.fill is not None
+                and saved.event.fill is not None
+                and saved.event.fill.identity == event.fill.identity
+            ):
+                account_ids.append(tx.order(saved.event.order_id).account_id)
+        try:
+            account_ids.append(tx.order(event.order_id).account_id)
+        except ValueError:
+            if not account_ids:
+                raise
+        unique_account_ids: list[str] = []
+        for account_id in account_ids:
+            if account_id not in unique_account_ids:
+                unique_account_ids.append(account_id)
+        return tuple(unique_account_ids)
+
+    @staticmethod
+    def _failed_event_conflicts_with_accepted_fact(
+        tx: _AccountTransaction, event: OrderEvent
+    ) -> bool:
+        """Identify a rejected fact that contradicts retained accepted source bytes."""
+        return any(
+            (saved.event.identity == event.identity and saved.event != event)
+            or (
+                event.fill is not None
+                and saved.event.fill is not None
+                and saved.event.fill.identity == event.fill.identity
+                and (event.order_id != saved.event.order_id or event.fill != saved.event.fill)
+            )
+            for saved in tx.state.events
+        )
+
+    @staticmethod
+    def _failed_net_event_account_ids(
+        tx: _AccountTransaction, event: OrderEvent
+    ) -> tuple[str, ...]:
+        """Resolve every account named by a rejected physical source fact."""
+        account_ids: list[str] = []
+        for saved in tx.state.net_events:
+            if saved.event.identity == event.identity or (
+                event.fill is not None
+                and saved.event.fill is not None
+                and saved.event.fill.identity == event.fill.identity
+            ):
+                account_ids.append(tx.net_order(saved.event.order_id).account_id)
+        try:
+            account_ids.append(tx.net_order(event.order_id).account_id)
+        except ValueError:
+            if not account_ids:
+                raise
+        unique_account_ids: list[str] = []
+        for account_id in account_ids:
+            if account_id not in unique_account_ids:
+                unique_account_ids.append(account_id)
+        return tuple(unique_account_ids)
 
     def _require_instance(self, instance_id: str) -> None:
         """Reject unknown control targets without altering account state."""

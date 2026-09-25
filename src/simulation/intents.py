@@ -660,7 +660,7 @@ class LimitOrderExecution:
     def identity(self) -> str:
         """Hash the complete model version and serialized assumptions."""
         return hashlib.sha256(
-            DomainCodec().encode_json(("l2-limit-intent-v1", self.config))
+            DomainCodec().encode_json(("l2-limit-intent-v2", self.config))
         ).hexdigest()
 
     def run(
@@ -827,8 +827,16 @@ class LimitOrderExecution:
                 continue
             if kind == "decision":
                 decision = decisions[index]
-                cancellation = at + timedelta(microseconds=self.config.cancel_delay_us)
-                if index:
+                has_outstanding_work = bool(active) or any(
+                    plan_index < index and not canceled and arrival > at
+                    for plan_index, (_, arrival, canceled) in plans.items()
+                )
+                cancellation = (
+                    at + timedelta(microseconds=self.config.cancel_delay_us)
+                    if has_outstanding_work
+                    else at
+                )
+                if has_outstanding_work:
                     if cancellation == at:
                         for order in active:
                             order.close(at, "replaced")

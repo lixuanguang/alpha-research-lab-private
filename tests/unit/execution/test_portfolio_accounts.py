@@ -226,8 +226,6 @@ class TestPortfolioAccounts:
         partial = reopened.apply_net_event(first)
         assert partial.order.remaining == self._quantity("2")
         assert reopened.apply_net_event(first) == partial
-        with pytest.raises(ValueError, match="different content"):
-            reopened.apply_net_event(replace(first, at=first_at + timedelta(microseconds=1)))
         ledger = AccountLedger(reopened.accounts()[0].ledger)
         physical = ledger.snapshot()
         assert physical.cash == (self._money("49799.98"),)
@@ -291,6 +289,109 @@ class TestPortfolioAccounts:
         assert final.snapshot(instance_id="alpha").positions == (self._quantity("1"),)
         assert final.snapshot(instance_id="beta").positions == (self._quantity("2"),)
         assert final.snapshot(instance_id="beta").fees == (self._money("0.02"),)
+
+    def test_conflicting_physical_facts_persist_and_block_new_batches(self, tmp_path: Path) -> None:
+        """Physical receipt and fill conflicts survive restart without new economics."""
+        path = tmp_path / "physical-event-conflict.sqlite3"
+        journal = self._ready(path)
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=decision_at))
+        committed = journal.coordinate(
+            PortfolioBatch(
+                identity="physical-conflict-source",
+                at=decision_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(instance="alpha", identity="conflict-alpha", at=decision_at),
+                    self._decision(instance="beta", identity="conflict-beta", at=decision_at),
+                ),
+            )
+        )
+        parent = committed.net_orders[0]
+        fill_at = parent.order.decision_at + timedelta(seconds=1)
+        source_fill = self._fill(
+            "physical-conflicting-fill", parent.order.decision_at, fill_at, "2", "0.02"
+        )
+        source = OrderEvent(
+            identity="physical-source-receipt",
+            order_id=parent.order.identity,
+            at=fill_at,
+            kind="fill",
+            fill=source_fill,
+        )
+        partial = journal.apply_net_event(source)
+        assert journal.apply_net_event(source) == partial
+        later_at = fill_at + timedelta(microseconds=1)
+        later = OrderEvent(
+            identity="physical-later-receipt",
+            order_id=parent.order.identity,
+            at=later_at,
+            kind="fill",
+            fill=self._fill("physical-later-fill", parent.order.decision_at, later_at, "1", "0.01"),
+        )
+        latest = journal.apply_net_event(later)
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        mixed_identity_conflict = replace(source, identity=later.identity, at=later.at)
+        with pytest.raises(ValueError, match="different content"):
+            journal.apply_net_event(mixed_identity_conflict)
+        changed_receipt = replace(source, at=fill_at + timedelta(microseconds=2))
+        with pytest.raises(ValueError, match="different content"):
+            journal.apply_net_event(changed_receipt)
+        conflicting_economics = OrderEvent(
+            identity="physical-second-receipt",
+            order_id=parent.order.identity,
+            at=fill_at + timedelta(microseconds=3),
+            kind="fill",
+            fill=replace(source_fill, quantity=self._quantity("1")),
+        )
+        with pytest.raises(ValueError, match="different economics"):
+            journal.apply_net_event(conflicting_economics)
+        with pytest.raises(ValueError, match="different content"):
+            journal.apply_net_event(changed_receipt)
+
+        recovered = AccountJournal(path, self._config())
+        assert recovered.failed_net_events() == (
+            mixed_identity_conflict,
+            changed_receipt,
+            conflicting_economics,
+        )
+        assert recovered.accounts()[0].fault == "physical_event_break"
+        assert recovered.net_orders()[0] == latest
+        assert AccountLedger(recovered.accounts()[0].ledger).snapshot() == snapshot
+        assert recovered.apply_net_event(source) == partial
+        assert recovered.net_orders()[0] == latest
+        assert recovered.accounts()[0].fault == "physical_event_break"
+        assert AccountLedger(recovered.accounts()[0].ledger).snapshot() == snapshot
+
+        blocked_at = fill_at + timedelta(seconds=1)
+        recovered.observe(AccountQuote(price=self._price(), at=blocked_at))
+        blocked = recovered.coordinate(
+            PortfolioBatch(
+                identity="batch-after-physical-conflict",
+                at=blocked_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="alpha", identity="alpha-after-conflict", at=blocked_at
+                    ),
+                ),
+            )
+        )
+        assert (blocked.status, blocked.reason) == ("rejected", "physical_event_break")
+        assert not recovered.reconcile(
+            AccountObservation(
+                identity="matching-after-physical-conflict",
+                at=blocked_at + timedelta(microseconds=1),
+                snapshot=snapshot,
+                open_orders=(latest.order,),
+            )
+        )
+        restarted = AccountJournal(path, self._config())
+        assert restarted.failed_net_events() == (
+            mixed_identity_conflict,
+            changed_receipt,
+            conflicting_economics,
+        )
+        assert restarted.accounts()[0].fault == "account_break"
+        assert AccountLedger(restarted.accounts()[0].ledger).snapshot() == snapshot
 
     def test_explicit_internal_cross_preserves_physical_account(self, tmp_path: Path) -> None:
         """Opposite owned intents exchange inventory with zero physical trade."""

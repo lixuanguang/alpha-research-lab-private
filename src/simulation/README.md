@@ -18,9 +18,10 @@ post-only admission, partial depth, cancellation/replacement and expiry. Indepen
 `ReferenceHistory` resolves limits by valid and knowledge time at each event;
 missing/stale reference fails. Fixed authored limits remain a declared assumption.
 
-The configured entry/cancel delays and lifetime are microseconds. A replacement
-waits for cancellation and then entry delay. Books and prints become available
-at the later source/knowledge clock; controls invalidate pending orders. Consumed
+The configured entry/cancel delays and lifetime are microseconds. A new order
+waits for entry delay; a replacement with a pending plan or resting order waits
+for cancellation and then entry delay. Books and prints become available at the
+later source/knowledge clock; controls invalidate pending orders. Consumed
 depth is not repeatedly offered while its level remains present. Passive orders
 start behind `visible quantity * queue_ahead_fraction`; only opposite-aggressor
 prints at the eligible price advance that queue. Book shrinkage is not a second
@@ -28,6 +29,10 @@ fill signal. Queue fraction is a sensitivity parameter, not measured queue posit
 `SpotFeeModel` supplies explicit maker/taker costs; price arithmetic, ledger
 postings and net return remain exact. Completion cancels outstanding orders and
 marks retained holdings against a fresh bid; it never invents a terminal sale.
+
+The execution identity is `l2-limit-intent-v2`, which distinguishes the corrected
+idle-order timing from `v1`. Retained specifications pinned to the earlier
+identity require the earlier executor or a new specification for the corrected model.
 
 The [installed study consumer](../../tests/integration/consumers/research/decision_study.py)
 tests a losing target study and passive queue sensitivity through the same

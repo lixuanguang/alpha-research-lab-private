@@ -317,6 +317,61 @@ class PortfolioAccountConsumer:
         """Post one modeled physical event through the installed application."""
         return self._apply(label, AccountExecutionRequest(action="net_event", net_event=event))
 
+    def _conflicting_receipt(self, original: OrderEvent, at: datetime) -> str:
+        """Retain a contradictory receipt and verify durable independent admission protection."""
+        before = self._apply("before-conflict", AccountExecutionRequest(action="inspect"))
+        assert original.fill is not None
+        conflicting = replace(
+            original,
+            at=at,
+            fill=replace(original.fill, quantity=self._quantity("3")),
+        )
+        try:
+            self._net_event("changed-event-retry", conflicting)
+        except ValueError as error:
+            assert "different content" in str(error)
+        else:
+            raise AssertionError("changed physical event identity was accepted")
+
+        self.application = AccountExecutionApplication()
+        blocked = self._apply("reopened-conflict", AccountExecutionRequest(action="inspect"))
+        assert blocked.accounts[0].fault is not None
+        assert blocked.accounts[0].ledger == before.accounts[0].ledger
+        assert blocked.orders == before.orders and blocked.net_orders == before.net_orders
+        assert blocked.failed_net_events == (conflicting,)
+        self._cli_matches("reopened-conflict", blocked)
+        assert self._net_event("original-after-conflict", original).accounts == blocked.accounts
+
+        decision_at = at + timedelta(microseconds=1)
+        self._quote("blocked-quote", decision_at)
+        rejected = self._require_commit(
+            self._coordinate(
+                "blocked-admission",
+                self._batch(
+                    "blocked-admission",
+                    decision_at,
+                    (
+                        self._decision(
+                            instance_id="beta",
+                            identity="blocked-beta-order",
+                            at=decision_at,
+                            intent=ReferenceLimitPolicy(
+                                "buy", self._quantity("1"), self._price()
+                            ).decide(),
+                        ),
+                    ),
+                    "internal_at_quote",
+                ),
+            )
+        )
+        assert rejected.status == "rejected" and rejected.reason == blocked.accounts[0].fault
+        assert not self._observe(
+            "conflict-cannot-reconcile",
+            decision_at + timedelta(microseconds=1),
+            AccountLedger(before.accounts[0].ledger).snapshot(),
+        )
+        return rejected.reason
+
     def _allocated_fill_id(self, physical_id: str, child_id: str) -> str:
         """Derive the documented child lineage for an independent observation."""
         return hashlib.sha256(
@@ -501,15 +556,6 @@ class PortfolioAccountConsumer:
             beta_fee="0.01",
         )
         assert self._net_event("physical-partial-retry", partial_event).accounts == partial.accounts
-        try:
-            self._net_event(
-                "changed-event-retry",
-                replace(partial_event, at=partial_at + timedelta(microseconds=1)),
-            )
-        except ValueError as error:
-            assert "different content" in str(error)
-        else:
-            raise AssertionError("changed physical event identity was accepted")
 
         stop_at = partial_at + timedelta(seconds=1)
         stopped = self._apply(
@@ -879,6 +925,9 @@ class PortfolioAccountConsumer:
             is None
         )
         assert corrected.failed_net_events == ()
+        conflicting_receipt_rejection = self._conflicting_receipt(
+            partial_event, correction.known_at + timedelta(seconds=1)
+        )
 
         self.journal_path = self.output / "reject-policy.sqlite3"
         assert self._observe("reject-opening", self.opening_at, self._opening())
@@ -975,6 +1024,7 @@ class PortfolioAccountConsumer:
             "internal_fill_count": len(cross_commit.internal_fill_ids),
             "incompatible_rejection": self._require_commit(rejected).reason,
             "crossing_rejection": self._require_commit(crossing_rejected).reason,
+            "conflicting_receipt_rejection": conflicting_receipt_rejection,
             "malformed_request_rejected": malformed.returncode != 0,
             "submission_attempted": False,
             "physical_venue_evidence": False,
