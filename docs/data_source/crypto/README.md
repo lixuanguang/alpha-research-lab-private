@@ -77,7 +77,7 @@ checksum-verified 2024-06-01 BTCUSDT file:
 These are coarse liquidity summaries derived from a book. They do not contain
 individual bid/ask prices, best quotes or update sequences, so they cannot support
 book reconstruction, exact spread measurement or execution replay. Avoid naming
-this source simply “L2”. See the [sample evidence](verification-2026-09-15.md).
+this source simply “L2”.
 
 ### Historical L2 candidates
 
@@ -241,10 +241,15 @@ successful local replay. Other newly imported rows remain labeled for rechecking
 
 ## Evidence and next use
 
-The [2026-09-15 verification record](verification-2026-09-15.md) retains the
-sample identities, actual commands, results and remaining limits. Downloads are
-private working copies under the existing ignored `data/binance-archives/`
-directory. Free retrieval does not establish unrestricted redistribution rights.
+The observations above use the publisher-checksum-verified 2024-06-01 BTCUSDT
+USD-M samples: `bookDepth` ZIP SHA-256
+`ad24f75eec3b8ef38023126a020d4bc1829ca433f1c82cc75414250030606bbb`
+and `metrics` ZIP SHA-256
+`f1e27327e1af18eb3aa57663530e3bc7e340237aaca5e6b3ec4384a039dbd6b0`.
+The private working copies remain under the ignored
+`data/binance-archives/source-survey-2026-09-15/` directory. Matching publisher
+bytes and CRCs identifies these samples; it does not establish completeness,
+continuous availability or unrestricted redistribution rights.
 
 For a future historical research consumer, the source choices supported by this
 survey are individual trade archives for tape, native settlement history for

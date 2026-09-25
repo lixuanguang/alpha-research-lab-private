@@ -622,6 +622,94 @@ class TestAccountJournal:
         )
         assert journal.accounts()[0].fault is None
 
+    def test_changed_failed_posting_remains_blocking_after_restart(self, tmp_path: Path) -> None:
+        """A same-identity posting contradiction cannot be cleared by matching balances."""
+        path = tmp_path / "posting-conflict.sqlite3"
+        journal = AccountJournal(path, self._config())
+        expected = self._opening_snapshot()
+        assert journal.reconcile(self._observation("opening", self.opening_at, expected))
+        opening = AccountPosting(
+            identity="opening:USDT",
+            account_id="shared",
+            kind="transfer",
+            event_at=self.opening_at,
+            known_at=self.opening_at,
+            cash=self._money("20000"),
+        )
+        conflicting = replace(opening, cash=self._money("21000"))
+        with pytest.raises(ValueError, match="conflicting posting retry"):
+            journal.post(conflicting)
+
+        recovered = AccountJournal(path, self._config())
+        assert recovered.failed_postings() == (conflicting,)
+        assert recovered.accounts()[0].fault == "posting_break"
+        assert AccountLedger(recovered.accounts()[0].ledger).snapshot() == expected
+        observed_at = self.opening_at + timedelta(seconds=1)
+        assert not recovered.reconcile(
+            self._observation("matching-after-posting-conflict", observed_at, expected)
+        )
+
+        restarted = AccountJournal(path, self._config())
+        assert restarted.failed_postings() == (conflicting,)
+        assert restarted.accounts()[0].fault == "account_break"
+        decision_at = observed_at + timedelta(seconds=1)
+        restarted.observe(AccountQuote(price=self._price("100"), at=decision_at))
+        blocked = restarted.admit(
+            self._decision("risk-after-posting-conflict", "alpha", decision_at)
+        )
+        assert (blocked.status, blocked.reason) == ("rejected", "account_break")
+        assert restarted.orders() == ()
+
+    def test_failed_posting_accepted_identically_can_reconcile(self, tmp_path: Path) -> None:
+        """A failed posting remains repairable when later funding makes it valid."""
+        path = tmp_path / "repaired-posting.sqlite3"
+        journal = AccountJournal(path, self._config())
+        assert journal.reconcile(
+            self._observation("opening", self.opening_at, self._opening_snapshot())
+        )
+        posting_at = self.opening_at + timedelta(seconds=1)
+        withdrawal = AccountPosting(
+            identity="repairable-withdrawal",
+            account_id="shared",
+            kind="transfer",
+            event_at=posting_at,
+            known_at=posting_at,
+            cash=self._money("-21000"),
+        )
+        with pytest.raises(ValueError, match="insufficient account cash"):
+            journal.post(withdrawal)
+        assert journal.failed_postings() == (withdrawal,)
+        journal.post(
+            AccountPosting(
+                identity="restored-funding",
+                account_id="shared",
+                kind="transfer",
+                event_at=posting_at,
+                known_at=posting_at,
+                cash=self._money("2000"),
+            )
+        )
+        expected = AccountSnapshot(
+            account_id="shared",
+            instance_id=None,
+            cash=(self._money("1000"),),
+            positions=(),
+            fees=(self._money("0"),),
+            rebates=(self._money("0"),),
+            transfers=(self._money("1000"),),
+            fill_ids=(),
+            posting_ids=("opening:USDT", "restored-funding", "repairable-withdrawal"),
+        )
+        assert journal.post(withdrawal) == expected
+
+        recovered = AccountJournal(path, self._config())
+        assert recovered.failed_postings() == (withdrawal,)
+        assert AccountLedger(recovered.accounts()[0].ledger).snapshot() == expected
+        assert recovered.reconcile(
+            self._observation("repaired-posting-observation", posting_at, expected)
+        )
+        assert recovered.accounts()[0].fault is None
+
     def test_unauthorized_stale_and_bad_price_requests_leave_no_orders(
         self, tmp_path: Path
     ) -> None:

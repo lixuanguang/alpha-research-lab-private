@@ -343,8 +343,7 @@ class AccountAdmission:
             and allocation.physical_attribution_matches(transaction, account.ledger.account_id)
             and not any(
                 posting.account_id == account.ledger.account_id
-                and posting.identity
-                not in tuple(applied.identity for applied in account.ledger.postings)
+                and not self.failed_posting_matches_accepted_fact(account, posting)
                 for posting in transaction.state.failed_postings
             )
             and not any(
@@ -361,6 +360,7 @@ class AccountAdmission:
             )
             and not any(
                 account.ledger.account_id in self.failed_net_event_account_ids(transaction, failed)
+                and not self.failed_net_event_matches_accepted_fact(transaction, failed)
                 for failed in transaction.state.failed_net_events
             )
         )
@@ -770,6 +770,42 @@ class AccountAdmission:
                 and (event.order_id != saved.event.order_id or event.fill != saved.event.fill)
             )
             for saved in transaction.state.events
+        )
+
+    def failed_posting_matches_accepted_fact(
+        self, account: AccountView, posting: AccountPosting
+    ) -> bool:
+        """Identify a rejected posting whose exact bytes were later accepted."""
+        encoded = self.codec.encode_json(posting)
+        return any(
+            self.codec.encode_json(applied) == encoded for applied in account.ledger.postings
+        )
+
+    def failed_net_event_matches_accepted_fact(
+        self, transaction: _AccountTransaction, event: OrderEvent
+    ) -> bool:
+        """Identify a rejected physical fact later accepted without contradiction."""
+        if any(
+            (saved.event.identity == event.identity and saved.event != event)
+            or (
+                event.fill is not None
+                and saved.event.fill is not None
+                and saved.event.fill.identity == event.fill.identity
+                and (event.order_id != saved.event.order_id or event.fill != saved.event.fill)
+            )
+            for saved in transaction.state.net_events
+        ):
+            return False
+        return any(
+            saved.event == event
+            or (
+                event.fill is not None
+                and saved.event.fill is not None
+                and saved.event.fill.identity == event.fill.identity
+                and saved.event.order_id == event.order_id
+                and saved.event.fill == event.fill
+            )
+            for saved in transaction.state.net_events
         )
 
     def failed_net_event_account_ids(

@@ -78,16 +78,15 @@ storage schema or admission rule.
   or on the later date stated in the row; no endpoint, full-history or
   entitlement test is implied.
 - **Observed / sample verified:** a stated listing, schema or actual file was
-  inspected. Read the [crypto sample evidence](crypto/verification-2026-09-15.md)
-  for its exact scope.
+  inspected. The relevant guide records the sample identity, observation and
+  limits; it does not imply full-history or entitlement verification.
 - **Integrated:** a repository consumer and acceptance evidence exist. The
   [crypto guide](crypto/README.md) links the current Binance spot-trade consumer.
 
-The [first incorporation record](catalog-incorporation-2026-09-15.md) documents
-the original catalog import. Additions from the deep-research report retain
-evidence labels in each source row. Recommendations above are adapted at the
-user's request; other instructions in the attachments do not replace repository
-policy.
+Imported rows originate in the supplied catalog and retain that evidence label;
+additions from the deep-research report retain their own labels in each source
+row. Recommendations above are adapted from those inputs; other instructions in
+the attachments do not replace repository policy.
 
 ## Asset-class guides
 

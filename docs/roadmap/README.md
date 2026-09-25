@@ -4,32 +4,18 @@ Owner: repository founder; quant development owns infrastructure delivery.
 Status updated 2026-09-25. Delivery policy: complete the initial infrastructure
 stack before quant researcher (QR) onboarding.
 
-This index owns delivery status, remaining work and dependencies. Detailed
-delivery records retain their original scope, commands and evidence in linked
-pages under `delivery/`; the existing milestone anchors remain navigable.
-The completed
-MR09A saved-book baseline retains its historical identity. The remaining work
-uses MR01–MR17, with MR07A/MR07B extending the completed MR07 increment without
-renumbering later milestones. MR01 is complete for its declared read-only data/reference
-scope; MR02 is complete for its declared research/decision SDK scope; MR03 is
-complete for its bounded offline study/backtest/report scope; MR04 is complete
-for its declared local feature-store, workspace and job-service scope. MR05 is
-complete for candidate packaging and local intent-only runtime binding. MR06 is
-complete for [independent operating packages and trusted local installation](delivery/operating-packages.md#mr06-delivery-and-acceptance);
-MR07 is complete for [local dedicated-account paper/shadow operation](delivery/paper-execution.md#mr07-delivery-and-acceptance).
-[MR07A](delivery/book-quotes.md#mr07a-common-bbo-and-incremental-l3-aggregates) is complete for its declared per-book scope.
-[MR07B](delivery/book-registry.md#mr07b-book-registry-and-consolidated-bbo) is complete for its declared read-only registry/consolidation scope. [MR08](delivery/account-risk.md#mr08-delivery-and-acceptance) has a delivered local account/risk increment;
-physical account qualification through MR11 remains open. [MR09](delivery/portfolio-coordination.md#mr09-delivery-and-acceptance)
-is complete for local shared-account portfolio coordination and recovery.
+This index owns delivery status, remaining work and dependencies. Component
+guides own implemented behavior; the milestone sections below retain only the
+current accepted scope and qualification limits. One-off delivery narratives,
+commands and evidence identities remain available in Git history.
+
+The completed MR09A saved-book baseline retains its historical identity. The
+remaining work uses MR01–MR17, with MR07A/MR07B extending the completed MR07
+increment without renumbering later milestones. MR01–MR07B and MR09 are complete
+for the bounded scopes stated below. MR08 has a delivered local account/risk
+increment, while physical account qualification through MR11 remains open.
 MR10–MR17 remain open, including their explicitly owned prerequisite slices.
-The [MR05 record](delivery/candidate-runtime.md#mr05-delivery-and-acceptance) states its evidence
-and operating boundaries. The [MR04 record](delivery/feature-services.md#mr04-delivery-and-acceptance) states its service
-evidence and later runtime/deployment boundaries. The [MR03 record](delivery/offline-studies.md#mr03-delivery-and-acceptance) and
-[MR02 record](delivery/research-sdk.md#mr02-delivery-and-acceptance) state their evidence
-and the later integration boundaries. The [MR01 record](delivery/market-data.md#mr01-delivery-and-acceptance)
-states its bounded support and evidence.
-Component guides own implemented behavior. Historical delivery records remain
-in Git history; P1 stays deferred and unaccepted.
+P1 stays deferred and unaccepted.
 
 This revision strengthens generalization and acceptance without reducing the
 destination. Intermediate gates expose usable increments; they do not retire
@@ -61,8 +47,10 @@ prefix with modeled delivery clocks, not known historical receipt or continuity.
 Its instances have separate simulated accounts. Identity/calendar/unit contracts,
 immutable datasets, experiment history and exact spot accounting remain reusable
 foundations. MR04 now qualifies local offline/online feature serving and retained
-workspace/job services; shared-account trading and a deployed OMS remain open. Library registries
-also require end-to-end consumer acceptance before claiming general extensibility.
+workspace/job services. Local shared-account coordination and a durable paper OMS
+are available; authenticated venue operation and service deployment remain open.
+Library registries also require end-to-end consumer acceptance before claiming
+general extensibility.
 
 ## Infrastructure completion before QR onboarding
 
@@ -221,48 +209,77 @@ not progress in the [research program](research-program.md).
 | --- | --- | --- |
 | MR01 | **Generalized data/reference plane with OKX/Bitfinex qualification.** Extend `market_data`, `reference_data`, configuration and data applications with selected public trades and books, configurable capture/backfill, versioned venue specifications, catalog discovery, pinned selections, quality/coverage inspection and causal multi-input assembly. Separate collection, research, strategy and authorized-trading universes. Declare typed market-data/reference/calendar capabilities and preserve source-specific time, sequence and depth semantics. Resolve the specification valid and known for an observation/order; unknown history remains explicit. From a clean workspace, discover/read/replay inputs and recover interrupted ingestion without notebook-created manifests or invented clocks. | Existing data access/attempt contracts and MR09A; source policy and declared source access |
 | MR02 | **Generalized research and decision contracts.** Extend `research.features`, `labels`, `models`, `observations` and `strategies` beyond fixed return/linear schemas: named trade/book/non-book inputs, multi-feature schemas, fitted transforms, estimator/state adapters, predictions-to-targets or order/quote intents, and batch/incremental lifecycle. Define feature entity/version/availability interfaces for MR04 and declare required capabilities for candidate admission. Run rule-only, learned and stateful reference consumers through the public contracts; future perturbation and restart preserve semantics. | MR01 and existing feature/model/split owners |
-| MR03 | **Complete study/backtest/report APIs — complete for the [declared offline scope](delivery/offline-studies.md#mr03-delivery-and-acceptance).** Extend `research.studies`, `experiments`, `simulation` and applications with typed in-memory and serialized configuration, injected compatible implementations end to end, explicit local/deferred publication, typed result readers, temporal/walk-forward evaluation, parameter search, configurable execution/cost models and custom metrics/charts. Exercise target and order-intent strategies, including declared passive-fill/queue assumptions and sensitivity cases. A fresh feature/rule/model reaches the installed workflow without shared orchestration edits or replacement by a built-in default; attempts, exclusions and holdout history survive failures/publication retries. | MR02; reuse existing accounting/risk and reports; offline order-lifecycle contracts do not wait for a deployed OMS |
-| MR04 | **[Feature store](../architecture/research-and-simulation-design.md#feature-store-contract), reproducible workspace and job services — complete for the [declared local scope](delivery/feature-services.md#mr04-delivery-and-acceptance).** Provision versioned data/artifact/experiment stores and offline/online feature-store paths, with causal historical retrieval, incremental materialization, entity/schema/version validation, freshness/TTL and missingness, idempotent retry, restart and rollback. Extend the isolated Feast integration and pinned lakeFS/ClearML paths while preserving independent compatible environments. Deliver scheduling/cancellation/retry, bounded concurrent workers, secrets references, backup/restore and service health. A clean workspace reopens studies and matched-cutoff features without manual repair or replacing an active worker; job failure cannot duplicate effects. | Start from existing local services and offline bridge; MR02 feature contracts and MR01 inputs; integrate MR03; qualify online consumption with MR05/MR07; MR06 before deployment |
+| MR03 | **Complete study/backtest/report APIs — complete for the [declared offline scope](#mr03-delivery-and-acceptance).** Extend `research.studies`, `experiments`, `simulation` and applications with typed in-memory and serialized configuration, injected compatible implementations end to end, explicit local/deferred publication, typed result readers, temporal/walk-forward evaluation, parameter search, configurable execution/cost models and custom metrics/charts. Exercise target and order-intent strategies, including declared passive-fill/queue assumptions and sensitivity cases. A fresh feature/rule/model reaches the installed workflow without shared orchestration edits or replacement by a built-in default; attempts, exclusions and holdout history survive failures/publication retries. | MR02; reuse existing accounting/risk and reports; offline order-lifecycle contracts do not wait for a deployed OMS |
+| MR04 | **[Feature store](../architecture/research-and-simulation-design.md#feature-store-contract), reproducible workspace and job services — complete for the [declared local scope](#mr04-delivery-and-acceptance).** Provision versioned data/artifact/experiment stores and offline/online feature-store paths, with causal historical retrieval, incremental materialization, entity/schema/version validation, freshness/TTL and missingness, idempotent retry, restart and rollback. Extend the isolated Feast integration and pinned lakeFS/ClearML paths while preserving independent compatible environments. Deliver scheduling/cancellation/retry, bounded concurrent workers, secrets references, backup/restore and service health. A clean workspace reopens studies and matched-cutoff features without manual repair or replacing an active worker; job failure cannot duplicate effects. | Start from existing local services and offline bridge; MR02 feature contracts and MR01 inputs; integrate MR03; qualify online consumption with MR05/MR07; MR06 before deployment |
 
 ### MR01 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR01 delivery and acceptance](delivery/market-data.md).
+Complete for the declared read-only data/reference scope. The
+[market-data guide](../../src/market_data/README.md#public-spot-data-plane) and
+[data contracts](../data/contracts.md#versioned-venue-specifications-and-scoped-universes)
+own the current interfaces. Qualification covers bounded OKX/Bitfinex public
+spot trades and books; it does not establish a complete historical tape,
+historical receipt reconstruction, Bitfinex book backfill or private execution
+conformance. Current endpoint metadata cannot establish earlier venue rules.
 
 ### MR02 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR02 delivery and acceptance](delivery/research-sdk.md).
+Complete for the declared research/decision SDK scope. The feature, observation,
+model and strategy component guides own the interfaces. Retained OKX/Bitfinex
+spot projections qualify the initial source path; non-book and different-product
+fixtures qualify extension/refusal behavior rather than another live asset class.
+Supplied component code remains trusted, and no empirical strategy, runtime or
+production qualification follows from this scope.
 
 ### MR03 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR03 delivery and acceptance](delivery/offline-studies.md).
+Complete for the bounded offline study/backtest/report scope documented by the
+[study guide](../../src/research/studies/README.md#generalized-decision-studies)
+and [simulation guide](../../src/simulation/README.md#offline-decision-intent-studies).
+Current support is cash-funded spot, at most 32 folds, 1,024 decisions per
+schedule and a 1–32-variant grid. Passive queue/latency behavior is a synthetic
+sensitivity; saved public inputs and authored Bitfinex grids do not qualify
+exchange fills, historical completeness or venue rules.
 
 ### MR04 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR04 delivery and acceptance](delivery/feature-services.md).
+Complete for the declared local feature-store, workspace and job-service scope.
+The [feature-store contract](../architecture/research-and-simulation-design.md#feature-store-contract)
+and component guides own behavior and recovery. Qualification is one trusted
+local POSIX workspace with independently locked environments and loopback
+development services; it does not establish shared-host authentication,
+distributed leases, arbitrary external exactly-once execution, deployment or
+launch capacity. Historical corrections still require an authored availability
+clock.
 
 ### MR05 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR05 delivery and acceptance](delivery/candidate-runtime.md).
+Complete for candidate packaging and local intent-only runtime binding. The
+[candidate promotion contract](../architecture/research-and-simulation-design.md#candidate-promotion-contract)
+and runtime/component guides own the interfaces. Registry contracts preserve
+general product and source identities, but unimplemented economics fail closed;
+the OKX/Bitfinex profiles are read-only and do not establish private execution,
+empirical alpha, capacity or deployment readiness.
 
 ### MR06 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR06 delivery and acceptance](delivery/operating-packages.md).
+Complete for independent operating packages and trusted local installation under
+the [release workflow](../governance/workflow.md#build-a-release) and
+[operating runbook](../governance/operations.md#trusted-local-installation).
+Qualification covers the declared trusted local Darwin arm64, CPython 3.14.7
+profile and independent collector/execution closures. Linux and remote deployment,
+production key provisioning, live orders and capital activation remain unqualified;
+the research graph's QuantLib release restriction remains in force.
 
 ### Runtime, operations and handoff
 
 | MR | Planned delivered behavior and sufficient completion evidence | Dependencies |
 | --- | --- | --- |
-| MR05 | **[Candidate packaging and runtime binding](../architecture/research-and-simulation-design.md#candidate-promotion-contract) — complete for the [declared local scope](delivery/candidate-runtime.md#mr05-delivery-and-acceptance).** Package rule-only and learned reference candidates with input/feature-store/state/metric contracts and target or order/quote outputs; load the same components into replay and runtime. Resolve a typed capability registry for market data, reference data, calendars, valuation, account and execution interfaces; reject unsupported product/channel/order/freshness combinations before startup. Bind dataset → experiment → candidate → deployment identities without granting authority. | MR02–MR03; integrate MR04 serving interfaces and MR11 conformance when available |
-| MR06 | **[Independent deployable packages and trusted installation](../governance/workflow.md#build-a-release) — complete for the [declared local scope](delivery/operating-packages.md#mr06-delivery-and-acceptance).** Build, verify, install and roll back pinned artifacts/configuration/state on the declared target; reject provenance, dependency, signature and compatibility failures. Prove that collector/execution applications install without unrelated research, notebook, training or reporting dependencies; shared contracts and independently locked workers retain compatible versions and release cadences. Resolve current release restrictions and verify research/shadow credentials cannot submit production orders. | Existing build/admission and MR16 package contracts; MR04 local environment profile supplies the target; MR06 does not wait for full MR04 or MR16 completion |
-| MR07 | **[Paper/shadow runtime and OMS](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design) — complete for the [declared local scope](delivery/paper-execution.md#mr07-delivery-and-acceptance).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
-| MR07A | **[Common BBO and incremental L3 aggregates](delivery/book-quotes.md#mr07a-common-bbo-and-incremental-l3-aggregates) — complete for the declared per-book scope.** Expose one typed per-book quote contract for native L2/L3, maintain exact L3 quantities/counts by side and price during lifecycle updates, and integrate existing research and paper consumers. Preserve native identity, clocks, quality and recovery; verify against independent full aggregation. | Completed MR01–MR07 contracts and consumers; preserve MR06 package boundaries |
-| MR07B | **[Book registry and consolidated BBO](delivery/book-registry.md#mr07b-book-registry-and-consolidated-bbo) — complete for the declared read-only scope.** Own independent books by venue/instrument and expose per-venue and consolidated BBO queries over explicitly equivalent instruments. Scan cached eligible venue quotes with causal cutoffs, freshness, provenance, ties and partial-coverage semantics. | MR07A; existing reference/capability admission and MR07 paper/replay interfaces |
+| MR05 | **[Candidate packaging and runtime binding](../architecture/research-and-simulation-design.md#candidate-promotion-contract) — complete for the [declared local scope](#mr05-delivery-and-acceptance).** Package rule-only and learned reference candidates with input/feature-store/state/metric contracts and target or order/quote outputs; load the same components into replay and runtime. Resolve a typed capability registry for market data, reference data, calendars, valuation, account and execution interfaces; reject unsupported product/channel/order/freshness combinations before startup. Bind dataset → experiment → candidate → deployment identities without granting authority. | MR02–MR03; integrate MR04 serving interfaces and MR11 conformance when available |
+| MR06 | **[Independent deployable packages and trusted installation](../governance/workflow.md#build-a-release) — complete for the [declared local scope](#mr06-delivery-and-acceptance).** Build, verify, install and roll back pinned artifacts/configuration/state on the declared target; reject provenance, dependency, signature and compatibility failures. Prove that collector/execution applications install without unrelated research, notebook, training or reporting dependencies; shared contracts and independently locked workers retain compatible versions and release cadences. Resolve current release restrictions and verify research/shadow credentials cannot submit production orders. | Existing build/admission and MR16 package contracts; MR04 local environment profile supplies the target; MR06 does not wait for full MR04 or MR16 completion |
+| MR07 | **[Paper/shadow runtime and OMS](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design) — complete for the [declared local scope](#mr07-delivery-and-acceptance).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
+| MR07A | **[Common BBO and incremental L3 aggregates](#mr07a-common-bbo-and-incremental-l3-aggregates) — complete for the declared per-book scope.** Expose one typed per-book quote contract for native L2/L3, maintain exact L3 quantities/counts by side and price during lifecycle updates, and integrate existing research and paper consumers. Preserve native identity, clocks, quality and recovery; verify against independent full aggregation. | Completed MR01–MR07 contracts and consumers; preserve MR06 package boundaries |
+| MR07B | **[Book registry and consolidated BBO](#mr07b-book-registry-and-consolidated-bbo) — complete for the declared read-only scope.** Own independent books by venue/instrument and expose per-venue and consolidated BBO queries over explicitly equivalent instruments. Scan cached eligible venue quotes with causal cutoffs, freshness, provenance, ties and partial-coverage semantics. | MR07A; existing reference/capability admission and MR07 paper/replay interfaces |
 | MR08 | **[Independent risk and account reconciliation](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Unknown sends, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate physical venue reconciliation through MR11. | MR07 and existing risk/accounting; base paper acceptance precedes MR11 external evidence |
 | MR09 | **[Portfolio and shared-account infrastructure](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
 | MR10 | **[Operational qualification](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Keep paper results distinct from later MR11 private-stream/venue evidence; final operational acceptance incorporates MR11–MR14 results. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
@@ -299,28 +316,50 @@ The tables own exact prerequisites; incremental acceptance never erases open sco
 
 ### MR07 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR07 delivery and acceptance](delivery/paper-execution.md).
+Complete for local dedicated-account paper/shadow operation: one cash-funded
+spot instrument and candidate instance per account, with OKX L2 or Bitfinex R0
+public input. The [OMS design](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design)
+and component guides own current behavior. Paper touch matching models neither
+queue position nor market impact, shadow never matches and neither path can
+submit executable orders. Authored grids/fees and public observations do not
+qualify private venue execution or account behavior.
 
 ### MR07A common BBO and incremental L3 aggregates
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR07A common BBO and incremental L3 aggregates](delivery/book-quotes.md).
+Complete for the declared per-book scope. The
+[market-data guide](../../src/market_data/README.md#shared-book-quotes) owns the
+typed quote and incremental aggregate contract. Native identities, clocks and
+recovery remain distinct; L3 aggregation does not infer queue priority, and this
+scope establishes no new source continuity or capacity qualification.
 
 ### MR07B book registry and consolidated BBO
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR07B book registry and consolidated BBO](delivery/book-registry.md).
+Complete for the declared read-only registry and consolidated BBO scope. The
+[market-data guide](../../src/market_data/README.md#book-registry-and-consolidated-bbo)
+owns configuration and query semantics. Consolidation requires explicit economic
+equivalence and unit/currency compatibility; no implicit FX conversion occurs.
+Execution routing, shared-account allocation, source continuity, venue fills and
+capacity remain outside this scope.
 
 ### MR08 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR08 delivery and acceptance](delivery/account-risk.md).
+Partial: the local account/risk increment is implemented, while physical venue
+reconciliation remains unqualified. The execution, accounting and risk guides
+own current behavior. Initial qualification is local cash-funded spot with
+authored grids, a common explicit valuation currency, quote-currency fee reserves
+and normalized paper facts. FX aggregation, base-asset fee conversion, other
+product mechanics and authenticated OKX/Bitfinex account observations remain
+MR11 work.
 
 ### MR09 delivery and acceptance
 
-Detailed scope, commands, evidence and remaining boundaries are in the
-[MR09 delivery and acceptance](delivery/portfolio-coordination.md).
+Complete for local shared-account portfolio coordination and recovery. The
+[portfolio design](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk)
+and component guides own allocation, netting, attribution and recovery. Initial
+qualification remains cash-funded spot; unroutable physical-lot residuals remain
+visible and reserved. Other product economics, FX/base-asset fee conversion,
+private venue conformance, broader operational drills, activation and capacity
+remain open in their owning milestones.
 
 ## Decisive acceptance scenarios
 

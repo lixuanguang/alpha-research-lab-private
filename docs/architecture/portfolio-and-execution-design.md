@@ -101,8 +101,8 @@ parent retains its reservation until a terminal outcome; unaffected residuals ar
 reissued only after reconciliation and current mark/budget/funding checks.
 Unroutable physical-lot residuals stay visible and reserved; a completed child
 retains fee capacity while its physical parent can still receive costs.
-The [MR09 record](../roadmap/delivery/portfolio-coordination.md#mr09-delivery-and-acceptance) retains the
-reference workload and its verification. Quant development supplies the deterministic
+The [MR09 roadmap boundary](../roadmap/README.md#mr09-delivery-and-acceptance) retains
+the qualified scope and remaining limits. Quant development supplies the deterministic
 reference policy; QR later supplies economic allocation choices within limits.
 This local paper/software proof does not establish OKX or Bitfinex private-stream,
 order, fill or account conformance; each venue remains separately qualified by
@@ -140,7 +140,7 @@ Paper matching uses finite displayed touch liquidity and exact fees; shadow mode
 never matches. Both modes suppress executable submission. A contradictory fill
 after confirmed cancellation durably blocks the account pending later correction
 support rather than rewriting terminal state. The
-[MR07 acceptance record](../roadmap/delivery/paper-execution.md#mr07-delivery-and-acceptance)
+[MR07 roadmap boundary](../roadmap/README.md#mr07-delivery-and-acceptance)
 qualifies the bounded scope and separates source observations from modeled fills.
 
 Venue adapters translate canonical orders into one broker or venue protocol. They own credentials, throttles, sequence

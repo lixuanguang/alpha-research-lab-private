@@ -393,6 +393,179 @@ class TestPortfolioAccounts:
         assert restarted.accounts()[0].fault == "account_break"
         assert AccountLedger(restarted.accounts()[0].ledger).snapshot() == snapshot
 
+    def test_physical_receipt_identity_collision_alone_blocks_reconciliation(
+        self, tmp_path: Path
+    ) -> None:
+        """A receipt identity cannot borrow an accepted fill from another receipt."""
+        path = tmp_path / "physical-receipt-identity-conflict.sqlite3"
+        journal = self._ready(path)
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=decision_at))
+        parent = journal.coordinate(
+            PortfolioBatch(
+                identity="receipt-identity-parent",
+                at=decision_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="alpha",
+                        identity="receipt-identity-alpha",
+                        at=decision_at,
+                        quantity="4",
+                    ),
+                ),
+            )
+        ).net_orders[0]
+        first_at = parent.order.decision_at + timedelta(seconds=1)
+        source = OrderEvent(
+            identity="receipt-identity-source",
+            order_id=parent.order.identity,
+            at=first_at,
+            kind="fill",
+            fill=self._fill(
+                "receipt-identity-source-fill",
+                parent.order.decision_at,
+                first_at,
+                "1",
+                "0.01",
+            ),
+        )
+        journal.apply_net_event(source)
+        later_at = first_at + timedelta(microseconds=1)
+        later = OrderEvent(
+            identity="receipt-identity-later",
+            order_id=parent.order.identity,
+            at=later_at,
+            kind="fill",
+            fill=self._fill(
+                "receipt-identity-later-fill",
+                parent.order.decision_at,
+                later_at,
+                "1",
+                "0.01",
+            ),
+        )
+        latest = journal.apply_net_event(later)
+        assert latest.order.remaining == self._quantity("2")
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert snapshot.cash == (self._money("49799.98"),)
+        assert snapshot.positions == (self._quantity("2"),)
+        assert snapshot.fees == (self._money("0.02"),)
+
+        collision = replace(source, identity=later.identity, at=later.at)
+        with pytest.raises(ValueError, match="different content"):
+            journal.apply_net_event(collision)
+
+        recovered = AccountJournal(path, self._config())
+        assert recovered.failed_net_events() == (collision,)
+        assert recovered.accounts()[0].fault == "physical_event_break"
+        assert recovered.net_orders()[0] == latest
+        assert AccountLedger(recovered.accounts()[0].ledger).snapshot() == snapshot
+        observed_at = later_at + timedelta(seconds=1)
+        assert not recovered.reconcile(
+            AccountObservation(
+                identity="matching-after-receipt-identity-conflict",
+                at=observed_at,
+                snapshot=snapshot,
+                open_orders=(latest.order,),
+            )
+        )
+
+        restarted = AccountJournal(path, self._config())
+        assert restarted.failed_net_events() == (collision,)
+        assert restarted.accounts()[0].fault == "account_break"
+        decision_after_conflict = observed_at + timedelta(seconds=1)
+        restarted.observe(AccountQuote(price=self._price(), at=decision_after_conflict))
+        blocked = restarted.coordinate(
+            PortfolioBatch(
+                identity="batch-after-receipt-identity-conflict",
+                at=decision_after_conflict + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="beta",
+                        identity="beta-after-receipt-identity-conflict",
+                        at=decision_after_conflict,
+                    ),
+                ),
+            )
+        )
+        assert (blocked.status, blocked.reason) == ("rejected", "account_break")
+        assert restarted.net_orders() == (latest,)
+
+    def test_failed_physical_receipt_accepted_identically_can_reconcile(
+        self, tmp_path: Path
+    ) -> None:
+        """A later-valid physical receipt permits restart reconciliation and new risk."""
+        path = tmp_path / "repaired-physical-event.sqlite3"
+        journal = self._ready(path)
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=decision_at))
+        committed = journal.coordinate(
+            PortfolioBatch(
+                identity="repairable-physical-parent",
+                at=decision_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(instance="alpha", identity="repairable-alpha", at=decision_at),
+                ),
+            )
+        )
+        parent = committed.net_orders[0]
+        receipt_at = decision_at + timedelta(seconds=1)
+        acknowledgement = OrderEvent(
+            identity="early-physical-cancel-ack",
+            order_id=parent.order.identity,
+            at=receipt_at,
+            kind="cancel_ack",
+        )
+        with pytest.raises(ValueError, match="cancel acknowledgement requires"):
+            journal.apply_net_event(acknowledgement)
+        assert journal.failed_net_events() == (acknowledgement,)
+        assert not journal.reconcile(
+            AccountObservation(
+                identity="before-physical-repair",
+                at=receipt_at,
+                snapshot=self._opening(),
+                open_orders=(parent.order,),
+            )
+        )
+        assert journal.accounts()[0].fault == "account_break"
+        journal.apply_net_event(
+            OrderEvent(
+                identity="physical-cancel-request",
+                order_id=parent.order.identity,
+                at=receipt_at,
+                kind="cancel_requested",
+            )
+        )
+        acknowledged = journal.apply_net_event(acknowledgement)
+        assert acknowledged.order.status == "cancel_ack"
+
+        recovered = AccountJournal(path, self._config())
+        assert recovered.failed_net_events() == (acknowledgement,)
+        assert recovered.net_orders()[0] == acknowledged
+        assert recovered.reconcile(
+            AccountObservation(
+                identity="repaired-physical-observation",
+                at=receipt_at,
+                snapshot=self._opening(),
+                open_orders=(acknowledged.order,),
+            )
+        )
+        assert recovered.accounts()[0].fault is None
+
+        next_at = receipt_at + timedelta(seconds=1)
+        recovered.observe(AccountQuote(price=self._price(), at=next_at))
+        resumed = recovered.coordinate(
+            PortfolioBatch(
+                identity="batch-after-physical-repair",
+                at=next_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(instance="beta", identity="beta-after-repair", at=next_at),
+                ),
+            )
+        )
+        assert resumed.status == "committed"
+        assert len(resumed.net_orders) == 1
+
     def test_explicit_internal_cross_preserves_physical_account(self, tmp_path: Path) -> None:
         """Opposite owned intents exchange inventory with zero physical trade."""
         journal = self._ready(tmp_path / "cross.sqlite3")

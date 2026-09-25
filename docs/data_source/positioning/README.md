@@ -4,7 +4,7 @@
 catalog; their provider claims and access terms have not been independently
 rechecked in this repository. No adapter or downloaded-data test is implied.
 See [evidence labels and depth definitions](../README.md#reading-the-records)
-and the [incorporation record](../catalog-incorporation-2026-09-15.md).
+for the limits of imported claims.
 
 Use the six-column tables below to compare products within this asset/data class.
 Free access precedes paid access in each table; qualifications remain attached.
