@@ -2,6 +2,12 @@
 
 # project library imports
 from configuration.archives import OKXHistoryConfig
+from configuration.book_registry import (
+    BookEquivalence,
+    BookKey,
+    BookRegistryConfiguration,
+    BookSelection,
+)
 from configuration.books import BookInstance, BookRun, BookTiming
 from configuration.candidates import CandidateDeployment
 from configuration.capabilities import (
@@ -30,8 +36,12 @@ from configuration.paper import PaperConfiguration
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
 
 __all__ = [
+    "BookEquivalence",
     "BookInstance",
+    "BookKey",
+    "BookRegistryConfiguration",
     "BookRun",
+    "BookSelection",
     "BookTiming",
     "CandidateDeployment",
     "CapabilityBinding",

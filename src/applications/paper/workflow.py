@@ -11,10 +11,17 @@ from pathlib import Path
 
 # project library imports
 from accounting import LedgerState
-from configuration import CandidateDeployment, CapabilityRegistry, PaperConfiguration
+from configuration import (
+    BookRegistryConfiguration,
+    BookSelection,
+    CandidateDeployment,
+    CapabilityRegistry,
+    PaperConfiguration,
+)
 from execution import OrderEvent, OrderState, PaperMarket, PaperOrderJournal
 from market_data.adapters.sources import BookAdapters
 from market_data.adapters.transport import VenueSubscriptions, VenueTransport
+from market_data.books import BookRegistry
 from market_data.collection import CaptureRunner, CaptureRunResult, CaptureTransport
 from market_data.contracts import CaptureRequest
 from research.experiments import CandidateBundle
@@ -125,6 +132,7 @@ class LivePaperRunResult:
 
     capture: CaptureRunResult
     paper: PaperRunResult
+    book_registry: BookRegistryConfiguration
 
 
 async def run_live_paper(
@@ -140,6 +148,7 @@ async def run_live_paper(
     owner: str,
     history_capacity: int = 10_000,
     transport: CaptureTransport | None = None,
+    books: BookRegistry | None = None,
 ) -> LivePaperRunResult:
     """Collect bounded public books while supervising actual cadence and paper state.
 
@@ -174,7 +183,26 @@ async def run_live_paper(
         ),
     )
     runtime = PaperCandidateRuntime(loaded, config, journal, source=source)
-    observer = PaperCaptureObserver(source, runtime)
+    if books is None:
+        books = BookRegistry(
+            BookRegistryConfiguration(
+                selections=(
+                    BookSelection.from_capture(
+                        request.config,
+                        source_id=request.identity,
+                        capability=BookAdapters.capability(request.config),
+                        max_age_ns=min(
+                            loaded.manifest.inputs[0].max_age_us * 1000,
+                            request.config.idle_seconds * 1_000_000_000,
+                        ),
+                        allow_degraded=True,
+                    ),
+                ),
+                equivalences=(),
+                history_capacity=history_capacity,
+            )
+        )
+    observer = PaperCaptureObserver(source, runtime, books=books)
     runner = CaptureRunner(
         book_factory=BookAdapters.create,
         transport=VenueTransport(request.config) if transport is None else transport,
@@ -192,6 +220,7 @@ async def run_live_paper(
                 stop.set()
         return LivePaperRunResult(
             capture=capture,
+            book_registry=books.config,
             paper=PaperRunResult(
                 checkpoint=runtime.checkpoint(),
                 ledger=journal.ledger_state(),

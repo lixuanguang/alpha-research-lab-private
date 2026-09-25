@@ -8,6 +8,11 @@ from market_data.contracts.binance import BinanceMarketEvent, DepthSnapshot, Dep
 from market_data.contracts.book_observations import BookObservation
 from market_data.contracts.capture_records import CaptureCursor, CaptureRecord
 from market_data.contracts.capture_requests import CaptureRequest
+from market_data.contracts.consolidated_quotes import (
+    BookLookup,
+    ConsolidatedBookQuote,
+    ConsolidatedQuoteSide,
+)
 from market_data.contracts.decoders import DecodeContext, PayloadDecoder
 from market_data.contracts.errors import TransientFetchError
 from market_data.contracts.events import (
@@ -50,6 +55,7 @@ __all__ = [
     "ArchiveCaptureVerifier",
     "ArchiveTrade",
     "BinanceMarketEvent",
+    "BookLookup",
     "BookObservation",
     "BookQuote",
     "BookQuoteSide",
@@ -58,6 +64,8 @@ __all__ = [
     "CaptureRecord",
     "CaptureRequest",
     "CaptureSlice",
+    "ConsolidatedBookQuote",
+    "ConsolidatedQuoteSide",
     "DecodeContext",
     "DepthSnapshot",
     "DepthUpdate",

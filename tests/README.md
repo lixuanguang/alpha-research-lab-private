@@ -188,6 +188,32 @@ checks deliberately change working directories. The study consumer now also
 checks scheduled jobs and workspace restore; its existing ClearML verifier
 checks the selected deferred attempts against the actual local service.
 
+## Registry and consolidated quote acceptance
+
+`unit/data/test_book_registry.py` checks exact ties, independent listings on the
+same venue, future and historical cutoffs, stale/delayed inputs, nanosecond source
+clocks, controls, gaps, recovery, reference/unit mismatches and explicit coverage.
+It uses synthetic comparable markets and real native decoder fixtures.
+
+Copy the [registry consumer](integration/consumers/capture/book_registry.py) outside
+the checkout and run it with a freshly installed research wheel:
+
+```sh
+/absolute/core/bin/python -I /absolute/copied/book_registry.py \
+  /absolute/fresh-registry-output /absolute/retained-okx-capture \
+  /absolute/retained-bitfinex-capture
+```
+
+The consumer reconstructs separate native books, compares every boundary with the
+original decoder/projection, checks old cutoffs after later input and verifies a
+fresh rebuild. It retains selected/eligible coverage and original source identities.
+The native journals supply receipt only; the saved query workload explicitly uses
+`receipt-clock-as-availability-v1`. Original delivery is unknown in this workload.
+USD/USDT recordings remain separate. Authored comparable quotes demonstrate tied
+BBO and a paper fill at the selected venue even when another venue has a better
+ask. Paper restart cannot duplicate those modeled effects. This explicit retained
+source check is not a network dependency of the normal unit suite.
+
 ## Paper and live-input acceptance
 
 The common book boundary is covered by `unit/data/test_book_quotes.py` and the

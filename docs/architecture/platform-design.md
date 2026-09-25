@@ -95,7 +95,7 @@ src/
     datasets/               Assembly, manifests, publication and reopening
     query/                  Point-in-time selection and projections
     replay/                 Historical stepping, cursors and saved replay
-    books/                  Shared book state and reconstruction contracts
+    books/                  Shared reconstruction, independent book registry and causal consolidated BBO
   research/
     exploration/            EDA and pinned multi-input saved-data selections
     results/                Shared retained feature-study wire contract
@@ -207,6 +207,13 @@ owns the bounded spot implementation and installed consumers. No runner may repl
 a selected implementation with its built-in default. Candidate/runtime binding
 is implemented by MR05's local candidate loader; MR04 services and MR12 runtime
 telemetry extend these contracts.
+
+The [book registry](../../src/market_data/README.md#book-registry-and-consolidated-bbo)
+owns independent venue/listing reconstruction and bounded causal quote history.
+Explicit reference equivalence permits consolidated BBO scans with exact tied
+sizes and selected/eligible coverage. USD/USDT, native units, source clocks and
+quality remain distinct; paper matching selects one native venue quote. MR15
+owns measured capacity and MR08+ retain their operating scopes.
 
 ## Dependency and interface graph
 

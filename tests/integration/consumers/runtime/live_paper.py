@@ -22,6 +22,8 @@ from accounting import LedgerState
 from applications.explore import StudyComponents, evaluate_study
 from applications.paper import run_live_paper
 from configuration import (
+    BookRegistryConfiguration,
+    BookSelection,
     CandidateDeployment,
     CapabilityField,
     CapabilityKind,
@@ -33,6 +35,8 @@ from configuration import (
 )
 from execution import PaperOrderJournal, StepRecord
 from financial_units import Currency, Dimension, ExactRatio, Money, QuantityKind
+from market_data.adapters.sources import BookAdapters
+from market_data.books import BookRegistry
 from market_data.contracts import CaptureRequest
 from research.experiments import AttemptStore, CandidateBundle, Fingerprint
 from research.features import FeatureKernel, FeatureSchema
@@ -191,7 +195,25 @@ class _LiveCandidateConsumer:
         journal = self._journal(journal_path, loaded, paper)
         source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=10_000)
         runtime = PaperCandidateRuntime(loaded, paper, journal, source=source)
-        observer = PaperCaptureObserver(source, runtime)
+        books = BookRegistry(
+            BookRegistryConfiguration(
+                selections=(
+                    BookSelection.from_capture(
+                        request.config,
+                        source_id=request.identity,
+                        capability=BookAdapters.capability(request.config),
+                        max_age_ns=min(
+                            loaded.manifest.inputs[0].max_age_us * 1000,
+                            request.config.idle_seconds * 1_000_000_000,
+                        ),
+                        allow_degraded=True,
+                    ),
+                ),
+                equivalences=(),
+                history_capacity=10_000,
+            )
+        )
+        observer = PaperCaptureObserver(source, runtime, books=books)
         runtime.open(owner=f"{paper.account}-saved-replay", at=start.at)
         try:
             for record in records[1:]:
@@ -533,6 +555,7 @@ class _LiveCandidateConsumer:
         )
         if result.capture.request != request or result.paper.submission_attempted is not False:
             raise ValueError("live paper run differs from its admitted capture or safe mode")
+        (self.output / "book-registry.json").write_bytes(codec.encode_json(result.book_registry))
         proof = self._prove_saved_replay(
             request=request,
             bundle=bundle,
@@ -549,6 +572,7 @@ class _LiveCandidateConsumer:
             "deployment": deployment.identity,
             "source": source_identity,
             "recording": request.identity,
+            "book_registry": result.book_registry.identity,
             "capture_root": str(result.capture.root),
             "capture_summary": result.capture.summary,
             "paper_journal": str(self.output / "paper.sqlite3"),

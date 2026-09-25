@@ -18,12 +18,19 @@ queue, byte, message, retry and duration bounds remain active. A fresh process
 uses a fresh recording and waits for synchronized market input before resuming
 decisions. It does not reuse a stale book from a previous connection.
 
-`PaperCaptureObserver` consumes `LiveBookDecisionSource.current_quote` through
+`PaperCaptureObserver` requires the explicit `books` registry and admits the
+selected venue through `BookRegistry.lookup` and `LiveBookDecisionSource.current_quote`, using
 the shared [book quote contract](../../market_data/README.md#shared-book-quotes).
 Displayed quantity at the best native price includes every visible order at that
 price. The existing source cutoff, missing-side, crossed-book and freshness gates
 remain active before paper matching. Receipt and actual post-persistence delivery
 stay separate in the unchanged journal envelope; replay retains both clocks.
+`run_live_paper` constructs the default per-source registry from native reference
+and capability data. Callers may supply a broader `books` registry with explicit
+equivalence mappings; only the candidate's selected venue supplies modeled fills.
+The result includes `book_registry` configuration and its content identity for
+retention. Original delivery replay rebuilds registry state and checks identical
+paper effects. Consolidated BBO inspection does not authorize cross-venue routing.
 
 Use the maintained installed reference consumers in the
 [test guide](../../../tests/README.md#paper-and-live-input-acceptance). They build
