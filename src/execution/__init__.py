@@ -1,7 +1,16 @@
 """Expose the fenced, non-submitting paper order journal and portable lifecycle facts."""
 
 # project library imports
+from execution.accounts import (
+    AccountDecision,
+    AccountJournal,
+    AccountObservation,
+    AccountQuote,
+    AccountView,
+    TaggedOrder,
+)
 from execution.journal import PaperOrderJournal
+from execution.lifecycle import SpotOrderLifecycle
 from execution.paper import PaperMarket, PaperMatcher
 from execution.records import (
     AccountReservations,
@@ -15,7 +24,12 @@ from execution.records import (
 )
 
 __all__ = [
+    "AccountDecision",
+    "AccountJournal",
+    "AccountObservation",
+    "AccountQuote",
     "AccountReservations",
+    "AccountView",
     "EventKind",
     "JournalEvent",
     "OrderDecision",
@@ -24,6 +38,8 @@ __all__ = [
     "PaperMarket",
     "PaperMatcher",
     "PaperOrderJournal",
+    "SpotOrderLifecycle",
     "StepCommit",
     "StepRecord",
+    "TaggedOrder",
 ]

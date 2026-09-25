@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 # project library imports
+from applications.execute.accounts import AccountExecutionApplication
 from applications.execute.paper import PaperExecutionApplication
 from configuration import ExecutionConfiguration, ExecutionRequest
 from risk import SubmissionAdmission
@@ -39,10 +40,21 @@ def main() -> None:
     paper_parser.add_argument("--journal", type=Path, required=True)
     paper_parser.add_argument("--instance", required=True)
     paper_parser.add_argument("--request", type=Path)
+    account_parser = actions.add_parser("account")
+    account_parser.add_argument("--config", type=Path, required=True)
+    account_parser.add_argument("--journal", type=Path, required=True)
+    account_parser.add_argument("--request", type=Path)
     arguments = parser.parse_args(namespace=ExecuteArguments())
     try:
-        if arguments.action == "paper":
-            result: object = PaperExecutionApplication().run(
+        result: object
+        if arguments.action == "account":
+            result = AccountExecutionApplication().run(
+                config_path=arguments.config,
+                journal_path=arguments.journal,
+                request_path=arguments.request,
+            )
+        elif arguments.action == "paper":
+            result = PaperExecutionApplication().run(
                 config_path=arguments.config,
                 journal_path=arguments.journal,
                 instance=arguments.instance,

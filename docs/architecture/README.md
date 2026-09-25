@@ -125,6 +125,10 @@ Current dependency direction is organized by functional owner:
 - [`execution/`](../../src/execution/README.md) owns the portable paper/shadow
   order journal, lifecycle, pending reservations and modeled matching. It consumes
   independent risk and accounting; candidate supervision stays in `runtime/`.
+  Its shared `AccountJournal` adds atomic firm/account/instance admission, tagged
+  postings and complete local reconciliation. [Risk](../../src/risk/README.md)
+  owns independent policy and [accounting](../../src/accounting/README.md) owns
+  exact multi-currency postings and append-only corrections.
 - `applications/` composes these libraries and exposes the installed commands.
   Libraries never import applications; applications never import sibling workflows.
 
