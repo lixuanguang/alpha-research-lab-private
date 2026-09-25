@@ -418,7 +418,8 @@ The [installed study consumer](../../../tests/integration/consumers/research/dec
 now injects an acknowledgement loss after the actual study completes. It requires
 two job attempts to retain exactly one completed study, then verifies a backup
 restored into an absent workspace reopens the same queue and typed results. Copy
-that consumer outside the checkout and run with the installed interpreter:
+that consumer and its sibling `research_workflows/` support directory outside the
+checkout, preserving the directory name, and run with the installed interpreter:
 
 ```sh
 /absolute/core/bin/python -I /absolute/decision_study.py /absolute/fresh-workspace

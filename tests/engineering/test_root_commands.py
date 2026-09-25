@@ -5,8 +5,46 @@ from __future__ import annotations
 # standard library imports
 import subprocess
 from pathlib import Path
+from shlex import quote
+
+# third party library imports
+import pytest
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
+
+
+class TestIndependentLockfiles:
+    """Require every independently installed environment to have a current lock."""
+
+    @pytest.mark.parametrize(
+        "project",
+        (
+            "packages/collector",
+            "packages/execution",
+            "configs/development/research-worker",
+            "configs/development/clearml/worker",
+        ),
+    )
+    def test_stale_environment_lock_stops_source_checks(self, tmp_path: Path, project: str) -> None:
+        """Propagate a worker or operating lock failure before running source tooling."""
+        log = tmp_path / "uv.log"
+        fake_uv = tmp_path / "uv"
+        fake_uv.write_text(
+            "#!/bin/sh\n"
+            f"printf '%s\\n' \"$*\" >> {quote(str(log))}\n"
+            f'if [ "$3" = --project ] && [ "$4" = {quote(project)} ]; then exit 19; fi\n'
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        fake_uv.chmod(0o755)
+
+        result = _run_make(f"UV={fake_uv}", "source-check")
+
+        assert result.returncode != 0
+        assert "Error 19" in result.stderr
+        invocations = log.read_text(encoding="utf-8").splitlines()
+        assert invocations[-1] == f"lock --check --project {project}"
+        assert not any(invocation.startswith("run ") for invocation in invocations)
 
 
 def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -109,8 +147,12 @@ def test_source_check_propagates_a_required_phase_failure(tmp_path: Path) -> Non
     assert result.returncode != 0
     assert "Error 17" in result.stderr
     invocations = log.read_text(encoding="utf-8").splitlines()
-    assert invocations[:2] == [
+    assert invocations[:6] == [
         "lock --check",
+        "lock --check --project packages/collector",
+        "lock --check --project packages/execution",
+        "lock --check --project configs/development/research-worker",
+        "lock --check --project configs/development/clearml/worker",
         "run --frozen ruff check src tests tools/governance/src tools/typing/stubs",
     ]
     assert not any("format" in invocation or "mypy" in invocation for invocation in invocations)

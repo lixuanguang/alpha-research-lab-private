@@ -1,0 +1,2 @@
+# Keep uv-generated resolutions reviewable without treating them as authored code.
+**/uv.lock linguist-generated=true

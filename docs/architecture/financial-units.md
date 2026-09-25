@@ -214,8 +214,11 @@ non-finite/overflow/precision inputs, invalid native results, version and native
 failures, calendar limits, settlement lags, unchecked C01/C02 model copies,
 multi-year modified adjustments, and independence from Decimal context and
 QuantLib's evaluation date across concurrent calls.
-Current coverage lives in the [financial-unit tests](../../tests/unit/financial_units/test_financial_units.py)
-and [Currency tests](../../tests/unit/financial_units/test_currency_units.py).
+Current coverage is organized by [arithmetic and rounding](../../tests/unit/financial_units/test_financial_units.py),
+[model validation](../../tests/unit/financial_units/test_unit_model_contracts.py),
+[settlement](../../tests/unit/financial_units/test_settlement_conventions.py),
+[native conventions](../../tests/unit/financial_units/test_quantlib_conventions.py),
+and [currency identity](../../tests/unit/financial_units/test_currency_units.py).
 A bounded local performance check is diagnostic and supplies no target latency/SLO
 certification.
 

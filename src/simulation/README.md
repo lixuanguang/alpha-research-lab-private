@@ -12,6 +12,9 @@ alpha, executable liquidity, release admission or trading authority.
 `IntentCostModel` and the existing exact `Ledger`. The
 [study application](../research/studies/README.md#generalized-decision-studies)
 carries target, exposure, order and quote decisions through this public boundary.
+The public `simulation` and `simulation.intents` imports remain stable. Immutable
+wire records and collaborator protocols are owned by `intent_contracts.py`, while
+`intent_execution.py` owns exact fee pricing and the causal L2 event engine.
 `LimitOrderExecution` supports bounded long-only spot IOC and limit orders,
 post-only admission, partial depth, cancellation/replacement and expiry. Independent
 `SpotLimits` check tick/lot dimensions, cash and position limits. Optional retained

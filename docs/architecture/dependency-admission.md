@@ -11,7 +11,8 @@ hashes and URLs, the reviewed PyPI simple index, Darwin arm64 and Linux x86_64
 wheel coverage, dependency edges, licenses, and vulnerability coverage. The
 checker fixes the root lock, independent collector/execution lock paths and
 `src`/`tools` runtime scan roots directly.
-`uv lock --check` separately ties that lock to the project manifest. The checker
+[`make lock-check`](../governance/dependency-locks.md) separately ties all five
+environment locks to their owning project manifests. The checker
 rejects missing, duplicate, mutable or unsafe identities. Development tools
 remain outside the runtime package. `pip-audit` must cover the complete admitted
 package set, and every finding blocks admission; no vulnerability waivers exist.

@@ -25,9 +25,11 @@ class TestPortfolioWorkflow:
         self, tmp_path: Path, venue: str, venue_label: str, currency: str
     ) -> None:
         """Check both strategy and physical balances through one installed public path."""
-        source = Path(__file__).parent / "consumers/runtime/portfolio_account.py"
+        consumer_source = Path(__file__).parent / "consumers/runtime/portfolio_account.py"
+        facts_source = Path(__file__).parent / "consumers/runtime/portfolio_account_facts.py"
         consumer = tmp_path / "portfolio_account.py"
-        shutil.copyfile(source, consumer)
+        shutil.copyfile(consumer_source, consumer)
+        shutil.copyfile(facts_source, tmp_path / "portfolio_account_facts.py")
         output = tmp_path / "output"
         result = subprocess.run(
             [sys.executable, "-I", str(consumer), "--output", str(output), "--venue", venue],

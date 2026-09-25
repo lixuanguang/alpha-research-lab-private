@@ -19,6 +19,7 @@ class TestStudyWorkflow:
         source = Path(__file__).parent / "consumers/research/decision_study.py"
         script = tmp_path / source.name
         shutil.copyfile(source, script)
+        shutil.copytree(source.parent / "research_workflows", tmp_path / "research_workflows")
         process = subprocess.run(
             [sys.executable, "-I", str(script), str(tmp_path / "retained")],
             cwd=tmp_path,

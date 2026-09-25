@@ -3,6 +3,16 @@
 **Status: destination design with current functional ownership.** The source tree
 below distinguishes implemented capabilities from planned infrastructure.
 
+This index retains functional ownership, dependency direction and configuration
+boundaries. Detailed contracts have cohesive homes:
+
+| Reader task | Design chapter |
+| --- | --- |
+| Resolve identity, clocks, source contracts and storage lineage | [Economic and market-data design](economic-and-market-data-design.md) |
+| Define datasets, features, candidates and simulation behavior | [Research and simulation design](research-and-simulation-design.md) |
+| Coordinate portfolios, account state, risk and venue orders | [Portfolio and execution design](portfolio-and-execution-design.md) |
+| Plan deployment, migration, monitoring, security and scaling | [Runtime and operations design](runtime-and-operations-design.md) |
+
 The long-term goal is an institutional-grade monorepo for multi-asset, multi-strategy research, productionization, and
 monitoring. It should approach the engineering depth expected at a strong proprietary trading or hedge-fund platform
 through measured delivery. Quant development delivers the complete initial
@@ -52,8 +62,9 @@ memory safety, vendor interoperability, or latency. A native choice requires a t
 conformance fixtures, packaging evidence, and a demonstrated budget; language prestige or an anticipated workload is not
 sufficient.
 
-The current [architecture overview](README.md) owns active command and dependency boundaries. This page owns future
-platform shape, module seams, data and runtime contracts, and the triggers for adding infrastructure.
+The current [architecture overview](README.md) owns active command and dependency boundaries.
+This index owns future platform shape and module seams; the linked design chapters
+own the detailed data/runtime contracts and infrastructure triggers.
 The [infrastructure roadmap](../roadmap/README.md) selects delivery work against
 these boundaries. Bare functions serve workflow orchestration; reusable library
 behavior belongs to cohesive classes under the
@@ -352,898 +363,103 @@ requires an implementation at that owning boundary before activation can succeed
 
 ## Canonical economic and temporal model
 
-The current [instrument identity](instrument-identity.md), [venue calendar](venue-calendar.md), and [financial units](financial-units.md)
-contracts remain the foundation. A future core layer extends them; it does not replace them
-with vendor symbols, floating-point money, or a generic model framework.
+See [canonical economic and temporal model](economic-and-market-data-design.md#canonical-economic-and-temporal-model).
 
 ### Identity and lifecycle
 
-`InstrumentId` remains stable across alias changes and provider renames for the same identified instrument. A distinct
-relisting has its own ID linked to the economic root, as the current identity contract requires. Planned `ContractSpec` records
-add effective-dated quantity units, price units, multipliers, tick and lot rules, currencies, settlement, and lifecycle
-state. A derivative references an internal underlying ID. A continuous futures series is a derived research product and
-never a listed contract.
-
-Specification revisions also retain when their source assertion became known.
-Queries resolve valid time and knowledge time together, and observations, orders
-and dataset manifests bind the selected version. A tick/lot change must not
-rewrite an earlier run; current endpoint metadata cannot establish historical
-specifications. The implemented `VenueSpecification` / `ReferenceHistory` boundary
-now resolves observed OKX/Bitfinex spot rules separately from authored research
-assumptions. Public trade observations retain the applicable version or explicit
-unknown; `SpotLimits.from_reference` consumes complete known rules for order-grid
-checks. General product lifecycle and execution adapter integration remain planned.
-
-Future lifecycle records represent listing, activation, trading halt, expiry, exercise, assignment, delivery, delisting,
-redenomination, and corporate-action effects as explicit versioned events. They retain the source assertion and
-effective interval. A correction appends a revision and identifies datasets, models, positions, and releases that may be
-affected.
+See [identity and lifecycle](economic-and-market-data-design.md#identity-and-lifecycle).
 
 ### Market events and time
 
-Planned `MarketEvent` schemas cover trades, quotes, books, bars, funding, fixings, settlements, corporate actions,
-curves, volatility points, and venue state. Every event carries at least:
-
-| Field | Contract |
-| --- | --- |
-| `ts_event` | When the economic event occurred, at source precision |
-| `ts_received` | When the platform first received the payload |
-| `ts_ingested` | When the payload entered governed storage |
-| `ts_knowledge` | Earliest time a validated version could be used |
-| `valid_from`, `valid_to` | Business interval for reference state |
-| `source_revision` | Source sequence, file, or revision identity |
-| `schema_version` | Version of the canonical event shape |
-| `correction_id` | Link to an append-only correction when applicable |
-| `source_digest` | Identity of the raw payload or source partition |
-
-For a decision at `decision_time`, every feature input, reference record and risk value consumed by that decision must
-satisfy `ts_knowledge <= decision_time`. Forward labels become available later: training may use a label only after its
-outcome is knowable at the fitting cutoff; retrospective evaluation keeps those outcomes separate from decision inputs.
-Event time is not knowledge time, and valid time is not receipt time. A source that
-cannot support the required availability semantics is usable only for an explicitly limited engineering or exploratory
-result.
-
-Point-in-time selection resolves the record valid at the requested business time from revisions known at the requested
-knowledge cutoff. It returns the selected revision, source digest, transformation version, and quality state, so a later
-correction can invalidate affected products without rewriting the original result.
+See [market events and time](economic-and-market-data-design.md#market-events-and-time).
 
 ## Data source, storage, and lineage design
 
-Every source adapter is responsible for authentication, rate limits, pagination, source-specific identifiers, source
-timestamps, and raw payload capture. It does not expose its SDK models to research or execution code.
-
-The planned data flow is:
-
-```text
-source adapter
-    -> immutable raw landing + receipt metadata + source digest
-    -> normalization and validation
-    -> canonical events/reference state
-    -> correction-aware PIT partitions
-    -> dataset manifest and quality report
-    -> feature/label products and research consumers
-```
-
-Raw inputs are append-only and retain entitlement, license, encryption, and retention metadata. Canonical records retain
-source pointers and deterministic transform versions. Curated partitions are immutable products identified by a manifest
-of partition digests, specification, code, dependencies, and source revisions. Publications are atomic: readers see
-either the old manifest or the new manifest, never a partially written partition.
-
-Storage technology follows the declared launch workload. Provisioning, discovery,
-durable data/artifact storage, versioned offline/online feature-store access,
-concurrent job execution, retention and backup/restore are mandatory before QR
-onboarding. Preserve the existing lakeFS, Feast and experiment-store integrations
-and extend their owned interfaces. A bounded topology may use files and local
-services, but must supply all required retrieval, materialization, concurrency
-and recovery behavior. Quant development supplies infrastructure for its declared
-volume and latency budgets without waiting for a QR to encounter a bottleneck;
-changing a backend requires compatibility and migration evidence.
-
-Dataset specifications declare universe eligibility, event fields, source priority, schedule, timezone, calendar,
-interval, lookback, warm-up, availability cutoff, correction policy, adjustment/roll policy, missing/stale rules,
-expected partitions, and quality thresholds. A new specification or policy produces a new dataset identity.
-
-Quality states are explicit: informational records remain visible; degraded data may be used only with a visible
-limitation and stated scope; hard failures prevent publication; and an incident identifies affected products,
-experiments, candidates, and releases for replay.
-
-Existing normalization, quality checks, atomic publication, bounded queries and
-replay support offline inspection without a live-feed dependency. Current source
-scope and limitations live in the [data contracts](../data/contracts.md).
-Market-event access and feature serving are distinct contracts even when they
-share storage.
-
-Historical ingestion and live capture converge on compatible envelopes while
-retaining source/receipt/availability differences. Each enabled book consumer
-requires tested quality transitions, backpressure and synchronization under its
-source contract. Replay exact locally captured inputs and receipt order; a later
-vendor archive cannot establish what the local system knew. A decoded depth update
-alone does not establish a valid book after a gap. The contracts below govern
-source extensions; [scaling decisions](#storage-and-performance-decisions) govern
-infrastructure selection.
+See [data source, storage, and lineage design](economic-and-market-data-design.md#data-source-storage-and-lineage-design).
 
 ### Collection scope and source contracts
 
-Source configuration records each enabled combination in the existing source/job configuration:
-venue, product, canonical instrument, source/access mode, stream representation,
-timestamp units and meaning, sequence/reset guarantees, depth coverage, supported
-intervals, backfill limits and permitted use. Record unsupported and unknown
-coverage explicitly. Revalidate the adapter's protocol assumptions when admitting
-a changed source schema; retain the last working fixture and source version.
-
-| Representation | Required distinction before claiming coverage |
-| --- | --- |
-| Individual trades | Retain trade identity, exact units, maker/aggressor meaning and correction policy. Aggregated trades cannot silently stand in for every individual trade; specify whether separate trade channels belong to the selected universe. |
-| L2 market by price | Snapshot plus ordered changes reconstruct quantities at prices within declared coverage. This does not establish individual-order queue positions or L3 market-by-order history. |
-| Tickers | Best bid/offer, last trade and rolling statistics are distinct products. Record the chosen fields/window, update semantics, age and source; one cannot certify another's completeness. |
-| Klines | Enumerate the selected venue-supported intervals, timezone/boundaries and whether provisional updates or only closed bars are retained. Preserve close/finality and revision availability. Trade-derived bars have separate lineage and are not relabeled exchange klines. “Every kline” means the declared intervals and retained coverage, not an unspecified promise. |
-
-The initial OKX/Bitfinex data gate includes selected public trades alongside books,
-with explicit per-feed coverage and availability evidence. Non-book inputs use
-their own typed schemas and availability rules; a small reference dataset proves
-this extension boundary without claiming a new production source. Bitfinex's
-current R0 raw-book path and OKX L2 retain their distinct semantics; adding a
-representation never silently relabels either as a complete matching-engine log.
-
-For execution-sensitive inputs, prefer the direct feed for the actual venue and
-product, with its native order adapter. An aggregator remains useful for research
-and historical backfill. Any alternative execution input needs explicit freshness,
-ordering and provenance acceptance; switching providers cannot silently preserve
-the old source identity or measured latency. Endpoint, heartbeat, connection
-lifetime and request limits are verified for the selected product during source negotiation,
-not copied from another venue or an old example.
+See [collection scope and source contracts](economic-and-market-data-design.md#collection-scope-and-source-contracts).
 
 ### L2 synchronization and recovery
 
-Validate continuity against the source stream's documented contract, including
-batched sequence ranges, resets and checksums where supplied. The local raw-record
-position and a broker offset are not exchange sequence numbers. A stream without
-consecutive IDs needs its documented integrity checks and an honest unknown-
-coverage outcome; do not manufacture a universal per-message counter rule.
-
-The reconstruction library consumes saved snapshots, updates and session controls;
-the live pipeline owns network requests, rate limits, retries and persistence.
-The same reconstruction library serves saved-input replay. Its supported book
-carries instrument, session/recovery epoch, snapshot/raw identity, applied source
-cursor, known depth coverage, effective availability and quality status.
-
-1. On startup, a proven gap, checksum failure or unusable book, immediately block
-   affected book-dependent consumers and enter `recovering`. Preserve raw input
-   and the failure boundary. Keep independent healthy bindings usable.
-2. Buffer updates within explicit memory/time bounds while requesting a fresh
-   snapshot through the venue's supported recovery mechanism. For a REST-based
-   adapter, coalesce recovery to one in-flight request per binding, respect the
-   shared endpoint budget and retry/backoff policy, and discard responses from
-   superseded session epochs. Overflow or exhausted recovery stays unavailable.
-3. Reconcile snapshot and buffered updates under the venue-specific bridge rule;
-   reject stale/incompatible snapshots and gaps in the retained suffix. Apply a
-   complete source message atomically, including all bid/ask changes. Downstream
-   decisions must not observe a half-applied message or snapshot.
-4. Validate the reconstructed state and coverage, then resume at its actual
-   availability time. A repaired book cannot restore observations or decisions
-   inside the earlier missing interval. Persist enough snapshot/cursor/epoch
-   identity for deterministic reconstruction after restart.
-
-For Binance spot, the documented procedure buffers depth events before obtaining
-a REST snapshot, removes updates covered by the snapshot, reconciles the first
-remaining range and restarts if a subsequent `U` exceeds the local update ID plus
-one. Updates set absolute quantities; zero quantity deletes a level. Snapshot
-depth is limited, so untouched levels outside it remain unknown. Use the current
-documented bridge rule and distinguish it from futures continuity fields.
-[Official spot procedure](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md#how-to-manage-a-local-order-book-correctly)
-(reviewed 2026-09-15; recheck during adapter implementation).
-
-For a newly supported live book, combine a hand-reconstructed saved trace with
-one permitted capture. Offline reconstruction can use verified saved inputs with
-declared quality; synthetic traces prove the algorithm only. Exercise a gap during
-snapshot fetch, stale-session response, duplicate/overlapping updates, deletion,
-malformed level, interrupted message, rate-limited recovery and buffer overflow.
-Resume must reproduce the same book and quality boundaries as uninterrupted replay.
-Select analogous cases for another venue only where its protocol differs.
+See [l2 synchronization and recovery](economic-and-market-data-design.md#l2-synchronization-and-recovery).
 
 ### Ingestion quality
 
-Historical partition and continuous-capture checks share schema/unit and
-source policies. Reject nonfinite or nonpositive trade prices and invalid trade
-quantities under that representation's contract; zero L2 update quantity remains
-a deletion. Preserve rejected raw records, reasons and binding-scoped counts.
-An invalid required update invalidates dependent book state. Do not silently
-drop an anomaly, forward-fill it or mark the stream healthy after reconnect.
-Keep the existing frozen `msgspec.Struct` and explicit invariant requirements;
-this design does not migrate market events to Pydantic.
+See [ingestion quality](economic-and-market-data-design.md#ingestion-quality).
 
 ## Dataset, feature, label, and experiment contracts
 
-**Current saved research access:** `market_data.datasets.SnapshotCatalog` discovers
-bounded manifest metadata; `research.exploration.ResearchSelection` pins named
-trade/book inputs at one cutoff. `ResearchReader` assembles separate typed results
-through existing snapshot admission and family-specific queries; the existing
-`applications.explore.inspect_eda` composes it. Values retain source identities,
-units, controls, membership and coverage limits. Book selection uses exact receipt
-clocks and cannot invent availability for archives. No implicit join, filling or
-currency conversion is performed. The
-[public contract](../../src/market_data/README.md#discover-and-reopen-research-selections)
-owns the supported fields, resource bounds, missingness and refusal behavior.
-
-
-Planned dataset, feature, label, signal, model, cost, risk, portfolio, and candidate records carry identity, version,
-inputs, units, availability, owner, and failure policy. They are small records around real consumers, not a global
-registry that every exploratory file must enter.
-
-Features are deterministic functions of PIT datasets. Metadata names every input, transform version, availability delay,
-units, missing policy, range, and training fit interval. Labels name observation horizon, execution delay, price
-convention, overlap, and missing policy. Scaling, neutralization, imputation, selection, and hyperparameters fit only on
-data available in the applicable training interval.
-
-**Current versioned diagnostic:** `research.features.TrailingReturn` computes exact
-observed-price window returns; `research.labels.ForwardReturn` separately computes
-delayed outcomes against frozen earlier endpoints. `FeatureStudy` reuses pinned
-trade selection and the existing retained exploration application. Every decision
-has its own knowledge cutoff; labels cannot enter earlier feature values. The
-[public contract](../../src/research/features/README.md) defines the query business
-clock, cadence, warm-up, missing/stale policy, exact rational units, input lineage
-and bounded execution. This does not implement the economic baseline's completed
-observations or a book/macro formula. The separate completed-price feature now
-reuses `research.observations` and one `CompletedReturn` formula across simulation
-and a bounded scheduled batch path. `applications.backtest.qualify_scheduled_features`
-and its `qualify-features` subcommand retain exact replay/batch/restart traces.
-This qualifies saved-input software only; live source/cadence qualification
-remains open. MR04 online retrieval and MR05 local candidate binding now implement
-their declared boundaries. Their in-scope
-lifecycle and serving interfaces are now required before QR onboarding, exercised
-by reference consumers owned by quant development. The feature store must provide
-the offline and online behavior below; its service topology follows the workload.
-
-An experiment identity includes source and dataset manifests, code/artifact revision, resolved non-secret configuration,
-environment/toolchain identity, component versions, split rules, and random seeds. Wall-clock creation time is metadata,
-not identity. Failed or rejected trials that influence selection remain append-only, and the final holdout is frozen
-before evaluation.
-
-**Current attempt/split core:** `research.experiments` separates deterministic
-input identities from execution IDs, admits only then-available training rows,
-and retains explicit purge/embargo and no-fit policies. A local single-writer
-store preserves incomplete, failed, rejected and abandoned attempts; atomic
-completion contains the result bytes. Family holdouts are frozen and consumption
-is retained before access. `applications.explore.inspect_experiment` composes
-this core with the existing pinned selection reader for unfitted inspections.
-`research.studies` owns the existing report, diagnostic, comparison and tracking
-implementations behind a separate curated API. Core record access does not import
-those integrations; both owners retain the existing serialized record contracts.
-Study and exploration APIs import ClearML, Optuna, DuckDB and Polars only when
-their corresponding operations run. `research.results.FeatureStudyResult` owns
-the shared retained feature-result schema used by production and admission.
-The [public contract](../../src/research/experiments/README.md) owns clocks,
-identity, retention, concurrency, recovery and supported evaluation boundaries.
-The [bounded model consumer](../../src/research/models/README.md) now adds configured
-and train-only centered least-squares state, reload-only inference and exact
-predictive evaluation. ClearML publication is a separate recoverable outbox;
-terminal attempts and holdout history remain authoritative locally. ClearML source admission verifies
-the locked wheel against its pinned upstream archive. Configured economic reports and local serial installed pipelines are now implemented;
-local candidate packaging/binding is now implemented. Explicit unfitted engineering samples use the
-same backtest workflow and retained stores without designating a validation or holdout
-window. Family declarations prevent crossing design modes to bypass holdout controls.
-Native archive capture corroboration lives in existing market-data owners; scoped
-causal admission preserves unresolved coverage and revision-history limits.
-
-**Current comparison owners:** compatible feature and estimator factories extend
-their existing typed definitions, while `strategies.RuleRegistry` creates fresh
-rule instances for each economic run. `research.studies` owns bounded Optuna
-journals, complete unsuccessful-trial history and Alphalens report contracts;
-`research.exploration` owns verified bounded DuckDB/Polars projections.
-`research.features` owns the offline Feast bridge and causal result admission.
-The existing exploration/backtest applications compose these libraries; no library
-imports an application or exposes a runnable command. Feast's incompatible pandas
-constraint is isolated in a separately locked local SDK worker, while core pandas
-remains 3.0.5. The
-[accepted diagnostic tool amendment](dependency-admission.md#diagnostic-tool-requirement-amendment)
-makes offline reference/current reports mandatory and Evidently optional. The
-consumer now belongs to `research.studies.WindowDiagnostics` and
-`WindowDiagnosticRun`, composed by `applications.explore.compare_windows` and
-published through the existing ClearML outbox. It uses admitted SciPy for explicit
-reference/current tests and exact rational predictive errors with delayed-label
-admission. Its [contract](../../src/research/studies/README.md#offline-window-diagnostics)
-retains reproducible reports and failure/retry semantics. Evidently's reviewed
-closure still fails admission; it is not installed. The roadmap owns verification
-and acceptance status. No comparison grants candidate, deployment or trading authority.
-
-Research reports state the economic mechanism, falsifiable hypothesis, target, sign, horizon, universe, rebalance,
-benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.
-Once an exploratory result influences a candidate decision, it receives durable identity and provenance.
+See [dataset, feature, label, and experiment contracts](research-and-simulation-design.md#dataset-feature-label-and-experiment-contracts).
 
 ### Feature-store contract
 
-Status: **implemented local versioned feature store and isolated Feast serving,
-including supervised paper/shadow consumption; deployment remains separate**.
-MR02 owns feature definitions and result semantics; MR04 owns provisioned stores,
-materialization and retrieval. The MR04 intent-only consumer supplies the initial
-MR05/MR07 online feature/policy binding; MR05 now loads complete candidates through
-that store, and MR07 binds it through `runtime.CandidateFeatureFeed` to the
-checkpointed paper OMS. The store serves
-versioned features across studies and strategy instances rather than a special
-case for the initial return diagnostic. Preserve Feast's independently locked
-worker and the core numerical/temporal contracts while extending its integration.
-
-Each retrieval binds entity/instrument keys, feature definition and schema,
-fitted-transform version where applicable, source/dataset revisions, event and
-availability clocks, missingness and freshness/TTL policy. Offline PIT retrieval
-preserves knowledge-time corrections. Online materialization is restartable and
-idempotent, publishes a named version atomically, and cannot expose a future or
-incompatible value. Latest-value retrieval is not historical replay; retained
-versions and inputs must permit reconstruction of decisions.
-
-Matched definitions, entities and cutoffs reproduce admitted offline and online
-values within declared numerical tolerances, retaining exact financial contracts.
-Exercise late corrections, missing entities, expired values, partial publication,
-retry and version rollback. Serving returns version and quality metadata; consumers
-refuse incompatible or stale state according to their declared policy. Loss of
-the serving service triggers the runtime's explicit pause or qualified fallback,
-never silent recomputation using different definitions. Backup/restore and MR15
-capacity evidence cover source products, registry/state and serving recovery.
+See [feature-store contract](research-and-simulation-design.md#feature-store-contract).
 
 ### Research-driven feature lifecycle
 
-**Current MR02 research SDK:** named source projections, ordered multi-feature
-schemas, train-only fitted transforms, arbitrary estimator state, separate labels,
-and target/exposure/order/quote policies now run through
-`applications.explore.run_decisions` / `inspect_decisions`. Pure feature/policy
-transitions retain isolated restart state; the installed consumer supplies fresh
-implementations without shared runner edits. The owning
-[feature guide](../../src/research/features/README.md#generalized-feature-lifecycle),
-[model guide](../../src/research/models/README.md#generalized-estimator-lifecycle),
-[observation guide](../../src/research/observations/README.md) and
-[strategy guide](../../src/strategies/README.md) define the exact supported scope.
-MR03 now composes these definitions into costed temporal studies, search and
-extensible retained reports. The [feature guide](../../src/research/features/README.md) now owns MR04 local
-feature-store services and intent-only online consumption. Candidate packaging
-and runtime binding are implemented locally under MR05; MR07 adds supervised
-paper/shadow integration. Offline study fills do not
-qualify venue execution.
-
-
-QR owns new formulas and research choices after onboarding; quant development
-first supplies the execution, alignment, lineage and state machinery plus concrete
-reference consumers. Pre-onboarding completion includes named trade/book/non-book features,
-separate labels, multiple model inputs, fitted preprocessing, train/inference
-adapters and stateful batch/incremental execution. Demonstrate these through the
-roadmap's rule-only, learned and stateful examples. Support compatible definitions
-beyond the current trailing-return and linear-model schemas without adding every
-possible formula or estimator to a starter catalog.
-
-Research dataset assembly supplies explicit inputs over the query contracts.
-Label generation and alignment remain separate from prediction inputs. Shared
-attempt and temporal split records support retained exploration, fitting,
-walk-forward evaluation and backtests. QR does not need to select a model or
-candidate before this infrastructure can be implemented and qualified.
-
-Reusable transforms belong to `research/features/`; labels to `research/labels/`;
-trainers/inference to `research/models/`; split/attempt/candidate records to
-`research/experiments/`; retained feature-result contracts to `research/results/`;
-study/report integrations to `research/studies/`.
-The attempt/split owner now serves exploration; the
-model owner now serves the same application; quant development supplies consumers
-for planned behavior before onboarding, with source owners added as needed.
-Notebooks may explore local variants; formal retained and promoted results call
-the accepted versioned implementations. A candidate binds its inputs, definitions,
-parameters, split/fit identity and fitted state where applicable. Rejected
-candidates remain research evidence without becoming active runtime components.
-
-Training and runtime applications compose those same library operations through
-admitted input adapters. They do not import one another's workflows, copy formulas
-or refit state implicitly. An incremental implementation must preserve historical
-semantics under ordering, late data, warm-up and recovery; validate numerical
-agreement under a declared contract rather than assuming identical algorithms.
-A scheduled batch candidate need not acquire incremental machinery. Changed
-semantics require new versions and affected validation.
+See [research-driven feature lifecycle](research-and-simulation-design.md#research-driven-feature-lifecycle).
 
 ### Candidate promotion contract
 
-Status: **implemented for local candidate packaging and intent-only runtime binding**.
-The [candidate guide](../../src/research/experiments/README.md#candidate-bundles) and
-[runtime guide](../../src/runtime/README.md#candidate-loading-and-intent-evaluation)
-own the installed interfaces. Quant development implements
-the candidate manifest in `research/experiments/` using both rule-only and learned
-reference candidates. Learned fields remain inapplicable for a rule-only
-candidate. A reference engineering artifact is explicitly distinguished from a
-candidate with accepted empirical evidence; no profitable or selected QR strategy
-is a prerequisite for the loader or its qualification. Runtime binding consumes this same
-contract. Research can construct and validate a candidate without a paper runtime,
-venue connection or trading credentials. These are small versioned artifacts,
-not a registry service.
-
-| Candidate content | Meaning at research/runtime handoff |
-| --- | --- |
-| Identity and reproduction | Candidate/component versions, code/environment identity, retrievable artifacts and accepted trial/report references; training input/split provenance remains retained |
-| Runtime input requirements | Named data bindings, schema/units, supported instrument/product, cadence, knowledge/availability rules, coverage/freshness and missingness policy; runtime bindings may differ from historical snapshots but must satisfy the same contract |
-| Features and fitted preprocessing | Definitions/parameters, ordered input signature, entity/schema and feature-store version bindings, accepted fitted-state bytes and fit cutoff; runtime does not refit implicitly |
-| Optional model | Serialization/version, expected feature signature, output meaning and numerical contract, training/label cutoff and permitted activation time |
-| Decision policy | Versioned prediction/signal-to-target-position/exposure or order/quote-intent implementation and parameters; rules need no model, and unsupported output contracts fail |
-| State and qualification | Warm-up/checkpoint/reset compatibility, batch/incremental requirements, retained parity/evaluation evidence and limitations |
-| Metrics and views | Versioned research/runtime metric and chart definitions, applicability, units and diagnostic thresholds; independent hard risk policy stays outside the candidate |
-
-A model is not a trading strategy. The QR's decision policy turns then-available
-predictions/signals into its declared target or order/quote-intent contract.
-Shared applications apply independent risk, simulation or execution and accounting
-outside that policy.
-Walk-forward evaluation chooses only artifacts that could have been fitted by the
-historical decision, including label availability and declared training/deployment
-timing. Never use a final full-history fit for earlier decisions.
-
-Promotion loads the accepted components and verifies compatible inputs/state;
-matched inputs reproduce features, predictions and decision outputs under their
-declared contracts. Artifact verification precedes deployment; runtime binding and
-paper/live qualification preserve the accepted candidate. Candidate evidence grants neither release
-admission nor trading authority. Retraining produces a new version and repeats
-affected qualification. Rollback compatibility is explicit and cannot undo fills.
+See [candidate promotion contract](research-and-simulation-design.md#candidate-promotion-contract).
 
 ## Shared strategy and simulation parity
 
-The strategy kernel is typed deterministic logic with injected clocks, data, positions, risk decisions, and execution
-interfaces. It contains economic decision logic, not a broker client, database transaction, or self-approval path.
-
-Target-position/exposure strategies and order/quote-intent strategies use distinct
-typed outputs. Portfolio coordination resolves allocation and conflicts for each
-without forcing quotes into weights. Both enter the same independent risk and
-OMS boundary with instance ownership, instrument, account and version identity.
-Quant development supplies an active reference consumer of each output form;
-the no-trade control remains additional evidence, not the shared-account test.
-
-The local shared-account path reuses `DecisionSession` for each selected policy
-and persists one policy continuation per configured instance. `runtime`
-`SharedDecisionRuntime` stages the typed decisions; `applications.paper`
-`run_shared_paper` composes them with observed account quotes, complete local
-account observations and normalized physical order events. This finite event
-workflow does not connect to private venue streams, submit orders or infer fills
-from book liquidity. Dedicated candidate supervision remains in
-`PaperCandidateRuntime`.
-
-The same kernel runs in these modes:
-
-| Mode | Purpose and boundary |
-| --- | --- |
-| Unit/golden | Exact fixtures and hand-calculated behavior |
-| Replay | Historical canonical events with deterministic state transitions |
-| Simulation | Replay plus declared fill, latency, cost, and market-mechanics models |
-| Paper | Live or delayed data with simulated order/fill lifecycle and no executable venue submission |
-| Shadow | Live decisions and risk traces with venue submission suppressed |
-| Canary | Bounded live venue activity under an explicit activation envelope |
-| Live | Only after release, risk, reconciliation, stop, and monitoring evidence |
-
-Simulation declares what it omits: queue priority, venue throttles, partial fills, market impact, borrow recalls,
-funding timing, auctions, disconnects, or other behavior. A result cannot silently imply omitted mechanics. Replay and
-paper compare decisions, target quantities, risk decisions, order intent, and state traces; differences are classified
-by data, timing, randomness, market mechanics, or implementation before advancement.
-
-Replay and research consume one [event-stepping contract](../data/point-in-time-semantics.md#chronological-ordering-and-event-stepping),
-owned by chronological replay. Pipelines compose operations and retain state; the iterator and
-scheduled-step library enforce source admission, expiry, pending fill, decision
-and valuation order. Use fixed source/stream precedence and stable logical source
-order for meaningful ties. Hashes retain provenance without allowing future byte
-changes to reorder earlier economics. The [bounded spot economic consumer](../../src/simulation/README.md) now exercises
-this contract through frozen observations, rules, independent limits, delayed fills,
-exact accounting and complete checkpoints. Its installed workflow reopens saved
-synthetic archives. The installed `alpha-backtest` command extends the same path with validated configuration,
-durable QuantStats reports and local serial ClearML steps. `market_data.storage`
-pins lakeFS dataset/feature versions without changing the existing reader clocks.
+See [shared strategy and simulation parity](research-and-simulation-design.md#shared-strategy-and-simulation-parity).
 
 ### Replay clocks and fill fidelity
 
-Preserve exchange time, local receipt, ingestion and effective knowledge as
-distinct facts under the [point-in-time contract](../data/point-in-time-semantics.md).
-Retain original precision and source order. Introduce versioned integer timestamp
-units only when a supported consumer needs precision beyond the current boundary;
-never reinterpret existing microsecond values. Negative apparent latency is a
-clock-quality observation. A correction requires an explicit versioned model
-and calibration availability, retaining original clocks; a future extreme offset
-must not rewrite an earlier decision's information set.
-
-An order-book simulation distinguishes exchange-side matching state from the
-strategy's then-known state. Feed delay, local processing, order entry and order
-response delay have separate meanings. A fill can occur before its response is
-visible locally; a cancel request is not a successful cancel. Retain send,
-exchange/acknowledgement/fill and response identities/times where actually
-observed, with absent clocks explicit. Constant delays are declared scenarios;
-empirical latency models need source/environment identity, calibration windows,
-coverage and sensitivity checks. Archive download time cannot measure historical
-feed latency. Use recorded or paper/sandbox evidence first; the existing authority
-rules continue to govern executable activity.
-
-Extend replay, strategy, fill, cost and order contracts for the required reference
-quoting consumer as its book, order lifecycle and product economics become available.
-Introduce pure order-lifecycle contracts with an offline simulator when needed;
-runtime binding remains a prerequisite
-for the paper runtime, not for those pure contracts. Saved-book research does not
-require a deployed collector. Define queue assumptions, maker/taker
-fees, supported order types, post-only rejection, partial fills and cancel/replace
-priority. For L2, position in queue is modeled; L3 requires actual order identities
-and lifecycle data. Trade depletion and its matching depth decrease must not
-advance the modeled queue twice. Deterministic scenarios exercise the selected
-model and an alternative plausible queue/latency assumption; they are not proof
-of exchange fidelity.
-
-Historical replay does not change other participants' recorded orders when our
-simulated order trades. State the no-impact and size/liquidity envelope, and reject
-or visibly bound unsupported liquidity-taking/capacity claims. A partial-fill
-option alone does not remove this limitation. Keep P1's declared trade-price
-model intact; book-based research needs a separate versioned experiment.
-
-The roadmap places paper qualification at MR10 in the
-[delivery sequence](../roadmap/README.md#delivery-order-and-dependencies).
+See [replay clocks and fill fidelity](research-and-simulation-design.md#replay-clocks-and-fill-fidelity).
 
 ## Portfolio, accounting, and position state
 
-Portfolio construction consumes forecasts, current positions, risk budgets, costs, liquidity, financing, and
-constraints. It produces dimensioned desired exposures or quantities with a validity interval and fallback. It never
-places orders. An infeasible or stale input takes a deterministic conservative path.
-
-That economic portfolio optimizer remains planned. The implemented local
-`portfolio` package supplies shared-account metadata compatibility and
-`ProRataAllocator`; `execution.AccountJournal` owns the account transaction,
-order lifecycle and physical-to-child posting boundary that consumes them.
-
-The planned accounting boundary owns positions, lots or contract quantities, cash by currency, accrued amounts,
-margin/collateral, financing, fees, dividends, coupons, funding, variation margin, exercise, assignment, delivery, and
-settlement events for supported asset classes. Money and quantities use the current exact financial-unit contract;
-weight-only state cannot replace an economic position.
-The implemented bounded spot [arithmetic contract](financial-units.md#planned-research-and-accounting-arithmetic)
-keeps cash/notional/marks on the exact C03 grid and uses dimensioned rational
-basis/P&L attribution where proportional division is nonterminating. Exact
-returns use reduced fractions; display/model approximation has a separate
-declared representation. P1 NAV and gross-to-net reconciliation are exact.
-
-Each accepted fill changes economic state exactly once. Rejected or canceled quantity never becomes a position. Realized
-and unrealized P&L use one authoritative definition. Base-currency translation names its FX source and timestamp. NAV
-reconciliation checks beginning NAV plus external cashflows, trading/marking P&L, financing, and lifecycle cashflows
-against ending NAV within a declared tolerance.
-
-State is event-identified and restartable. A durable snapshot records the last applied event sequence, release identity,
-account/venue identity, and schema version. Recovery replays subsequent events idempotently; order, fill, cancel,
-correction, and ledger-event identities are unique across retries.
-
-An active process carries a fencing epoch or lease. A restarted process cannot write orders or ledger state after its
-epoch is revoked. Startup validates release/schema compatibility, loads the latest valid snapshot, reconciles open
-orders and positions with the venue, and enables only explicitly allowed actions. A mismatch pauses new risk and orders.
+See [portfolio, accounting, and position state](portfolio-and-execution-design.md#portfolio-accounting-and-position-state).
 
 ## Multi-strategy netting and isolated risk
 
-Every strategy intent retains strategy ID, model/config revision, decision time, account, portfolio, instrument, side,
-quantity or exposure, horizon, and reason metadata. Allocation and execution may net compatible intents to reduce cost,
-but the ledger keeps pre-net intents and post-net order lineage.
-
-Netting is permitted only when account, currency, venue, instrument contract, settlement, risk bucket, and authority
-scope are compatible. It never erases strategy attribution, prevents a strategy-level stop, or transfers a loss budget
-without policy. Residual and shared costs use a stable documented method and remain reversible for reconciliation.
-
-The current local increment coordinates a finite selected batch of spot decisions
-through one `AccountJournal` transaction. It first reserves gross child intent
-under the existing account budgets. Same-side children become one physical parent
-only when they share an account, exact observed quote, compatible
-portfolio/venue/settlement/risk/authority context, instrument, limit and
-time-in-force. `PortfolioContext` retains each child's strategy and revision
-metadata even when those values differ across compatible children. Opposite
-interests are rejected by default; the explicit `internal_at_quote` policy can
-cross compatible, non-post-only children at their common observed quote when
-their limits allow it.
-
-Each physical parent retains its child IDs and reserved quantities. Cumulative
-partial fills are allocated on the exact financial grid in proportion to the
-original child quantities, without reversing earlier child fills. Physical fees
-are split against remaining child fee reservations, with residual atoms assigned
-by stable child identity. A physical event and all child fill/cost postings commit
-together. Local account observations can verify the resulting physical and
-per-instance projections; they are supplied paper facts, not authenticated venue
-observations.
-
-The implemented local account boundary enforces marked gross exposure and pending
-commitments across instance/account/firm budgets, authorized instruments, price,
-size, freshness, inventory and cash. Its [account guide](../../src/execution/README.md#shared-account-admission-and-reconciliation)
-records the normalized reconciliation and correction contracts. Broader risk
-views remain planned: net exposure, leverage,
-concentration, liquidity, margin, stress loss, sensitivities, and loss limits as applicable. Strategy budgets nest under
-account and firm limits. A strategy can be disabled while others continue only if resulting net exposure and shared
-limits remain safe; otherwise the account or venue is fenced as a whole.
-
-Risk consumes authoritative positions, pending orders, market state, limits, entitlements, and activation state. Missing
-or stale inputs, unavailable limits, timeout, unknown instrument, or failed authorization rejects new risk with a
-visible reason. Kill and cancel controls remain reachable when a strategy process is unhealthy.
-
-Admission reserves strategy/account/firm capacity atomically, including submitted
-orders with uncertain outcomes. A concurrent 8,000 + 8,000 request fixture under
-a shared 10,000 account-currency limit cannot admit both in full. Explicit conflict
-and self-trade policy applies across instances. Reservations survive restart and
-are released only after the corresponding outcome is established; database
-atomicity alone does not make an external submission exactly once.
-
-The dedicated single-instance paper account qualifies durable state, pending
-reservations, hard limits and base account reconciliation. The local shared-account
-increment adds tagged child orders, atomic budgets, conflict handling, attribution,
-compatible netting and deterministic allocation of fills, fees and residual units.
-MR09 acceptance requires two distinct active reference strategies on the
-same instrument/account to reconcile separately and together, including selective
-stop/restart with ownership and account safety. A stopped child in a physical
-parent retains its reservation until a terminal outcome; unaffected residuals are
-reissued only after reconciliation and current mark/budget/funding checks.
-Unroutable physical-lot residuals stay visible and reserved; a completed child
-retains fee capacity while its physical parent can still receive costs.
-The [MR09 record](../roadmap/README.md#mr09-delivery-and-acceptance) retains the
-reference workload and its verification. Quant development supplies the deterministic
-reference policy; QR later supplies economic allocation choices within limits.
-This local paper/software proof does not establish OKX or Bitfinex private-stream,
-order, fill or account conformance; each venue remains separately qualified by
-MR11 in its authorized test environment.
-
-Initial strategies are trusted founder-authored code. Logical separation,
-immutable limits, per-instance state and final risk enforcement outside strategy
-logic protect supported interactions and failures. They do not isolate hostile
-code. Before admitting adversarial or untrusted strategies, require a privilege
-boundary with controlled communication and credentials/limits outside that
-code's authority. A separate class or same-privilege process does not establish
-this stronger guarantee; no sandbox platform is a P1 prerequisite.
+See [multi-strategy netting and isolated risk](portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).
 
 ## OMS and venue adapter design
 
-The [`execution` owner](../../src/execution/README.md) implements a durable,
-fenced dedicated-account paper/shadow OMS. It owns intent, request acknowledgment,
-acceptance, partial fill, cancel request/acknowledgment/confirmation, rejection,
-unknown outcomes and local reconciliation. Candidate checkpoints and child order
-admission commit together; stable IDs and recorded event bytes reject conflicting
-retries. Independent spot limits reserve pending and uncertain exposure. The OMS
-does not decide economic targets or override risk. The additional `AccountJournal`
-shares the same intent/lifecycle owner and adds
-atomic instance/account/firm admission, tagged child orders and postings, compatible
-physical net orders, deterministic fill/fee allocation, append-only corrections
-and complete local reconciliation. Physical venue reconciliation and authenticated
-execution remain MR11 work; the local workflow does not turn normalized events into
-venue evidence.
-
-[`runtime.PaperCandidateRuntime`](../../src/runtime/README.md#paper-candidate-supervision)
-delivers lifecycle, timer, market, order and account callbacks to the same
-candidate components used by replay. Public native feed collection connects
-through a post-persistence observer and retains actual local availability.
-Paper matching uses finite displayed touch liquidity and exact fees; shadow mode
-never matches. Both modes suppress executable submission. A contradictory fill
-after confirmed cancellation durably blocks the account pending later correction
-support rather than rewriting terminal state. The
-[MR07 acceptance record](../roadmap/README.md#mr07-delivery-and-acceptance)
-qualifies the bounded scope and separates source observations from modeled fills.
-
-Venue adapters translate canonical orders into one broker or venue protocol. They own credentials, throttles, sequence
-numbers, venue-specific timeouts, retry rules, idempotency keys, and source errors. They expose normalized events back
-to the OMS and retain raw protocol messages for investigation.
-
-A retry cannot create a duplicate economic order. Where a venue lacks a native idempotency key, the adapter uses durable
-client identity and reconciles before retrying. Partial multi-leg fills remain explicit; temporary leg exposure is
-visible to risk. Decision, arrival, fill, fee, and benchmark prices are retained for transaction-cost analysis.
-
-Request acknowledgement, venue acceptance and final economic state are distinct.
-A cancel acknowledgement is not confirmed cancellation and cannot alone free a
-reservation. Private-stream loss, cancel/fill races and process restart reconcile
-against venue state before retry or resumption. One fenced owner may execute for
-an account. Qualify the first venue end to end, then the second through the same
-contracts; both OKX and Bitfinex conformance remain required for final acceptance.
+See [oms and venue adapter design](portfolio-and-execution-design.md#oms-and-venue-adapter-design).
 
 ## Asset-class specializations
 
-The canonical model is shared, but each asset class owns lifecycle and market mechanics. Unsupported features fail
-explicitly rather than falling back to equity-like behavior.
-
-**Equities — PLANNED.** Add identifiers, listings and delistings, corporate actions, auctions, short-sale and borrow
-state, dividends, settlement, and jurisdiction-specific restrictions. Raw prices and actions remain beside derived
-adjusted series.
-
-**Futures and commodities — PLANNED.** Add expiries, delivery and last-trade lifecycle, multipliers, tick values,
-variation margin, rolls, spreads, settlement, and delivery risk. Continuous series remain derived.
-
-**FX — PLANNED.** Add base/quote direction, holiday-center combinations, spot dates, forwards, swap points, broken
-dates, funding curves, and venue conventions. FX conversion cannot rely on an implicit global currency.
-
-**Options and volatility — PLANNED.** Add point-in-time chains, underlying and forward links, exercise and settlement,
-corporate-action adjustment, surfaces, Greeks, multi-leg orders, assignment, and margin. Covariance and full-revaluation
-stress remain distinct calculations.
-
-**Fixed income and rates — PLANNED.** Add schedules, accrued and clean/dirty price, discount/projection curves, fixings,
-resets, issuer hierarchy, embedded options, financing, DV01, key-rate, and scenario risk.
-
-**Digital assets — CURRENT bounded spot; full initial stack PLANNED and required.**
-Complete OKX/Bitfinex spot data, simulation, account/risk and execution interfaces
-under the roadmap's pre-onboarding gate. Perpetuals and other later extensions add
-funding, index/mark prices, collateral haircuts, liquidation and venue credit risk. For on-chain strategies, add chain
-and token identity, finality, reorgs, gas, nonce and custody state, AMM/oracle semantics, MEV, and bridge/transfer risk.
-Apply stablecoin FX and venue/chain outage scenarios where relevant. Only the selected operating scope is required.
-
-**Low-latency market making — OPTIONAL PLANNED.** Keep L2/L3 reconstruction, queue priority, cancel/replace latency,
-inventory, adverse selection, and venue throttles in a specialized subsystem. Do not distort a medium-frequency
-simulator for an unmeasured hot path.
+See [asset-class specializations](portfolio-and-execution-design.md#asset-class-specializations).
 
 ## Runtime lanes and deployment
 
-The platform has three possible lanes with one shared semantic waist:
-
-1. **Batch/research — CURRENT, bounded local scope.** Saved datasets, features, model studies, simulation and reports run with reproducible inputs. Distributed execution and measured parallel scaling remain planned.
-2. **Ordinary event-driven — CURRENT local paper/shadow increments; broader deployment PLANNED.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. A separate local shared-account workflow reuses per-instance decision sessions and coordinates attributable child and physical orders over normalized events. Private venue reconciliation and deployed operating qualification remain open.
-3. **Latency-sensitive — OPTIONAL PLANNED.** A native component or dedicated host is added only after a measured latency, jitter, or vendor ABI need. It consumes compatible schemas and remains behind independent risk and kill controls.
-
-Lanes may use different artifacts, process models, stores, and release cadences. A deployment is placement of an
-immutable compatible artifact; it does not grant trading authority. Activation is a separate envelope naming accounts,
-venues, instruments, capital, limits, duration, credentials, and stop conditions.
+See [runtime lanes and deployment](runtime-and-operations-design.md#runtime-lanes-and-deployment).
 
 ## Artifact, schema, and state migration
 
-MR06 implements the [local signed installation boundary](../governance/operations.md#trusted-local-installation)
-for independent collector and execution artifacts, now extended with MR07's
-portable paper OMS. It verifies
-actual wheel/source/lock/audit bytes, out-of-band builder trust, configuration and
-exact state compatibility before an offline installation. Rollback preserves
-current mutable state. The initial local target and acceptance record do not
-qualify remote production deployment, OMS state migration or venue recovery.
-The broader destination below remains required at its owning milestones.
-
-An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
-references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained
-[release workflow](../governance/workflow.md#build-a-release) owns this identity and verification contract.
-Its artifact verification consumer and admitted deployment graph precede the first actual deployment,
-including early capture and paper/shadow. Bounded activation later binds executable authority
-to the verified artifact; it cannot be the first installer for an earlier milestone.
-
-Keep dataset, experiment, candidate and deployment manifests distinct and linked.
-The deployment manifest binds executable/model/feature artifacts, instances,
-accounts, capabilities and operating configuration. A separate activation
-envelope binds authorized instruments, limits and duration. Research/shadow
-environments have no production submission authority; installed artifacts alone
-cannot grant it. Each operating package is installed and verified independently
-of unrelated research dependencies while retaining compatible shared schemas.
-
-Schema changes use explicit versions and compatibility windows. The normal migration is expand, dual-read/write where
-necessary, backfill or reconcile, cut over, then contract. A reader rejects unknown incompatible versions with a visible
-reason. State migration includes a replay fixture, compatibility check, rollback point, and proof that old orders/fills
-cannot be applied twice.
-
-Model, dataset, and configuration changes are separate identities even when they share one release artifact. A rollback
-selects a compatible prior set of code, model, data, schema, limits, and state; reverting only a Python wheel is unsafe
-when state or schema changed.
+See [artifact, schema, and state migration](runtime-and-operations-design.md#artifact-schema-and-state-migration).
 
 ## Monitoring, recovery, and operational evidence
 
-Planned telemetry correlates release, strategy, model, dataset, account, instrument, venue, order, fill, state epoch,
-and incident without unbounded labels on a hot path. Events carry units, clock quality, and sensitivity classification.
-Latency-sensitive emission is bounded and loss is observable; telemetry failure cannot disable an emergency stop.
-
-Minimum signals include stale or missing data, heartbeat loss, sequence gaps, reject/error bursts, clock drift, risk-
-limit breaches, position/cash mismatch, open-order mismatch, fill duplication, reconciliation failure, resource
-exhaustion, and alert-delivery failure.
-
-Deliver the applicable signals with the first working capability: batch progress,
-invalid counts and persistence failures for acquisition; advancing ingestion,
-freshness, queues and recovery for capture; resource/failure visibility for queries;
-execution, attribution and risk state for operating strategies. A live heartbeat with no advancing work must
-be distinguishable from a healthy service. Test process/collector loss and alert
-delivery; hard risk controls do not depend on telemetry availability. Instrumentation
-or model-tracking products supply adapters, not the domain checks or responses.
-Every deployed strategy needs operational/economic monitoring; learned-model checks
-add feature freshness, prediction behavior, inference failures and delayed-label
-evaluation through the same versioned research definitions.
-
-Before QR onboarding, quant development delivers the metric computation and
-query APIs, report/dashboard engine, default operational views, alert routing
-and retention. QR later defines strategy-specific metrics, charts and diagnostic
-thresholds through versioned interfaces. A reference metric and chart must work
-over both retained studies and paper/shadow telemetry, with explicit applicability,
-units, time aggregation, missingness and late-label behavior. Adding them must not
-require edits to shared collectors, runtime or dashboard rendering. Hard risk
-controls remain independently configured and cannot be replaced by chart thresholds.
-
-On a material signal, safe response stops new risk, cancels where safe, fences the affected process or account,
-preserves raw and normalized evidence, reconciles the venue, and records release/configuration identity. Restart follows
-state, schema, credential, limit, and fencing checks. Backup/restore, stop/cancel, replay, rollback, and alert delivery
-are tested before a canary receives more exposure.
-
-Expose block-new-exposure, cancel-outstanding and reduce-position as distinct
-operations with explicit connectivity, freshness and liquidity requirements.
-Stopping a strategy does not imply immediate flattening or release of uncertain
-orders. The roadmap's failure scenarios cover disk/queue exhaustion, malformed
-inputs, clock anomalies, private-stream loss and exchange timeouts alongside
-process/service loss. Paper evidence is supplemented by each venue's external
-conformance before final operational acceptance.
+See [monitoring, recovery, and operational evidence](runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence).
 
 ### Feed health and observable loss
 
-Measure receipt-to-durable delay, advancing source/persistence cursors, interarrival
-gaps, queue age/bytes, invalid/duplicate counts, reconnects and recovery duration
-per supported binding. Distinguish expected quiet feeds from stalled progress
-using the stream contract. Heartbeats alone do not establish fresh data. Venue
-quality is an observed property of the selected feed and period, not a permanent
-ranking such as “Binance is always stable.”
+See [feed health and observable loss](runtime-and-operations-design.md#feed-health-and-observable-loss).
 
 ## Security, entitlements, and organization
 
-Secrets stay outside source, fixtures, logs, and artifacts. Data rights, retention, venue permissions, account scope,
-and broker terms are checked for the actual source and deployment. A development wheel does not create market,
-credential, or capital authority. External legal and source obligations remain applicable throughout the solo phase.
-
-The founder may implement and activate a bounded system while working alone when technical safety and release checks
-pass. Onboarding progressively adds independent domain review, security review, deployment authority, risk ownership,
-and operational coverage. Controls attach to real people, accounts, and responsibilities when those exist; they do not
-block an ordinary local calculation by pretending unavailable roles are present.
+See [security, entitlements, and organization](runtime-and-operations-design.md#security-entitlements-and-organization).
 
 ## Scaling triggers and technology choices
 
-Keep the current Python/uv path while it is reproducible and within the workload budget.
-The implemented [research integrations](../../src/research/studies/README.md#ownership-and-verification)
-address concrete tracking, orchestration and data/feature-reuse consumers;
-their initial bounded integrations do not require a throughput bottleneck. Preserve
-existing source, temporal and numerical contracts through their adapters. Measure before
-expanding to distributed execution, large/shared databases, a distributed event bus,
-another build system or HPC scheduling.
-
-Capacity qualification itself is required before QR onboarding. Quant development
-authors the launch workload and numeric acceptance budgets, covering more than
-the existing 1,024-row/close demonstrations: multi-day samples, multiple instruments,
-concurrent trials, ingestion, replay, reports and monitoring queries. Resource
-limits and supported workload must be explicit. Implement and measure the needed
-storage/compute path before handing it to QR; only expansion beyond the accepted
-launch envelope waits for a later workload. Architecture measurements determine
-the technology, not whether the capability is delivered.
-
-Set research and operating budgets at the start of their delivery paths. Include
-offline retrieval and online feature materialization/serving alongside queries,
-ingestion and execution. Record throughput, p50/p95/p99 latency, memory/disk,
-concurrency, hardware/cache conditions and recovery targets. Research capacity
-can be accepted at G2; final runtime capacity and all services remain MR15 work.
-
-Useful triggers include a dataset build that misses research cadence, concurrent readers that contend on local storage,
-replay throughput that blocks iteration, recovery time beyond the operating target, or measured native latency/jitter
-that Python cannot meet. Each trigger records the measurement, failure mode, target, cost, and rollback path.
-
-HPC or distributed execution is a batch optimization, not a new semantic lane. Workers receive immutable partition
-identities and deterministic seeds; output manifests are reconciled before publication. Remote caching or execution is
-not introduced merely to reproduce an institutional pattern.
-
-A Rust or C++ component preserves the Python reference's goldens and accounting/risk decisions. Its ABI names
-allocation, ownership, error, threading, layout, numeric representation, version, and shutdown behavior. The native
-artifact is admitted and tested for every supported platform before a consumer depends on it.
+See [scaling triggers and technology choices](runtime-and-operations-design.md#scaling-triggers-and-technology-choices).
 
 ### Storage and performance decisions
 
-Durable capture decouples receipt from downstream work through replayable journals
-and bounded queues. A durable local segment log is the first candidate. Evaluate
-Kafka when independent consumers, retention/replay, cross-process recovery or
-burst isolation justify a service. Partition by a declared ordering scope and
-retain original event identity; acknowledgement and consumer checkpoint rules
-must compose with durable sink writes. Broker guarantees do not by themselves
-make an external database sink exactly once.
-[Kafka delivery semantics](https://kafka.apache.org/design/).
-
-Query workload evaluation compares the reference reader with a bounded columnar candidate; include
-ClickHouse when the depth-history or concurrent analytics workload warrants it.
-Decide sorting/partition keys, batching, retention and snapshot-plus-delta layout
-from the named query. Keep all economically relevant revisions and control events
-available to as-of selection; a latest-value table cannot replace replay history.
-Columnar storage performance depends on layout and accessed data, so choosing the
-engine alone is not acceptance.
-[ClickHouse MergeTree design](https://github.com/ClickHouse/ClickHouse/blob/master/docs/en/engines/table-engines/mergetree-family/mergetree.md).
-
-Use the proposed **7M+ source messages/day and sub-500ms historical depth query**
-as a candidate workload to scope in a measured scaling study, not an achieved result or a reason
-to mandate both services. Define total versus per-venue volume, messages versus
-normalized rows, burst distribution, retention horizon, depth levels, query/result
-size, concurrency, hardware, warm/cold cache and latency percentile before a run.
-Measure sustained/burst ingestion, durable lag, memory/disk, queue growth, recovery,
-rows/bytes scanned and p50/p95/p99 query latency. Retain exact-value/revision parity
-and the operational cost. A bounded representative experiment decides whether to
-adopt, defer or revise the target; no service deployment is required for P1.
+See [storage and performance decisions](runtime-and-operations-design.md#storage-and-performance-decisions).
 
 ### External simulator reuse
 
-Use hftbacktest first as a source of small independent traces and, when a book
-consumer exists, a candidate differential simulator. Its
-[Python package metadata](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/py-hftbacktest/pyproject.toml)
-adds a Rust build and NumPy/Numba dependencies; compatibility with this repository's
-pinned Python 3.14 and dependency policy has not been established. Do not import
-its stack, sample numeric types, timestamp repairs or connector code wholesale.
-A reuse experiment names the revision and supported mechanics, checks exact
-unit/clock conversion, compares matched traces and reports disagreements before
-dependency admission. Optimize representation, prefetch or native loops only
-after a representative workload measurement, preserving the reference semantics.
-
+See [external simulator reuse](runtime-and-operations-design.md#external-simulator-reuse).
 
 ## Delivery sequence
 

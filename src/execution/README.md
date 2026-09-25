@@ -55,6 +55,14 @@ local paper/shadow account increment recorded under
 journal. Existing dedicated journals retain their schema and replay behavior;
 they are not silently migrated into shared accounts.
 
+[`accounts.py`](accounts.py) remains the supported journal and record import
+surface. The concrete wire records live in [`account_records.py`](account_records.py),
+while [`account_state.py`](account_state.py) owns the unchanged SQLite document and
+transaction boundary. The journal composes admission and reconciliation from
+[`account_admission.py`](account_admission.py), physical fill and fee attribution
+from [`account_allocation.py`](account_allocation.py), and atomic portfolio order
+formation and instance controls from [`account_portfolio.py`](account_portfolio.py).
+
 The configuration pins account funding, cash-funded spot grids, instance
 instrument authority and [instance/account/firm budgets](../risk/README.md).
 Multiple instruments and accounts share one explicit valuation currency. Other

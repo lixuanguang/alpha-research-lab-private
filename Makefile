@@ -30,6 +30,10 @@ sync:
 
 lock-check:
 	$(UV) lock --check
+	$(UV) lock --check --project packages/collector
+	$(UV) lock --check --project packages/execution
+	$(UV) lock --check --project configs/development/research-worker
+	$(UV) lock --check --project configs/development/clearml/worker
 
 format:
 	$(UV) run --frozen ruff format $(PYTHON_PATHS)

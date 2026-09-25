@@ -339,12 +339,14 @@ class _LiveCandidateConsumer:
 
     async def run(self) -> dict[str, object]:
         """Evaluate a historical synthetic study, load its bundle, then capture live books."""
-        # The standalone installed consumer is copied beside these two companion
-        # sources. Isolated Python cannot see test files through the checkout.
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        # The standalone installed consumer is copied beside its explicit support
+        # package. Isolated Python cannot see test files through the checkout.
+        consumer_root = str(Path(__file__).resolve().parent)
+        if consumer_root not in sys.path:
+            sys.path.insert(0, consumer_root)
         # third party library imports
-        from candidate_workflow import _CandidateAcceptance
-        from decision_study import (
+        from research_workflows.candidate_bundle import _CandidateAcceptance
+        from research_workflows.scenario import (
             _Feature,
             _FillCountMetric,
             _OrderPolicy,
@@ -450,11 +452,15 @@ class _LiveCandidateConsumer:
         policy = _OrderPolicy(scenario)
         codec = DomainCodec()
         companion = Path(__file__).parent
+        support_sources = tuple(sorted((companion / "research_workflows").glob("*.py")))
+        implementation_sources = (
+            companion / "decision_study.py",
+            companion / "candidate_workflow.py",
+            Path(__file__),
+            *support_sources,
+        )
         implementation_payload = codec.encode_json(
-            tuple(
-                (companion / name).read_bytes()
-                for name in ("decision_study.py", "candidate_workflow.py", "live_paper.py")
-            )
+            tuple(source.read_bytes() for source in implementation_sources)
         )
         implementation_sha256 = hashlib.sha256(implementation_payload).hexdigest()
         artifact = StudyArtifact(

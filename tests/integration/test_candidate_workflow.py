@@ -18,12 +18,18 @@ import pytest
 class TestCandidateWorkflow:
     """Keep the MR03 study and MR05 handoff together outside the checkout."""
 
+    @staticmethod
+    def _copy_consumer(source: Path, destination: Path) -> None:
+        """Copy stable entry scripts and their explicit authored support package."""
+        for name in ("candidate_workflow.py", "decision_study.py"):
+            shutil.copyfile(source / name, destination / name)
+        shutil.copytree(source / "research_workflows", destination / "research_workflows")
+
     @pytest.mark.integration
     def test_installed_study_candidate_replay_and_restart(self, tmp_path: Path) -> None:
         """Retain actual study reports, load factories and resume two isolated placements."""
         source = Path(__file__).parent / "consumers/research"
-        for name in ("candidate_workflow.py", "decision_study.py"):
-            shutil.copyfile(source / name, tmp_path / name)
+        self._copy_consumer(source, tmp_path)
         result = subprocess.run(
             [
                 sys.executable,
@@ -81,8 +87,7 @@ class TestCandidateWorkflow:
         if not os.environ.get("ALPHA_FEAST_WORKER_PYTHON"):
             pytest.skip("isolated Feast worker interpreter is unavailable")
         source = Path(__file__).parent / "consumers/research"
-        for name in ("candidate_workflow.py", "decision_study.py"):
-            shutil.copyfile(source / name, tmp_path / name)
+        self._copy_consumer(source, tmp_path)
         result = subprocess.run(
             [
                 sys.executable,

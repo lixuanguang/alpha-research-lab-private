@@ -258,8 +258,10 @@ ALPHA_FEAST_WORKER_PYTHON=/absolute/pinned-feast-worker/bin/python \
 For bounded actual public-input acceptance, copy
 [`live_paper.py`](integration/consumers/runtime/live_paper.py),
 [`candidate_workflow.py`](integration/consumers/research/candidate_workflow.py) and
-[`decision_study.py`](integration/consumers/research/decision_study.py) together
-outside the checkout. Use the installed core interpreter and a bounded copy of
+[`decision_study.py`](integration/consumers/research/decision_study.py), and the
+`research_workflows/` support
+directory together outside the checkout, preserving that directory name. Use the
+installed core interpreter and a bounded copy of
 `configs/live/okx-btc-usdt.json` or `configs/live/bitfinex-btc-usd.json`:
 
 ```sh
@@ -329,6 +331,9 @@ and [discovered regression](integration/test_portfolio_workflow.py) run the
 same authored workload under OKX/USDT and Bitfinex/USD fixture labels. Those
 labels and instrument identities are test inputs; the consumer records
 `local-paper-fixture` qualification and `physical_venue_evidence=false`. The
+standalone consumer needs
+[`portfolio_account_facts.py`](integration/consumers/runtime/portfolio_account_facts.py)
+beside it when copied outside the checkout. The
 workflow test covers `AccountExecutionApplication` and the installed
 `alpha-execute account` command. The [shared decision consumer](unit/runtime/test_shared_decisions.py)
 also drives `run_shared_paper` with two distinct executable decision policies,
