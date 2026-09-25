@@ -18,6 +18,13 @@ queue, byte, message, retry and duration bounds remain active. A fresh process
 uses a fresh recording and waits for synchronized market input before resuming
 decisions. It does not reuse a stale book from a previous connection.
 
+`PaperCaptureObserver` consumes `LiveBookDecisionSource.current_quote` through
+the shared [book quote contract](../../market_data/README.md#shared-book-quotes).
+Displayed quantity at the best native price includes every visible order at that
+price. The existing source cutoff, missing-side, crossed-book and freshness gates
+remain active before paper matching. Receipt and actual post-persistence delivery
+stay separate in the unchanged journal envelope; replay retains both clocks.
+
 Use the maintained installed reference consumers in the
 [test guide](../../../tests/README.md#paper-and-live-input-acceptance). They build
 real candidate bundles through completed engineering studies, supply extension

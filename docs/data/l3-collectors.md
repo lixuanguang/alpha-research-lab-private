@@ -6,6 +6,13 @@ external acceptance remains access-blocked. This workflow records new observatio
 it does not establish historical backfill, complete source coverage, a deployed
 service or an execution model.
 
+The shared [depth and BBO contract](../../src/market_data/README.md#shared-book-quotes)
+now maintains exact quantities and order counts incrementally for every visible
+L3 side/price. Native IDs and canonical order-only records remain unchanged;
+the level cache is rebuilt during ordinary saved replay. A gap or malformed
+message hides derived quotes until the native recovery protocol admits a fresh
+book. Counts describe visible orders and establish no queue priority.
+
 ## Start here
 
 Use the installed `alpha-collect` command below for deliberate acquisition.

@@ -8,6 +8,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 
 # third party library imports
@@ -15,11 +16,12 @@ import msgspec
 
 # project library imports
 import market_data
-from market_data.adapters.sources import SourceAdapters
-from market_data.contracts import BookObservation
+from market_data.adapters.sources import BookAdapters, SourceAdapters
+from market_data.books import BookDepth, BookProjection, CaptureReplay
+from market_data.contracts import BookObservation, CaptureRequest
 from market_data.datasets import BookHistory, BookInput, DatasetPublication
 from market_data.replay import BookReplay, ReplayCursor, ReplayPhase
-from market_data.storage import RawStore
+from market_data.storage import CaptureJournal, RawStore
 from runtime import ImplementationIdentity
 from serialization import DomainCodec
 
@@ -98,6 +100,62 @@ class Checkpoint(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     terminal: datetime
     cursor: ReplayCursor
     state: ViewState
+
+
+class NativeQuoteParity:
+    """Compare every installed native boundary with full independent order aggregation."""
+
+    @staticmethod
+    def verify(source: Path, request: CaptureRequest) -> dict[str, object]:
+        """Reopen original frames without inventing delivery clocks or changing old identities."""
+        replay = CaptureReplay(request.config, book_factory=BookAdapters.create)
+        digest = hashlib.sha256()
+        count = 0
+        for position, record in enumerate(CaptureJournal(source, request).records()):
+            outcome = replay.apply(record)
+            row = BookProjection.capture(position, record, outcome, replay)
+            quote = BookProjection.quote(
+                position, record, outcome, replay, source_id=request.identity, available_ns=None
+            )
+            depth = BookDepth.from_observation(row)
+            assert quote == depth.quote(
+                row,
+                venue=request.config.venue,
+                instrument_id=request.config.instrument_id,
+                source_id=request.identity,
+                channel=request.config.channel,
+                available_ns=None,
+            )
+            if row.orders:
+                assert not row.bids and not row.asks
+                for side, levels in (("buy", replay.book.bids), ("sell", replay.book.asks)):
+                    prices = {order.price for order in row.orders if order.side == side}
+                    assert set(levels) == prices
+                    for price in prices:
+                        matching = tuple(
+                            order
+                            for order in row.orders
+                            if order.side == side and order.price == price
+                        )
+                        assert levels[price].order_count == len(matching)
+                        assert Fraction(levels[price].size) == sum(
+                            (Fraction(order.size) for order in matching), Fraction()
+                        )
+            if quote.market_state != "unavailable":
+                count += 1
+            assert quote.available_ns is None
+            digest.update(_CODEC.encode_json(quote))
+        saved = msgspec.json.decode(
+            (source / "summary.json").read_bytes(), type=dict[str, msgspec.Raw]
+        )
+        for key in ("book_identity", "trace_identity"):
+            assert replay.summary()[key] == msgspec.json.decode(saved[key], type=str)
+        return {
+            "quoted_boundaries": count,
+            "quote_trace_sha256": digest.hexdigest(),
+            "original_book_and_trace_equal": True,
+            "availability": "unknown; receipt retained",
+        }
 
 
 def inspect(source: Path, output: Path) -> dict[str, object]:
@@ -215,6 +273,9 @@ def inspect(source: Path, output: Path) -> dict[str, object]:
         "accepted_snapshot_position": None
         if chosen.state.snapshot is None
         else chosen.state.snapshot.position,
+        "native_quotes": None
+        if selected.capture is None
+        else NativeQuoteParity.verify(source, selected.capture),
     }
     (output / "result.json").write_bytes(_CODEC.encode_json(summary))
     return summary

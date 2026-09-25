@@ -39,6 +39,7 @@ quality or qualify venue order execution.
 | Chronological stepping | `Replay`, `ReplayCursor` | [Replay contract](#chronological-event-stepping) |
 | Named trade/book research inputs | `ResearchSelection`, `inspect_eda` | [Selection reference](#discover-and-reopen-research-selections) |
 | Native book publication/replay | `publish_books`, `BookReplay` | `alpha-collect`; [book boundaries](#bounded-saved-books) |
+| Per-book depth and BBO | `BookDepth`, `BookProjection.quote`, `BookQuote` | [Shared book quotes](#shared-book-quotes) |
 | Reviewed source evidence | `ArchiveCapture`, `SourceQualification`, `QualityPolicy` | [Qualification sections](#witnessed-archive-availability) |
 | Public OKX/Bitfinex trades and observed rules | `PublicDataJob`, `PublicIngestion`, `PublicTradeManifest` | [Public data plane](#public-spot-data-plane) |
 | Four scoped universes and adapter admission | `UniverseSelection`, `DataCapability`, `BookAdapters.capability` | [Reference and scope contracts](../../docs/data/contracts.md#versioned-venue-specifications-and-scoped-universes) |
@@ -81,6 +82,55 @@ Missing, unknown and degraded outcomes remain typed reasons. Byte limits bound
 the declared files or retained canonical inputs; they are not a process RSS
 limit. No API here resamples, forward-fills, converts USD/USDT or turns an empty
 result into a coverage claim.
+
+## Shared book quotes
+
+Owner: quant development. `market_data.books.VisibleBook` maintains exact L3
+aggregate `bids`/`asks` alongside native `orders`. An order replacement removes
+its previous side/price contribution before adding the new size; deletion removes
+the level when its last order leaves. Counts are visible native orders, not queue
+rank. Fraction arithmetic and exact Decimal conversion preserve quantities
+independently of the caller's Decimal precision. OKX L2 updates still set absolute
+size and source-reported counts; they do not become order deltas.
+
+`BookProjection.quote(position, record, outcome, replay, source_id=...,
+available_ns=...)` reads those cached levels after `CaptureReplay.apply` completes.
+The caller supplies the same just-applied boundary and explicit source identity.
+The frozen `market_data.contracts.BookQuote` carries venue, canonical instrument,
+source/channel, raw position, sequence/epoch, native source timestamp text,
+original receipt, explicit delivery availability, state identity and quality.
+Bid/ask sides carry exact price, quantity and count in the instrument's native
+units. There is no currency conversion or cross-venue equivalence inference.
+
+`market_state` distinguishes `unavailable`, `empty`, `one_sided`, `locked`,
+`crossed` and `two_sided`. Only accepted degraded snapshot/update boundaries
+expose sides; controls, gaps, stale and recovering states expose none. A fresh
+session replaces the native book; earlier gaps remain in history. This per-boundary
+API is not a freshness scheduler: callers must apply their own cutoff and age
+policy. `LiveBookDecisionSource.current_quote` applies the existing live causal
+and freshness gates and preserves the original market delivery clock.
+
+`BookDepth.from_observation` provides the same exact aggregate representation
+for retained L2 or L3 observations; `BookDepth.project` serves research depth
+consumers. Conversion retains original quality and clocks, including stale
+observations, while `BookDepth.quote` suppresses ineligible prices. Unknown
+availability remains `None` unless an explicit original delivery clock is supplied.
+Source time and receipt never silently stand in for that clock.
+
+Native/canonical schemas, order IDs, fingerprints, source requests and paper
+journal envelopes are unchanged. L3 canonical rows remain order-only; cached
+levels are reconstructed from the original journal rather than persisted into
+old rows. Consequently no saved-state migration is needed. Research projection
+and live paper matching share these APIs without adding research dependencies to
+the collector or market-data dependencies to the portable execution wheel.
+
+The declared initial qualification remains OKX `books` L2 and Bitfinex `R0` L3.
+Coinbase lifecycle fixtures retain software coverage only; authenticated access
+is still unqualified. Per-book visible depth does not establish complete venue
+coverage, queue priority, executable liquidity or strategy performance. MR07B
+owns cross-venue consolidation; MR15 owns capacity measurement. The
+[roadmap acceptance record](../../docs/roadmap/README.md#mr07a-common-bbo-and-incremental-l3-aggregates)
+retains commands and evidence.
 
 ## Public spot data plane
 

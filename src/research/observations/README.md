@@ -51,6 +51,14 @@ delivered state without freezing a decision, so a collector can process two
 market messages within one rounded microsecond. `latest_book` serves raw
 current-state inspection and does not check freshness.
 
+`current_quote(entity, at)` uses the same current-book eligibility and returns the
+shared typed [per-book BBO](../../market_data/README.md#shared-book-quotes), or
+`None` when the live source cannot admit a two-sided uncrossed market. It carries
+the recording identity and the original market delivery availability; a heartbeat
+cannot move that clock forward. Live imbalance and captured study depth use
+`BookDepth` for exact L2/L3 aggregation. Canonical observations and saved delivery
+envelopes retain their existing schema and original native order IDs.
+
 `research.exploration.SavedDecisionSource` composes the existing MR01
 `ResearchReader`. Every decision reopens the pinned selection with its own
 knowledge cutoff, within the selection's observation envelope:

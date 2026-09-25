@@ -11,7 +11,8 @@ from fractions import Fraction
 
 # project library imports
 from financial_units import ExactRatio
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
+from market_data.books import BookDepth
+from market_data.contracts import BookObservation, BookQuote, CaptureRecord, CaptureRequest
 from research.observations.inputs import DecisionInputs, InputRequirement, NamedObservation
 from serialization import DomainCodec
 
@@ -150,6 +151,28 @@ class LiveBookDecisionSource:
         if boundary.available_at > at or boundary.book is None or self._refusal(boundary, at):
             return None
         return boundary.book
+
+    def current_quote(self, entity: str, at: datetime) -> BookQuote | None:
+        """Expose the latest causally eligible book with its original market delivery time."""
+        book = self.current_book(entity, at)
+        if book is None:
+            return None
+        market_available_at = self._history[-1].observation.available_at
+        if market_available_at is None:
+            raise ValueError("current market book lacks its original delivery time")
+        elapsed = market_available_at - datetime(1970, 1, 1, tzinfo=UTC)
+        available_ns = (
+            elapsed.days * 86_400 + elapsed.seconds
+        ) * 1_000_000_000 + elapsed.microseconds * 1_000
+        config = self._request.config
+        return BookDepth.from_observation(book).quote(
+            book,
+            venue=config.venue,
+            instrument_id=config.instrument_id,
+            source_id=self._request.identity,
+            channel=config.channel,
+            available_ns=available_ns,
+        )
 
     def accept(
         self,
@@ -365,20 +388,17 @@ class LiveBookDecisionSource:
     @staticmethod
     def _book_value(row: BookObservation) -> ExactRatio | None:
         """Calculate exact visible imbalance for L2 levels or native L3 orders."""
-        if row.orders:
-            bids = tuple((order.price, order.size) for order in row.orders if order.side == "buy")
-            asks = tuple((order.price, order.size) for order in row.orders if order.side == "sell")
-        else:
-            bids = tuple((price, level.size) for price, level in row.bids)
-            asks = tuple((price, level.size) for price, level in row.asks)
+        depth = BookDepth.from_observation(row)
+        bids = depth.bids
+        asks = depth.asks
         if (
             not bids
             or not asks
             or max(price for price, _ in bids) >= min(price for price, _ in asks)
         ):
             return None
-        bid_size = sum((Fraction(size) for _, size in bids), Fraction())
-        ask_size = sum((Fraction(size) for _, size in asks), Fraction())
+        bid_size = sum((Fraction(level.size) for _, level in bids), Fraction())
+        ask_size = sum((Fraction(level.size) for _, level in asks), Fraction())
         return ExactRatio.from_fraction((bid_size - ask_size) / (bid_size + ask_size))
 
     @staticmethod

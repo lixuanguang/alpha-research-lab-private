@@ -114,7 +114,9 @@ def main() -> None:
         capture_output=True,
         text=True,
         check=True,
-        timeout=60,
+        # The nested CLI already owns a 60-second watchdog. Allow its caller
+        # to import, verify the saved report and exit before the outer deadline.
+        timeout=120,
     )
     assert InstalledIdentity.sha256() != ImplementationIdentity.sha256()
     print("Installed APIs, resources, historical snapshot and OKX book command verified.")

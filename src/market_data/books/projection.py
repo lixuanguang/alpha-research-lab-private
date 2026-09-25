@@ -1,12 +1,47 @@
 """Project exact native states into source-independent observation records."""
 
 # project library imports
+from market_data.books.depth import BookDepth
 from market_data.books.reconstruction import CaptureReplay
-from market_data.contracts import BookObservation, CaptureRecord, Order
+from market_data.contracts import BookObservation, BookQuote, CaptureRecord, Order
 
 
 class BookProjection:
     """Capture a complete visible state and quality transition after each message."""
+
+    @classmethod
+    def quote(
+        cls,
+        position: int,
+        record: CaptureRecord,
+        outcome: str,
+        replay: CaptureReplay,
+        *,
+        source_id: str,
+        available_ns: int | None,
+    ) -> BookQuote:
+        """Expose cached native L2/L3 touch only after a complete accepted boundary.
+
+        Args:
+            position: Original raw position of the just-applied record.
+            record: Exact persisted native message or quality transition.
+            outcome: Classification returned by this replay's apply operation.
+            replay: Current reconstruction and quality for the same record.
+            source_id: Explicit recording/request identity, retained in the result.
+            available_ns: Actual delivery clock or explicit unknown; never invented from receipt.
+
+        Returns:
+            Common quote with independent sides and unchanged native clocks and quality.
+        """
+        row = cls.capture(position, record, outcome, replay)
+        return BookDepth.from_native(replay.book).quote(
+            row,
+            venue=replay.config.venue,
+            instrument_id=replay.config.instrument_id,
+            source_id=source_id,
+            channel=replay.config.channel,
+            available_ns=available_ns,
+        )
 
     @classmethod
     def capture(
@@ -36,8 +71,8 @@ class BookProjection:
             replay.quality.reason,
             book.identity,
             orders=tuple(sorted(book.orders.values(), key=cls._order_key)) if keep else (),
-            bids=tuple(sorted(book.bids.items())) if keep else (),
-            asks=tuple(sorted(book.asks.items())) if keep else (),
+            bids=tuple(sorted(book.bids.items())) if keep and not book.orders else (),
+            asks=tuple(sorted(book.asks.items())) if keep and not book.orders else (),
             transition_ns=replay.quality.transition_ns,
             last_durable_ns=replay.quality.last_durable_ns,
         )
