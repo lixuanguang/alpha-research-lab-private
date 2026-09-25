@@ -1,18 +1,22 @@
 # Platform infrastructure roadmap
 
 Owner: repository founder; quant development owns infrastructure delivery.
-Status updated 2026-09-24. Delivery policy: complete the initial infrastructure
+Status updated 2026-09-25. Delivery policy: complete the initial infrastructure
 stack before quant researcher (QR) onboarding.
 
 This page owns delivery status, remaining work and dependencies. The completed
 MR09A saved-book baseline retains its historical identity. The remaining work
-is numbered MR01–MR17. MR01 is complete for its declared read-only data/reference
+uses MR01–MR17, with MR07A/MR07B extending the completed MR07 increment without
+renumbering later milestones. MR01 is complete for its declared read-only data/reference
 scope; MR02 is complete for its declared research/decision SDK scope; MR03 is
 complete for its bounded offline study/backtest/report scope; MR04 is complete
 for its declared local feature-store, workspace and job-service scope. MR05 is
 complete for candidate packaging and local intent-only runtime binding. MR06 is
 complete for [independent operating packages and trusted local installation](#mr06-delivery-and-acceptance);
-MR07–MR17 remain planned. The [MR05 record](#mr05-delivery-and-acceptance) states its evidence
+MR07 is complete for [local dedicated-account paper/shadow operation](#mr07-delivery-and-acceptance).
+[MR07A](#mr07a-common-bbo-and-incremental-l3-aggregates),
+[MR07B](#mr07b-book-registry-and-consolidated-bbo) and MR08–MR17 remain planned.
+The [MR05 record](#mr05-delivery-and-acceptance) states its evidence
 and operating boundaries. The [MR04 record](#mr04-delivery-and-acceptance) states its service
 evidence and later runtime/deployment boundaries. The [MR03 record](#mr03-delivery-and-acceptance) and
 [MR02 record](#mr02-delivery-and-acceptance) state their evidence
@@ -24,7 +28,8 @@ in Git history; P1 stays deferred and unaccepted.
 This revision strengthens generalization and acceptance without reducing the
 destination. Intermediate gates expose usable increments; they do not retire
 feature-store, portfolio/netting, second-venue, dashboard, capacity or handoff
-requirements. All MR01–MR17 outcomes remain mandatory before formal QR onboarding.
+requirements. All MR01–MR17 outcomes, including MR07A/MR07B, remain mandatory
+before formal QR onboarding.
 
 The [QR implementation guide](../../examples/README.md) explains how researchers
 use the available capabilities. The [research program](research-program.md) owns
@@ -194,7 +199,7 @@ acceptance can be established earlier without waiting for execution adapters.
 | G2 — Research-ready increment | From a clean workspace, acquire/capture the declared inputs, publish pinned datasets, retrieve versioned offline features, add a fresh compatible strategy/feature/model, run temporal studies and costed backtests, and reopen results. Meet the declared research workload and restore data/artifacts. | MR01–MR03; MR04 research/feature-store services; MR15 research budgets. MR06 precedes any actual service deployment. Online serving and operating scope remain required at later gates. |
 | G3 — Paper/shadow increment | Reuse decision components on live inputs with submission suppressed; exercise online features, durable order state, independent risk, base reconciliation, essential alerts and restart. | MR04 online path, MR05–MR08, applicable MR10/MR12 controls and MR06 installation. Initial dedicated-account evidence does not qualify shared accounts. |
 | G4 — Integrated operating infrastructure | Qualify shared-account controls/netting, both venue adapters, complete monitoring, scoped activation machinery and operational failure drills, using authorized test environments. | MR09–MR14 and runtime MR15 budgets. A first-venue increment is useful evidence; the second venue remains mandatory. No gate authorizes live capital. |
-| G5 — Generalized handoff | Demonstrate fresh extensions through the installed integrated stack, all launch workloads, service/venue evidence and the operator/researcher guides. | MR17, after every MR01–MR16 outcome. This is full infrastructure acceptance, separate from empirical strategy acceptance and activation. |
+| G5 — Generalized handoff | Demonstrate fresh extensions through the installed integrated stack, all launch workloads, service/venue evidence and the operator/researcher guides. | MR17, after every MR01–MR16 outcome, including MR07A/MR07B. This is full infrastructure acceptance, separate from empirical strategy acceptance and activation. |
 
 ## Delivery order and dependencies
 
@@ -825,6 +830,8 @@ to make an incompatible artifact appear acceptable.
 | MR05 | **[Candidate packaging and runtime binding](../architecture/platform-design.md#candidate-promotion-contract) — complete for the [declared local scope](#mr05-delivery-and-acceptance).** Package rule-only and learned reference candidates with input/feature-store/state/metric contracts and target or order/quote outputs; load the same components into replay and runtime. Resolve a typed capability registry for market data, reference data, calendars, valuation, account and execution interfaces; reject unsupported product/channel/order/freshness combinations before startup. Bind dataset → experiment → candidate → deployment identities without granting authority. | MR02–MR03; integrate MR04 serving interfaces and MR11 conformance when available |
 | MR06 | **[Independent deployable packages and trusted installation](../governance/workflow.md#build-a-release) — complete for the [declared local scope](#mr06-delivery-and-acceptance).** Build, verify, install and roll back pinned artifacts/configuration/state on the declared target; reject provenance, dependency, signature and compatibility failures. Prove that collector/execution applications install without unrelated research, notebook, training or reporting dependencies; shared contracts and independently locked workers retain compatible versions and release cadences. Resolve current release restrictions and verify research/shadow credentials cannot submit production orders. | Existing build/admission and MR16 package contracts; MR04 local environment profile supplies the target; MR06 does not wait for full MR04 or MR16 completion |
 | MR07 | **[Paper/shadow runtime and OMS](../architecture/platform-design.md#oms-and-venue-adapter-design) — complete for the [declared local scope](#mr07-delivery-and-acceptance).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
+| MR07A | **[Common BBO and incremental L3 aggregates](#mr07a-common-bbo-and-incremental-l3-aggregates) — planned.** Expose one typed per-book quote contract for native L2/L3, maintain exact L3 quantities/counts by side and price during lifecycle updates, and integrate existing research and paper consumers. Preserve native identity, clocks, quality and recovery; verify against independent full aggregation. | Completed MR01–MR07 contracts and consumers; preserve MR06 package boundaries |
+| MR07B | **[Book registry and consolidated BBO](#mr07b-book-registry-and-consolidated-bbo) — planned.** Own independent books by venue/instrument and expose per-venue and consolidated BBO queries over explicitly equivalent instruments. Scan cached eligible venue quotes with causal cutoffs, freshness, provenance, ties and partial-coverage semantics. | MR07A; existing reference/capability admission and MR07 paper/replay interfaces |
 | MR08 | **[Independent risk and account reconciliation](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Unknown sends, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate physical venue reconciliation through MR11. | MR07 and existing risk/accounting; base paper acceptance precedes MR11 external evidence |
 | MR09 | **[Portfolio and shared-account infrastructure](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
 | MR10 | **[Operational qualification](../architecture/platform-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Keep paper results distinct from later MR11 private-stream/venue evidence; final operational acceptance incorporates MR11–MR14 results. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
@@ -832,7 +839,7 @@ to make an incompatible artifact appear acceptable.
 | MR12 | **[Monitoring, metrics, charts and alerts](../architecture/platform-design.md#monitoring-recovery-and-operational-evidence).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account views. Register a custom research metric/chart and delayed-label diagnostic without modifying collectors or runtime; test telemetry loss independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; basic telemetry ships earlier with each capability |
 | MR13 | **[Activation and recovery machinery](../governance/workflow.md#activate-and-operate).** Implement disabled-by-default deployment manifests and separate authorization envelopes, scoped limits, fencing and recovery. Provide distinct block-new-exposure, cancel and reduce-position operations with defined stale-data, disconnected and illiquid behavior. Reject absent/expired authority and incompatible code/model/schema/state; prove safe restart and rollback without undoing or duplicating external fills. Completion does not require or grant live capital use. | MR06, MR10 paper drills and MR11–MR12; feed results back into final MR10 acceptance |
 | MR14 | **[Multiple-instance integration](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Run different reference components and instruments with isolated/shared-account configurations through paper/shadow; add an instance through configuration, then stop/restart it without losing attribution or weakening other accounts' controls. | MR09, MR12–MR13; actual live use remains separately authorized |
-| MR15 | **[Research and runtime capacity qualification](../architecture/platform-design.md#scaling-triggers-and-technology-choices).** Define numeric launch budgets early, covering multi-day data, multiple instruments, concurrent studies/trials, replay, feature-store materialization/retrieval, live ingestion and dashboard queries. Record volumes, retention, throughput, p50/p95/p99 latency, memory/disk, concurrency, hardware/cache conditions and recovery targets before measurement. Remove demonstration-size limits where they prevent the workload; preserve causal/numerical parity. Retain research acceptance separately from final integrated runtime acceptance and deploy the topology needed to meet both. | Budgets start with MR01/MR04; MR01–MR04 for research acceptance; MR07/MR12/MR14 for final runtime acceptance; no QR bottleneck required |
+| MR15 | **[Research and runtime capacity qualification](../architecture/platform-design.md#scaling-triggers-and-technology-choices).** Define numeric launch budgets early, covering multi-day data, multiple instruments, concurrent studies/trials, replay, feature-store materialization/retrieval, live ingestion, book reconstruction, quote consolidation and dashboard queries. Record volumes, retention, throughput, p50/p95/p99 latency, memory/disk, concurrency, hardware/cache conditions and recovery targets before measurement. Remove demonstration-size limits where they prevent the workload; preserve causal/numerical parity. Retain research acceptance separately from final integrated runtime acceptance and deploy the topology needed to meet both. | Budgets start with MR01/MR04; MR01–MR04 for research acceptance; MR07/MR07A/MR07B/MR12/MR14 for final runtime acceptance; no QR bottleneck required |
 | MR16 | **[Python ownership and enforcement](../coding_standards/README.md#python-scope-and-migration).** Complete the retained ownership/enforcement work with supported imports, packaging, checks and migration guidance; verify the APIs consumed by the reference workflows. | Existing engineering rules; can proceed alongside other work |
 | MR17 | **[QR onboarding acceptance](#qr-onboarding-acceptance).** Exercise the installed integrated stack from a clean environment with fresh research extensions and the published onboarding guide. Close every in-scope platform gap before declaring it ready for QR. | All planned rows above, retaining valid earlier evidence |
 
@@ -840,6 +847,12 @@ The research path is MR01 → MR02 → MR03 → MR05. MR04's local development p
 start alongside it and supplies MR06's installation target; MR06 does not wait
 for MR04's deployed-service acceptance. MR04's deployed services then use the
 verified installation path. MR06 precedes every deployment.
+
+The book-data extension follows MR07 → MR07A → MR07B. These additive milestones
+retain MR01–MR07's accepted scopes and evidence. MR08 can proceed on its existing
+contracts while this extension is built; consumers adopting the common or
+consolidated quote APIs depend on the corresponding follow-on. MR15 owns measured
+data-structure optimization and capacity acceptance; no separate MR07C is planned.
 
 MR07 supplies the runtime/OMS for MR08; portfolio integration (MR09) and venue
 adapters (MR11) follow those contracts. MR10 can qualify paper operations before
@@ -992,6 +1005,64 @@ its exact candidate/configuration/journal. Keep captured input and OMS bytes.
 Never edit checkpoint identities or erase fills to force an older artifact to
 accept newer state. Local acceptance does not authorize deployment or live trading.
 
+### MR07A common BBO and incremental L3 aggregates
+
+Status: **planned**, added 2026-09-25. Owner: quant development. This extends
+`market_data` book contracts and their existing research/paper consumers.
+MR03 already projects complete L3 observations to aggregate depth, and MR07
+derives touch prices/quantities for paper matching. This milestone makes those
+semantics reusable and maintains L3 aggregates as orders change.
+
+- Define a typed per-book BBO result with venue/instrument identity, exact
+  bid/ask prices and quantities, original source/receipt/availability clocks,
+  sequence/epoch and quality. Missing sides and unavailable or invalid state
+  remain explicit; only complete accepted message boundaries are observable.
+- Update aggregate quantity and order count by side/price on L3 add, amend,
+  partial fill and delete. Preserve native order IDs and L2 absolute-size
+  semantics. Snapshot replacement, gaps and recovery reset or invalidate the
+  derived quote consistently; no queue priority is inferred.
+- Integrate shared quote/depth behavior into existing research projections and
+  live paper delivery. Keep historical native/canonical evidence readable and
+  retain exact arithmetic, causal availability and independent package ownership.
+
+Acceptance: compare incremental levels and BBO with independently recomputed
+expected state across multiple orders at one price, side/price amendments,
+partial fills, deletion of the best/last level, missing sides and snapshot/gap
+recovery. Exercise the affected installed research/paper consumer boundaries and
+saved-input replay parity. Reuse unaffected venue-protocol evidence; record any
+schema/state migration with the delivered implementation. Container choice remains
+an implementation decision; MR15 qualifies throughput, latency and memory.
+
+### MR07B book registry and consolidated BBO
+
+Status: **planned**, added 2026-09-25. Owner: quant development. Depends on MR07A;
+the initial integration remains read-only market data and paper/replay consumption.
+
+- Maintain independent book state under `(venue, instrument)` keys, preserving
+  source/channel provenance and selecting one admitted source per book. Expose
+  per-venue BBO lookup and consolidated BBO lookup through the same public owner.
+- Require an explicit reference mapping for economically comparable instruments,
+  quote currencies and quantity units. BTC-USD and BTC-USDT remain distinct;
+  implicit FX conversion is unsupported. Name the crypto result consolidated BBO.
+- Begin with a scan of cached venue quotes. At each query cutoff, use only then
+  available observations and apply declared freshness/quality eligibility.
+  Expiry and disconnect invalidate eligibility even without a new price update;
+  saved replay must never expose a later cached quote at an earlier cutoff.
+- Return the highest eligible bid and lowest eligible ask, summed size and
+  contributing venues at each tied best price, original quote clocks and
+  excluded/missing venue reasons. Mark partial coverage, absent sides and
+  consolidated locked/crossed states explicitly. Reference paper/replay consumers
+  demonstrate the query contract while fills remain tied to the selected venue.
+
+Acceptance: independent multi-venue cases cover key isolation, tied prices,
+empty sides, stale/disconnected venues, resynchronization, currency/unit mismatch,
+cutoff ordering and replay/restart parity. Reuse retained OKX/Bitfinex recordings
+for their native input paths; synthetic comparable-quote cases establish
+consolidation correctness without relabeling USD/USDT captures as one market.
+Record selected versus eligible coverage. Execution routing, shared-account
+allocation and FX conversion remain outside this milestone; MR15 measures the
+registry and quote workload before requiring a more complex index.
+
 ## Decisive acceptance scenarios
 
 Implement these at their owning boundary and reuse them in the final installed
@@ -1005,6 +1076,7 @@ workload, outcomes and limits in the existing capability acceptance record.
 | Historical reference change | A tick/lot or specification change resolves by valid time and knowledge time; older runs retain their specification and unknown source history is not replaced by current metadata. | MR01/MR03 |
 | Fresh research extension | Register a new feature/label, non-built-in estimator and strategy; selected implementations reach study, report, candidate and runtime without edits to generic runners or fallback to built-ins. | MR02/MR03/MR05/MR17 |
 | Feature-store parity and recovery | Matched definitions/entities/cutoffs reproduce admitted offline and online values within the declared numerical contract. Late corrections, TTL expiry, missing entities, materialization retry and version rollback remain explicit and cannot leak future values. | MR02/MR04/MR07 |
+| Book and consolidated quote parity | Incremental L3 aggregates match independent expected levels/BBO; venue/instrument isolation, query cutoffs and freshness preserve eligible quote provenance, ties and explicit partial coverage. See the scoped acceptance cases above. | MR07A/MR07B |
 | Shared-budget race | With no prior exposure, A and B each request 8,000 account-currency units against a shared 10,000 limit. Atomic admission rejects or policy-clips requests so admitted, pending and uncertain commitments never exceed 10,000; retry/restart cannot release unknown exposure. | MR08/MR09 |
 | Conflicting strategies and netting | Two active strategies on one instrument retain intent/child-order/fill ownership; self-trade conflicts follow explicit policy. Netting, partial fills, fees and residuals reconcile to both strategy allocations and physical account state; stopping one preserves the other's ownership. | MR09/MR14 |
 | External order uncertainty | Lost acknowledgement, duplicate events, rejects, partial fills, cancel/fill races, private-stream loss and restart with open orders cannot duplicate submissions or postings. Cancel acknowledgement alone does not release exposure; venue reconciliation resolves uncertainty. | MR07/MR08/MR11 |
@@ -1025,7 +1097,7 @@ broader retained platform; it is not a second backlog or a completion score.
 | D03 — Typed configuration and four universes | MR01/MR05/MR09/MR13 |
 | D04 — Adapter interfaces and capability registry | MR01/MR05/MR11 |
 | D05 — Collectors and raw journal | MR01/MR04/MR15 |
-| D06 — Book reconstruction and data quality | MR01/MR07 |
+| D06 — Book reconstruction and data quality, extended with common and consolidated BBO | MR01/MR07/MR07A/MR07B |
 | D07 — Storage, catalog and dataset builder | MR01/MR04/MR15 |
 | D08 — Research SDK and feature computation, extended with offline/online feature store | MR02–MR04/MR07 |
 | D09 — Replay and execution-aware backtesting | MR03/MR05/MR07 |
@@ -1077,7 +1149,7 @@ prove. An unverified required boundary keeps onboarding acceptance open.
 
 ## Research phase after full handoff
 
-Only after every MR01–MR16 outcome and MR17/G5 integrated acceptance does QR begin
+Only after every MR01–MR16 outcome, including MR07A/MR07B, and MR17/G5 integrated acceptance does QR begin
 the [research milestones](research-program.md#post-infrastructure-research-milestones):
 
 1. **QR-M1 — Research-ready:** question-specific data acceptance, ranked hypotheses,
