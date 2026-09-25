@@ -286,3 +286,27 @@ PYTEST_ADDOPTS=--basetemp=/private/tmp/mr07-check \
   ALPHA_FEAST_WORKER_PYTHON=/absolute/pinned-feast-worker/bin/python \
   make check > logs/mr07/make-check.log 2>&1
 ```
+
+
+## Shared account acceptance
+
+The [account consumer](integration/consumers/runtime/shared_account.py) runs
+`AccountExecutionApplication` and the installed `alpha-execute account` command
+with retained typed configuration, requests and results. It uses authored USDT
+spot facts, two active instance decisions, the 8,000 + 8,000 / 10,000 admission
+boundary, exact partial-fill/cost goldens, transfer/rebate/correction postings,
+unknown/cancel reconciliation, restart and independent stops. Copy it outside
+the checkout and run with the actual installed execution interpreter:
+
+```sh
+/absolute/execution/bin/python -I /absolute/consumer/shared_account.py \
+  --output /absolute/new-account-evidence
+```
+
+`unit/execution/test_account_journal.py` adds simultaneous clients, regressed
+knowledge clocks, independent quote binding and underfunded-reservation failures.
+`unit/risk/test_budgets.py` tests every limit scope with independent amounts;
+`unit/accounting/test_accounts.py` tests exact multi-currency replay and corrections.
+These software tests do not qualify a venue, empirical strategy, live capital,
+portfolio netting or capacity. The MR08 roadmap record owns actual commands,
+results and remaining MR11 physical reconciliation evidence.

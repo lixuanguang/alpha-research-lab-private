@@ -107,10 +107,10 @@ src/
     studies/                Retained evaluations, diagnostics, reports and local ClearML pipelines
   strategies/               Fixed completed-price momentum and no-trade target rules
   simulation/               Delayed spot fills/costs/checkpoints and bounded vectorbt adapter
-  accounting/               Exact spot ledger, rational attribution and reconciliation
-  risk/                     Independent spot grids, holdings and affordability limits
+  accounting/               Exact spot attribution and identified account postings/corrections
+  risk/                     Independent spot grids, authority and instance/account/firm budgets
   portfolio/                PLANNED: allocation and netting before QR onboarding
-  execution/                Fenced paper/shadow OMS, order journal and modeled matching; future venue adapters
+  execution/                Paper OMS, atomic shared-account journal and matching; future venue adapters
   runtime/                  Candidate/paper supervision, identity, bounded durable jobs and workspace recovery
   telemetry/                Health/alerts; future runtime and economic monitoring
   configuration/            Typed definitions and explicit selection
@@ -899,7 +899,11 @@ Netting is permitted only when account, currency, venue, instrument contract, se
 scope are compatible. It never erases strategy attribution, prevents a strategy-level stop, or transfers a loss budget
 without policy. Residual and shared costs use a stable documented method and remain reversible for reconciliation.
 
-The planned risk boundary computes portfolio, strategy, and account views with gross/net exposure, leverage,
+The implemented local account boundary enforces marked gross exposure and pending
+commitments across instance/account/firm budgets, authorized instruments, price,
+size, freshness, inventory and cash. Its [account guide](../../src/execution/README.md#shared-account-admission-and-reconciliation)
+records the normalized reconciliation and correction contracts. Broader risk
+views remain planned: net exposure, leverage,
 concentration, liquidity, margin, stress loss, sensitivities, and loss limits as applicable. Strategy budgets nest under
 account and firm limits. A strategy can be disabled while others continue only if resulting net exposure and shared
 limits remain safe; otherwise the account or venue is fenced as a whole.
@@ -941,8 +945,11 @@ acceptance, partial fill, cancel request/acknowledgment/confirmation, rejection,
 unknown outcomes and local reconciliation. Candidate checkpoints and child order
 admission commit together; stable IDs and recorded event bytes reject conflicting
 retries. Independent spot limits reserve pending and uncertain exposure. The OMS
-does not decide economic targets or override risk. Shared-account/net-order
-coordination, physical venue reconciliation and correction posting remain open.
+does not decide economic targets or override risk. The additional `AccountJournal`
+shares the same intent/lifecycle owner and adds
+atomic instance/account/firm admission, tagged account postings and append-only
+corrections. Portfolio/net-order coordination and physical venue reconciliation
+remain open.
 
 [`runtime.PaperCandidateRuntime`](../../src/runtime/README.md#paper-candidate-supervision)
 delivers lifecycle, timer, market, order and account callbacks to the same

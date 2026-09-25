@@ -100,3 +100,36 @@ owns build/sign/install/rollback. [MR06's acceptance record](../../../docs/roadm
 tracks installed proof. MR07 owns supervised runtime and durable OMS; MR08 owns
 atomic account reservations/reconciliation; MR11 owns OKX and Bitfinex private
 execution conformance; MR13 owns separate activation and operational recovery.
+
+## Shared account command
+
+`alpha-execute account` operates the independent
+[shared account journal](../../execution/README.md#shared-account-admission-and-reconciliation)
+from the same execution wheel:
+
+```sh
+alpha-execute account --config /absolute/accounts.json \
+  --journal /absolute/accounts.sqlite3 --request /absolute/account-request.json
+alpha-execute account --config /absolute/accounts.json \
+  --journal /absolute/accounts.sqlite3
+```
+
+`AccountConfiguration` pins `account-runtime-v1`, local `paper`/`shadow` mode,
+opening currency funding, spot instrument mechanics and a `BudgetPolicy`.
+`AccountExecutionRequest` selects exactly one action: `quote` records the
+independent market observation; `admit` submits an attributable `AccountDecision`;
+`event` processes normalized order/fill facts; `post` applies transfers, costs or
+corrections; `reconcile` compares a complete independent `AccountObservation`;
+`block` stops new account exposure; `inspect` returns current state. Contradictory
+extra payloads are rejected before opening the journal. Configuration and request
+files are bounded to one MiB. Use `DomainCodec` for exact financial wire values.
+
+An opening account must reconcile before its first admission. Refresh market
+observations separately from decisions. Reusing an admitted decision ID returns
+its original result and checkpoint; replacing its bytes fails. Every result
+reports `submission_attempted=false`. Normalized fill/account facts remain
+modeled local input; no success is a physical venue observation. A contradiction
+returns a nonzero CLI exit and retains the account block. The maintained
+[shared-account consumer](../../../tests/integration/consumers/runtime/shared_account.py)
+generates concrete configurations and requests and exercises the installed
+command outside the checkout. Production authority and netting remain absent.
