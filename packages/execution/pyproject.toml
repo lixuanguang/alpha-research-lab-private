@@ -27,3 +27,5 @@ bypass-selection = true
 "../../src/applications/__init__.py" = "applications/__init__.py"
 "../../src/applications/py.typed" = "applications/py.typed"
 "../../src/applications/execute" = "applications/execute"
+"../../src/execution" = "execution"
+"../../src/accounting" = "accounting"

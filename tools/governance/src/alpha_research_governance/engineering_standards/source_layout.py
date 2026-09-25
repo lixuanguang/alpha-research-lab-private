@@ -301,6 +301,7 @@ class SourceLayoutChecker:
             "telemetry",
             "research",
             "accounting",
+            "execution",
             "risk",
             "simulation",
             "strategies",

@@ -629,7 +629,7 @@ Delivered through existing functional owners:
   candidate bytes without implicit refitting, dynamic import or built-in fallback.
   `CandidateDeployment` links placement to the candidate and its resolved input,
   instance, universe and profile identities without adding executable authority.
-- `applications.explore.run_candidate` and `run_candidate_feature` provide the
+- `applications.explore.run_candidate` and `runtime.CandidateFeatureFeed` provide the
   public source and offline/online feature paths. Exact fitted-state availability,
   signatures, warm-up, cadence and combined feature/policy checkpoints preserve
   causal state. Invalid transitions cannot partially commit. Stale, missing,
@@ -676,7 +676,8 @@ are unchanged; new candidate consumption is qualified separately above.
 
 Dependency ownership remains explicit. MR07 owns the delivered intent-evaluation,
 atomic checkpoint and serving-pause prerequisite slice; supervision, live inputs,
-durable order journal, OMS, risk reservation and reconciliation remain open.
+durable order journal, OMS, risk reservation and reconciliation were still open
+at MR05 acceptance. Their dedicated-account increment is recorded under MR07 below.
 MR12 owns the carried metric/chart definitions, while runtime dashboards and
 alert delivery remain open. MR13 owns the placement-identity slice; its independent
 activation envelope, limits and recovery controls remain open. No entire later
@@ -687,8 +688,9 @@ named market/reference/non-book inputs. Registry contracts preserve generalized
 products and sources, but unimplemented economics reject explicitly. The OKX and
 Bitfinex read-only profiles preserve their distinct clocks/representations;
 neither is private execution conformance. Actual MR11 venue adapters and evidence
-can be registered when available. Current runtime modes only emit intents;
-account/execution requirements describe that suppressed boundary. Component
+can be registered when available. At MR05 acceptance, runtime modes only emitted
+intents; MR07 below adds modeled paper order/account effects while preserving
+suppressed executable submission. Component
 digests are integrity checks, not MR06 trusted installation. Exact environment
 matching is currently required; independent deployable graphs, trusted compatibility,
 and the existing QuantLib release restriction remain MR06. Feature generations
@@ -734,8 +736,9 @@ and saved replay interfaces for the declared OKX/Bitfinex spot scope.
 
 Dependency ownership remains bounded. MR16 owns the package/import-contract slice;
 its broader ownership migration remains open. MR07 owns the intent-admission
-reference application's execution slice; supervised events and durable OMS remain
-open. MR13 owns credential/mode separation and compatible-state refusal pulled
+reference application's execution slice; supervised events and durable OMS were
+open at MR06 acceptance and are now addressed under MR07. MR13 owns
+credential/mode separation and compatible-state refusal pulled
 forward here; bounded activation, venue reconciliation and operational recovery
 remain open. MR11 still owns both venues' private account/execution conformance.
 MR04 owns workspace/data/feature/job restore; installation does not redefine those
@@ -821,7 +824,7 @@ to make an incompatible artifact appear acceptable.
 | --- | --- | --- |
 | MR05 | **[Candidate packaging and runtime binding](../architecture/platform-design.md#candidate-promotion-contract) — complete for the [declared local scope](#mr05-delivery-and-acceptance).** Package rule-only and learned reference candidates with input/feature-store/state/metric contracts and target or order/quote outputs; load the same components into replay and runtime. Resolve a typed capability registry for market data, reference data, calendars, valuation, account and execution interfaces; reject unsupported product/channel/order/freshness combinations before startup. Bind dataset → experiment → candidate → deployment identities without granting authority. | MR02–MR03; integrate MR04 serving interfaces and MR11 conformance when available |
 | MR06 | **[Independent deployable packages and trusted installation](../governance/workflow.md#build-a-release) — complete for the [declared local scope](#mr06-delivery-and-acceptance).** Build, verify, install and roll back pinned artifacts/configuration/state on the declared target; reject provenance, dependency, signature and compatibility failures. Prove that collector/execution applications install without unrelated research, notebook, training or reporting dependencies; shared contracts and independently locked workers retain compatible versions and release cadences. Resolve current release restrictions and verify research/shadow credentials cannot submit production orders. | Existing build/admission and MR16 package contracts; MR04 local environment profile supplies the target; MR06 does not wait for full MR04 or MR16 completion |
-| MR07 | **[Paper/shadow runtime and OMS](../architecture/platform-design.md#oms-and-venue-adapter-design).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
+| MR07 | **[Paper/shadow runtime and OMS](../architecture/platform-design.md#oms-and-venue-adapter-design) — complete for the [declared local scope](#mr07-delivery-and-acceptance).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
 | MR08 | **[Independent risk and account reconciliation](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Unknown sends, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate physical venue reconciliation through MR11. | MR07 and existing risk/accounting; base paper acceptance precedes MR11 external evidence |
 | MR09 | **[Portfolio and shared-account infrastructure](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
 | MR10 | **[Operational qualification](../architecture/platform-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Keep paper results distinct from later MR11 private-stream/venue evidence; final operational acceptance incorporates MR11–MR14 results. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
@@ -849,6 +852,145 @@ each earlier capability. MR15 sets budgets at the start, accepts research capaci
 at G2 and completes against the integrated runtime before MR17. MR16 proceeds
 alongside delivery; packaging changes relevant to MR06 cannot wait until handoff.
 The tables own exact prerequisites; incremental acceptance never erases open scope.
+
+### MR07 delivery and acceptance
+
+Status: **complete for local dedicated-account paper/shadow operation**, accepted
+2026-09-25. Owner: quant development. The acceptance envelope is
+local paper/shadow, one cash-funded spot instrument and instance per dedicated
+account. The initial native inputs remain OKX `books` L2 and Bitfinex `R0` L3.
+Generalized candidate, named-source, feature and target/order/quote contracts are
+preserved; unsupported product economics still fail admission.
+
+Delivered behavior:
+
+- `runtime.PaperCandidateRuntime` supervises the existing candidate feature/model/
+  policy components with start/recovery, market, timer, order, account, stop and
+  fault events. Candidate state, decision inputs/results and order admission are
+  committed together. Durable event cursors replay the then-current account
+  balance without delivering a later fill early. Stale input, serving loss,
+  changed versions, unknown orders and account breaks suppress new decisions.
+- `execution.PaperOrderJournal` owns stable child IDs, exact portable order records,
+  SQLite transactions, one POSIX-fenced owner and persisted epochs. Request
+  acknowledgment, accepted state, cancel acknowledgment and confirmed terminal
+  outcomes remain distinct. Duplicate retries reopen saved results; conflicting
+  bytes fail. Partial fills post exactly once. Unknown outcomes preserve
+  reservations and require explicit reconciliation before retry. Replacement
+  requires the old order to be terminal and retains its lineage.
+- `PaperMatcher` consumes finite displayed bid/ask liquidity shared by orders,
+  later-than-decision market events, resting post-only admission, IOC residual
+  cancellation and exact fees. Paper fills are modeled observations; shadow never
+  matches. Neither path has an executable submit interface.
+- `applications.paper.run_paper` composes source or `CandidateFeatureFeed` with
+  these same owners. `run_live_paper` injects native transport/book adapters into
+  the reusable neutral collector and supervises a real UTC scheduler alongside it.
+  The callback occurs after durable capture/reconstruction. Original receipt and
+  actual local delivery clocks are both retained, allowing saved-live replay
+  without inventing earlier availability. A fresh recording starts with a fresh
+  synchronized book while candidate/order state survives process restart.
+- The independent `alpha-execute paper` application accepts durable steps,
+  normalized events, modeled markets, cancellation, confirmed replacement and
+  inspection without importing research, simulation, training, notebooks or
+  QuantLib. Candidate supervision remains in the complete research distribution.
+
+Owning contracts and usage are in the [runtime guide](../../src/runtime/README.md#paper-candidate-supervision),
+[execution guide](../../src/execution/README.md), [paper application](../../src/applications/paper/README.md),
+[execute command](../../src/applications/execute/README.md) and
+[test guide](../../tests/README.md#paper-and-live-input-acceptance).
+
+Acceptance evidence is retained under ignored `logs/mr07/`:
+
+| Boundary | Evidence and outcome |
+| --- | --- |
+| OMS lifecycle and independent limits | `independent-execution-pytest-final.log`: 21 focused execution/risk cases, including uncertain outcomes, partial fill/fee reservations, cancel/fill races, terminal contradiction, atomic quotes and replacement |
+| Candidate clocks and hard controls | `runtime-focused.log`: 11 candidate/runtime cases, including paper/shadow parity, restored callbacks, stale quotes, clock regression, account break and a faulting callback unable to undo an independent block |
+| Interrupted matching and independent stop | `runtime-final.log`: 13 runtime cases after review fixes, including completing a claimed quote before advancing the recovery clock, no duplicate fill/account callback, and preserving operator stop across both failed and successful reconciliation |
+| Installed candidate and real serving | `installed-candidates-rerun.log`: both installed integration tests pass; `installed-candidates-source/` and `installed-candidates-feast/` retain actual candidate bundles, studies, paper traces and summaries. Rule-order and learned-target candidates preserve intent/feature parity and independently expected exact fill/fee/cash values; real Feast service loss and version change pause the OMS |
+| Independent execution installation | `independent-execution-claim/README.md`: final admitted eight-wheel closure, clean offline install/pip check, all 58 owned source files matched, outside-checkout CLI partial fill, shadow refusal, confirmed replacement and restart parity; changed quote bytes rejected after interrupted matching while exact retry preserves liquidity/effects. Its focused execution/runtime run passes 28 cases |
+| Independent collector installation | `collector-boundary/`: admitted 14-wheel closure with 16 edges, fresh offline installation/pip check, outside-checkout recovery consumer and `alpha-collect replay`; source parity and absence of research/simulation/execution verified |
+| Earlier partial-fill installed proof | `independent-execution/`: retained original artifact demonstrates partial quantity 1 of 2, cash 899.90, holding 1, remaining reservation 100.90, duplicate/restart parity and shadow fill refusal |
+| Actual OKX public input | `live-okx/summary.json` and `live-okx.log`: 8-second `books` L2 recording, 74 frames, one snapshot, 72 updates, no gaps, raw replay parity; seven decided cutoffs/orders from eight timer ticks |
+| Actual Bitfinex public input | `live-bitfinex/summary.json` and `live-bitfinex.log`: 8-second `R0` L3 recording, 250 frames, one snapshot, 246 updates, no gaps, raw replay parity; seven decided cutoffs/orders from eight timer ticks |
+| Same-component saved-live replay and restart | Both native output trees retain paper/shadow replay journals: all original paper `StepRecord` bytes, orders and ledger equal; shadow status/features/intents equal and no fills; a fresh recording preserves source binding, reopens the account and retries the saved timer without duplicate effects |
+| Source identity of live acceptance | `live-installed-source-parity.json`: all 272 installed runtime/source/resource files match current source; installed source identity `8a8c059e42807b7f5f25392a095fa3c4fc6d3d9413979b0b1e6932b6e8b3dce9` |
+| Complete local gate | `make-check.log`: complete `make check`, 1,502 tests passed, three performance tests deselected, real Feast enabled, strict mypy/stubtest, lint/format, engineering/dependency/link checks, security/audit/secret scan and isolated wheel APIs/resources/OKX book command. Short pytest base `/private/tmp/mr07-check` avoids macOS socket path limits |
+
+`final-wheel/` retains the final research wheel, locked runtime requirements,
+smoke inputs/results and a 272-file source-parity manifest. Its wheel SHA-256 is
+`106aec1bec9ef1f754100de2bba2eb0bd53e19154078e4fdbb00c9ca1745d415`.
+`final-candidates-source/` and `final-candidates-feast/` preserve the installed
+consumer outputs from the final complete gate. Earlier snapshots remain separate.
+
+The native runs used the installed core interpreter with `-I` and the three
+maintained consumer scripts copied outside the checkout to
+`/private/tmp/mr07-live-consumer/`. Exact script copies and bounded configs remain
+in `live-consumer/` and `live-configs/`. The command for each venue was:
+
+```sh
+/private/tmp/ar07-core/bin/python -I /private/tmp/mr07-live-consumer/live_paper.py \
+  --config /absolute/repository/logs/mr07/live-configs/okx.json \
+  --output /absolute/repository/logs/mr07/live-okx
+```
+
+Use `bitfinex` in the config/output paths for its run. Capture duration was eight
+seconds with zero retries. Each run retained actual source timestamps, receipt,
+delivery and cadence clocks; no clock was shifted to force availability. The
+passive engineering reference bid did not fill in either live-input run.
+The summary's `canonical_parity=false` means optional persisted canonical batch
+publication was not selected; raw native replay and the complete saved-delivery
+paper replay both passed. Modeled fill semantics are established separately by
+the exact controlled matching and installed OMS proofs.
+
+The complete local command used an isolated task environment, preserving active
+worker environments:
+
+```sh
+UV_PROJECT_ENVIRONMENT=/private/tmp/ar07-gate TMPDIR=/private/tmp \
+  ALPHA_FEAST_WORKER_PYTHON=/private/tmp/ar07-feast/bin/python \
+  PYTEST_ADDOPTS=--basetemp=/private/tmp/mr07-check \
+  make check > logs/mr07/make-check.log 2>&1
+```
+
+The initial gate's single failure was an installed recovery consumer still
+patching the old collector module after extraction; its log is retained as
+`make-check-before-recovery-fixes.log`. The mock now targets the functional owner,
+and the installed recovery consumer plus complete gate pass. Review also added
+regressions for immutable quote claims, interrupted matching recovery, equal-time
+book delivery and preserving independent stops during reconciliation. Changed
+operating wheels were rebuilt and requalified; old proof hashes remain intact.
+
+The final independent execution wheel SHA-256 is
+`fd05a2d8d489f1f642f10b10f795bdcc7eb36f5086a6dccd8ab5813ad043fc59`;
+its contracts wheel is
+`1e661e802fb2c4f6f86d6e0ed589de6a74f69c7ac0d3b8fd9505e6ee244c6194`.
+The earlier partial-fill proof retains its original wheel hash rather than being
+relabeled as a later artifact. These are installed software proofs, not a signed
+production deployment. The complete research graph's existing QuantLib
+source-to-wheel release restriction is unchanged.
+
+Prerequisite ownership is explicit. MR08 owns the delivered dedicated-account
+cash/inventory/fee reservation and local reconciliation slice. Account/firm
+budgets across instances, transfers, rebates, correction posting and physical
+venue reconciliation remain open. MR11 owns authenticated execution, private
+streams, venue rules/throttles and external uncertainty resolution for **both**
+venues. MR10 owns broader failure/recovery drills; MR12 owns alert/dashboard
+integration; MR13 owns deployment authority and safe activation; MR09/MR14 own
+shared accounts and multiple active instances. None is closed by this slice.
+
+A fill contradicting an already confirmed terminal cancellation saves a durable
+`late_terminal_fill` block and raises without rewriting the ledger. Local matching
+of a paper snapshot cannot clear this contradiction; the owning correction and
+physical reconciliation increment must resolve it. Paper touch matching models
+neither queue position nor market impact. Declared authored grids/fees are not
+current venue-rule qualification. Native observations prove the data-to-runtime
+boundary only, and completed engineering studies are not empirical strategy
+evidence. Capacity, production operation and MR17/G5 remain open; formal QR work
+has not started.
+
+Reversal is patch review/revert plus selection of a compatible retained wheel and
+its exact candidate/configuration/journal. Keep captured input and OMS bytes.
+Never edit checkpoint identities or erase fills to force an older artifact to
+accept newer state. Local acceptance does not authorize deployment or live trading.
 
 ## Decisive acceptance scenarios
 

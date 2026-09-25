@@ -187,3 +187,58 @@ publication, including after a service-volume restore. Use absolute
 checks deliberately change working directories. The study consumer now also
 checks scheduled jobs and workspace restore; its existing ClearML verifier
 checks the selected deferred attempts against the actual local service.
+
+## Paper and live-input acceptance
+
+`tests/unit/execution/` exercises the portable OMS and finite-liquidity matcher:
+atomic quote admission, exact cash/inventory/fee reservations, fencing, restart,
+duplicate events, uncertain outcomes, partial fills, cancellation acknowledgments,
+confirmed replacement and contradictory terminal facts. Runtime tests add
+checkpointed lifecycle callbacks, hard blocks, causal order/account callbacks,
+stale-data pauses and unchanged intents across paper and shadow modes.
+
+The installed [candidate consumer](integration/consumers/research/candidate_workflow.py)
+now runs completed rule-order and learned-target candidates through
+`applications.paper.run_paper`. It checks independently expected fills, fees and
+cash, shadow suppression and restart. Its `feast` mode also runs the actual
+isolated online store through the paper OMS, including service-loss and version-change
+pauses. Select it with:
+
+```sh
+ALPHA_FEAST_WORKER_PYTHON=/absolute/pinned-feast-worker/bin/python \
+  uv run --frozen --no-editable pytest -q -m integration \
+  --basetemp=/private/tmp/mr07-candidates \
+  tests/integration/test_candidate_workflow.py
+```
+
+For bounded actual public-input acceptance, copy
+[`live_paper.py`](integration/consumers/runtime/live_paper.py),
+[`candidate_workflow.py`](integration/consumers/research/candidate_workflow.py) and
+[`decision_study.py`](integration/consumers/research/decision_study.py) together
+outside the checkout. Use the installed core interpreter and a bounded copy of
+`configs/live/okx-btc-usdt.json` or `configs/live/bitfinex-btc-usd.json`:
+
+```sh
+/absolute/core/bin/python -I /absolute/consumer/live_paper.py \
+  --config /absolute/okx-paper-capture.json --output /absolute/fresh-okx-paper
+```
+
+The maintained workload packages a synthetic historical engineering study before
+binding current native feed observations. Source evidence retains both original
+receipt and actual post-persistence delivery clocks. The paper price/grid/fee
+assumptions are fixtures; live books do not qualify private venue execution or
+validate the reference rule's profitability. The roadmap retains the actual
+commands, output identities and limits under MR07. This public-network workload
+is explicit acceptance work, not an unconditional test-suite network dependency.
+It also replays the saved delivery envelopes and timer identities through the
+same source/runtime classes, checks exact paper journal/account equality, compares
+shadow intents with zero fills, and reopens the account with a fresh recording
+identity without duplicating the last decision or its effects.
+
+Run the final local gate with the same real worker and a short macOS socket path:
+
+```sh
+PYTEST_ADDOPTS=--basetemp=/private/tmp/mr07-check \
+  ALPHA_FEAST_WORKER_PYTHON=/absolute/pinned-feast-worker/bin/python \
+  make check > logs/mr07/make-check.log 2>&1
+```

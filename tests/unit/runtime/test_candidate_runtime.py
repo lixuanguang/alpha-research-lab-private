@@ -17,7 +17,7 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from applications.explore import run_candidate_feature
+from accounting import Ledger, LedgerState
 from configuration import (
     CandidateDeployment,
     CapabilityField,
@@ -26,8 +26,10 @@ from configuration import (
     CapabilityRegistry,
     CapabilityRequirement,
     CapabilitySelection,
+    PaperConfiguration,
     UniverseSelection,
 )
+from execution import PaperMarket, PaperOrderJournal
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from research.experiments import (
@@ -47,14 +49,23 @@ from research.features import (
     VersionedFeatureStore,
 )
 from research.features.serving import FeastServingBridge
-from research.observations import DecisionInputs, InputRequirement, NamedObservation, NumericField
-from runtime import CandidateSession, LoadedCandidate
+from research.observations import (
+    DecisionInputs,
+    InputRequirement,
+    NamedObservation,
+    NumericField,
+    NumericHistorySource,
+)
+from risk import SpotLimits
+from runtime import CandidateFeatureFeed, CandidateSession, LoadedCandidate, PaperCandidateRuntime
+from serialization import DomainCodec, WireRecord
 from strategies import (
     DecisionContext,
     DecisionIntent,
     DecisionTransition,
     ExposureIntent,
     OrderIntent,
+    StrategyEvent,
     TargetIntent,
 )
 
@@ -549,7 +560,7 @@ class TestCandidateSession:
             feature_version="version-one",
         )
         assert loaded.store_definition == definition
-        step = run_candidate_feature(CandidateSession(loaded), store, at=_AT)
+        step = CandidateFeatureFeed(store).evaluate(CandidateSession(loaded), _AT)
         assert step.status == "decided"
         assert step.feature is not None
         assert step.feature.values == (ExactRatio.from_fraction(Fraction(2)),)
@@ -561,9 +572,41 @@ class TestCandidateSession:
             source_identity=missing_identity,
             feature_version="version-one",
         )
-        paused = run_candidate_feature(CandidateSession(missing), absent, at=_AT)
+        paused = CandidateFeatureFeed(absent).evaluate(CandidateSession(missing), _AT)
         assert paused.status == "paused" and paused.reason == "missing"
         assert paused.checkpoint == CandidateSession(missing).checkpoint()
+
+    def test_feature_feed_rejects_unbound_or_changed_deployment(self, tmp_path: Path) -> None:
+        """Reject source mode, missing online access and a mismatched pinned snapshot."""
+        store, _, identity = self._store(tmp_path, has_feature=True)
+        feed = CandidateFeatureFeed(store)
+        source = CandidateSession(self._loaded(_ReferencePolicy()))
+        with pytest.raises(ValueError, match="no feature-store binding"):
+            feed.evaluate(source, _AT)
+        online = CandidateSession(
+            self._loaded(
+                _ReferencePolicy(),
+                incremental=False,
+                input_mode="online_features",
+                source_identity=identity,
+                feature_version="version-one",
+            )
+        )
+        with pytest.raises(ValueError, match="isolated Feast bridge"):
+            feed.evaluate(online, _AT)
+        changed = CandidateSession(
+            self._loaded(
+                _ReferencePolicy(),
+                incremental=False,
+                input_mode="offline_features",
+                source_identity="0" * 64,
+                feature_version="version-one",
+            )
+        )
+        checkpoint = changed.checkpoint()
+        with pytest.raises(ValueError, match="materialization differs from pinned deployment"):
+            feed.evaluate(changed, _AT)
+        assert changed.checkpoint() == checkpoint
 
     def test_online_future_and_expired_pause_before_serving_io(self, tmp_path: Path) -> None:
         """The pinned store itself rejects a future snapshot and expired value."""
@@ -580,12 +623,10 @@ class TestCandidateSession:
             feature_version="version-one",
             starts_at=_AT - timedelta(seconds=1),
         )
-        future_step = run_candidate_feature(
+        feed = CandidateFeatureFeed(store, bridge=bridge, serving_root=tmp_path)
+        future_step = feed.evaluate(
             CandidateSession(future),
-            store,
-            at=_AT - timedelta(seconds=1),
-            bridge=bridge,
-            serving_root=tmp_path,
+            _AT - timedelta(seconds=1),
         )
         assert future_step.status == "paused" and future_step.reason == "future"
         expired = self._loaded(
@@ -597,13 +638,7 @@ class TestCandidateSession:
             source_identity=identity,
             feature_version="version-one",
         )
-        expired_step = run_candidate_feature(
-            CandidateSession(expired),
-            store,
-            at=_AT + timedelta(seconds=2),
-            bridge=bridge,
-            serving_root=tmp_path,
-        )
+        expired_step = feed.evaluate(CandidateSession(expired), _AT + timedelta(seconds=2))
         assert expired_step.status == "paused" and expired_step.reason == "expired"
         assert worker.calls == 0
 
@@ -621,12 +656,255 @@ class TestCandidateSession:
             source_identity=identity,
             feature_version="version-one",
         )
-        stale_step = run_candidate_feature(
-            CandidateSession(loaded),
-            store,
-            at=_AT + timedelta(seconds=2),
-            bridge=FeastServingBridge(worker),
-            serving_root=tmp_path,
-        )
+        stale_step = CandidateFeatureFeed(
+            store, bridge=FeastServingBridge(worker), serving_root=tmp_path
+        ).evaluate(CandidateSession(loaded), _AT + timedelta(seconds=2))
         assert stale_step.status == "paused" and stale_step.reason == "stale"
         assert worker.calls == 0
+
+
+class _LifecycleHistory(WireRecord, frozen=True):
+    """Retain validated immutable callback evidence for the authored policy."""
+
+    events: tuple[StrategyEvent, ...] = ()
+
+
+class _LifecyclePolicy(_ReferencePolicy):
+    """Retain callback observations in pure state so restart delivery can be asserted."""
+
+    def __init__(self) -> None:
+        """Start with callbacks enabled and an explicit failure switch."""
+        super().__init__()
+        self.fail_kind: str | None = None
+
+    def initial_state(self) -> bytes:
+        """Start with an empty lifecycle event history."""
+        return b'{"events":[]}'
+
+    def validate_state(self, state: bytes) -> None:
+        """Require strictly decoded immutable lifecycle observations."""
+        DomainCodec().decode_json(state, _LifecycleHistory)
+
+    def on_event(self, event: StrategyEvent, state: bytes) -> bytes:
+        """Append the supplied immutable event without keeping hidden economic state."""
+        if event.kind == self.fail_kind:
+            raise ValueError("authored callback failure")
+        events = DomainCodec().decode_json(state, _LifecycleHistory).events
+        return DomainCodec().encode_json(_LifecycleHistory(events=(*events, event)))
+
+    def decide(self, context: DecisionContext, state: bytes) -> DecisionTransition:
+        """Request the same one-unit target regardless of callback history."""
+        context.__post_init__()
+        self.validate_state(state)
+        return DecisionTransition(
+            intent=TargetIntent(
+                quantity=Quantity(
+                    value=Decimal("1"),
+                    dimension=Dimension(instrument_id=_INSTRUMENT, kind=QuantityKind.BASE_UNIT),
+                )
+            ),
+            state=state,
+        )
+
+
+class TestPaperCandidateRuntime:
+    """Check the connected candidate, paper matching, account and durable callback boundaries."""
+
+    @staticmethod
+    def _runtime(
+        path: Path,
+        *,
+        mode: Literal["paper", "shadow"] = "paper",
+        policy: _LifecyclePolicy | None = None,
+    ) -> PaperCandidateRuntime:
+        """Bind independent source inputs and a funded single-instrument account."""
+        source = NumericHistorySource(
+            tuple(
+                TestCandidateSession._inputs(_AT + timedelta(seconds=i), 1).observations[0]
+                for i in range(4)
+            ),
+            (_INPUT,),
+        )
+        loaded = TestCandidateSession._loaded(
+            policy or _LifecyclePolicy(),
+            source_identity=source.identity,
+            on_gap="reset",
+        )
+        dimension = Dimension(instrument_id=_INSTRUMENT, kind=QuantityKind.BASE_UNIT)
+        currency = Currency.from_code("USD")
+        config = PaperConfiguration(
+            account="dedicated",
+            mode=mode,
+            initial_cash=Money(value=Decimal("1000"), currency=currency),
+            maximum=Quantity(value=Decimal("10"), dimension=dimension),
+            lot=Quantity(value=Decimal("1"), dimension=dimension),
+            tick=Price(value=Decimal("1"), currency=currency, per=dimension),
+            maximum_fee=Money(value=Decimal("0"), currency=currency),
+            fee_rate=Decimal("0"),
+            market_max_age_us=1_000_000,
+        )
+        journal = PaperOrderJournal(
+            path,
+            account=config.account,
+            instance=loaded.deployment.instance,
+            binding_identity=PaperCandidateRuntime.binding(loaded, config),
+            mode=mode,
+            limits=SpotLimits(
+                maximum=config.maximum, lot=config.lot, tick=config.tick, product="spot"
+            ),
+            ledger_state=LedgerState(initial_cash=config.initial_cash, dimension=dimension),
+        )
+        return PaperCandidateRuntime(loaded, config, journal, source=source)
+
+    @staticmethod
+    def _market(runtime: PaperCandidateRuntime, second: int) -> PaperMarket:
+        """Author one-unit touch liquidity at 99/100 with original availability."""
+        return PaperMarket(
+            identity=f"quote-{second}",
+            at=_AT + timedelta(seconds=second),
+            bid=Price(
+                value=Decimal("99"),
+                currency=runtime.config.tick.currency,
+                per=runtime.config.maximum.dimension,
+            ),
+            ask=Price(
+                value=Decimal("100"),
+                currency=runtime.config.tick.currency,
+                per=runtime.config.maximum.dimension,
+            ),
+            bid_quantity=runtime.config.lot,
+            ask_quantity=runtime.config.lot,
+        )
+
+    def test_paper_shadow_parity_and_restart(self, tmp_path: Path) -> None:
+        """Keep decisions identical while only paper posts a single exact modeled fill."""
+        intents: list[DecisionIntent] = []
+        for mode in ("paper", "shadow"):
+            runtime = self._runtime(tmp_path / f"{mode}.sqlite3", mode=mode)
+            runtime.open(owner="first", at=_AT)
+            runtime.market(self._market(runtime, 0))
+            step, admitted = runtime.timer(identity="first", at=_AT)
+            assert step.decision is not None and admitted.status == "committed"
+            intents.append(step.decision.intent)
+            assert runtime.timer(identity="first", at=_AT) == (step, admitted)
+            assert len(runtime.journal.orders()) == 1
+            runtime.market(self._market(runtime, 1))
+            runtime.release()
+            restored = self._runtime(tmp_path / f"{mode}.sqlite3", mode=mode)
+            restored.open(owner="restarted", at=_AT + timedelta(seconds=1))
+            restored.market(self._market(restored, 1))
+            balance = Ledger(restored.journal.ledger_state()).balance
+            assert balance.cash.value == (Decimal("900") if mode == "paper" else Decimal("1000"))
+            assert balance.holding.value == (Decimal("1") if mode == "paper" else Decimal("0"))
+            callbacks = (
+                DomainCodec()
+                .decode_json(restored.checkpoint().candidate.policy.state, _LifecycleHistory)
+                .events
+            )
+            assert sum(e.kind == "timer" for e in callbacks) == 1
+            assert sum(e.kind == "recovery" for e in callbacks) == 1
+            assert sum(e.kind == "account" for e in callbacks) == (1 if mode == "paper" else 0)
+            restored.release()
+        assert intents[0] == intents[1]
+
+    def test_stale_clock_account_break_and_callback_failure(self, tmp_path: Path) -> None:
+        """Keep hard safety state effective even when strategy callbacks fail."""
+        policy = _LifecyclePolicy()
+        runtime = self._runtime(tmp_path / "runtime.sqlite3", policy=policy)
+        runtime.open(owner="test", at=_AT)
+        runtime.market(self._market(runtime, 0))
+        paused, _ = runtime.timer(identity="stale", at=_AT + timedelta(seconds=2))
+        assert paused.reason == "market-unavailable"
+        assert not runtime.journal.orders()
+        with pytest.raises(ValueError, match="clock regressed"):
+            runtime.market(self._market(runtime, 1))
+        balance = Ledger(runtime.journal.ledger_state()).balance
+        assert not runtime.reconcile(
+            identity="break",
+            at=_AT + timedelta(seconds=2),
+            cash=Money(value=Decimal("999"), currency=balance.cash.currency),
+            holding=balance.holding,
+            open_order_ids=(),
+        )
+        assert runtime.journal.blocked_reason() == "account_break"
+        assert runtime.reconcile(
+            identity="correct",
+            at=_AT + timedelta(seconds=2),
+            cash=balance.cash,
+            holding=balance.holding,
+            open_order_ids=(),
+        )
+        assert runtime.journal.blocked_reason() is None
+        policy.fail_kind = "fault"
+        with pytest.raises(ValueError, match="callback failure"):
+            runtime.block(
+                identity="independent", at=_AT + timedelta(seconds=2), reason="operator-block"
+            )
+        assert runtime.checkpoint().blocked == "operator-block"
+        runtime.release()
+
+    def test_interrupted_market_finishes_before_recovery_advances_clock(
+        self, tmp_path: Path
+    ) -> None:
+        """Restore a quote with posted fills but no completed callbacks without double effects."""
+        policy = _LifecyclePolicy()
+        path = tmp_path / "interrupted.sqlite3"
+        runtime = self._runtime(path, policy=policy)
+        runtime.open(owner="first", at=_AT)
+        runtime.market(self._market(runtime, 0))
+        runtime.timer(identity="intent", at=_AT)
+        policy.fail_kind = "order"
+        with pytest.raises(ValueError, match="callback failure"):
+            runtime.market(self._market(runtime, 1))
+        assert len(runtime.journal.ledger_state().fills) == 1
+        assert runtime.journal.step("market:quote-1") is None
+        runtime.release()
+
+        restored = self._runtime(path)
+        restored.open(owner="recovered", at=_AT + timedelta(seconds=3))
+        assert restored.journal.step("market:quote-1") is not None
+        assert len(restored.journal.ledger_state().fills) == 1
+        balance = Ledger(restored.journal.ledger_state()).balance
+        assert balance.cash.value == Decimal("900")
+        assert balance.holding.value == Decimal("1")
+        callbacks = (
+            DomainCodec()
+            .decode_json(restored.checkpoint().candidate.policy.state, _LifecycleHistory)
+            .events
+        )
+        assert sum(event.kind == "account" for event in callbacks) == 1
+        account = next(event for event in callbacks if event.kind == "account")
+        assert account.at == _AT + timedelta(seconds=1)
+        assert callbacks[-1].kind == "recovery"
+        assert callbacks[-1].at == _AT + timedelta(seconds=3)
+        restored.market(self._market(restored, 1))
+        assert len(restored.journal.ledger_state().fills) == 1
+        restored.release()
+
+    def test_reconciliation_cannot_clear_operator_stop(self, tmp_path: Path) -> None:
+        """Both mismatching and matching account observations preserve an independent stop."""
+        runtime = self._runtime(tmp_path / "stopped.sqlite3")
+        runtime.open(owner="operator", at=_AT)
+        runtime.market(self._market(runtime, 0))
+        runtime.stop(identity="stop", at=_AT)
+        balance = Ledger(runtime.journal.ledger_state()).balance
+        assert not runtime.reconcile(
+            identity="mismatch",
+            at=_AT,
+            cash=Money(value=Decimal("999"), currency=balance.cash.currency),
+            holding=balance.holding,
+            open_order_ids=(),
+        )
+        assert runtime.checkpoint().blocked == "operator-stop"
+        assert runtime.reconcile(
+            identity="matched",
+            at=_AT,
+            cash=balance.cash,
+            holding=balance.holding,
+            open_order_ids=(),
+        )
+        assert runtime.checkpoint().blocked == "operator-stop"
+        step, _ = runtime.timer(identity="still-stopped", at=_AT)
+        assert step.reason == "operator-stop"
+        assert not runtime.journal.orders()
+        runtime.release()

@@ -10,6 +10,7 @@ import subprocess
 import sys
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Literal, Protocol
@@ -19,12 +20,13 @@ import msgspec
 from msgspec.structs import replace
 
 # project library imports
+from accounting import Ledger, LedgerState
 from applications.explore import (
     StudyComponents,
     evaluate_study,
     run_candidate,
-    run_candidate_feature,
 )
+from applications.paper import PaperRunResult, PaperTimer, run_paper
 from configuration import (
     CandidateDeployment,
     CapabilityField,
@@ -32,8 +34,11 @@ from configuration import (
     CapabilityRegistry,
     CapabilityRequirement,
     CapabilitySelection,
+    PaperConfiguration,
     UniverseSelection,
 )
+from execution import PaperMarket, PaperOrderJournal
+from financial_units import Currency, Dimension, Money, Price, Quantity
 from reference_data.instruments import InstrumentId
 from research.experiments import (
     AttemptHistory,
@@ -67,9 +72,11 @@ from research.studies import (
     StudyArtifact,
     StudyResult,
 )
+from risk import SpotLimits
 from runtime import (
     CandidateCheckpoint,
     CandidateComponents,
+    CandidateFeatureFeed,
     CandidateLoader,
     CandidateSession,
     CandidateStep,
@@ -78,6 +85,7 @@ from runtime import (
     FeatureFactory,
     ImplementationIdentity,
     MetricFactory,
+    PaperCandidateRuntime,
     PolicyFactory,
     TransformFactory,
 )
@@ -90,9 +98,19 @@ class _ScenarioView(Protocol):
 
     entity: str
     source: NumericHistorySource
+    dimension: Dimension
+    currency: Currency
 
     def at(self, second: int) -> datetime:
         """Return the fixture's authored UTC clock."""
+        ...
+
+    def price(self, value: str) -> Price:
+        """Return an exact price for the fixture's instrument and quote currency."""
+        ...
+
+    def quantity(self, value: str) -> Quantity:
+        """Return an exact base-unit quantity for the fixture's instrument."""
         ...
 
 
@@ -234,6 +252,10 @@ class _CandidateAcceptance:
         learned: bool,
         implementation_sha256: str,
         implementation_payload: bytes,
+        requirements: tuple[CapabilityRequirement, ...] | None = None,
+        cadence_us: int = 10_000_000,
+        on_gap: Literal["pause", "reset"] = "pause",
+        metric_currency: str = "USDT",
     ) -> CandidateManifest:
         """Publish exact completed study and selected fold state as an engineering handoff."""
         codec = DomainCodec()
@@ -351,11 +373,13 @@ class _CandidateAcceptance:
             assessment=None,
             components=tuple(components),
             inputs=feature.inputs,
-            requirements=_CandidateAcceptance._capabilities(output),
+            requirements=(
+                _CandidateAcceptance._capabilities(output) if requirements is None else requirements
+            ),
             product="spot",
             calendar="continuous-utc",
             entities=(study.economics.entity,),
-            cadence_us=10_000_000,
+            cadence_us=cadence_us,
             available_at=fold.model.available_at
             if learned and fold.model is not None
             else study.folds[0].decisions[0],
@@ -364,7 +388,7 @@ class _CandidateAcceptance:
                 feature_mode="batch",
                 warmup_observations=0,
                 checkpoint_schema="candidate-checkpoint-v1",
-                on_gap="pause",
+                on_gap=on_gap,
                 on_restart="restore",
                 policy_state_schema="decision-state-v1",
             ),
@@ -382,7 +406,7 @@ class _CandidateAcceptance:
                     kind="chart",
                     component_key="fresh-profit-chart",
                     version="1",
-                    units="USDT",
+                    units=metric_currency,
                     applies_to=("research", "runtime"),
                 ),
             ),
@@ -546,6 +570,7 @@ class _FeatureCandidateAcceptance:
         scenario: _ScenarioView,
         source_deployment: CandidateDeployment,
         source_step: CandidateStep,
+        decision_second: int,
     ) -> dict[str, object]:
         """Pin a real snapshot and compare source, offline and optional Feast intents."""
         assert manifest.feature_store is not None and source_step.feature is not None
@@ -578,9 +603,12 @@ class _FeatureCandidateAcceptance:
             source_identity=snapshot.identity,
             feature_version=version,
         )
-        loader = CandidateLoader(components, _CandidateAcceptance._registry(manifest.requirements))
+        registry = _CandidateAcceptance._registry(manifest.requirements)
+        loader = CandidateLoader(components, registry)
         offline_session = CandidateSession(loader.load(bundle, offline))
-        offline_step = run_candidate_feature(offline_session, self.store, at=vector.decision_at)
+        offline_step = CandidateFeatureFeed(self.store).evaluate(
+            offline_session, vector.decision_at
+        )
         assert source_step.status == offline_step.status == "decided"
         assert source_step.feature == offline_step.feature
         assert source_step.prediction == offline_step.prediction
@@ -603,59 +631,298 @@ class _FeatureCandidateAcceptance:
             feature_version=version,
         )
         online_session = CandidateSession(loader.load(bundle, online))
-        online_step = run_candidate_feature(
-            online_session,
-            self.store,
-            at=vector.decision_at,
-            bridge=self.bridge,
-            serving_root=self.serving_root,
+        online_feed = CandidateFeatureFeed(
+            self.store, bridge=self.bridge, serving_root=self.serving_root
         )
+        online_step = online_feed.evaluate(online_session, vector.decision_at)
         assert online_step.status == "decided"
         assert source_step.feature == online_step.feature
         assert source_step.prediction == online_step.prediction
         assert online_step.decision is not None
         assert source_step.decision.intent == online_step.decision.intent
-        checkpoint = online_session.checkpoint()
-        stale = run_candidate_feature(
-            online_session,
-            self.store,
-            at=vector.decision_at + timedelta(seconds=10),
-            bridge=self.bridge,
-            serving_root=self.serving_root,
+        market_events = _PaperCandidateAcceptance._events(name, scenario, decision_second)
+        paper, paper_step = _PaperCandidateAcceptance.run_online(
+            root=self.root,
+            name=name,
+            case="online",
+            bundle=bundle,
+            deployment=online,
+            components=components,
+            registry=registry,
+            scenario=scenario,
+            feed=online_feed,
+            decision_second=decision_second,
+            events=market_events,
         )
+        assert paper_step.status == "decided" and paper_step.decision is not None
+        assert paper_step.feature == source_step.feature
+        assert paper_step.prediction == source_step.prediction
+        assert paper_step.decision.intent == source_step.decision.intent
+        assert len(paper.orders) == len(paper.ledger.fills) == 1
+        assert paper.checkpoint.candidate.policy.last_at == vector.decision_at
+        assert paper.submission_attempted is False
+        checkpoint = online_session.checkpoint()
+        stale = online_feed.evaluate(online_session, vector.decision_at + timedelta(seconds=10))
         assert stale.status == "paused" and stale.checkpoint == checkpoint
         lost_session = CandidateSession(loader.load(bundle, online))
-        unavailable = run_candidate_feature(
-            lost_session,
-            self.store,
-            at=vector.decision_at,
-            bridge=self.bridge,
-            serving_root=self.root / "missing-serving",
-        )
+        unavailable = CandidateFeatureFeed(
+            self.store, bridge=self.bridge, serving_root=self.root / "missing-serving"
+        ).evaluate(lost_session, vector.decision_at)
         assert (
             unavailable.status == "paused" and unavailable.checkpoint == lost_session.checkpoint()
         )
+        lost_paper, lost_step = _PaperCandidateAcceptance.run_online(
+            root=self.root,
+            name=name,
+            case="service-loss",
+            bundle=bundle,
+            deployment=online,
+            components=components,
+            registry=registry,
+            scenario=scenario,
+            feed=CandidateFeatureFeed(
+                self.store, bridge=self.bridge, serving_root=self.root / "missing-serving"
+            ),
+            decision_second=decision_second,
+            events=market_events[:2],
+        )
+        assert lost_step.status == "paused" and lost_step.reason == "feature-service-unavailable"
+        assert lost_paper.orders == () and lost_paper.ledger.fills == ()
+        assert lost_paper.checkpoint.candidate.policy.last_at is None
         changed_version = f"{name}-changed-v2"
         self.store.materialize(definition, changed_version, vector.decision_at, (vector.entity,))
         self.store.activate(definition, changed_version)
         changed_session = CandidateSession(loader.load(bundle, online))
-        changed = run_candidate_feature(
-            changed_session,
-            self.store,
-            at=vector.decision_at,
-            bridge=self.bridge,
-            serving_root=self.serving_root,
-        )
+        changed = online_feed.evaluate(changed_session, vector.decision_at)
         assert changed.status == "paused" and changed.reason == "feature-version-changed"
         assert changed.checkpoint == changed_session.checkpoint()
+        changed_paper, changed_step = _PaperCandidateAcceptance.run_online(
+            root=self.root,
+            name=name,
+            case="version-change",
+            bundle=bundle,
+            deployment=online,
+            components=components,
+            registry=registry,
+            scenario=scenario,
+            feed=online_feed,
+            decision_second=decision_second,
+            events=market_events[:2],
+        )
+        assert changed_step.status == "paused" and changed_step.reason == "feature-version-changed"
+        assert changed_paper.orders == () and changed_paper.ledger.fills == ()
+        assert changed_paper.checkpoint.candidate.policy.last_at is None
         self.store.activate(definition, version)
         proof.update(
             source_offline_online_equal=True,
+            online_paper_intent_equal=True,
+            online_paper_fill_count=len(paper.ledger.fills),
+            online_paper_service_loss_paused=True,
+            online_paper_version_change_paused=True,
             stale_paused=True,
             service_loss_paused=True,
             version_change_paused=True,
         )
         return proof
+
+
+class _PaperCandidateAcceptance:
+    """Exercise packaged source candidates in dedicated paper and shadow accounts."""
+
+    @staticmethod
+    def _config(
+        name: str, mode: Literal["paper", "shadow"], scenario: _ScenarioView
+    ) -> PaperConfiguration:
+        """Declare a finite, cash-backed local spot scenario for one candidate."""
+        return PaperConfiguration(
+            account=f"{name}-{mode}-account",
+            mode=mode,
+            initial_cash=Money(value=Decimal("1000"), currency=scenario.currency),
+            maximum=scenario.quantity("10"),
+            lot=scenario.quantity("1"),
+            tick=scenario.price("0.01"),
+            maximum_fee=Money(value=Decimal("1"), currency=scenario.currency),
+            fee_rate=Decimal("0.002"),
+            market_max_age_us=5_000_000,
+        )
+
+    @staticmethod
+    def _events(
+        name: str, scenario: _ScenarioView, decision_second: int
+    ) -> tuple[PaperMarket | PaperTimer, ...]:
+        """Place one authored timer between an eligible quote and later finite touches."""
+        return (
+            PaperMarket(
+                identity=f"{name}-before",
+                at=scenario.at(decision_second - 1),
+                bid=scenario.price("98"),
+                ask=scenario.price("100"),
+                bid_quantity=scenario.quantity("5"),
+                ask_quantity=scenario.quantity("5"),
+            ),
+            PaperTimer(identity=f"{name}-decision", at=scenario.at(decision_second)),
+            PaperMarket(
+                identity=f"{name}-entry",
+                at=scenario.at(decision_second + 1),
+                bid=scenario.price("98"),
+                ask=scenario.price("100"),
+                bid_quantity=scenario.quantity("5"),
+                ask_quantity=scenario.quantity("1"),
+            ),
+            PaperMarket(
+                identity=f"{name}-cross",
+                at=scenario.at(decision_second + 2),
+                bid=scenario.price("98"),
+                ask=scenario.price("99"),
+                bid_quantity=scenario.quantity("5"),
+                ask_quantity=scenario.quantity("1"),
+            ),
+        )
+
+    @classmethod
+    def run_online(
+        cls,
+        *,
+        root: Path,
+        name: str,
+        case: str,
+        bundle: CandidateBundle,
+        deployment: CandidateDeployment,
+        components: CandidateComponents,
+        registry: CapabilityRegistry,
+        scenario: _ScenarioView,
+        feed: CandidateFeatureFeed,
+        decision_second: int,
+        events: tuple[PaperMarket | PaperTimer, ...],
+    ) -> tuple[PaperRunResult, CandidateStep]:
+        """Run a pinned online candidate and reopen its durable timer decision."""
+        config = cls._config(f"{name}-feast-{case}", "paper", scenario)
+        journal_path = root / f"{name}-feast-{case}.sqlite3"
+        result = run_paper(
+            bundle,
+            deployment,
+            config,
+            components=components,
+            registry=registry,
+            journal_path=journal_path,
+            events=events,
+            opened_at=scenario.at(decision_second - 1),
+            owner=f"{name}-feast-{case}-owner",
+            source=None,
+            features=feed,
+        )
+        loaded = CandidateLoader(components, registry).load(bundle, deployment)
+        journal = PaperOrderJournal(
+            journal_path,
+            account=config.account,
+            instance=deployment.instance,
+            binding_identity=PaperCandidateRuntime.binding(loaded, config),
+            mode=config.mode,
+            limits=SpotLimits(
+                maximum=config.maximum, lot=config.lot, tick=config.tick, product="spot"
+            ),
+            ledger_state=LedgerState(
+                initial_cash=config.initial_cash, dimension=config.maximum.dimension
+            ),
+        )
+        saved = journal.step(f"timer:{name}-decision")
+        assert saved is not None
+        return result, DomainCodec().decode_json(saved.result_bytes, CandidateStep)
+
+    @classmethod
+    def exercise(
+        cls,
+        *,
+        root: Path,
+        name: str,
+        bundle: CandidateBundle,
+        deployment: CandidateDeployment,
+        components: CandidateComponents,
+        registry: CapabilityRegistry,
+        scenario: _ScenarioView,
+        source_step: CandidateStep,
+        decision_second: int,
+    ) -> dict[str, object]:
+        """Compare pure decisions, exact fills and reopened journal economics."""
+        events = cls._events(name, scenario, decision_second)
+        opened_at = scenario.at(decision_second - 1)
+        paper_config = cls._config(name, "paper", scenario)
+        paper_path = root / f"{name}-paper.sqlite3"
+        paper = run_paper(
+            bundle,
+            deployment,
+            paper_config,
+            components=components,
+            registry=registry,
+            journal_path=paper_path,
+            events=events,
+            opened_at=opened_at,
+            owner=f"{name}-paper-first",
+            source=scenario.source,
+        )
+        shadow = run_paper(
+            bundle,
+            deployment,
+            cls._config(name, "shadow", scenario),
+            components=components,
+            registry=registry,
+            journal_path=root / f"{name}-shadow.sqlite3",
+            events=events,
+            opened_at=opened_at,
+            owner=f"{name}-shadow-first",
+            source=scenario.source,
+        )
+        assert len(paper.orders) == len(shadow.orders) == 1
+        paper_order, shadow_order = paper.orders[0], shadow.orders[0]
+        assert paper_order.intent == shadow_order.intent
+        assert paper_order.status == "filled" and shadow_order.status == "intent"
+        assert source_step.decision is not None
+        if isinstance(source_step.decision.intent, OrderIntent):
+            assert source_step.decision.intent == paper_order.intent
+        else:
+            assert isinstance(source_step.decision.intent, TargetIntent)
+            assert source_step.decision.intent.quantity == paper_order.intent.quantity
+            assert paper_order.intent.time_in_force == "ioc"
+        assert shadow.ledger.fills == ()
+        (fill,) = paper.ledger.fills
+        expected_price = Decimal("100" if name == "learned" else "99")
+        expected_cash = Decimal("899.80" if name == "learned" else "900.80")
+        assert fill.quantity.value == Decimal("1")
+        assert fill.effective.value == expected_price
+        assert fill.reference == fill.effective
+        assert fill.fee.value == Decimal("0.20")
+        balance = Ledger(paper.ledger).balance
+        assert balance.cash.value == expected_cash
+        assert balance.holding.value == Decimal("1")
+        assert balance.fees.value == Decimal("0.20")
+        assert paper.submission_attempted is False and shadow.submission_attempted is False
+        restarted = run_paper(
+            bundle,
+            deployment,
+            paper_config,
+            components=components,
+            registry=registry,
+            journal_path=paper_path,
+            events=events,
+            opened_at=scenario.at(decision_second + 2),
+            owner=f"{name}-paper-restarted",
+            source=scenario.source,
+        )
+        assert restarted.ledger == paper.ledger
+        assert restarted.orders == paper.orders
+        assert restarted.checkpoint.order_sequence == paper.checkpoint.order_sequence
+        return {
+            "paper_shadow_intent_equal": True,
+            "paper_status": paper_order.status,
+            "shadow_status": shadow_order.status,
+            "paper_fill_quantity": str(fill.quantity.value),
+            "paper_fill_price": str(fill.effective.value),
+            "paper_fee": str(fill.fee.value),
+            "paper_cash": str(balance.cash.value),
+            "shadow_zero_fills": True,
+            "restart_no_duplicate_effects": True,
+            "submission_attempted": False,
+        }
 
 
 def main() -> None:
@@ -974,6 +1241,18 @@ def main() -> None:
             scenario=scenario,
             source_deployment=replay,
             source_step=first_replay,
+            decision_second=30 if learned else 10,
+        )
+        summary[f"{name}_paper"] = _PaperCandidateAcceptance.exercise(
+            root=output,
+            name=name,
+            bundle=bundle,
+            deployment=runtime,
+            components=components,
+            registry=registry,
+            scenario=scenario,
+            source_step=first_runtime,
+            decision_second=30 if learned else 10,
         )
     subprocess.run(
         [sys.executable, "-I", __file__, str(output), "unused", "resume"],

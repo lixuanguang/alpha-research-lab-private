@@ -126,9 +126,10 @@ candidate cannot reuse them. Warm-up advances state while withholding intents.
 A missing cadence pauses until the omitted input is supplied, or resets both
 machines if the candidate explicitly selects reset. Restart restoration requires
 the exact checkpoint schema; explicit reset starts a new session. The application
-owns durable retention; this is not the MR07 order journal or supervised OMS.
+owns durable retention. `PaperCandidateRuntime` below connects these same sessions
+to the MR07 durable order journal.
 
-`run_candidate_feature(session, store, at=..., bridge=..., serving_root=...)`
+`CandidateFeatureFeed(store, bridge=..., serving_root=...).evaluate(session, at)`
 consumes the packaged `FeatureStoreDefinition` and a deployment-pinned immutable
 materialization. Offline reads match the authoritative PIT value at that cutoff;
 online reads also verify the actual isolated Feast generation and active version.
@@ -144,4 +145,70 @@ remain available, but other product economics are rejected until their owning
 study/runtime adapters are implemented. OKX and Bitfinex read-only source evidence
 remains MR01; private account/execution conformance remains MR11. Exact environment
 matching currently precedes loading; independent deployable environments and
-trusted compatibility admission remain MR06.
+trusted compatibility admission are provided by MR06 for its independent operating
+closures; the broader research release restriction remains open.
+
+## Paper candidate supervision
+
+Owner: `runtime`; application composition belongs to
+[`applications.paper`](../applications/paper/README.md), order state and modeled
+fills to [`execution`](../execution/README.md). `PaperConfiguration` pins the mode,
+dedicated account, initial currency cash, instrument, exact spot grids, maximum
+position, maximum fee per order, modeled fee rate and quote freshness. This local
+paper/shadow configuration does not carry executable authority.
+
+`PaperCandidateRuntime` admits a `LoadedCandidate`, configuration, journal and
+either its source or `CandidateFeatureFeed`. `open(owner=..., at=...)` obtains
+the journal's process fence, restores the combined checkpoint, and delivers
+pending order/account callbacks before a start/recovery event. `release()` leaves
+unresolved orders and reservations intact. Candidates require `on_restart=restore`;
+a changed candidate, deployment, source binding, configuration or state schema
+cannot silently adopt another continuation.
+
+Quotes claim their exact identity/bytes before any matching effect. On reopening,
+the runtime finishes interrupted claimed quotes before advancing its clock to the
+recovery event, preserving already posted fills and delivering their callbacks
+once. Reusing a quote identity with changed bytes fails even when its final
+candidate callback had not committed.
+
+Policies may implement `strategies.DecisionLifecycle.on_event(event, state)` for
+start, recovery, market, timer, order, account, fault and stop callbacks. These
+callbacks are pure state transitions, validated and checkpointed like decisions.
+Order callbacks retain a durable cursor and the account balance at each event,
+so replay cannot expose a later fill balance to an earlier callback. A callback
+failure leaves its cursor unadvanced. Independent block/stop state persists
+before its callback, even if the policy fails.
+
+`market(PaperMarket)` admits a received quote, runs the paper matcher, drains
+order/account events and checkpoints the market callback. Shadow mode records
+orders without matching. `timer(identity=..., at=...)` evaluates at an admitted
+UTC cadence; its checkpoint, observed input/result bytes and all resulting child
+orders commit together. An identical timer reopens its saved result. Missing
+input, stale quote, feature expiry/service loss, changed serving version, an
+uncertain order or account break pauses new decisions. A paused cutoff may be
+retried under a fresh timer identity; a successful cutoff cannot run twice.
+
+`order`, `cancel`, `reconcile`, `block` and `stop` are separate operations.
+Reconciliation compares independently supplied paper cash, position and open
+orders; it cannot certify a physical venue. A block suppresses decisions without
+claiming cancellation or liquidation. Market/account clocks cannot regress;
+late order facts retain their original event clock and are delivered no earlier
+than the current runtime clock.
+Successful account reconciliation clears only an account-break block. It cannot
+clear an operator stop or independent fault block.
+
+`PaperCaptureObserver` receives native books only after the collector durably
+appends and reconstructs them. `LiveBookDelivery` retains raw receipt and separately
+observed local delivery time. The observer journals that complete envelope,
+updates `LiveBookDecisionSource`, and admits eligible best quotes for paper
+matching. Its asynchronous scheduler emits real UTC cadence ticks. Delayed ticks
+stay gaps governed by the candidate policy; receipt time is never rewritten to
+hide download, persistence or scheduling delay. Replaying saved deliveries and
+timer identities uses the same source, feature, policy, matcher and OMS classes.
+
+The initial native binding covers OKX `books` L2 and Bitfinex `R0` L3 spot input.
+The generic candidate source/feature interfaces retain named multi-source inputs.
+The live convenience application currently binds one book source and one
+dedicated account/instance. Shared accounts, private execution/account adapters,
+production deployment, alert routing and capacity qualification remain with
+MR08–MR15; paper matching is an explicit model, not venue fill evidence.

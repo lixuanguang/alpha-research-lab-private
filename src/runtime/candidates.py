@@ -29,12 +29,14 @@ from runtime.identity import ImplementationIdentity
 from serialization import DomainCodec, WireRecord
 from strategies import (
     DecisionContext,
+    DecisionLifecycle,
     DecisionPolicy,
     DecisionRecord,
     DecisionSession,
     DecisionState,
     OrderIntent,
     QuoteIntent,
+    StrategyEvent,
 )
 
 if TYPE_CHECKING:
@@ -388,6 +390,37 @@ class CandidateSession:
 
     def checkpoint(self) -> CandidateCheckpoint:
         """Return immutable committed state for caller-owned durable retention."""
+        return self._checkpoint
+
+    def handle_event(self, event: StrategyEvent) -> CandidateCheckpoint:
+        """Stage an optional pure lifecycle callback without advancing the decision clock.
+
+        The supervisor persists the returned checkpoint with the triggering event.
+        Invalid successor bytes leave the session unchanged. Policies implementing
+        only the decision contract retain their existing state.
+        """
+        event.__post_init__()
+        previous = self._checkpoint
+        if previous.policy.last_at is not None and event.at < previous.policy.last_at:
+            raise ValueError("lifecycle event predates the committed decision")
+        policy = self.loaded.policy
+        if isinstance(policy, DecisionLifecycle):
+            state = policy.on_event(event, previous.policy.state)
+            if type(state) is not bytes:
+                raise TypeError("lifecycle state must be immutable bytes")
+            policy.validate_state(state)
+            continuation = DecisionState(
+                run_identity=self._identity,
+                last_at=previous.policy.last_at,
+                state=state,
+                sha256=DecisionState.digest(self._identity, previous.policy.last_at, state),
+            )
+            self._checkpoint = CandidateCheckpoint.create(
+                binding_identity=self._identity,
+                feature=previous.feature,
+                policy=continuation,
+                observations=previous.observations,
+            )
         return self._checkpoint
 
     def pause(self, at: datetime, reason: str) -> CandidateStep:

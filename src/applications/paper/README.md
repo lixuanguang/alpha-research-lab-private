@@ -1,0 +1,39 @@
+# Paper and shadow application
+
+`run_paper` composes an admitted candidate, independent exact spot limits,
+`PaperOrderJournal` and `PaperCandidateRuntime` over a finite iterable of
+`PaperMarket`, `PaperTimer` and normalized `OrderEvent` records. Callers supply
+registered component factories, capability registry, configuration, source or
+feature feed, journal path, opening time and owner. The result contains the
+durable checkpoint, ledger, orders and `submission_attempted=False`. Completing
+an event prefix releases ownership without canceling orders. A later invocation
+restores that same journal and its unresolved reservations.
+
+`run_live_paper` is an asynchronous bounded public-book workflow. It accepts the
+same candidate/configuration plus a `CaptureRequest`, capture output and journal
+path. It injects native adapters and transport into `market_data.collection.CaptureRunner`
+and runs the collector beside the UTC candidate scheduler. Either task's failure
+cancels its peer; persisted capture and OMS records survive. The capture's existing
+queue, byte, message, retry and duration bounds remain active. A fresh process
+uses a fresh recording and waits for synchronized market input before resuming
+decisions. It does not reuse a stale book from a previous connection.
+
+Use the maintained installed reference consumers in the
+[test guide](../../../tests/README.md#paper-and-live-input-acceptance). They build
+real candidate bundles through completed engineering studies, supply extension
+factories through existing public APIs and retain original source/availability
+clocks. Their synthetic historical study, paper economics and current native
+feed observations are separately labeled. They are infrastructure acceptance
+workloads and supply no empirical strategy evidence.
+
+The independent [`alpha-execute paper`](../execute/README.md) command operates the
+portable OMS without loading research, training, notebook or serving dependencies.
+It accepts explicit durable step, event, matching, cancel, replace and inspection
+requests. Candidate/model supervision belongs to this full research application;
+the execution wheel owns only the portable order/account boundary.
+
+All modes are local and non-executable. Native input supports declared OKX/Bitfinex
+spot books; other named sources use `run_paper` and must satisfy the candidate's
+admitted signatures. Dedicated one-instrument cash-funded accounts are the current
+economic envelope. Venue order/account conformance, shared account portfolios and
+production activation are separate roadmap outcomes.

@@ -110,8 +110,8 @@ src/
   accounting/               Exact spot ledger, rational attribution and reconciliation
   risk/                     Independent spot grids, holdings and affordability limits
   portfolio/                PLANNED: allocation and netting before QR onboarding
-  execution/                FUTURE: orders, journals and adapters
-  runtime/                  Identity, supervision, bounded durable jobs and workspace recovery; future deployment
+  execution/                Fenced paper/shadow OMS, order journal and modeled matching; future venue adapters
+  runtime/                  Candidate/paper supervision, identity, bounded durable jobs and workspace recovery
   telemetry/                Health/alerts; future runtime and economic monitoring
   configuration/            Typed definitions and explicit selection
   serialization/            Exact domain codecs and strict wire records
@@ -259,15 +259,17 @@ exceptions, timestamps with unknown timezone semantics, and mutable registries s
 
 ## Configuration and active workflows
 
-The full runtime boundary remains planned under the
+The runtime boundary follows the
 [configuration-driven implementation standard](../coding_standards/README.md#generalized-code-and-configuration-driven-activation).
 **CURRENT data-plane slice:** `PublicDataJob` and `UniverseSelection` pin four
 independent scopes, public trade/reference requests, and named cutoff selections.
 Scoped native book requests also retain collection/research admission. Typed
 `DataCapability` records admit installed data/reference/calendar profiles. The
 [data contracts](../data/contracts.md#versioned-venue-specifications-and-scoped-universes)
-own these implemented interfaces. Candidate, account, valuation, execution and
-deployment admission remain planned; a scope record grants no executable authority.
+own these implemented interfaces. MR05 supplies typed candidate capability
+admission; MR07 connects dedicated paper accounts and execution state. Production
+deployment and executable authorization remain separate; a scope record grants
+no executable authority.
 The current authored instrument catalog supplies reference facts and assumptions;
 it does not select active assets or strategies. Introduce a small typed file
 reader with the first acquisition consumer, then extend its records with reference
@@ -643,12 +645,13 @@ Once an exploratory result influences a candidate decision, it receives durable 
 
 ### Feature-store contract
 
-Status: **implemented local versioned feature store and isolated Feast serving;
-deployment and supervised OMS integration remain separate**.
+Status: **implemented local versioned feature store and isolated Feast serving,
+including supervised paper/shadow consumption; deployment remains separate**.
 MR02 owns feature definitions and result semantics; MR04 owns provisioned stores,
 materialization and retrieval. The MR04 intent-only consumer supplies the initial
 MR05/MR07 online feature/policy binding; MR05 now loads complete candidates through
-that store, while supervised OMS remains MR07. The store serves
+that store, and MR07 binds it through `runtime.CandidateFeatureFeed` to the
+checkpointed paper OMS. The store serves
 versioned features across studies and strategy instances rather than a special
 case for the initial return diagnostic. Preserve Feast's independently locked
 worker and the core numerical/temporal contracts while extending its integration.
@@ -685,8 +688,8 @@ implementations without shared runner edits. The owning
 MR03 now composes these definitions into costed temporal studies, search and
 extensible retained reports. The [feature guide](../../src/research/features/README.md) now owns MR04 local
 feature-store services and intent-only online consumption. Candidate packaging
-and runtime binding are implemented locally under MR05; supervised runtime integration remains
-MR07. Offline study fills do not
+and runtime binding are implemented locally under MR05; MR07 adds supervised
+paper/shadow integration. Offline study fills do not
 qualify venue execution.
 
 
@@ -925,9 +928,25 @@ this stronger guarantee; no sandbox platform is a P1 prerequisite.
 
 ## OMS and venue adapter design
 
-The planned OMS owns canonical intent, order, acknowledgment, partial fill, cancel, reject, correction, and
-reconciliation state. It assigns stable IDs and maps strategy intent through net order to venue order and fill. It does
-not decide economic targets or override risk.
+The [`execution` owner](../../src/execution/README.md) implements a durable,
+fenced dedicated-account paper/shadow OMS. It owns intent, request acknowledgment,
+acceptance, partial fill, cancel request/acknowledgment/confirmation, rejection,
+unknown outcomes and local reconciliation. Candidate checkpoints and child order
+admission commit together; stable IDs and recorded event bytes reject conflicting
+retries. Independent spot limits reserve pending and uncertain exposure. The OMS
+does not decide economic targets or override risk. Shared-account/net-order
+coordination, physical venue reconciliation and correction posting remain open.
+
+[`runtime.PaperCandidateRuntime`](../../src/runtime/README.md#paper-candidate-supervision)
+delivers lifecycle, timer, market, order and account callbacks to the same
+candidate components used by replay. Public native feed collection connects
+through a post-persistence observer and retains actual local availability.
+Paper matching uses finite displayed touch liquidity and exact fees; shadow mode
+never matches. Both modes suppress executable submission. A contradictory fill
+after confirmed cancellation durably blocks the account pending later correction
+support rather than rewriting terminal state. The
+[MR07 acceptance record](../roadmap/README.md#mr07-delivery-and-acceptance)
+qualifies the bounded scope and separates source observations from modeled fills.
 
 Venue adapters translate canonical orders into one broker or venue protocol. They own credentials, throttles, sequence
 numbers, venue-specific timeouts, retry rules, idempotency keys, and source errors. They expose normalized events back
@@ -982,7 +1001,7 @@ simulator for an unmeasured hot path.
 The platform has three possible lanes with one shared semantic waist:
 
 1. **Batch/research — CURRENT, bounded local scope.** Saved datasets, features, model studies, simulation and reports run with reproducible inputs. Distributed execution and measured parallel scaling remain planned.
-2. **Ordinary event-driven — PLANNED.** Ingestion, strategy, portfolio, risk, OMS, accounting, and reconciliation run as supervised processes with durable state and explicit restarts.
+2. **Ordinary event-driven — CURRENT local paper/shadow increment; broader deployment PLANNED.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. Shared portfolio coordination, physical venue reconciliation and deployed operating qualification remain open.
 3. **Latency-sensitive — OPTIONAL PLANNED.** A native component or dedicated host is added only after a measured latency, jitter, or vendor ABI need. It consumes compatible schemas and remains behind independent risk and kill controls.
 
 Lanes may use different artifacts, process models, stores, and release cadences. A deployment is placement of an
@@ -992,7 +1011,8 @@ venues, instruments, capital, limits, duration, credentials, and stop conditions
 ## Artifact, schema, and state migration
 
 MR06 implements the [local signed installation boundary](../governance/operations.md#trusted-local-installation)
-for independent collector and intent-admission execution artifacts. It verifies
+for independent collector and execution artifacts, now extended with MR07's
+portable paper OMS. It verifies
 actual wheel/source/lock/audit bytes, out-of-band builder trust, configuration and
 exact state compatibility before an offline installation. Rollback preserves
 current mutable state. The initial local target and acceptance record do not

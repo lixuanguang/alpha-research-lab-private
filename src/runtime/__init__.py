@@ -25,6 +25,7 @@ if TYPE_CHECKING:
         PolicyFactory,
         TransformFactory,
     )
+    from runtime.feature_feed import CandidateFeatureFeed
     from runtime.jobs import (
         JobHandler,
         JobHealth,
@@ -35,11 +36,39 @@ if TYPE_CHECKING:
         JobState,
         JobWorkerPool,
     )
+    from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
+    from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
     from runtime.workspace import WorkspaceBackup, WorkspaceFile, WorkspaceManifest
 
 
 def __getattr__(name: str) -> object:
     """Load research and workspace services only for their explicit consumers."""
+    if name in {"LiveBookDelivery", "PaperCaptureObserver"}:
+        # project library imports
+        from runtime import live_paper
+
+        exports: dict[str, object] = {
+            "LiveBookDelivery": live_paper.LiveBookDelivery,
+            "PaperCaptureObserver": live_paper.PaperCaptureObserver,
+        }
+        return exports[name]
+    if name in {"PaperCandidateRuntime", "PaperCheckpoint"}:
+        # project library imports
+        from runtime import paper
+
+        exports = {
+            "PaperCandidateRuntime": paper.PaperCandidateRuntime,
+            "PaperCheckpoint": paper.PaperCheckpoint,
+        }
+        return exports[name]
+    if name in {"CandidateFeatureFeed"}:
+        # project library imports
+        from runtime import feature_feed
+
+        exports = {
+            "CandidateFeatureFeed": feature_feed.CandidateFeatureFeed,
+        }
+        return exports[name]
     if name in {
         "CandidateCheckpoint",
         "CandidateLoader",
@@ -50,7 +79,7 @@ def __getattr__(name: str) -> object:
         # project library imports
         from runtime import candidates
 
-        exports: dict[str, object] = {
+        exports = {
             "CandidateCheckpoint": candidates.CandidateCheckpoint,
             "CandidateLoader": candidates.CandidateLoader,
             "CandidateSession": candidates.CandidateSession,
@@ -120,6 +149,7 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "CandidateCheckpoint",
     "CandidateComponents",
+    "CandidateFeatureFeed",
     "CandidateLoader",
     "CandidateSession",
     "CandidateStep",
@@ -136,8 +166,12 @@ __all__ = [
     "JobSpec",
     "JobState",
     "JobWorkerPool",
+    "LiveBookDelivery",
     "LoadedCandidate",
     "MetricFactory",
+    "PaperCandidateRuntime",
+    "PaperCaptureObserver",
+    "PaperCheckpoint",
     "PolicyFactory",
     "ProcessSupervisor",
     "RuntimeFiles",

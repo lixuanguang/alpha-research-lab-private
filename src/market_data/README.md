@@ -58,6 +58,16 @@ ImplementationIdentity.sha256())`. Saved readers receive
 source-only `InstalledIdentity` for capture. These explicit capabilities keep
 provider selection, native re-decoding and raw/canonical verification visible.
 
+`market_data.collection.CaptureRunner` owns the same bounded durable collection
+and replay-parity path used by `alpha-collect`. An application binds a complete
+`CaptureRequest` before opening the feed, then injects the native book factory,
+public transport and venue subscription policy. Its optional `CaptureObserver`
+receives each original record and canonical book row after durable append and
+native apply, including session, gap and terminal controls. An observer failure
+propagates and leaves an inspectable interrupted journal. `alpha-collect` alone
+adds optional snapshot publication; another consumer can reuse the collection
+service without importing that application.
+
 Raw bytes are bound to the complete `SourceRequest` and its request identity.
 Historical manifests and old reports retain their original implementation
 identity; resume with the matching wheel/configuration or start a new run. Do

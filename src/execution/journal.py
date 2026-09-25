@@ -1,0 +1,937 @@
+"""Persist fenced, single-account paper orders and candidate checkpoints in SQLite."""
+
+from __future__ import annotations
+
+# standard library imports
+import fcntl
+import hashlib
+import sqlite3
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
+from datetime import datetime
+from decimal import Decimal
+from fractions import Fraction
+from pathlib import Path
+from typing import BinaryIO, Literal, cast
+
+# third party library imports
+from msgspec.structs import replace
+
+# project library imports
+from accounting import Ledger, LedgerBalance, LedgerState
+from execution.records import (
+    AccountReservations,
+    JournalEvent,
+    OrderDecision,
+    OrderEvent,
+    OrderState,
+    OrderStatus,
+    StepCommit,
+    StepRecord,
+)
+from financial_units import DecimalGrid, Money, Price, Quantity
+from risk import SpotLimits
+from serialization import DomainCodec
+from strategies import ExposureIntent, OrderIntent, QuoteIntent, TargetIntent
+
+
+class PaperOrderJournal:
+    """Own one paper/shadow account, its checkpoint, reservations and ordered events.
+
+    An exclusive advisory lock and persisted epoch fence the single writer. The
+    lock survives between transactions and is released by the OS on process
+    death. Every mutation verifies the epoch under SQLite's write lock. The
+    journal deliberately has no executable venue transport or credentials.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        account: str,
+        instance: str,
+        binding_identity: str,
+        mode: Literal["paper", "shadow"],
+        limits: SpotLimits,
+        ledger_state: LedgerState,
+    ) -> None:
+        """Bind exact account, candidate, spot limits and initial economic state."""
+        if (
+            not isinstance(path, Path)
+            or not account
+            or not instance
+            or not binding_identity
+            or mode not in ("paper", "shadow")
+        ):
+            raise ValueError("paper journal requires an account, instance and safe mode")
+        limits.__post_init__()
+        ledger_state.__post_init__()
+        if (
+            ledger_state.dimension != limits.maximum.dimension
+            or ledger_state.initial_cash.currency != limits.tick.currency
+        ):
+            raise ValueError("paper account and spot limits have incompatible units")
+        Ledger(ledger_state)
+        self.path = path
+        self.account = account
+        self.instance = instance
+        self.binding_identity = binding_identity
+        self.mode = mode
+        self.limits = limits
+        self._codec = DomainCodec()
+        self._lock: BinaryIO | None = None
+        self._epoch: int | None = None
+        self._binding = self._codec.encode_json(
+            (
+                "paper-order-journal-v1",
+                account,
+                instance,
+                binding_identity,
+                mode,
+                limits,
+                ledger_state,
+            )
+        )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize(ledger_state)
+
+    @property
+    def qualification(self) -> Literal["fixture", "referenced"]:
+        """Identify whether fixed authored grids or a selected reference version apply."""
+        return "fixture" if self.limits.specification_identity is None else "referenced"
+
+    def claim(self, owner: str) -> int:
+        """Acquire the one writer lock without displacing an active process."""
+        if type(owner) is not str or not owner:
+            raise ValueError("paper owner requires an identity")
+        if self._lock is not None:
+            raise ValueError("paper journal already has a claimed owner")
+        lock = self.path.with_name(self.path.name + ".lock").open("a+b")
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with closing(self._connect()) as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                row = self._query_one(connection, "SELECT epoch FROM journal WHERE id = 1")
+                if row is None:
+                    raise ValueError("paper journal identity is missing")
+                epoch = self._integer(row[0]) + 1
+                connection.execute(
+                    "UPDATE journal SET epoch = ?, owner = ? WHERE id = 1", (epoch, owner)
+                )
+                connection.commit()
+            self._lock = lock
+            self._epoch = epoch
+            return epoch
+        except BaseException:
+            lock.close()
+            raise
+
+    def release(self, epoch: int) -> None:
+        """Relinquish this process's claimed epoch; later writes must fail."""
+        self._require_claim(epoch)
+        if self._lock is None:
+            raise ValueError("paper owner lock is missing")
+        fcntl.flock(self._lock.fileno(), fcntl.LOCK_UN)
+        self._lock.close()
+        self._lock = None
+        self._epoch = None
+
+    def close(self) -> None:
+        """Release an owned writer lock; journal data remains durable."""
+        if self._epoch is not None:
+            self.release(self._epoch)
+
+    def __enter__(self) -> PaperOrderJournal:
+        """Allow deterministic lock cleanup around a paper run."""
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        """Relinquish the local lock even after a failed paper run."""
+        self.close()
+
+    def checkpoint(self) -> bytes | None:
+        """Read the last atomically committed candidate continuation."""
+        with closing(self._connect()) as connection:
+            row = self._query_one(connection, "SELECT checkpoint FROM state WHERE id = 1")
+        if row is None:
+            raise ValueError("paper journal state is missing")
+        return None if row[0] is None else self._blob(row[0])
+
+    def ledger_state(self) -> LedgerState:
+        """Read the exact fill ledger committed with lifecycle events."""
+        with closing(self._connect()) as connection:
+            return self._ledger(connection).state
+
+    def blocked_reason(self) -> str | None:
+        """Read a durable account break that prevents new order admission."""
+        with closing(self._connect()) as connection:
+            row = self._query_one(connection, "SELECT blocked_reason FROM state WHERE id = 1")
+        if row is None:
+            raise ValueError("paper journal state is missing")
+        if row[0] is None:
+            return None
+        if type(row[0]) is not str:
+            raise ValueError("paper journal account break is malformed")
+        return row[0]
+
+    def reconcile_account(
+        self,
+        *,
+        epoch: int,
+        expected_cash: Money,
+        expected_holding: Quantity,
+        open_order_ids: tuple[str, ...],
+    ) -> bool:
+        """Compare a paper account snapshot and fence new risk on any break.
+
+        The caller supplies its independently observed paper account snapshot.
+        Physical venue reconciliation belongs to the account/adapter increments.
+        """
+        expected_cash.model_copy()
+        expected_holding.model_copy()
+        if type(open_order_ids) is not tuple or any(
+            type(value) is not str for value in open_order_ids
+        ):
+            raise TypeError("reconciliation requires a tuple of order identities")
+        if len(set(open_order_ids)) != len(open_order_ids):
+            raise ValueError("reconciliation repeats an open order identity")
+        with self._write(epoch) as connection:
+            row = self._query_one(connection, "SELECT blocked_reason FROM state WHERE id = 1")
+            if row is None:
+                raise ValueError("paper journal state is missing")
+            if row[0] == "late_terminal_fill":
+                return False
+            balance = self._ledger(connection).balance
+            open_ids = {
+                order.identity for order in self._orders(connection) if not order.is_terminal
+            }
+            matched = (
+                expected_cash == balance.cash
+                and expected_holding == balance.holding
+                and set(open_order_ids) == open_ids
+            )
+            connection.execute(
+                "UPDATE state SET blocked_reason = ? WHERE id = 1",
+                (None if matched else "account_break",),
+            )
+            return matched
+
+    def reservations(self) -> AccountReservations:
+        """Read unresolved buy cash and sell inventory commitments."""
+        with closing(self._connect()) as connection:
+            return self._reservations(connection)
+
+    def order(self, order_id: str) -> OrderState | None:
+        """Read one current child order by stable identity."""
+        with closing(self._connect()) as connection:
+            return self._order(connection, order_id)
+
+    def orders(self) -> tuple[OrderState, ...]:
+        """Read current child orders in their admission order."""
+        with closing(self._connect()) as connection:
+            return self._orders(connection)
+
+    def step(self, step_id: str) -> StepRecord | None:
+        """Read one committed candidate transition and original input bytes."""
+        with closing(self._connect()) as connection:
+            return self._step(connection, step_id)
+
+    def has_step(self, step_id: str, input_bytes: bytes) -> bool:
+        """Detect a saved step before re-evaluation, rejecting conflicting replay."""
+        if type(input_bytes) is not bytes:
+            raise TypeError("candidate input must be bytes")
+        saved = self.step(step_id)
+        if saved is None:
+            return False
+        if saved.input_bytes != input_bytes:
+            raise ValueError("candidate step identity was reused with different input bytes")
+        return True
+
+    def claim_market(self, *, epoch: int, identity: str, payload: bytes) -> None:
+        """Bind one quote identity to its exact bytes before any matching effect."""
+        if type(identity) is not str or not identity or type(payload) is not bytes or not payload:
+            raise ValueError("paper market claim requires an identity and immutable bytes")
+        with self._write(epoch) as connection:
+            saved = self._query_one(
+                connection, "SELECT payload FROM markets WHERE market_id = ?", (identity,)
+            )
+            if saved is None:
+                connection.execute(
+                    "INSERT INTO markets(market_id, payload) VALUES (?, ?)",
+                    (identity, payload),
+                )
+            elif self._blob(saved[0]) != payload:
+                raise ValueError("paper market identity was reused with different payload")
+
+    def markets(self) -> tuple[tuple[str, bytes], ...]:
+        """Replay claimed quotes in original order, including interrupted matching."""
+        with closing(self._connect()) as connection:
+            rows = self._query_all(
+                connection, "SELECT market_id, payload FROM markets ORDER BY sequence"
+            )
+        claims: list[tuple[str, bytes]] = []
+        for row in rows:
+            identity = row[0]
+            if type(identity) is not str:
+                raise ValueError("paper market identity is malformed")
+            claims.append((identity, self._blob(row[1])))
+        return tuple(claims)
+
+    def steps(self) -> tuple[StepRecord, ...]:
+        """Read decision/checkpoint commits in durable sequence."""
+        with closing(self._connect()) as connection:
+            rows = self._query_all(connection, "SELECT payload FROM steps ORDER BY sequence")
+        return tuple(self._codec.decode_json(self._blob(row[0]), StepRecord) for row in rows)
+
+    def events(self, after_sequence: int = 0) -> tuple[JournalEvent, ...]:
+        """Replay lifecycle facts after a stored callback cursor."""
+        if type(after_sequence) is not int or after_sequence < 0:
+            raise ValueError("event cursor must be a nonnegative integer")
+        with closing(self._connect()) as connection:
+            rows = self._query_all(
+                connection,
+                "SELECT sequence, payload, order_state, balance FROM events "
+                "WHERE sequence > ? ORDER BY sequence",
+                (after_sequence,),
+            )
+        return tuple(
+            JournalEvent(
+                sequence=self._integer(row[0]),
+                event=self._codec.decode_json(self._blob(row[1]), OrderEvent),
+                order=self._codec.decode_json(self._blob(row[2]), OrderState),
+                balance=self._codec.decode_json(self._blob(row[3]), LedgerBalance),
+            )
+            for row in rows
+        )
+
+    def commit_step(
+        self,
+        *,
+        epoch: int,
+        step_id: str,
+        checkpoint: bytes,
+        decision: OrderDecision | None,
+        reference: Price | None,
+        maximum_fee: Money,
+        input_bytes: bytes = b"",
+        result_bytes: bytes = b"",
+    ) -> StepCommit:
+        """Atomically retain a candidate checkpoint, risk result and child orders."""
+        with self._write(epoch) as connection:
+            return self._commit_step(
+                connection,
+                step_id=step_id,
+                checkpoint=checkpoint,
+                decision=decision,
+                reference=reference,
+                maximum_fee=maximum_fee,
+                input_bytes=input_bytes,
+                result_bytes=result_bytes,
+                replace_of=None,
+            )
+
+    def replace(
+        self,
+        *,
+        epoch: int,
+        old_order_id: str,
+        step_id: str,
+        checkpoint: bytes,
+        decision: OrderDecision,
+        reference: Price | None,
+        maximum_fee: Money,
+        input_bytes: bytes = b"",
+        result_bytes: bytes = b"",
+    ) -> StepCommit:
+        """Admit a replacement only after the old order is terminal and confirmed."""
+        with self._write(epoch) as connection:
+            old = self._order(connection, old_order_id)
+            if old is None or not old.is_terminal:
+                raise ValueError("replacement requires a confirmed terminal old order")
+            return self._commit_step(
+                connection,
+                step_id=step_id,
+                checkpoint=checkpoint,
+                decision=decision,
+                reference=reference,
+                maximum_fee=maximum_fee,
+                input_bytes=input_bytes,
+                result_bytes=result_bytes,
+                replace_of=old_order_id,
+            )
+
+    def request_cancel(
+        self, *, epoch: int, order_id: str, event_id: str, at: datetime
+    ) -> OrderState:
+        """Durably mark cancellation requested without releasing its reservation."""
+        return self.apply_event(
+            epoch=epoch,
+            event=OrderEvent(identity=event_id, order_id=order_id, at=at, kind="cancel_requested"),
+        )
+
+    def apply_event(self, *, epoch: int, event: OrderEvent) -> OrderState:
+        """Apply an identified lifecycle fact and any fill posting exactly once."""
+        event.__post_init__()
+        if self.mode == "shadow" and event.kind == "fill":
+            raise ValueError("shadow mode cannot post modeled fills")
+        with self._write(epoch) as connection:
+            current, is_terminal_break = self._apply_event_fact(connection, event)
+        if is_terminal_break:
+            raise ValueError("terminal order cannot receive a late fill; account is blocked")
+        return current
+
+    def _apply_event_fact(
+        self, connection: sqlite3.Connection, event: OrderEvent
+    ) -> tuple[OrderState, bool]:
+        """Commit a lifecycle fact or record a terminal-fill account break."""
+        payload = self._codec.encode_json(event)
+        existing = self._query_one(
+            connection,
+            "SELECT payload, order_state FROM events WHERE event_id = ?",
+            (event.identity,),
+        )
+        if existing is not None:
+            if self._blob(existing[0]) != payload:
+                raise ValueError("order event identity was reused with different content")
+            return self._codec.decode_json(self._blob(existing[1]), OrderState), False
+        previous = self._order(connection, event.order_id)
+        if previous is None:
+            raise ValueError("order event references an unknown child order")
+        if event.at < previous.decision_at:
+            raise ValueError("order event precedes its decision")
+        ledger = self._ledger(connection)
+        if event.fill is not None:
+            duplicate = self._query_one(
+                connection,
+                "SELECT order_id, payload FROM fill_ids WHERE fill_id = ?",
+                (event.fill.identity,),
+            )
+            if duplicate is not None:
+                if duplicate[0] != event.order_id or self._blob(
+                    duplicate[1]
+                ) != self._codec.encode_json(event.fill):
+                    raise ValueError("fill identity was reused with different order or economics")
+                return previous, False
+            if previous.is_terminal:
+                connection.execute(
+                    "UPDATE state SET blocked_reason = 'late_terminal_fill' WHERE id = 1"
+                )
+                return previous, True
+        current = self._transition(previous, event, ledger)
+        if event.fill is not None:
+            ledger.apply(event.fill)
+            connection.execute(
+                "INSERT INTO fill_ids(fill_id, order_id, payload) VALUES (?, ?, ?)",
+                (event.fill.identity, event.order_id, self._codec.encode_json(event.fill)),
+            )
+            connection.execute(
+                "UPDATE state SET ledger = ? WHERE id = 1",
+                (self._codec.encode_json(ledger.state),),
+            )
+        connection.execute(
+            "UPDATE orders SET payload = ? WHERE order_id = ?",
+            (self._codec.encode_json(current), current.identity),
+        )
+        connection.execute(
+            "INSERT INTO events(event_id, order_id, payload, order_state, balance) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                event.identity,
+                event.order_id,
+                payload,
+                self._codec.encode_json(current),
+                self._codec.encode_json(ledger.balance),
+            ),
+        )
+        return current, False
+
+    def _initialize(self, ledger_state: LedgerState) -> None:
+        """Create or verify a state store against all immutable account inputs."""
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS journal (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    binding BLOB NOT NULL,
+                    epoch INTEGER NOT NULL,
+                    owner TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    checkpoint BLOB,
+                    ledger BLOB NOT NULL,
+                    blocked_reason TEXT
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS steps (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    step_id TEXT NOT NULL UNIQUE,
+                    decision_id TEXT UNIQUE,
+                    payload BLOB NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS markets (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    market_id TEXT NOT NULL UNIQUE,
+                    payload BLOB NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS orders (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id TEXT NOT NULL UNIQUE,
+                    payload BLOB NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS events (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL UNIQUE,
+                    order_id TEXT NOT NULL,
+                    payload BLOB NOT NULL,
+                    order_state BLOB NOT NULL,
+                    balance BLOB NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS fill_ids (
+                    fill_id TEXT PRIMARY KEY,
+                    order_id TEXT NOT NULL,
+                    payload BLOB NOT NULL
+                )"""
+            )
+            row = self._query_one(connection, "SELECT binding FROM journal WHERE id = 1")
+            if row is None:
+                connection.execute(
+                    "INSERT INTO journal(id, binding, epoch, owner) VALUES (1, ?, 0, '')",
+                    (self._binding,),
+                )
+                connection.execute(
+                    "INSERT INTO state(id, checkpoint, ledger, blocked_reason) "
+                    "VALUES (1, NULL, ?, NULL)",
+                    (self._codec.encode_json(ledger_state),),
+                )
+            elif self._blob(row[0]) != self._binding:
+                raise ValueError("paper journal account, candidate, mode or initial state differs")
+            connection.commit()
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open a short transaction with durable local SQLite settings."""
+        connection = sqlite3.connect(self.path, timeout=5)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute("PRAGMA foreign_keys=ON")
+        return connection
+
+    @contextmanager
+    def _write(self, epoch: int) -> Iterator[sqlite3.Connection]:
+        """Verify process lock and persisted epoch inside the write transaction."""
+        self._require_claim(epoch)
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._query_one(connection, "SELECT epoch FROM journal WHERE id = 1")
+                if row is None or self._integer(row[0]) != epoch:
+                    raise ValueError("paper owner epoch was fenced")
+                yield connection
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+
+    def _require_claim(self, epoch: int) -> None:
+        """Reject an absent or locally stale owner before opening a transaction."""
+        if type(epoch) is not int or self._epoch != epoch or self._lock is None:
+            raise ValueError("paper journal write requires its active fenced owner")
+
+    def _commit_step(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        step_id: str,
+        checkpoint: bytes,
+        decision: OrderDecision | None,
+        reference: Price | None,
+        maximum_fee: Money,
+        input_bytes: bytes,
+        result_bytes: bytes,
+        replace_of: str | None,
+    ) -> StepCommit:
+        """Admit all child legs or none under one account-reservation transaction."""
+        if (
+            type(step_id) is not str
+            or not step_id
+            or type(checkpoint) is not bytes
+            or type(input_bytes) is not bytes
+            or type(result_bytes) is not bytes
+        ):
+            raise ValueError("paper step requires stable identity and immutable bytes")
+        maximum_fee.model_copy()
+        if maximum_fee.value < 0:
+            raise ValueError("paper maximum fee cannot be negative")
+        if decision is not None:
+            decision.__post_init__()
+        if reference is not None:
+            reference.model_copy()
+        saved = self._step(connection, step_id)
+        if saved is not None:
+            if (
+                saved.checkpoint != checkpoint
+                or saved.input_bytes != input_bytes
+                or saved.result_bytes != result_bytes
+                or saved.decision != decision
+                or saved.reference != reference
+                or saved.maximum_fee != maximum_fee
+            ):
+                raise ValueError("candidate step identity was reused with different state or input")
+            return saved.commit
+        if decision is not None:
+            duplicate = self._query_one(
+                connection, "SELECT step_id FROM steps WHERE decision_id = ?", (decision.identity,)
+            )
+            if duplicate is not None:
+                raise ValueError("decision identity was committed under another step")
+        result = self._admit(
+            connection,
+            step_id=step_id,
+            decision=decision,
+            reference=reference,
+            maximum_fee=maximum_fee,
+            replace_of=replace_of,
+        )
+        record = StepRecord(
+            step_id=step_id,
+            checkpoint=checkpoint,
+            input_bytes=input_bytes,
+            result_bytes=result_bytes,
+            decision=decision,
+            reference=reference,
+            maximum_fee=maximum_fee,
+            commit=result,
+        )
+        connection.execute(
+            "INSERT INTO steps(step_id, decision_id, payload) VALUES (?, ?, ?)",
+            (
+                step_id,
+                None if decision is None else decision.identity,
+                self._codec.encode_json(record),
+            ),
+        )
+        for order in result.orders:
+            connection.execute(
+                "INSERT INTO orders(order_id, payload) VALUES (?, ?)",
+                (order.identity, self._codec.encode_json(order)),
+            )
+        connection.execute("UPDATE state SET checkpoint = ? WHERE id = 1", (checkpoint,))
+        return result
+
+    def _admit(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        step_id: str,
+        decision: OrderDecision | None,
+        reference: Price | None,
+        maximum_fee: Money,
+        replace_of: str | None,
+    ) -> StepCommit:
+        """Convert a portable intent and reserve every child against actual state."""
+        row = self._query_one(connection, "SELECT blocked_reason FROM state WHERE id = 1")
+        if row is None:
+            raise ValueError("paper journal state is missing")
+        if row[0] is not None:
+            if type(row[0]) is not str:
+                raise ValueError("paper journal account break is malformed")
+            return StepCommit(status="rejected", reason=row[0], orders=())
+        if decision is None:
+            return StepCommit(status="committed", reason="no_intent", orders=())
+        ledger = self._ledger(connection)
+        existing = self._orders(connection)
+        if any(order.status == "unknown" for order in existing):
+            return StepCommit(status="rejected", reason="order_outcome_unknown", orders=())
+        try:
+            legs = self._legs(decision.intent, ledger, reference)
+        except ValueError as error:
+            return StepCommit(status="rejected", reason=str(error), orders=())
+        if not legs:
+            return StepCommit(status="committed", reason="target_matched", orders=())
+        if maximum_fee.currency != self.limits.tick.currency:
+            return StepCommit(status="rejected", reason="incompatible_fee_currency", orders=())
+        if isinstance(decision.intent, (TargetIntent, ExposureIntent)) and any(
+            not order.is_terminal for order in existing
+        ):
+            return StepCommit(status="rejected", reason="pending_target", orders=())
+        admitted: list[OrderState] = []
+        for leg_name, intent in legs:
+            reason = self._order_reason(intent)
+            if reason is not None:
+                return StepCommit(status="rejected", reason=reason, orders=())
+            identity = hashlib.sha256(
+                self._codec.encode_json(
+                    (
+                        "paper-child-order-v1",
+                        self.account,
+                        self.instance,
+                        self.binding_identity,
+                        step_id,
+                        decision,
+                        leg_name,
+                    )
+                )
+            ).hexdigest()
+            admitted.append(
+                OrderState(
+                    identity=identity,
+                    decision_identity=decision.identity,
+                    decision_at=decision.at,
+                    intent=intent,
+                    status="intent",
+                    filled=Quantity(value=Decimal(0), dimension=intent.quantity.dimension),
+                    paid_fee=Money(value=Decimal(0), currency=intent.limit.currency),
+                    maximum_fee=maximum_fee,
+                    replace_of=replace_of,
+                )
+            )
+        commitments = self._reservations_for((*existing, *admitted))
+        balance = ledger.balance
+        if (balance.holding + commitments.buy_quantity).value > self.limits.maximum.value:
+            return StepCommit(status="rejected", reason="holding_limit", orders=())
+        if commitments.sell_quantity.value > balance.holding.value:
+            return StepCommit(status="rejected", reason="insufficient_holding", orders=())
+        if commitments.cash.value > balance.cash.value:
+            return StepCommit(status="rejected", reason="insufficient_cash", orders=())
+        return StepCommit(status="committed", reason="reserved", orders=tuple(admitted))
+
+    def _legs(
+        self,
+        intent: TargetIntent | ExposureIntent | OrderIntent | QuoteIntent,
+        ledger: Ledger,
+        reference: Price | None,
+    ) -> tuple[tuple[str, OrderIntent], ...]:
+        """Lower target/exposure intent to one bounded IOC, retaining quote child legs."""
+        if isinstance(intent, OrderIntent):
+            return (("order", intent),)
+        if isinstance(intent, QuoteIntent):
+            return (("bid", intent.bid), ("ask", intent.ask))
+        if reference is None or self.limits.price_reason(reference) is not None:
+            raise ValueError("missing_or_invalid_reference_price")
+        if isinstance(intent, ExposureIntent):
+            if intent.exposure.currency != reference.currency or intent.exposure.value < 0:
+                raise ValueError("incompatible_exposure")
+            units = Fraction(intent.exposure.value) / Fraction(reference.value)
+            lot_count = units // Fraction(self.limits.lot.value)
+            target = Quantity(
+                value=DecimalGrid.exact_decimal(
+                    Fraction(lot_count) * Fraction(self.limits.lot.value)
+                ),
+                dimension=self.limits.lot.dimension,
+            )
+        else:
+            target = intent.quantity
+        if target.dimension != ledger.balance.holding.dimension:
+            raise ValueError("incompatible_target_dimension")
+        delta = target - ledger.balance.holding
+        if delta.value == 0:
+            return ()
+        order = OrderIntent(
+            side="buy" if delta.value > 0 else "sell",
+            quantity=Quantity(value=delta.value.copy_abs(), dimension=target.dimension),
+            limit=reference,
+            time_in_force="ioc",
+        )
+        return (("target", order),)
+
+    def _order_reason(self, intent: OrderIntent) -> str | None:
+        """Apply selected reference grids or explicit fixture grids without authority."""
+        if self.limits.specification_identity is not None:
+            return self.limits.order_reason(intent.quantity, intent.limit)
+        if intent.quantity.dimension != self.limits.lot.dimension:
+            return "incompatible_quantity"
+        if intent.quantity.value < self.limits.lot.value:
+            return "minimum_order_quantity"
+        if (Fraction(intent.quantity.value) / Fraction(self.limits.lot.value)).denominator != 1:
+            return "off_lot_order"
+        return self.limits.price_reason(intent.limit)
+
+    def _transition(self, order: OrderState, event: OrderEvent, ledger: Ledger) -> OrderState:
+        """Keep acknowledgement, acceptance, cancellation and fills separate."""
+        if order.is_terminal:
+            raise ValueError("terminal order cannot receive another economic transition")
+        if event.kind == "request_ack":
+            return replace(
+                order,
+                request_acknowledged=True,
+                status=(
+                    "request_ack" if order.status in ("intent", "request_ack") else order.status
+                ),
+            )
+        if event.kind == "accepted":
+            accepted_status = (
+                order.status
+                if order.status in ("cancel_requested", "cancel_ack")
+                else "partial"
+                if order.filled.value
+                else "accepted"
+            )
+            return replace(order, accepted=True, status=accepted_status)
+        if event.kind == "cancel_requested":
+            if order.status in ("cancel_requested", "cancel_ack"):
+                raise ValueError("cancel request is already pending")
+            return replace(order, cancel_requested=True, status="cancel_requested")
+        if event.kind == "cancel_ack":
+            if not order.cancel_requested:
+                raise ValueError("cancel acknowledgement requires a cancel request")
+            return replace(order, cancel_acknowledged=True, status="cancel_ack")
+        if event.kind == "cancelled":
+            if order.status == "intent":
+                raise ValueError("cancellation requires an order outcome")
+            return replace(order, status="cancelled")
+        if event.kind == "rejected":
+            return replace(order, status="rejected")
+        if event.kind == "unknown":
+            return replace(order, status="unknown")
+        if event.kind == "reconcile_open":
+            if order.status != "unknown":
+                raise ValueError("open reconciliation requires an unknown outcome")
+            if order.cancel_acknowledged:
+                return replace(order, accepted=True, status="cancel_ack")
+            if order.cancel_requested:
+                return replace(order, accepted=True, status="cancel_requested")
+            return replace(
+                order, accepted=True, status="partial" if order.filled.value else "accepted"
+            )
+        if event.kind in ("reconcile_cancelled", "reconcile_rejected"):
+            if order.status != "unknown":
+                raise ValueError("terminal reconciliation requires an unknown outcome")
+            return replace(
+                order, status="cancelled" if event.kind == "reconcile_cancelled" else "rejected"
+            )
+        if event.kind != "fill" or event.fill is None:
+            raise ValueError("unsupported paper order transition")
+        fill = event.fill
+        expected_sign = 1 if order.intent.side == "buy" else -1
+        if (
+            fill.decision_at != order.decision_at
+            or fill.filled_at > event.at
+            or fill.quantity.dimension != order.intent.quantity.dimension
+            or (fill.quantity.value <= 0 if expected_sign == 1 else fill.quantity.value >= 0)
+            or fill.quantity.value.copy_abs() > order.remaining.value
+            or fill.fee.currency != order.intent.limit.currency
+            or fill.effective.currency != order.intent.limit.currency
+            or fill.effective.per != order.intent.limit.per
+            or (order.intent.side == "buy" and fill.effective.value > order.intent.limit.value)
+            or (order.intent.side == "sell" and fill.effective.value < order.intent.limit.value)
+            or (order.paid_fee + fill.fee).value > order.maximum_fee.value
+        ):
+            raise ValueError("fill exceeds order economics or limit")
+        if fill.filled_at < (
+            ledger.state.fills[-1].filled_at if ledger.state.fills else order.decision_at
+        ):
+            raise ValueError("fill is older than the posted account ledger")
+        filled = order.filled + Quantity(
+            value=fill.quantity.value.copy_abs(), dimension=order.filled.dimension
+        )
+        status: OrderStatus
+        if filled.value == order.intent.quantity.value:
+            status = "filled"
+        elif order.status in ("unknown", "cancel_requested", "cancel_ack"):
+            status = order.status
+        else:
+            status = "partial"
+        return replace(
+            order,
+            status=status,
+            accepted=True,
+            filled=filled,
+            paid_fee=order.paid_fee + fill.fee,
+        )
+
+    def _ledger(self, connection: sqlite3.Connection) -> Ledger:
+        """Reconstruct the exact economic state from its saved applied fill history."""
+        row = self._query_one(connection, "SELECT ledger FROM state WHERE id = 1")
+        if row is None:
+            raise ValueError("paper account state is missing")
+        return Ledger(self._codec.decode_json(self._blob(row[0]), LedgerState))
+
+    def _reservations(self, connection: sqlite3.Connection) -> AccountReservations:
+        """Calculate durable unresolved commitments from saved order states."""
+        return self._reservations_for(self._orders(connection))
+
+    def _reservations_for(self, orders: tuple[OrderState, ...]) -> AccountReservations:
+        """Reserve full remaining limit notional and conservative fee allowance."""
+        cash = Money(value=Decimal(0), currency=self.limits.tick.currency)
+        buy = Quantity(value=Decimal(0), dimension=self.limits.maximum.dimension)
+        sell = Quantity(value=Decimal(0), dimension=self.limits.maximum.dimension)
+        for order in orders:
+            if order.is_terminal:
+                continue
+            remaining = order.remaining
+            cash += order.maximum_fee - order.paid_fee
+            if order.intent.side == "buy":
+                cash += order.intent.limit.amount(remaining)
+                buy += remaining
+            else:
+                sell += remaining
+        return AccountReservations(cash=cash, buy_quantity=buy, sell_quantity=sell)
+
+    def _order(self, connection: sqlite3.Connection, order_id: str) -> OrderState | None:
+        """Decode one current child order at the persistence boundary."""
+        row = self._query_one(
+            connection, "SELECT payload FROM orders WHERE order_id = ?", (order_id,)
+        )
+        return None if row is None else self._codec.decode_json(self._blob(row[0]), OrderState)
+
+    def _orders(self, connection: sqlite3.Connection) -> tuple[OrderState, ...]:
+        """Decode the account's current order states in admission order."""
+        rows = self._query_all(connection, "SELECT payload FROM orders ORDER BY sequence")
+        return tuple(self._codec.decode_json(self._blob(row[0]), OrderState) for row in rows)
+
+    def _step(self, connection: sqlite3.Connection, step_id: str) -> StepRecord | None:
+        """Decode one saved candidate step at the persistence boundary."""
+        row = self._query_one(connection, "SELECT payload FROM steps WHERE step_id = ?", (step_id,))
+        return None if row is None else self._codec.decode_json(self._blob(row[0]), StepRecord)
+
+    @staticmethod
+    def _query_one(
+        connection: sqlite3.Connection, query: str, params: tuple[object, ...] = ()
+    ) -> tuple[object, ...] | None:
+        """Narrow an untyped SQLite row before interpreting its fields."""
+        raw = cast(object, connection.execute(query, params).fetchone())
+        if raw is None:
+            return None
+        if not isinstance(raw, tuple):
+            raise ValueError("paper journal returned a malformed row")
+        return cast(tuple[object, ...], raw)
+
+    @staticmethod
+    def _query_all(
+        connection: sqlite3.Connection, query: str, params: tuple[object, ...] = ()
+    ) -> tuple[tuple[object, ...], ...]:
+        """Narrow a SQLite result set before decoding immutable domain records."""
+        raw = cast(object, connection.execute(query, params).fetchall())
+        if not isinstance(raw, list):
+            raise ValueError("paper journal returned a malformed result set")
+        rows: list[tuple[object, ...]] = []
+        for value in raw:
+            if not isinstance(value, tuple):
+                raise ValueError("paper journal returned a malformed row")
+            rows.append(cast(tuple[object, ...], value))
+        return tuple(rows)
+
+    @staticmethod
+    def _blob(value: object) -> bytes:
+        """Require an exact persisted BLOB without coercion."""
+        if type(value) is not bytes:
+            raise ValueError("paper journal BLOB is malformed")
+        return value
+
+    @staticmethod
+    def _integer(value: object) -> int:
+        """Require an exact persisted INTEGER without coercion."""
+        if type(value) is not int:
+            raise ValueError("paper journal integer is malformed")
+        return value

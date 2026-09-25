@@ -5,7 +5,6 @@ from __future__ import annotations
 # standard library imports
 import argparse
 import asyncio
-import contextlib
 import hashlib
 import sys
 import time
@@ -18,93 +17,16 @@ from websockets.exceptions import WebSocketException
 # project library imports
 from configuration import CaptureConfig, UniverseSelection
 from market_data.adapters.sources import BookAdapters, SourceAdapters
-from market_data.adapters.transport import VenueTransport
-from market_data.adapters.venues.coinbase import (
-    CoinbaseAccessError,
-    CoinbaseBook,
-    CoinbaseCredentials,
-)
-from market_data.books import CaptureReplay
-from market_data.collection import BookCapture, ReceiptStream
-from market_data.contracts import CaptureRecord, CaptureRequest, FeedSocket
+from market_data.adapters.transport import VenueSubscriptions, VenueTransport
+from market_data.adapters.venues.coinbase import CoinbaseAccessError, CoinbaseCredentials
+from market_data.collection import CaptureRunner
+from market_data.contracts import CaptureRequest
 from market_data.datasets import DatasetPublication
 from market_data.replay import SavedCapture
-from market_data.storage import CaptureJournal, RawStore
+from market_data.storage import RawStore
 from runtime import ImplementationIdentity, InstalledIdentity, ProcessSupervisor
 from serialization import DomainCodec
 from telemetry import HealthMetric, HealthMetrics, HealthPolicy
-
-
-def _finalize_capture(
-    journal: CaptureJournal,
-    replay: CaptureReplay,
-    codec: DomainCodec,
-    root: Path,
-    request: CaptureRequest,
-    reason: str,
-    snapshot_directory: Path | None,
-    snapshot_records: int | None,
-) -> dict[str, object]:
-    """Persist terminal state, verify replay parity and publish an optional book prefix.
-
-    Args:
-        journal: Active recording journal that owns the durable input boundary.
-        replay: Live replay state whose terminal records must follow durable append.
-        codec: JSON codec for the persisted capture summary.
-        root: Completed recording directory used by offline verification and publication.
-        request: Immutable recording identity retained in the result summary.
-        reason: Bounded source stop reason retained in terminal records and summary output.
-        snapshot_directory: Optional destination for the selected canonical book snapshot.
-        snapshot_records: Optional raw-position bound paired with ``snapshot_directory``.
-
-    Returns:
-        Final capture summary containing saved-input and replay-parity evidence.
-
-    Raises:
-        OSError: Durable journal, summary or snapshot publication fails.
-        ValueError: Saved replay, canonical verification or parity validation fails.
-    """
-    if not replay.book.ready and not replay.invalid:
-        gap = CaptureRecord(
-            kind="gap",
-            epoch=replay.epoch,
-            received_ns=time.time_ns(),
-            reason="capture_ended_before_synchronization",
-        )
-        journal.append(gap)
-        replay.apply(gap)
-    end = CaptureRecord(kind="end", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason)
-    journal.append(end)
-    replay.apply(end)
-    descriptor = journal.finish(replay.started_ns or end.received_ns)
-    offline = SavedCapture.read(root, book_factory=BookAdapters.create)
-    if isinstance(replay, BookCapture):
-        replay.verify(root)
-    if offline.summary() != replay.summary():
-        raise ValueError("saved-input replay differs from captured message-boundary state")
-    summary = {
-        **offline.summary(),
-        "request_identity": request.identity,
-        "saved_input_identity": descriptor.sha256,
-        "saved_bytes": descriptor.size_bytes,
-        "capture_directory": str(root.absolute()),
-        "stop_reason": reason,
-        "replay_parity": True,
-        "canonical_parity": isinstance(replay, BookCapture),
-    }
-    (root / "summary.json").write_bytes(codec.encode_json(summary))
-    if snapshot_directory is not None and snapshot_records is not None:
-        summary["snapshot_identity"] = DatasetPublication(
-            SourceAdapters(), ImplementationIdentity.sha256()
-        ).publish_books(
-            (root,),
-            RawStore(root),
-            snapshot_directory,
-            max_records=snapshot_records,
-            max_bytes=replay.config.max_bytes,
-        )
-        (root / "summary.json").write_bytes(codec.encode_json(summary))
-    return summary
 
 
 async def collect(
@@ -160,193 +82,40 @@ async def collect(
         implementation_identity=implementation_identity,
         universes=universes,
     )
-    root = output / request.recording_id
-    journal, codec = CaptureJournal(root, request), DomainCodec()
-    replay = (
-        CaptureReplay(config, book_factory=BookAdapters.create)
-        if snapshot_records is None
-        else BookCapture(
-            config, snapshot_records, readers=SourceAdapters(), book_factory=BookAdapters.create
-        )
-    )
-    journal.start()
-    deadline, reason = time.monotonic() + config.duration_seconds, "not_started"
-    for epoch in range(config.retries + 1):
-        if health is not None:
-            health.set(HealthMetric.RECONNECTS, epoch)
-        start = CaptureRecord(kind="session", epoch=epoch, received_ns=time.time_ns())
-        journal.append(start)
-        replay.apply(start)
-        socket: FeedSocket | None = None
-        reader: asyncio.Task[None] | None = None
-        snapshot: asyncio.Task[None] | None = None
-        queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(config.queue_capacity)
-        try:
-            budget = deadline - time.monotonic()
-            if budget <= 0:
-                reason = "duration_limit"
-                break
-            try:
-                socket = await transport.open(budget)
-                if config.venue == "bitfinex":
-                    subscriptions: tuple[dict[str, object], ...] = (
-                        {"event": "conf", "flags": 65536},
-                        {
-                            "event": "subscribe",
-                            "channel": "book",
-                            "symbol": config.symbol,
-                            "prec": "R0",
-                            "freq": "F0",
-                            "len": str(config.depth),
-                        },
-                    )
-                elif config.venue == "okx":
-                    subscriptions = (
-                        {
-                            "op": "subscribe",
-                            "args": [{"channel": "books", "instId": config.symbol}],
-                        },
-                    )
-                else:
-                    if credentials is None:
-                        raise CoinbaseAccessError("missing Exchange credentials")
-                    subscriptions = (
-                        credentials.subscription(config.symbol, str(int(time.time()))),
-                    )
-                for subscription in subscriptions:
-                    async with asyncio.timeout(max(0, deadline - time.monotonic())):
-                        await socket.send(codec.encode_json(subscription).decode())
-                del subscriptions
-            except OSError, WebSocketException, TimeoutError:
-                reason = "connect_failed_unknown_loss"
-            else:
-                reader = asyncio.create_task(
-                    ReceiptStream.frames(
-                        socket,
-                        queue,
-                        config,
-                        epoch,
-                        deadline,
-                        # Reserve the single REST response before accepting stream input.
-                        config.max_messages - replay.messages - (config.venue == "coinbase"),
-                        health,
-                    )
-                )
-                reason = "message_limit"
-                while (
-                    not queue.empty()
-                    or not reader.done()
-                    or (snapshot is not None and not snapshot.done())
-                ):
-                    record = await queue.get()
-                    if record.kind == "session_end":
-                        if not replay.invalid or record.reason == "overload_unknown_loss":
-                            reason = record.reason
-                        if record.reason in ("duration_limit", "message_limit"):
-                            continue
-                        record = CaptureRecord(
-                            kind="gap",
-                            epoch=epoch,
-                            received_ns=record.received_ns,
-                            reason=record.reason,
-                        )
-                    try:
-                        await asyncio.to_thread(journal.append, record)
-                    except OSError:
-                        if health is not None:
-                            health.set(HealthMetric.PERSISTENCE_FAILED, 1)
-                        raise
-                    except OverflowError:
-                        reason = "storage_limit_unknown_tail"
-                        break
-                    if health is not None:
-                        health.set(HealthMetric.PERSISTENCE, time.monotonic_ns())
-                    previous_market_ns = replay.quality.last_market_ns
-                    outcome = await asyncio.to_thread(replay.apply, record)
-                    if health is not None:
-                        health.set(HealthMetric.INVALID, len(replay.gaps))
-                        if (
-                            replay.quality.last_market_ns is not None
-                            and replay.quality.last_market_ns != previous_market_ns
-                        ):
-                            age_ns = max(0, time.time_ns() - replay.quality.last_market_ns)
-                            health.set(HealthMetric.MARKET, time.monotonic_ns() - age_ns)
-                    if outcome == "invalid_frame" or record.kind == "gap":
-                        if outcome == "invalid_frame":
-                            reason = "invalid_stream_requires_snapshot"
-                        elif reason == "message_limit":
-                            reason = record.reason
-                        reader.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await reader
-                    if (
-                        not replay.invalid
-                        and isinstance(replay.book, CoinbaseBook)
-                        and replay.book.acknowledged
-                        and replay.book.schema
-                        and snapshot is None
-                    ):
-                        snapshot = asyncio.create_task(
-                            ReceiptStream.snapshot(transport, queue, epoch)
-                        )
-        finally:
-            for task in (reader, snapshot):
-                if task is not None:
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
-            if socket is not None:
-                await socket.close()
-        try:
-            if reason not in ("duration_limit", "message_limit") and not replay.invalid:
-                gap = CaptureRecord(
-                    kind="gap", epoch=epoch, received_ns=time.time_ns(), reason=reason
-                )
-                await asyncio.to_thread(journal.append, gap)
-                await asyncio.to_thread(replay.apply, gap)
-            ending = CaptureRecord(
-                kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason
+    subscriptions = VenueSubscriptions(credentials)
+    result = await CaptureRunner(
+        book_factory=BookAdapters.create,
+        transport=transport,
+        subscriptions=subscriptions,
+        snapshot_ready=subscriptions.needs_snapshot,
+        snapshot_records=snapshot_records,
+        readers=SourceAdapters() if snapshot_records is not None else None,
+        health=health,
+    ).run(request, output)
+    summary = result.summary
+    if snapshot_directory is not None and snapshot_records is not None:
+        publication = asyncio.create_task(
+            asyncio.to_thread(
+                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books,
+                (result.root,),
+                RawStore(result.root),
+                snapshot_directory,
+                max_records=snapshot_records,
+                max_bytes=config.max_bytes,
             )
-            await asyncio.to_thread(journal.append, ending)
-            await asyncio.to_thread(replay.apply, ending)
+        )
+        try:
+            try:
+                summary["snapshot_identity"] = await asyncio.shield(publication)
+            except asyncio.CancelledError:
+                await publication
+                raise
         except OSError:
             if health is not None:
                 health.set(HealthMetric.PERSISTENCE_FAILED, 1)
             raise
-        if reason in (
-            "duration_limit",
-            "message_limit",
-            "storage_limit_unknown_tail",
-            "overload_unknown_loss",
-        ):
-            break
-        if epoch < config.retries and time.monotonic() < deadline:
-            await asyncio.sleep(min(float(1 << epoch), max(0, deadline - time.monotonic())))
-    if health is not None:
-        health.set(HealthMetric.FINALIZING, 1)
-    finalization = asyncio.create_task(
-        asyncio.to_thread(
-            _finalize_capture,
-            journal,
-            replay,
-            codec,
-            root,
-            request,
-            reason,
-            snapshot_directory,
-            snapshot_records,
-        )
-    )
-    try:
-        try:
-            return await asyncio.shield(finalization)
-        except asyncio.CancelledError:
-            await finalization
-            raise
-    except OSError:
-        if health is not None:
-            health.set(HealthMetric.PERSISTENCE_FAILED, 1)
-        raise
+        (result.root / "summary.json").write_bytes(DomainCodec().encode_json(summary))
+    return summary
 
 
 async def monitored_capture(

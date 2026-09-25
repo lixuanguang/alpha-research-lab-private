@@ -11,6 +11,7 @@ from strategies.intents import (
     QuoteIntent,
     TargetIntent,
 )
+from strategies.lifecycle import DecisionLifecycle, StrategyEvent
 
 if TYPE_CHECKING:
     # project library imports
@@ -90,6 +91,7 @@ __all__ = [
     "ConfirmedSignal",
     "DecisionContext",
     "DecisionIntent",
+    "DecisionLifecycle",
     "DecisionPolicy",
     "DecisionRecord",
     "DecisionSession",
@@ -103,6 +105,7 @@ __all__ = [
     "Reversal",
     "RuleFactory",
     "RuleRegistry",
+    "StrategyEvent",
     "TargetIntent",
     "TargetRule",
 ]
