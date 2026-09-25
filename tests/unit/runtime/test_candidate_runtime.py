@@ -19,6 +19,8 @@ from msgspec.structs import replace
 # project library imports
 from accounting import Ledger, LedgerState
 from configuration import (
+    BookRegistryConfiguration,
+    BookSelection,
     CandidateDeployment,
     CapabilityField,
     CapabilityKind,
@@ -26,11 +28,15 @@ from configuration import (
     CapabilityRegistry,
     CapabilityRequirement,
     CapabilitySelection,
+    CaptureConfig,
     PaperConfiguration,
     UniverseSelection,
 )
 from execution import PaperMarket, PaperOrderJournal
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
+from market_data.adapters.sources import BookAdapters
+from market_data.books import BookRegistry
+from market_data.contracts import CaptureRequest
 from reference_data.instruments import InstrumentId
 from research.experiments import (
     CandidateArtifact,
@@ -52,12 +58,19 @@ from research.features.serving import FeastServingBridge
 from research.observations import (
     DecisionInputs,
     InputRequirement,
+    LiveBookDecisionSource,
     NamedObservation,
     NumericField,
     NumericHistorySource,
 )
 from risk import SpotLimits
-from runtime import CandidateFeatureFeed, CandidateSession, LoadedCandidate, PaperCandidateRuntime
+from runtime import (
+    CandidateFeatureFeed,
+    CandidateSession,
+    LoadedCandidate,
+    PaperCandidateRuntime,
+    PaperCaptureObserver,
+)
 from serialization import DomainCodec, WireRecord
 from strategies import (
     DecisionContext,
@@ -775,6 +788,55 @@ class TestPaperCandidateRuntime:
             bid_quantity=runtime.config.lot,
             ask_quantity=runtime.config.lot,
         )
+
+    def test_paper_observer_rejects_misbound_registry_reference(self, tmp_path: Path) -> None:
+        """Matching source IDs cannot conceal a different product or native listing."""
+        runtime = self._runtime(tmp_path / "reference.sqlite3")
+        capture = replace(
+            CaptureConfig.read(Path(__file__).parents[3] / "configs/live/bitfinex-btc-usd.json"),
+            instrument_id=_INSTRUMENT,
+        )
+        request = CaptureRequest(
+            config=capture, recording_id="a" * 36, implementation_identity="b" * 64
+        )
+        source = LiveBookDecisionSource(
+            request,
+            InputRequirement(
+                name="book",
+                family="book",
+                clock="receipt",
+                field=NumericField(name="imbalance", units="dimensionless"),
+                max_age_us=1_000_000,
+            ),
+            history_capacity=8,
+        )
+        selected = BookSelection.from_capture(
+            capture,
+            source_id=request.identity,
+            capability=BookAdapters.capability(capture),
+            max_age_ns=1_000_000_000,
+            allow_degraded=True,
+        )
+        books = BookRegistry(
+            BookRegistryConfiguration(selections=(selected,), equivalences=(), history_capacity=8)
+        )
+        PaperCaptureObserver(source, runtime, books=books)
+        invalid_selections = (
+            replace(selected, instrument=replace(selected.instrument, symbol="tETHUSD")),
+            replace(
+                selected,
+                instrument=replace(selected.instrument, product="future"),
+                capability=replace(selected.capability, product="future"),
+            ),
+        )
+        for invalid in invalid_selections:
+            misbound = BookRegistry(
+                BookRegistryConfiguration(
+                    selections=(invalid,), equivalences=(), history_capacity=8
+                )
+            )
+            with pytest.raises(ValueError, match="selected native venue and units"):
+                PaperCaptureObserver(source, runtime, books=misbound)
 
     def test_paper_shadow_parity_and_restart(self, tmp_path: Path) -> None:
         """Keep decisions identical while only paper posts a single exact modeled fill."""

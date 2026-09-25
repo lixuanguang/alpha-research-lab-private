@@ -39,6 +39,7 @@ quality or qualify venue order execution.
 | Chronological stepping | `Replay`, `ReplayCursor` | [Replay contract](#chronological-event-stepping) |
 | Named trade/book research inputs | `ResearchSelection`, `inspect_eda` | [Selection reference](#discover-and-reopen-research-selections) |
 | Native book publication/replay | `publish_books`, `BookReplay` | `alpha-collect`; [book boundaries](#bounded-saved-books) |
+| Book registry and consolidated BBO | `BookRegistry`, `BookRegistryConfiguration` | [Registry queries](#book-registry-and-consolidated-bbo) |
 | Per-book depth and BBO | `BookDepth`, `BookProjection.quote`, `BookQuote` | [Shared book quotes](#shared-book-quotes) |
 | Reviewed source evidence | `ArchiveCapture`, `SourceQualification`, `QualityPolicy` | [Qualification sections](#witnessed-archive-availability) |
 | Public OKX/Bitfinex trades and observed rules | `PublicDataJob`, `PublicIngestion`, `PublicTradeManifest` | [Public data plane](#public-spot-data-plane) |
@@ -127,10 +128,86 @@ the collector or market-data dependencies to the portable execution wheel.
 The declared initial qualification remains OKX `books` L2 and Bitfinex `R0` L3.
 Coinbase lifecycle fixtures retain software coverage only; authenticated access
 is still unqualified. Per-book visible depth does not establish complete venue
-coverage, queue priority, executable liquidity or strategy performance. MR07B
+coverage, queue priority, executable liquidity or strategy performance. The registry below
 owns cross-venue consolidation; MR15 owns capacity measurement. The
 [roadmap acceptance record](../../docs/roadmap/README.md#mr07a-common-bbo-and-incremental-l3-aggregates)
 retains commands and evidence.
+
+## Book registry and consolidated BBO
+
+Owner: quant development. `market_data.books.BookRegistry` owns independent
+`(venue, instrument_id)` state and exposes `lookup(key, cutoff_ns=...)` and
+`consolidated(name, cutoff_ns=...)`. Both use cached common quotes; no execution
+routing, FX conversion or shared-account allocation is performed.
+
+`configuration.BookRegistryConfiguration` pins `BookSelection` records, explicit
+`BookEquivalence` mappings and a positive per-book `history_capacity`. Serialize
+and reopen it with the cached `DomainCodec`; `identity` hashes the entire resolved
+selection and policy. Each selection binds an `InstrumentDefinition`, exact
+recording/source identity, admitted `DataCapability`, native `QuantityKind`,
+`max_age_ns` and explicit `allow_degraded`. `BookSelection.from_capture` validates
+an existing spot capture selection against the caller's installed capability.
+There is exactly one selected source/channel per book. Other sources/products
+need compatible declared capabilities; configuration alone does not qualify them.
+
+An equivalence mapping carries an authored economic reference, one selected
+listing per venue, an inclusive knowledge cutoff and a half-open validity
+interval. Matching product, base asset, quote currency and quantity unit is
+mandatory, while the explicit reference asserts economic comparability; symbol
+spelling never establishes it. BTC-USD and BTC-USDT cannot share a mapping. There
+is no contract-multiplier or quantity conversion. A mapping unavailable at the
+query time produces `reference_unavailable` for its selected coverage.
+
+Attach a native recording with `attach(request, book_factory=BookAdapters.create)`
+and feed `apply(key, record, available_ns=...)`. Alternatively, use `accept(quote)`
+for each externally reconstructed whole-message boundary, including controls.
+Attached native books use `apply` exclusively. Positions begin at zero and advance
+contiguously per book; repeating the exact latest externally supplied boundary is
+idempotent. Original receipt/delivery clocks cannot regress. Unknown availability
+is rejected; unknown receipt and declared-but-missing source time are explicit
+query exclusions. None of these APIs opens a feed or starts a service.
+
+Cutoffs are inclusive exact Unix nanoseconds and may be queried in any order.
+A query selects the latest retained boundary available by that cutoff. It never
+falls back through a disconnect to an older priced state. Same-epoch heartbeat,
+control and duplicate boundaries can retain an unchanged book, including its
+original market clocks; they cannot refresh its age. Freshness is checked at
+every query against original receipt, delivery and the declared source clock,
+with equality at the age limit eligible. Future source times are excluded.
+Expiry therefore works without a new message. Disconnect, gap and recovering
+boundaries exclude the venue until a synchronized native snapshot restores it.
+Queries before retained history return `history_evicted`; rebuild a fresh registry
+from original inputs for older queries. At equal timestamps, the last delivered
+boundary wins; callers serialize delivery and queries.
+
+`BookLookup` retains the selected source, latest known boundary, eligible original
+quote or refusal reason. A consolidated result retains every selected lookup and
+its reason, `selected_keys`, `eligible_keys` and `partial`. Empty or one-sided
+accepted books remain eligible coverage. `bid` takes the highest eligible price;
+`ask` takes the lowest, each retaining all tied original `BookQuote` contributions
+in stable venue order and exact summed quantity. Currency and quantity units come
+from the selected reference definitions. Totals obey the existing exact financial
+grid and fail on overflow instead of rounding. `market_state` explicitly reports
+unavailable, empty, one-sided, locked, crossed or two-sided results. Partial
+coverage is relative to selected books, not proof of full venue/feed coverage.
+
+State is reconstructed, not migrated: replay the original journals with their
+original delivery envelopes for actual availability. Native capture journals alone
+retain receipt; using that clock for an exploratory saved replay must be labeled
+as a receipt-clock assumption. It cannot become historical delivery evidence.
+No native, canonical, dataset or paper-journal wire format changed.
+
+`run_live_paper` constructs a registry for its admitted source, or accepts an
+explicit caller-owned `books` registry. The observer updates that selected book
+and matches only its eligible per-venue quote. Other selected books can be fed
+through the same registry and inspected through explicit mappings; a consolidated
+quote never becomes the paper account's matching market. The application returns
+the resolved registry configuration for retention alongside capture evidence.
+The installed [registry consumer](../../tests/integration/consumers/capture/book_registry.py)
+reopens both native source paths separately and uses authored comparable fixtures
+for consolidation and selected-venue paper matching. The
+[roadmap](../../docs/roadmap/README.md#mr07b-book-registry-and-consolidated-bbo)
+records actual acceptance and remaining operating/capacity limits.
 
 ## Public spot data plane
 

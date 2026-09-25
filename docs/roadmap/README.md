@@ -15,7 +15,7 @@ complete for candidate packaging and local intent-only runtime binding. MR06 is
 complete for [independent operating packages and trusted local installation](#mr06-delivery-and-acceptance);
 MR07 is complete for [local dedicated-account paper/shadow operation](#mr07-delivery-and-acceptance).
 [MR07A](#mr07a-common-bbo-and-incremental-l3-aggregates) is complete for its declared per-book scope.
-[MR07B](#mr07b-book-registry-and-consolidated-bbo) and MR08–MR17 remain planned.
+[MR07B](#mr07b-book-registry-and-consolidated-bbo) is complete for its declared read-only registry/consolidation scope. MR08–MR17 remain planned.
 The [MR05 record](#mr05-delivery-and-acceptance) states its evidence
 and operating boundaries. The [MR04 record](#mr04-delivery-and-acceptance) states its service
 evidence and later runtime/deployment boundaries. The [MR03 record](#mr03-delivery-and-acceptance) and
@@ -831,7 +831,7 @@ to make an incompatible artifact appear acceptable.
 | MR06 | **[Independent deployable packages and trusted installation](../governance/workflow.md#build-a-release) — complete for the [declared local scope](#mr06-delivery-and-acceptance).** Build, verify, install and roll back pinned artifacts/configuration/state on the declared target; reject provenance, dependency, signature and compatibility failures. Prove that collector/execution applications install without unrelated research, notebook, training or reporting dependencies; shared contracts and independently locked workers retain compatible versions and release cadences. Resolve current release restrictions and verify research/shadow credentials cannot submit production orders. | Existing build/admission and MR16 package contracts; MR04 local environment profile supplies the target; MR06 does not wait for full MR04 or MR16 completion |
 | MR07 | **[Paper/shadow runtime and OMS](../architecture/platform-design.md#oms-and-venue-adapter-design) — complete for the [declared local scope](#mr07-delivery-and-acceptance).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
 | MR07A | **[Common BBO and incremental L3 aggregates](#mr07a-common-bbo-and-incremental-l3-aggregates) — complete for the declared per-book scope.** Expose one typed per-book quote contract for native L2/L3, maintain exact L3 quantities/counts by side and price during lifecycle updates, and integrate existing research and paper consumers. Preserve native identity, clocks, quality and recovery; verify against independent full aggregation. | Completed MR01–MR07 contracts and consumers; preserve MR06 package boundaries |
-| MR07B | **[Book registry and consolidated BBO](#mr07b-book-registry-and-consolidated-bbo) — planned.** Own independent books by venue/instrument and expose per-venue and consolidated BBO queries over explicitly equivalent instruments. Scan cached eligible venue quotes with causal cutoffs, freshness, provenance, ties and partial-coverage semantics. | MR07A; existing reference/capability admission and MR07 paper/replay interfaces |
+| MR07B | **[Book registry and consolidated BBO](#mr07b-book-registry-and-consolidated-bbo) — complete for the declared read-only scope.** Own independent books by venue/instrument and expose per-venue and consolidated BBO queries over explicitly equivalent instruments. Scan cached eligible venue quotes with causal cutoffs, freshness, provenance, ties and partial-coverage semantics. | MR07A; existing reference/capability admission and MR07 paper/replay interfaces |
 | MR08 | **[Independent risk and account reconciliation](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Unknown sends, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate physical venue reconciliation through MR11. | MR07 and existing risk/accounting; base paper acceptance precedes MR11 external evidence |
 | MR09 | **[Portfolio and shared-account infrastructure](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
 | MR10 | **[Operational qualification](../architecture/platform-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Keep paper results distinct from later MR11 private-stream/venue evidence; final operational acceptance incorporates MR11–MR14 results. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
@@ -1131,7 +1131,7 @@ Production deployment and live trading remain separately authorized work.
 
 ### MR07B book registry and consolidated BBO
 
-Status: **planned**, added 2026-09-25. Owner: quant development. Depends on MR07A;
+Status: **complete for the declared read-only book registry and consolidated BBO scope**, 2026-09-25. Owner: quant development. Depends on MR07A;
 the initial integration remains read-only market data and paper/replay consumption.
 
 - Maintain independent book state under `(venue, instrument)` keys, preserving
@@ -1158,6 +1158,93 @@ consolidation correctness without relabeling USD/USDT captures as one market.
 Record selected versus eligible coverage. Execution routing, shared-account
 allocation and FX conversion remain outside this milestone; MR15 measures the
 registry and quote workload before requiring a more complex index.
+
+Delivered behavior:
+
+- `BookRegistryConfiguration` binds exact source/channel selection to reference
+  definitions, adapter capability, quantity units, freshness and degraded-quality
+  admission. Explicit equivalent-market references carry knowledge and validity
+  cutoffs; mismatched currencies, assets, products or units are rejected.
+- `BookRegistry` owns independent native reconstruction and bounded cached quote
+  histories. Per-venue and consolidated queries preserve causal cutoffs, original
+  quote clocks, exact tie sizes, selected/eligible coverage and exclusion reasons.
+  Expiry requires no new price message. Controls cannot refresh market age;
+  disconnect/recovery invalidates the affected book without erasing earlier history.
+- `run_live_paper` and `PaperCaptureObserver` use the selected venue's registry
+  lookup before modeled matching. Callers may inspect explicit multi-venue groups;
+  a better consolidated price never changes the venue used for a paper fill.
+- The installed registry consumer reuses retained OKX/Bitfinex native journals in
+  separate USD/USDT groups and authors comparable fixtures for consolidation.
+  Historical queries and reconstruction exercise the same public registry.
+
+The [market-data guide](../../src/market_data/README.md#book-registry-and-consolidated-bbo)
+owns configuration/API contracts; the [paper guide](../../src/applications/paper/README.md)
+and [test guide](../../tests/README.md#registry-and-consolidated-quote-acceptance)
+own application and installed acceptance commands. No native/canonical/dataset or
+paper journal schema migration is needed: rebuild registry state from retained
+records and delivery clocks. Reversal uses the prior implementation with those
+unchanged original bytes.
+
+Evidence is retained under ignored `logs/mr07b/`:
+
+| Boundary | Evidence and observed outcome |
+| --- | --- |
+| Exact queries and admission | `focused-final.log`: 25 focused cases passed across registry, native quotes, live observations and paper application; `runtime-binding-final.log`: the later product/symbol admission regression passed (13 unrelated cases deselected). Registry cases include exact low-precision ties, same-venue instrument isolation, nanosecond source cutoffs, missing sides, expiry, disconnect/resynchronization and currency/unit mismatches |
+| Installed native inputs and replay | `installed-registry/result.json`: 77 OKX and 253 Bitfinex records; 73 and 247 accepted market boundaries; native final book/trace identities preserved. The 660 selected singleton-coverage queries contain 320 eligible and 340 partial results. Native USD/USDT groups remain separate and explicitly use receipt-clock availability because original delivery is unknown |
+| Historical and fresh-process replay | `installed-registry-restart/result.json` and `fresh-process-parity.json`: independent installed processes produce identical result and reverse-cutoff hashes. Fresh registries rebuild from original raw bytes; old cutoffs never see later cached boundaries |
+| Synthetic comparable market and venue-bound paper | Installed consumer: consolidated ask 100 from Bitfinex; selected OKX paper IOC fills exactly 2 at 101, fee 1.01 USD and final cash 796.99 USD. Reopening and rematching adds no effects. This is authored software/accounting evidence, not a real comparable-venue quote or venue fill |
+| Actual installed public paper input | `live-okx/summary.json`: 66 frames, one snapshot, 64 updates, seven decided timers. `live-bitfinex/summary.json`: 147 frames, one snapshot, 142 updates, seven decided timers. Both eight-second captures have no observed gaps and raw replay parity |
+| Actual delivery and paper restart | Both live trees retain original receipt and actual delivery clocks, exact saved paper steps/orders/ledger, equal shadow intents with zero fills, and a fresh-recording restart without duplicate effects. These passive engineering orders produced zero fills; the synthetic IOC separately proves fill accounting |
+| Research wheel source correspondence | `installed-source-parity.json`: all 290 installed source/resource members match checkout and wheel bytes; wheel SHA-256 `2b198bf22f8c75a36de2f915600fd5b6f6a0c97192e63a466a45a11326df5a7f` |
+| Independent collector boundary | `collector-boundary/README.md`: current contracts/collector wheels pass the admitted 14-wheel/16-edge closure, offline installation, exact source/installed-byte checks and pip check. Installed native registry and CLI replay preserve both source identities; no research/simulation/execution packages are present |
+
+`consumer-commands.json` records exact invocations; `consumers/` retains the copied
+scripts. Native public-paper commands used the verified installed interpreter
+with `-I` from `/private/tmp`, selecting the bounded files under `live-configs/`.
+The owning test guide records the reusable registry command.
+
+The first full gate stopped on a new runtime `assert`; it was replaced by an
+explicit `ValueError` and the security check passed. The original log remains
+`make-check-before-assert-fix.log`. A complete intermediate gate passed 1,518
+cases (`make-check-before-binding-guard.log`); the later reference-admission guard
+and regression required a renewed full gate. Its first focused attempt collided
+with a concurrent reinstall of the shared development environment, producing a
+missing installed module during collection (`runtime-binding-environment-race.log`).
+The same regression passed in the separate task environment before renewing the
+full gate. These are development corrections, not source- or venue-reliability
+claims.
+
+The final complete `make check` passed **1,519 tests, three performance cases
+deselected, zero skips**, with the real pinned Feast worker, strict typing and
+stubtest, governance/security/dependency audit and isolated wheel smoke. The
+final wheel is byte-identical to the wheel used for installed registry and public
+paper acceptance; `final-wheel/` retains the wheel, runtime requirements, smoke
+inputs/results and source/installed-member hashes. The final command was:
+
+```sh
+UV_PROJECT_ENVIRONMENT=/private/tmp/ar07b-gate TMPDIR=/private/tmp \
+  ALPHA_FEAST_WORKER_PYTHON=/private/tmp/ar07b-feast/bin/python \
+  PYTEST_ADDOPTS=--basetemp=/private/tmp/ar07b-check \
+  make check > logs/mr07b/make-check.log 2>&1
+```
+
+The retained MR06 execution consumer also accepts the new contracts wheel in an
+isolated admitted eight-wheel/nine-edge environment; CLI import and dependency
+checks pass without market-data or research packages. This is compatibility with
+that retained consumer, not renewed execution-source or signed-release evidence.
+The final roadmap status/evidence update is editorial; its links and changed
+component/test-guide links were checked explicitly after the gate. Task-specific
+temporary environments are removed after retaining evidence; no unrelated state
+or historical inputs are cleaned.
+
+Software query and modeled-account correctness remain distinct from original
+source continuity, private venue execution, strategy evidence and deployment
+readiness. Existing native endpoint qualification is reused because protocols and
+endpoints are unchanged; actual public input renews the changed paper boundary.
+No later-MR prerequisite slice was required or marked complete. MR15 measured
+capacity, MR08+ operating outcomes and MR17/G5 remain open; live activation is
+separate. The full research graph retains its existing QuantLib release restriction;
+these local development checks do not grant a production release.
 
 ## Decisive acceptance scenarios
 

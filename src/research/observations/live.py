@@ -94,6 +94,11 @@ class LiveBookDecisionSource:
         self._last_decision_book: BookObservation | None = None
 
     @property
+    def request(self) -> CaptureRequest:
+        """Expose the immutable admitted recording for connected per-venue consumers."""
+        return self._request
+
+    @property
     def identity(self) -> str:
         """Identify the stable live subscription and projection across recordings."""
         return self._identity

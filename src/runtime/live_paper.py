@@ -8,8 +8,10 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 
 # project library imports
+from configuration import BookKey
 from execution import PaperMarket
 from financial_units import Price, Quantity
+from market_data.books import BookDepth, BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord
 from research.observations import LiveBookDecisionSource
 from runtime.paper import PaperCandidateRuntime
@@ -44,9 +46,26 @@ class PaperCaptureObserver:
     it with download time or the later replay wall clock.
     """
 
-    def __init__(self, source: LiveBookDecisionSource, runtime: PaperCandidateRuntime) -> None:
+    def __init__(
+        self, source: LiveBookDecisionSource, runtime: PaperCandidateRuntime, *, books: BookRegistry
+    ) -> None:
         """Bind one admitted live source and its already open dedicated runtime."""
-        self.source, self.runtime = source, runtime
+        self.source, self.runtime, self.books = source, runtime, books
+        request = source.request
+        self._key = BookKey(venue=request.config.venue, instrument_id=request.config.instrument_id)
+        selected = books.lookup(self._key, cutoff_ns=0).selection
+        if (
+            selected.source_id != request.identity
+            or selected.capability.channel != request.config.channel
+            or selected.instrument.product != "spot"
+            or selected.instrument.symbol != request.config.symbol
+            or selected.instrument.base_currency != request.config.base_currency
+            or selected.instrument.quote_currency != request.config.quote_currency
+            or selected.quantity_unit != runtime.config.maximum.dimension.kind
+            or selected.instrument.instrument_id != runtime.config.maximum.dimension.instrument_id
+            or selected.instrument.quote_currency != runtime.config.tick.currency.code
+        ):
+            raise ValueError("paper quote registry differs from selected native venue and units")
         self._codec = DomainCodec()
 
     def observe(self, record: CaptureRecord, row: BookObservation) -> None:
@@ -60,11 +79,29 @@ class PaperCaptureObserver:
         identity = hashlib.sha256(payload).hexdigest()
         self.runtime.input_delivery(identity=identity, at=delivery.available_at, payload=payload)
         self.source.accept(delivery.record, delivery.book, available_at=delivery.available_at)
+        elapsed = delivery.available_at - datetime(1970, 1, 1, tzinfo=UTC)
+        available_ns = (
+            elapsed.days * 86_400 + elapsed.seconds
+        ) * 1_000_000_000 + elapsed.microseconds * 1000
+        request = self.source.request
+        self.books.accept(
+            BookDepth.from_observation(delivery.book).quote(
+                delivery.book,
+                venue=request.config.venue,
+                instrument_id=request.config.instrument_id,
+                source_id=request.identity,
+                channel=request.config.channel,
+                available_ns=available_ns,
+            )
+        )
         if delivery.book.outcome not in ("snapshot", "update"):
             return
-        quote = self.source.current_quote(
-            self.runtime.loaded.deployment.entity, delivery.available_at
-        )
+        if (
+            self.source.current_quote(self.runtime.loaded.deployment.entity, delivery.available_at)
+            is None
+        ):
+            return
+        quote = self.books.lookup(self._key, cutoff_ns=available_ns).quote
         if quote is None or quote.market_state != "two_sided":
             return
         bid, ask = quote.bid, quote.ask
