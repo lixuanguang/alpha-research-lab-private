@@ -118,11 +118,26 @@ class TestLiveBookDecisionSource:
         assert f":{book.state_identity}:" in observed.lineage
         assert observed.lineage.endswith(hashlib.sha256(_OKX_SNAPSHOT).hexdigest())
         assert source.latest_book == book and source.identity == identity
+        quote = source.current_quote(entity, cutoff)
+        assert quote is not None
+        assert quote.venue == "okx"
+        assert quote.instrument_id == scenario.request.config.instrument_id
+        assert quote.source_id == scenario.request.identity
+        assert quote.channel == "books"
+        assert quote.available_ns == 1_000_001_000
+        assert quote.market_state == "two_sided"
+        assert quote.bid is not None and quote.bid.price == 100
+        assert quote.bid.quantity == 2 and quote.bid.order_count == 2
+        assert quote.ask is not None and quote.ask.price == 101
+        assert quote.ask.quantity == 1 and quote.ask.order_count == 1
         scenario.push("frame", 1_000_000_500, raw=_OKX_UPDATE)
         assert source.read(entity, cutoff) is decided
         assert source.book_at(entity, cutoff) == book
         assert source.current_book(entity, cutoff) == source.latest_book
         assert source.current_book(entity, cutoff) != book
+        updated_quote = source.current_quote(entity, cutoff)
+        assert updated_quote is not None and updated_quote.bid is not None
+        assert updated_quote.bid.quantity == 1
         later = source.read(entity, _EPOCH + timedelta(microseconds=1_000_002))
         assert later.observations[0].value == ExactRatio(numerator="0", denominator="1")
         assert source.book_at(entity, later.decision_at) == source.latest_book
@@ -142,12 +157,16 @@ class TestLiveBookDecisionSource:
         assert carried.event_at == _EPOCH + timedelta(seconds=1)
         assert carried.available_at == _EPOCH + timedelta(microseconds=1_000_001)
         assert scenario.source.latest_book == book
+        carried_quote = scenario.source.current_quote(entity, _EPOCH + timedelta(seconds=2))
+        assert carried_quote is not None and carried_quote.available_ns == 1_000_001_000
         stale = scenario.source.read(entity, _EPOCH + timedelta(seconds=17)).observations[0]
         assert stale.value is None and stale.reason == "stale_market_progress"
         assert scenario.source.book_at(entity, _EPOCH + timedelta(seconds=17)) is None
         assert scenario.source.current_book(entity, _EPOCH + timedelta(seconds=17)) is None
+        assert scenario.source.current_quote(entity, _EPOCH + timedelta(seconds=17)) is None
         scenario.push("gap", 18_000_000_000, reason="disconnect_unknown_loss")
         assert scenario.source.latest_book is None
+        assert scenario.source.current_quote(entity, _EPOCH + timedelta(seconds=18)) is None
         missing = scenario.source.read(entity, _EPOCH + timedelta(seconds=18)).observations[0]
         assert missing.value is None and "recovering" in missing.reason
         assert scenario.source.book_at(entity, _EPOCH + timedelta(seconds=18)) is None
@@ -241,6 +260,8 @@ class TestLiveBookDecisionSource:
         assert observed.available_at == delivery_at
         assert observed.value == ExactRatio(numerator="1", denominator="3")
         assert delivery_at.isoformat() in observed.lineage
+        delayed_quote = scenario.source.current_quote(entity, delivery_at)
+        assert delayed_quote is not None and delayed_quote.available_ns == 2_000_000_000
         new_request = replace(scenario.request, recording_id="c" * 36)
         restarted = LiveBookDecisionSource(new_request, scenario.requirement, history_capacity=16)
         assert restarted.identity == scenario.source.identity

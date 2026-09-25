@@ -39,6 +39,7 @@ from market_data.contracts.public_trades import (
     PublicTransport,
     TradePage,
 )
+from market_data.contracts.quotes import BookQuote, BookQuoteSide
 from market_data.contracts.raw import RawObject, RequestBinding
 from market_data.contracts.requests import SourceRequest
 from market_data.contracts.transport import FeedSocket, SnapshotTransport
@@ -50,6 +51,8 @@ __all__ = [
     "ArchiveTrade",
     "BinanceMarketEvent",
     "BookObservation",
+    "BookQuote",
+    "BookQuoteSide",
     "ByteReader",
     "CaptureCursor",
     "CaptureRecord",

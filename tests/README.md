@@ -190,6 +190,24 @@ checks the selected deferred attempts against the actual local service.
 
 ## Paper and live-input acceptance
 
+The common book boundary is covered by `unit/data/test_book_quotes.py` and the
+native venue tests: independent full aggregation checks exact incremental L3
+levels, BBO sides, source/receipt/availability clocks, invalidation and recovery.
+The existing installed `capture/parity_consumer.py` additionally checks every
+native record in supplied completed recordings through `BookProjection.quote`
+and preserves the original final book/trace identities. Its published prefix
+continues to exercise chronological queries and fresh-process cursor recovery.
+Run it against explicit retained OKX/Bitfinex capture directories:
+
+```sh
+python -I /absolute/copied/parity_consumer.py /absolute/fresh-replay-output \
+  /absolute/okx-capture /absolute/bitfinex-capture
+```
+
+The paper consumer below exercises the same shared BBO through actual post-durable
+delivery and saved envelope replay. Native protocol fixtures and modeled fills
+remain separate from source qualification and private execution evidence.
+
 `tests/unit/execution/` exercises the portable OMS and finite-liquidity matcher:
 atomic quote admission, exact cash/inventory/fee reservations, fencing, restart,
 duplicate events, uncertain outcomes, partial fills, cancellation acknowledgments,

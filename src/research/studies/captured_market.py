@@ -5,16 +5,14 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from fractions import Fraction
 from typing import Literal
 
 # third party library imports
 from msgspec.structs import replace
 
 # project library imports
-from financial_units import DecimalGrid
-from market_data.contracts import BookObservation, Level
+from market_data.books import BookDepth
+from market_data.contracts import BookObservation
 from market_data.datasets import BookHistory, BookInput, DatasetReaders
 from market_data.storage import RawStore
 from research.experiments import TimeWindow
@@ -101,27 +99,8 @@ class CapturedStudyMarket:
         """Aggregate native visible orders exactly, preserving original controls and provenance."""
         if not row.orders:
             return row
-        totals: dict[tuple[str, Decimal], Fraction] = {}
-        counts: dict[tuple[str, Decimal], int] = {}
-        for order in row.orders:
-            key = order.side, order.price
-            totals[key] = totals.get(key, Fraction()) + Fraction(order.size)
-            counts[key] = counts.get(key, 0) + 1
-        bids = tuple(
-            (price, Level(size=DecimalGrid.exact_decimal(total), order_count=counts[(side, price)]))
-            for (side, price), total in sorted(totals.items())
-            if side == "buy"
-        )
-        asks = tuple(
-            (price, Level(size=DecimalGrid.exact_decimal(total), order_count=counts[(side, price)]))
-            for (side, price), total in sorted(totals.items())
-            if side == "sell"
-        )
         return replace(
-            row,
-            orders=(),
-            bids=bids,
-            asks=asks,
+            BookDepth.project(row),
             reason=(
                 f"{row.reason}; visible native orders projected to L2; modeled matching at receipt"
             ),

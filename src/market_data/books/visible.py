@@ -5,8 +5,10 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 from decimal import Decimal
+from fractions import Fraction
 
 # project library imports
+from financial_units import DecimalGrid
 from market_data.contracts import Level, Order
 from serialization import DomainCodec
 
@@ -48,6 +50,14 @@ class VisibleBook:
             raise ValueError("order state exceeds configured budget")
         self.remove(order.order_id)
         self.orders[order.order_id] = order
+        levels = self.bids if order.side == "buy" else self.asks
+        previous = levels.get(order.price)
+        levels[order.price] = Level(
+            DecimalGrid.exact_decimal(
+                Fraction(order.size) + (Fraction(previous.size) if previous else Fraction())
+            ),
+            1 + (previous.order_count if previous else 0),
+        )
         self._fingerprint ^= int.from_bytes(hashlib.sha256(self._codec.encode_json(order)).digest())
 
     def remove(self, order_id: str) -> None:
@@ -58,6 +68,15 @@ class VisibleBook:
         """
         previous = self.orders.pop(order_id, None)
         if previous is not None:
+            levels = self.bids if previous.side == "buy" else self.asks
+            level = levels[previous.price]
+            if level.order_count == 1:
+                del levels[previous.price]
+            else:
+                levels[previous.price] = Level(
+                    DecimalGrid.exact_decimal(Fraction(level.size) - Fraction(previous.size)),
+                    level.order_count - 1,
+                )
             self._fingerprint ^= int.from_bytes(
                 hashlib.sha256(self._codec.encode_json(previous)).digest()
             )

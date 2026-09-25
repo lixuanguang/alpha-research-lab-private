@@ -11,6 +11,7 @@ from msgspec.structs import replace
 # project library imports
 from configuration import CaptureConfig
 from market_data.adapters.venues.coinbase import CoinbaseBook
+from market_data.contracts import Level
 
 _ROOT = Path(__file__).parents[5]
 _SCHEMA = (
@@ -58,6 +59,27 @@ class TestCoinbaseBook:
         book.apply(b'["done","BTC-USD","16","other",null]')
         assert set(book.orders) == {"maker"}
         assert book.source_time is None
+
+    def test_partial_and_full_match_update_shared_level_exactly(self) -> None:
+        """Keep same-price order count while partial fills change only maker quantity."""
+        book = self.book()
+        book.apply(
+            b'{"sequence":10,"bids":[["100","0.300000000000000001","maker"],'
+            b'["100","0.4","peer"]],"asks":[]}',
+            snapshot=True,
+        )
+        book.apply(b'["noop","BTC-USD","11",null]')
+        assert book.bids == {Decimal(100): Level(Decimal("0.700000000000000001"), 2)}
+
+        book.apply(b'["match","BTC-USD","12","maker","taker","100","0.1",null]')
+        assert book.orders["maker"].size == Decimal("0.200000000000000001")
+        assert book.bids == {Decimal(100): Level(Decimal("0.600000000000000001"), 2)}
+
+        book.apply(b'["match","BTC-USD","13","maker","taker","100","0.200000000000000001",null]')
+        assert set(book.orders) == {"peer"}
+        assert book.bids == {Decimal(100): Level(Decimal("0.4"), 1)}
+        book.apply(b'["done","BTC-USD","14","peer",null]')
+        assert book.bids == {}
 
     def test_snapshot_alone_is_not_bridge(self) -> None:
         """Wait for sequence snapshot+1 even if covered messages arrive after REST."""

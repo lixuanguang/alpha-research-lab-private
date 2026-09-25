@@ -6,11 +6,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
-from fractions import Fraction
 
 # project library imports
 from execution import PaperMarket
-from financial_units import DecimalGrid, Price, Quantity
+from financial_units import Price, Quantity
 from market_data.contracts import BookObservation, CaptureRecord
 from research.observations import LiveBookDecisionSource
 from runtime.paper import PaperCandidateRuntime
@@ -63,24 +62,13 @@ class PaperCaptureObserver:
         self.source.accept(delivery.record, delivery.book, available_at=delivery.available_at)
         if delivery.book.outcome not in ("snapshot", "update"):
             return
-        book = self.source.current_book(
+        quote = self.source.current_quote(
             self.runtime.loaded.deployment.entity, delivery.available_at
         )
-        if book is None:
+        if quote is None or quote.market_state != "two_sided":
             return
-        bids = [(price, Fraction(level.size)) for price, level in book.bids]
-        asks = [(price, Fraction(level.size)) for price, level in book.asks]
-        if book.orders:
-            bids = [
-                (order.price, Fraction(order.size)) for order in book.orders if order.side == "buy"
-            ]
-            asks = [
-                (order.price, Fraction(order.size)) for order in book.orders if order.side == "sell"
-            ]
-        if not bids or not asks:
-            return
-        bid, ask = max(price for price, _ in bids), min(price for price, _ in asks)
-        if bid >= ask:
+        bid, ask = quote.bid, quote.ask
+        if bid is None or ask is None:
             return
         dimension, currency = (
             self.runtime.config.maximum.dimension,
@@ -90,20 +78,10 @@ class PaperCaptureObserver:
             PaperMarket(
                 identity=identity,
                 at=delivery.available_at,
-                bid=Price(value=bid, currency=currency, per=dimension),
-                ask=Price(value=ask, currency=currency, per=dimension),
-                bid_quantity=Quantity(
-                    value=DecimalGrid.exact_decimal(
-                        sum((size for price, size in bids if price == bid), Fraction(0))
-                    ),
-                    dimension=dimension,
-                ),
-                ask_quantity=Quantity(
-                    value=DecimalGrid.exact_decimal(
-                        sum((size for price, size in asks if price == ask), Fraction(0))
-                    ),
-                    dimension=dimension,
-                ),
+                bid=Price(value=bid.price, currency=currency, per=dimension),
+                ask=Price(value=ask.price, currency=currency, per=dimension),
+                bid_quantity=Quantity(value=bid.quantity, dimension=dimension),
+                ask_quantity=Quantity(value=ask.quantity, dimension=dimension),
             )
         )
 
