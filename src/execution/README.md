@@ -213,6 +213,90 @@ venue fee rules, deployment, capacity and activation remain separately qualified
 capabilities. The [MR09 record](../../docs/roadmap/README.md#mr09-delivery-and-acceptance)
 distinguishes their status from software acceptance.
 
+## Test-venue execution
+
+Owner: quant development. Status: implemented bounded software path; authenticated
+venue conformance remains unqualified. `VenueGateway` connects `AccountJournal`
+to `OKXSpotAdapter` and `BitfinexSpotAdapter` through the same `VenueAdapter`
+contract. Existing paper/shadow journals remain non-executable. The new
+`venue_test` account mode and separately supplied `VenueAuthorization` are required
+for dispatch; production endpoints/authority are not exposed by this application.
+
+Configuration pins the local and native account identities, test environment,
+canonical instrument/native symbol/currency mapping, reference history, independent
+account limits and credential environment-variable names. Current reference rules
+must match the admitted specification at dispatch. Installing an adapter or adding
+an instrument to a data universe grants no order authority. Adapter-owned capability
+profiles use the existing registry and retain `fixture` qualification until actual
+per-venue acceptance evidence exists.
+
+The declared native support is cash-funded spot limit GTC, IOC and post-only,
+submit/cancel requests, individual order lookup, bounded fill history, complete
+open orders and trading-wallet balances. OKX requests select demo trading; Bitfinex
+requires the authenticated user's paper flag. Both verify the configured native
+account UID. The shared firm-journal binding refuses a second local alias for the
+same physical wallet. Use one authoritative workspace and an exclusive API key for
+each physical account; independent copied workspaces are not a distributed fence.
+
+Each physical order must already be reserved through direct admission or MR09
+portfolio coordination. The gateway stores its client identity and uncertain
+attempt before I/O. A kernel lock excludes another sending owner while the first
+can still use its connection; a bounded account write lock protects the final
+independent risk/stop check. Lost acknowledgements, restart and absent order lookup
+never authorize another submit for that identity. Request acknowledgement is not
+acceptance. Cancellation acknowledgement is not terminal cancellation. A further
+explicit cancel requires successful reconciliation confirming the order is still
+open. Replacement remains a new admitted order after confirmed terminal state.
+
+The gateway retains exact native receipts before applying canonical events. The
+account journal atomically posts `NativeFill`, fees/rebates and attributed child
+effects. Positive native fees are costs; negative fees are rebates. Base costs
+change inventory and native cost totals without debiting invented quote cash.
+Cumulative native costs consume the order's quote-denominated fee allowance at
+the actual execution prices. Quote fees use existing cash accounting. Third-asset
+fees and implicit FX are rejected. `PhysicalAccountObservation` compares actual
+wallet totals and physical open orders; local fill IDs are never manufactured as
+external observations.
+
+Before each first submit and after uncertain outcomes, the gateway checks native
+account mode/UID, retained individual fills, order details, wallet totals and
+stable opening/closing open-order snapshots. It checks every configured instrument
+and refuses unknown orders, inconsistent cumulative fills, nonzero unmapped wallets,
+borrowed funds, history truncation or changed economic identity. Local unsent intents
+remain reserved and are not represented as venue-observed orders. A broken or
+unavailable observation invalidates independent account readiness before the
+transport diagnostic is saved. Operator stops are never cleared by reconciliation.
+
+Private WebSocket sessions authenticate explicitly and retain received frames;
+Bitfinex sequence gaps and either venue's malformed/control/loss events require
+recovery. Economic notifications trigger the same authoritative REST reconciliation.
+The bounded session closes and invalidates account freshness on exit. Reopening a
+session does not itself resume submission. This correctness-first implementation
+does not qualify low-latency streaming or MR15 runtime budgets.
+
+State consists of the account SQLite journal, account-specific `.venue.sqlite3`,
+the shared `.venue-accounts.sqlite3` identity bindings and `.venue.lock`. Keep the
+whole workspace together. Nonces and conservative request intervals survive
+restart; HTTP requests never hide submit retries or follow redirects. Private
+receipt bytes can contain sensitive account data and belong outside Git. A restored
+workspace requires fresh physical reconciliation; remote anti-rewind and deployed
+rollback qualification remain MR13 work.
+
+Recovery is deliberately bounded by source history retention, pagination and
+configured resource limits. An empty unavailable historical window is not proof of
+no fills. The current Bitfinex fill reader refuses a full ambiguous timestamp page;
+larger recovery workloads require the MR15 capacity extension before admission.
+No borrowing, derivatives, third-currency fee conversion, production activation or
+venue-execution fidelity is claimed. The
+[MR11 roadmap record](../../docs/roadmap/README.md#mr11-delivery-and-acceptance)
+owns the open external gate; the
+[command guide](../applications/execute/README.md#test-venue-commands) owns invocation.
+
+Protocol references are the official [OKX V5 guide](https://www.okx.com/docs-v5/en/)
+and [Bitfinex authenticated API guide](https://docs.bitfinex.com/docs/ws-auth).
+Their protocols informed implementation; reading documentation is not exchange
+conformance evidence.
+
 ## Account operational recovery
 
 `AccountJournal.control(AccountControl)` commits local account phase and its

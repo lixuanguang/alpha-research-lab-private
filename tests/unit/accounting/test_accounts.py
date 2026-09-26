@@ -181,6 +181,67 @@ class TestAccountLedger:
         assert restored.snapshot() == aggregate
         assert restored.snapshot("alpha") == alpha
 
+    def test_base_denomination_changes_inventory_without_spurious_cash(self) -> None:
+        """Hand-reconcile a 2-unit buy with a base fee and later base rebate."""
+        base = Currency(code="BASE", minor_unit=Decimal("0.00000001"))
+        ledger = AccountLedger(AccountState(account_id="physical", currencies=(self.usd, base)))
+        ledger.post(self._transfer("capital", seconds=0, value="1000"))
+        ledger.post(self._fill("buy", seconds=1, quantity="2", price="100"))
+        ledger.post(
+            AccountPosting(
+                identity="base-fee",
+                account_id="physical",
+                event_at=self.start + timedelta(seconds=2),
+                known_at=self.start + timedelta(seconds=2),
+                kind="fee",
+                cash=self._cash("-0.01", base),
+                asset_change=Quantity(value=Decimal("-0.01"), dimension=self.asset_a),
+                instance_id="alpha",
+                order_id="order-a",
+            )
+        )
+        ledger.post(
+            AccountPosting(
+                identity="base-rebate",
+                account_id="physical",
+                event_at=self.start + timedelta(seconds=3),
+                known_at=self.start + timedelta(seconds=3),
+                kind="rebate",
+                cash=self._cash("0.002", base),
+                asset_change=Quantity(value=Decimal("0.002"), dimension=self.asset_a),
+                instance_id="alpha",
+                order_id="order-a",
+            )
+        )
+        snapshot = ledger.snapshot()
+        assert tuple(amount.value for amount in snapshot.cash) == (Decimal("800"), Decimal(0))
+        assert snapshot.positions[0].value == Decimal("1.992")
+        assert tuple(amount.value for amount in snapshot.fees) == (Decimal(0), Decimal("0.01"))
+        assert tuple(amount.value for amount in snapshot.rebates) == (
+            Decimal(0),
+            Decimal("0.002"),
+        )
+        restored = AccountLedger(
+            DomainCodec().decode_json(DomainCodec().encode_json(ledger.state), AccountState)
+        )
+        assert restored.snapshot() == snapshot
+        before = ledger.state
+        with pytest.raises(ValueError, match="spot inventory cannot be short"):
+            ledger.post(
+                AccountPosting(
+                    identity="excess-base-fee",
+                    account_id="physical",
+                    event_at=self.start + timedelta(seconds=4),
+                    known_at=self.start + timedelta(seconds=4),
+                    kind="fee",
+                    cash=self._cash("-3", base),
+                    asset_change=Quantity(value=Decimal("-3"), dimension=self.asset_a),
+                    instance_id="alpha",
+                    order_id="order-a",
+                )
+            )
+        assert ledger.state == before
+
     def test_retry_revisions_and_favorable_price_preserve_original_fill_identity(self) -> None:
         """Replace effects atomically while retaining all source and revision IDs."""
         ledger = self._ledger()

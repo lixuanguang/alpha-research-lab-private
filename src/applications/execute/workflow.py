@@ -1,4 +1,4 @@
-"""Inspect or apply suppressed execution admission and durable paper requests."""
+"""Inspect or operate durable paper accounts and authorized test venues."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 # project library imports
 from applications.execute.accounts import AccountExecutionApplication
 from applications.execute.paper import PaperExecutionApplication
+from applications.execute.venue import VenueAction, VenueExecutionApplication
 from configuration import ExecutionConfiguration, ExecutionRequest
 from risk import SubmissionAdmission
 from serialization import DomainCodec
@@ -24,10 +25,15 @@ class ExecuteArguments(argparse.Namespace):
     request: Path | None
     journal: Path
     instance: str
+    venue_action: VenueAction
+    authorization: Path | None
+    order: str | None
+    duration: float | None
+    messages: int | None
 
 
 def main() -> None:
-    """Run one installed no-submission admission or dedicated paper operation."""
+    """Run one installed admission, local account or test-venue operation."""
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
     inspect_parser = actions.add_parser("inspect")
@@ -44,10 +50,44 @@ def main() -> None:
     account_parser.add_argument("--config", type=Path, required=True)
     account_parser.add_argument("--journal", type=Path, required=True)
     account_parser.add_argument("--request", type=Path)
+    venue_parser = actions.add_parser("venue")
+    venue_parser.add_argument("--config", type=Path, required=True)
+    venue_parser.add_argument("--journal", type=Path, required=True)
+    venue_parser.add_argument(
+        "--action",
+        dest="venue_action",
+        choices=(
+            "inspect",
+            "quote",
+            "admit",
+            "coordinate",
+            "reconcile",
+            "submit",
+            "cancel",
+            "stream",
+        ),
+        default="inspect",
+    )
+    venue_parser.add_argument("--request", type=Path)
+    venue_parser.add_argument("--authorization", type=Path)
+    venue_parser.add_argument("--order")
+    venue_parser.add_argument("--duration", type=float)
+    venue_parser.add_argument("--messages", type=int)
     arguments = parser.parse_args(namespace=ExecuteArguments())
     try:
         result: object
-        if arguments.action == "account":
+        if arguments.action == "venue":
+            result = VenueExecutionApplication().run(
+                config_path=arguments.config,
+                journal_path=arguments.journal,
+                action=arguments.venue_action,
+                request_path=arguments.request,
+                authorization_path=arguments.authorization,
+                order_id=arguments.order,
+                duration_seconds=arguments.duration,
+                max_messages=arguments.messages,
+            )
+        elif arguments.action == "account":
             result = AccountExecutionApplication().run(
                 config_path=arguments.config,
                 journal_path=arguments.journal,
@@ -71,6 +111,6 @@ def main() -> None:
                     config, ExecutionRequest.read(arguments.request)
                 )
         print(DomainCodec().encode_json(result).decode(), flush=True)
-    except (OSError, sqlite3.Error, TypeError, ValueError) as error:
-        print(f"execution admission rejected: {error}", file=sys.stderr, flush=True)
+    except (OSError, sqlite3.Error, TypeError, ValueError, RuntimeError) as error:
+        print(f"execution request failed: {error}", file=sys.stderr, flush=True)
         raise SystemExit(2) from error

@@ -128,9 +128,12 @@ does not decide economic targets or override risk. The additional `AccountJourna
 shares the same intent/lifecycle owner and adds
 atomic instance/account/firm admission, tagged child orders and postings, compatible
 physical net orders, deterministic fill/fee allocation, append-only corrections
-and complete local reconciliation. Physical venue reconciliation and authenticated
-execution remain MR11 work; the local workflow does not turn normalized events into
-venue evidence.
+and complete local reconciliation. MR11 adds an implemented test-venue gateway,
+both native protocols, signed native fees and wallet/order comparison through
+these same owners. Its scripted conformance remains software evidence; actual
+authenticated venue qualification is open. The
+[test-venue contract](../../src/execution/README.md#test-venue-execution) owns
+supported operations, separate authority and recovery limits.
 
 [`runtime.PaperCandidateRuntime`](../../src/runtime/README.md#paper-candidate-supervision)
 delivers lifecycle, timer, market, order and account callbacks to the same

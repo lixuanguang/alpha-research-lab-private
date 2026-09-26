@@ -222,6 +222,8 @@ class AccountExecutionApplication:
         """Validate configuration/request bytes before any persistent operation."""
         codec = DomainCodec()
         config = codec.decode_json(self._read(config_path), AccountConfiguration)
+        if config.mode == "venue_test":
+            raise ValueError("venue_test account requires the separate venue command")
         request = (
             AccountExecutionRequest(action="inspect")
             if request_path is None

@@ -4,8 +4,9 @@ Owner: quant development. The original `inspect` and `admit` commands accept
 exact spot limit intents through the existing capability, reference and
 independent risk contracts. Their output is either a rejection or a suppressed
 admissible intent. The separate `paper` command owns a durable local order
-journal and account state. Neither command has a venue submission client,
-credential resolver, live order command or capital authority.
+journal and account state. These original commands retain no venue submission
+authority. The separate test-venue command below adds authenticated test-account
+operations; production trading remains unavailable.
 
 `ExecutionConfiguration` (`execution-admission-v1`) binds the environment,
 research/paper/shadow mode, mode-scoped credential reference, execution capability
@@ -159,6 +160,66 @@ authors configured target and order-intent strategies, retains every request and
 result, and exercises the installed CLI using both OKX/USDT and Bitfinex/USD
 fixture labels. These are local spot accounting scenarios, not private account
 observations or venue-rule qualification.
+
+## Test-venue commands
+
+`alpha-execute venue` uses `VenueExecutionConfiguration` (`venue-execution-v1`),
+an `AccountConfiguration` in explicit `venue_test` mode and the existing account
+journal. The configuration includes the expected physical `venue_account_id`,
+canonical/native instrument mapping, current reference history and credential
+environment-variable references. `inspect`, `quote`, `admit` and `coordinate`
+need no credentials. The legacy `account` command rejects this mode, preventing
+its modeled event requests from masquerading as native venue facts.
+
+```sh
+alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action inspect
+alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action reconcile
+alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action quote --request /absolute/quote.json
+alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action coordinate --request /absolute/batch.json
+```
+
+The local request uses the existing `AccountExecutionRequest` codec and its
+matching action (`quote`, `admit` or `coordinate`). Independent account admission
+returns `admission` or `portfolio`, including physical order identities. It does
+not submit. Actual test submission requires a separate `VenueAuthorization`
+document, pinned to the exact config digest, account/environment, instruments,
+UTC validity interval and maximum order notional, with `submit_enabled=true`:
+
+```sh
+alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action submit --order PHYSICAL_ORDER_ID --authorization /protected/test-authority.json
+alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action cancel --order PHYSICAL_ORDER_ID --authorization /protected/test-authority.json
+alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action stream --duration 30 --messages 100
+```
+
+These commands perform external authenticated requests and require separately
+authorized test accounts. They were **not run against an exchange** during MR11
+implementation. OKX uses demo trading and Bitfinex verifies the paper-account
+flag; the returned native UID must match configuration. No production mode is
+accepted. Protective cancellation keeps the envelope's account/config/instrument
+scope even after its submission interval expires. Stops and cancellation do not
+imply position reduction.
+
+Results contain `gateway`, optional local `admission`/`portfolio`, and
+`quote_observed`. Check business status and `gateway.recovery_required` even on
+a zero CLI exit. A request acknowledgement leaves recovery required until complete
+physical reconciliation. `submission_attempted` describes this command, not the
+history of an uncertain order. A failing transport returns a nonzero exit and
+retains state for inspection/reconciliation. Never remove the journal or change
+the client identity to retry an uncertain send.
+
+The independent execution wheel now includes the same pinned WebSocket library
+already selected for collection; it still excludes research/training dependencies.
+The existing signed-release runner does not admit the new venue config/state
+schema yet. Thus these are installed development/test entrypoints; trusted venue
+deployment/rollback remains a required MR06/MR13 integration slice, not something
+to bypass by invoking an installed environment directly.
+
+The [venue execution owner](../../execution/README.md#test-venue-execution) explains
+history bounds, native fees, fencing and recovery. The
+[installed consumer](../../../tests/integration/consumers/runtime/venue_execution.py)
+authors runnable configs/authority and exercises both actual protocol adapters
+with scripted HTTP, without credentials or exchange access. Its authored
+specifications and account facts establish software conformance only.
 
 ## Local operational commands
 

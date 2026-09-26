@@ -38,14 +38,15 @@ class OpeningAccount(WireRecord, frozen=True):
 
 
 class AccountConfiguration(WireRecord, frozen=True):
-    """Pin paper/shadow accounts, spot mechanics and one explicit firm valuation currency.
+    """Pin account state, spot mechanics and one explicit firm valuation currency.
 
-    This authority controls local software admission only. Venue credentials,
-    physical account access and capital activation are absent. Other cash currencies
-    can reconcile, but trading without a configured common valuation is rejected.
+    This authority controls local software admission only. ``venue_test`` provides
+    a distinct state identity for a separately authorized test-venue gateway; it
+    grants no physical access by itself. Other cash currencies can reconcile,
+    but trading without a configured common valuation is rejected.
     """
 
-    mode: Literal["paper", "shadow"]
+    mode: Literal["paper", "shadow", "venue_test"]
     opening_at: datetime
     accounts: tuple[OpeningAccount, ...]
     instruments: tuple[SpotLimits, ...]
@@ -58,7 +59,10 @@ class AccountConfiguration(WireRecord, frozen=True):
         if type(self.budgets) is not BudgetPolicy:
             raise TypeError("account configuration requires BudgetPolicy")
         self.budgets.__post_init__()
-        if self.mode not in ("paper", "shadow") or self.schema_version != "account-runtime-v1":
+        if (
+            self.mode not in ("paper", "shadow", "venue_test")
+            or self.schema_version != "account-runtime-v1"
+        ):
             raise ValueError("unsupported account runtime mode or schema")
         if (
             type(self.accounts) is not tuple

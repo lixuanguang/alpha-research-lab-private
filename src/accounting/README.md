@@ -113,6 +113,18 @@ and open orders before clearing a break. A local paper observation is not an
 authenticated OKX or Bitfinex account observation. Venue adapters, base-asset
 fee rules and physical reconciliation still require their own qualification.
 
+The MR11 software increment adds `AccountPosting.asset_change` for identified
+base-asset fees/rebates. Such a posting records the native signed cost and changes
+inventory, without inventing a debit or credit to quote cash. Cash and asset
+effects remain distinct in replay, corrections and snapshots. The execution owner
+atomically combines these costs with `NativeFill` and deterministic direct/net
+child attribution; positive cost consumes a cumulative quote-denominated fee
+allowance valued at each actual fill price. A rebate does not authorize new
+orders or silently enlarge that allowance. Third-currency conversion remains
+unsupported. `PhysicalAccountObservation` compares actual wallet totals to cash
+plus mapped spot holdings, with no fabricated external posting identities.
+See the [native execution contract](../execution/README.md#test-venue-execution).
+
 The [single-instrument hand ledger tests](../../tests/unit/accounting/test_ledger.py)
 cover exact basis, P&L and fees. The
 [account posting tests](../../tests/unit/accounting/test_accounts.py) cover
