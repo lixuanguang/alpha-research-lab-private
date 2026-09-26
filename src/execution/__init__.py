@@ -1,6 +1,7 @@
 """Expose the fenced, non-submitting paper order journal and portable lifecycle facts."""
 
 # project library imports
+from execution.account_records import NativeFill, PhysicalAccountObservation
 from execution.accounts import (
     AccountControl,
     AccountControlKind,
@@ -33,6 +34,17 @@ from execution.records import (
     StepCommit,
     StepRecord,
 )
+from execution.venue_gateway import GatewayView, VenueClock, VenueGateway, VenuePrivateConnection
+from execution.venues import (
+    BitfinexSpotAdapter,
+    OKXSpotAdapter,
+    PrivateVenueSession,
+    TlsVenueHttpTransport,
+    VenueAdapter,
+    VenueCredentials,
+    VenueHttpRequest,
+    VenueHttpResponse,
+)
 from portfolio import PortfolioContext
 
 __all__ = [
@@ -46,24 +58,38 @@ __all__ = [
     "AccountQuote",
     "AccountReservations",
     "AccountView",
+    "BitfinexSpotAdapter",
     "EventKind",
+    "GatewayView",
     "JournalEvent",
+    "NativeFill",
     "NetAllocation",
     "NetFeeCorrection",
     "NetOrder",
+    "OKXSpotAdapter",
     "OrderDecision",
     "OrderEvent",
     "OrderState",
     "PaperMarket",
     "PaperMatcher",
     "PaperOrderJournal",
+    "PhysicalAccountObservation",
     "PortfolioBatch",
     "PortfolioCommit",
     "PortfolioContext",
     "PortfolioDecision",
     "PortfolioResidual",
+    "PrivateVenueSession",
     "SpotOrderLifecycle",
     "StepCommit",
     "StepRecord",
     "TaggedOrder",
+    "TlsVenueHttpTransport",
+    "VenueAdapter",
+    "VenueClock",
+    "VenueCredentials",
+    "VenueGateway",
+    "VenueHttpRequest",
+    "VenueHttpResponse",
+    "VenuePrivateConnection",
 ]

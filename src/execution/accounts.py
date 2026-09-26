@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import datetime
+import hashlib
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Literal
 
@@ -11,7 +16,7 @@ from typing import Literal
 from msgspec.structs import replace
 
 # project library imports
-from accounting import AccountPosting, AccountSnapshot
+from accounting import AccountLedger, AccountPosting, AccountSnapshot, AccountState, Fill
 from configuration import AccountConfiguration
 from execution.account_admission import AccountAdmission
 from execution.account_allocation import PhysicalAllocation
@@ -25,17 +30,27 @@ from execution.account_records import AccountObservation as AccountObservation
 from execution.account_records import AccountPhase as AccountPhase
 from execution.account_records import AccountQuote as AccountQuote
 from execution.account_records import AccountView as AccountView
+from execution.account_records import NativeFeeAllocation as NativeFeeAllocation
+from execution.account_records import NativeFill as NativeFill
 from execution.account_records import NetAllocation as NetAllocation
 from execution.account_records import NetFeeAllocation as NetFeeAllocation
 from execution.account_records import NetFeeCorrection as NetFeeCorrection
 from execution.account_records import NetOrder as NetOrder
+from execution.account_records import PhysicalAccountObservation as PhysicalAccountObservation
 from execution.account_records import PortfolioBatch as PortfolioBatch
 from execution.account_records import PortfolioCommit as PortfolioCommit
 from execution.account_records import PortfolioDecision as PortfolioDecision
 from execution.account_records import PortfolioResidual as PortfolioResidual
 from execution.account_records import TaggedOrder as TaggedOrder
-from execution.account_state import AccountStateStore, _SavedDecision
+from execution.account_state import (
+    AccountStateStore,
+    _AccountTransaction,
+    _SavedDecision,
+    _SavedNativeFill,
+)
 from execution.records import OrderEvent, OrderState, StepCommit
+from financial_units import DecimalGrid, Money, Quantity
+from portfolio import ProRataAllocator
 from serialization import DomainCodec
 
 
@@ -168,6 +183,22 @@ class AccountJournal:
                 replace(transaction.account(account_id), operator_block=reason)
             )
 
+    def invalidate_venue(self, account_id: str, reason: str) -> None:
+        """Fence exposure after an unavailable or uncertain private venue read.
+
+        A later complete physical observation can clear this recoverable fault.
+        Operator stops remain independent and cannot be cleared by observation.
+        """
+        if self.config.mode != "venue_test":
+            raise ValueError("venue invalidation requires venue_test mode")
+        if type(reason) is not str or not reason.strip():
+            raise ValueError("venue invalidation requires a visible reason")
+        with self._store.write() as transaction:
+            account = transaction.account(account_id)
+            transaction.save_account(
+                replace(account, fault=f"venue_unavailable:{reason}", reconciled_at=None)
+            )
+
     def control(self, request: AccountControl) -> AccountControlResult:
         """Apply an identified local startup, stop, fault, restart or cancel."""
         request.__post_init__()
@@ -214,6 +245,8 @@ class AccountJournal:
 
     def apply_net_event(self, event: OrderEvent) -> NetOrder:
         """Apply one physical fact and all attributable strategy effects atomically."""
+        if self.config.mode == "venue_test" and event.fill is not None:
+            raise ValueError("venue fills require apply_native_fill")
         event.__post_init__()
         with self._store.write() as transaction:
             result, failure = self._allocation.apply_event(transaction, event)
@@ -251,6 +284,8 @@ class AccountJournal:
 
     def apply_event(self, event: OrderEvent) -> OrderState:
         """Post normalized order and fill facts; durably block contradictions."""
+        if self.config.mode == "venue_test" and event.fill is not None:
+            raise ValueError("venue fills require apply_native_fill")
         event.__post_init__()
         with self._store.write() as transaction:
             result, failure = self._admission.apply_event(transaction, event)
@@ -276,3 +311,359 @@ class AccountJournal:
         observation.__post_init__()
         with self._store.write() as transaction:
             return self._admission.reconcile(transaction, observation, self._allocation)
+
+    def apply_native_fill(self, request: NativeFill) -> OrderState | NetOrder:
+        """Commit one venue trade, all attributed costs and the lifecycle atomically.
+
+        A retry of identical source bytes is harmless. Conflicting or unpostable
+        source facts retain a durable account fault and cannot be reconciled away.
+        """
+        request.__post_init__()
+        if self.config.mode != "venue_test":
+            raise ValueError("native fill requires venue_test mode")
+        with self._store.write() as transaction:
+            prior = next(
+                (
+                    item
+                    for item in transaction.state.native_fills
+                    if item.request.identity == request.identity
+                ),
+                None,
+            )
+            if prior is not None:
+                if prior.request != request:
+                    self._record_failed_native(transaction, request, prior.request.order_id)
+                    failure = "native fill identity reused with different economics"
+                else:
+                    return self._physical_order(transaction, request.order_id)
+            else:
+                failure = None
+            if failure is None:
+                before = transaction.state
+                try:
+                    result, allocations = self._apply_native(transaction, request)
+                except ValueError as error:
+                    transaction.state = before
+                    self._record_failed_native(transaction, request)
+                    failure = str(error)
+                else:
+                    native_fills: tuple[_SavedNativeFill, ...] = (
+                        *transaction.state.native_fills,
+                        _SavedNativeFill(request=request, allocations=allocations),
+                    )
+                    transaction.state = replace(
+                        transaction.state,
+                        native_fills=native_fills,
+                    )
+        if failure is not None:
+            raise ValueError(f"account blocked: {failure}")
+        return result
+
+    def _apply_native(
+        self, transaction: _AccountTransaction, request: NativeFill
+    ) -> tuple[OrderState | NetOrder, tuple[NativeFeeAllocation, ...]]:
+        """Stage existing physical lifecycle and separate native asset economics."""
+        for prior in transaction.state.native_fills:
+            other = prior.request
+            if (
+                other.quantity.dimension == request.quantity.dimension
+                and other.base_currency != request.base_currency
+            ):
+                raise ValueError("native instrument base currency changed")
+        physical = self._physical_order(transaction, request.order_id)
+        order = physical.order if isinstance(physical, NetOrder) else physical
+        event_fill = Fill(
+            identity=request.identity,
+            decision_at=order.decision_at,
+            filled_at=request.filled_at,
+            quantity=request.quantity,
+            reference=request.price,
+            effective=request.price,
+            fee=(
+                request.fee
+                if request.fee.currency == request.price.currency and request.fee.value > 0
+                else Money(value=Decimal(0), currency=request.price.currency)
+            ),
+        )
+        event = OrderEvent(
+            identity=f"native:{request.identity}",
+            order_id=request.order_id,
+            at=request.at,
+            kind="fill",
+            fill=event_fill,
+        )
+        if isinstance(physical, NetOrder):
+            net_result, failure = self._allocation.apply_event(transaction, event)
+            if failure is not None or net_result is None:
+                raise ValueError(failure or "native physical fill failed")
+            final: OrderState | NetOrder = net_result
+        else:
+            direct_result, failure = self._admission.apply_event(transaction, event)
+            if failure is not None or direct_result is None:
+                raise ValueError(failure or "native direct fill failed")
+            final = direct_result
+        allocations = self._post_native_cost(transaction, request, isinstance(physical, NetOrder))
+        return final, allocations
+
+    def _post_native_cost(
+        self, transaction: _AccountTransaction, request: NativeFill, is_net: bool
+    ) -> tuple[NativeFeeAllocation, ...]:
+        """Post base inventory fees or rebates and quote rebates to owned children."""
+        if request.fee.value == 0 or (
+            request.fee.currency == request.price.currency and request.fee.value > 0
+        ):
+            return ()
+        parent = transaction.net_order(request.order_id) if is_net else None
+        account_id = (
+            parent.account_id
+            if parent is not None
+            else transaction.order(request.order_id).account_id
+        )
+        account = transaction.account(account_id)
+        ledger = AccountLedger(account.ledger)
+        if (
+            request.fee.currency == request.base_currency
+            and request.base_currency not in ledger.state.currencies
+        ):
+            ledger = AccountLedger(
+                AccountState(
+                    account_id=account_id,
+                    currencies=(*ledger.state.currencies, request.base_currency),
+                    postings=ledger.state.postings,
+                )
+            )
+        if parent is not None:
+            source = next(
+                item
+                for item in reversed(transaction.state.net_events)
+                if item.event.fill is not None and item.event.fill.identity == request.identity
+            )
+            effective = {item.identity: item for item in ledger.effective_postings()}
+            child_list: list[tuple[str, Fraction]] = []
+            for identity in source.child_fill_ids:
+                posting = effective[identity]
+                if posting.order_id is None or posting.quantity is None:
+                    raise ValueError("native physical fill lacks child attribution")
+                child_list.append((posting.order_id, abs(Fraction(posting.quantity.value))))
+            children = tuple(child_list)
+        else:
+            children = ((request.order_id, abs(Fraction(request.quantity.value))),)
+        if not children:
+            raise ValueError("native fee lacks attributed fill quantity")
+        child_ids = tuple(child_id for child_id, _ in children)
+        amount = request.fee.value.copy_abs()
+        if request.fee.value > 0:
+            if request.fee.currency != request.base_currency:
+                raise ValueError("quote fee must use ordinary fill cost path")
+            capacities: list[Decimal] = []
+            for child_id in child_ids:
+                child = transaction.order(child_id)
+                prior_native_cost = sum(
+                    (
+                        Fraction(allocation.amount.value) * Fraction(saved.request.price.value)
+                        for saved in transaction.state.native_fills
+                        if saved.request.fee.currency == saved.request.base_currency
+                        for allocation in saved.allocations
+                        if allocation.child_order_id == child_id and allocation.amount.value > 0
+                    ),
+                    Fraction(0),
+                )
+                reserve = (
+                    Fraction((child.order.maximum_fee - child.order.paid_fee).value)
+                    - prior_native_cost
+                )
+                if reserve < 0:
+                    raise ValueError("native fees exceed child reservation")
+                atoms = reserve * 10**18 // Fraction(request.price.value)
+                capacities.append(DecimalGrid.exact_decimal(Fraction(atoms, 10**18)))
+            portions = ProRataAllocator().split_capped(
+                amount=amount,
+                capacities=tuple(capacities),
+                identities=child_ids,
+            )
+        else:
+            portions = self._split_native_rebate(amount, children)
+        allocations: list[NativeFeeAllocation] = []
+        for child_id, portion in zip(child_ids, portions, strict=True):
+            if not portion:
+                continue
+            child = transaction.order(child_id)
+            signed = portion if request.fee.value > 0 else portion.copy_negate()
+            posting_id = hashlib.sha256(
+                self._codec.encode_json(("native-fee-v1", request.identity, child_id))
+            ).hexdigest()
+            cash_value = signed.copy_negate()
+            ledger.post(
+                AccountPosting(
+                    identity=posting_id,
+                    account_id=account_id,
+                    instance_id=child.instance_id,
+                    order_id=child_id,
+                    kind="fee" if signed > 0 else "rebate",
+                    event_at=request.filled_at,
+                    known_at=request.at,
+                    cash=Money(value=cash_value, currency=request.fee.currency),
+                    asset_change=(
+                        Quantity(value=cash_value, dimension=request.quantity.dimension)
+                        if request.fee.currency == request.base_currency
+                        else None
+                    ),
+                )
+            )
+            allocations.append(
+                NativeFeeAllocation(
+                    child_order_id=child_id,
+                    amount=Money(value=signed, currency=request.fee.currency),
+                    posting_id=posting_id,
+                )
+            )
+        transaction.save_account(replace(account, ledger=ledger.state))
+        return tuple(allocations)
+
+    @staticmethod
+    def _split_native_rebate(
+        amount: Decimal, children: tuple[tuple[str, Fraction], ...]
+    ) -> tuple[Decimal, ...]:
+        """Allocate signed source rebate atoms by actual child fill quantity."""
+        total_atoms = int(Fraction(amount) * 10**18)
+        weight = sum((item[1] for item in children), Fraction(0))
+        quotas = tuple(Fraction(total_atoms) * item[1] / weight for item in children)
+        atoms = [quota.numerator // quota.denominator for quota in quotas]
+        remaining = total_atoms - sum(atoms)
+        priorities = sorted(
+            (-(quotas[index] - atoms[index]), children[index][0], index)
+            for index in range(len(children))
+        )
+        for _, _, index in priorities[:remaining]:
+            atoms[index] += 1
+        return tuple(DecimalGrid.exact_decimal(Fraction(value, 10**18)) for value in atoms)
+
+    @staticmethod
+    def _physical_order(transaction: _AccountTransaction, order_id: str) -> OrderState | NetOrder:
+        """Resolve only a physical direct order or portfolio parent."""
+        for parent in transaction.state.net_orders:
+            if parent.order.identity == order_id:
+                return parent
+        for tagged in transaction.state.orders:
+            if tagged.order.identity == order_id and tagged.context is None:
+                return tagged.order
+        raise ValueError("unknown physical order")
+
+    def _record_failed_native(
+        self,
+        transaction: _AccountTransaction,
+        request: NativeFill,
+        prior_order_id: str | None = None,
+    ) -> None:
+        """Retain contradictory external trade bytes and fence any known owner."""
+        failed = transaction.state.failed_native_fills
+        if request not in failed:
+            failed = (*failed, request)
+        for order_id in (request.order_id, prior_order_id):
+            if order_id is None:
+                continue
+            try:
+                physical = self._physical_order(transaction, order_id)
+            except ValueError:
+                continue
+            account_id = (
+                physical.account_id
+                if isinstance(physical, NetOrder)
+                else transaction.order(order_id).account_id
+            )
+            account = transaction.account(account_id)
+            transaction.save_account(replace(account, fault="native_fill_break"))
+        transaction.state = replace(transaction.state, failed_native_fills=failed)
+
+    def reconcile_venue(self, observation: PhysicalAccountObservation) -> bool:
+        """Compare actual venue wallet totals and physical open orders."""
+        observation.__post_init__()
+        if self.config.mode != "venue_test":
+            raise ValueError("physical reconciliation requires venue_test mode")
+        with self._store.write() as transaction:
+            return self._admission.reconcile_physical(transaction, observation, self._allocation)
+
+    @contextmanager
+    def execution_guard(
+        self,
+        account_id: str,
+        order_id: str,
+        at: datetime,
+        *,
+        cancel: bool = False,
+        clock: Callable[[], datetime] | None = None,
+    ) -> Iterator[OrderState]:
+        """Hold the journal write fence across one bounded physical dispatch.
+
+        The caller commits uncertainty before entering and records the response
+        after leaving. This fence prevents an account or strategy stop from racing
+        the final send check; a cancellation remains available while stopped.
+        """
+        if self.config.mode != "venue_test":
+            raise ValueError("execution guard requires venue_test mode")
+        self._admission.require_utc(at, field_name="physical dispatch")
+        with self._store.write() as transaction:
+            if clock is not None:
+                at = clock()
+                self._admission.require_utc(at, field_name="physical dispatch")
+            physical = self._physical_order(transaction, order_id)
+            order = physical.order if isinstance(physical, NetOrder) else physical
+            owner = (
+                physical.account_id
+                if isinstance(physical, NetOrder)
+                else transaction.order(order_id).account_id
+            )
+            if owner != account_id or order.is_terminal:
+                raise ValueError("dispatch order is not an open physical account order")
+            if not cancel:
+                account = transaction.account(account_id)
+                if account.phase != "running" or account.fault or account.operator_block:
+                    raise ValueError("account dispatch is blocked")
+                if account.reconciled_at is None or at < account.reconciled_at:
+                    raise ValueError("dispatch requires current reconciliation")
+                if at < self._admission.account_time(transaction, account):
+                    raise ValueError("dispatch precedes current account state")
+                if isinstance(physical, NetOrder):
+                    instance_ids = tuple(
+                        transaction.order(item.child_order_id).instance_id
+                        for item in physical.allocations
+                    )
+                else:
+                    instance_ids = (transaction.order(order_id).instance_id,)
+                if any(item in transaction.state.stopped_instances for item in instance_ids):
+                    raise ValueError("strategy dispatch is stopped")
+                if any(
+                    tagged.account_id == account_id
+                    and tagged.order.identity != order_id
+                    and tagged.order.status == "unknown"
+                    for tagged in transaction.state.orders
+                ) or any(
+                    parent.account_id == account_id
+                    and parent.order.identity != order_id
+                    and parent.order.status == "unknown"
+                    for parent in transaction.state.net_orders
+                ):
+                    raise ValueError("another order outcome is unknown")
+                quote = next(
+                    (
+                        item
+                        for item in transaction.state.quotes
+                        if item.price.per == order.intent.quantity.dimension
+                    ),
+                    None,
+                )
+                if (
+                    quote is None
+                    or quote.at > at
+                    or at - quote.at > timedelta(microseconds=self.config.budgets.max_quote_age_us)
+                ):
+                    raise ValueError("dispatch quote is stale")
+                reference = Fraction(quote.price.value)
+                limit = Fraction(order.intent.limit.value)
+                if (
+                    abs(limit - reference) * 10_000
+                    > reference * self.config.budgets.max_price_deviation_bps
+                ):
+                    raise ValueError("dispatch price deviation")
+                self._admission.require_reissue_safe(transaction, account_id, at)
+            yield order

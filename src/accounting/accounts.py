@@ -18,9 +18,11 @@ type PostingKind = Literal["fill", "fee", "rebate", "transfer", "correction"]
 class AccountPosting(WireRecord, frozen=True):
     """Record one source fact or an identified replacement of a prior fact.
 
-    Cash is the signed effect on the physical account. A fill's signed quantity
-    and positive execution price determine that cash effect exactly. Fees debit
-    cash, rebates credit it, and transfers may move cash in either direction.
+    Cash is the signed effect on the physical account, except an asset-denominated
+    fee or rebate uses it to retain the exact native charge. In that case
+    ``asset_change`` is the physical inventory effect and cash does not move.
+    A fill's signed quantity and positive execution price determine its cash
+    effect exactly. Quote fees debit cash and rebates credit it.
     A correction replaces the current revision of one original fact atomically;
     an absent replacement kind voids that fact while retaining its history.
     """
@@ -35,6 +37,7 @@ class AccountPosting(WireRecord, frozen=True):
     order_id: str | None = None
     quantity: Quantity | None = None
     price: Price | None = None
+    asset_change: Quantity | None = None
     corrects: str | None = None
     replacement_kind: EconomicPostingKind | None = None
 
@@ -65,6 +68,10 @@ class AccountPosting(WireRecord, frozen=True):
             if type(self.price) is not Price:
                 raise TypeError("account posting requires exact price")
             self.price.model_copy()
+        if self.asset_change is not None:
+            if type(self.asset_change) is not Quantity:
+                raise TypeError("asset cost requires exact quantity")
+            self.asset_change.model_copy()
         effective_kind = self.effective_kind
         if self.kind == "correction":
             if (
@@ -77,7 +84,12 @@ class AccountPosting(WireRecord, frozen=True):
         elif self.corrects is not None or self.replacement_kind is not None:
             raise ValueError("only corrections may replace a posting")
         if effective_kind is None:
-            if self.cash.value != 0 or self.quantity is not None or self.price is not None:
+            if (
+                self.cash.value != 0
+                or self.quantity is not None
+                or self.price is not None
+                or self.asset_change is not None
+            ):
                 raise ValueError("void correction must have zero cash and no fill")
             return
         if effective_kind == "fill":
@@ -90,12 +102,22 @@ class AccountPosting(WireRecord, frozen=True):
                 or self.price.value <= 0
                 or self.price.per != self.quantity.dimension
                 or self.price.currency != self.cash.currency
+                or self.asset_change is not None
                 or Fraction(self.cash.value)
                 != -Fraction(self.price.value) * Fraction(self.quantity.value)
             ):
                 raise ValueError("fill requires exact signed cash, quantity, price and order")
         elif self.quantity is not None or self.price is not None:
             raise ValueError("only a fill may carry quantity or price")
+        elif self.asset_change is not None and (
+            effective_kind not in ("fee", "rebate")
+            or self.instance_id is None
+            or self.order_id is None
+            or Fraction(self.asset_change.value) != Fraction(self.cash.value)
+            or (effective_kind == "fee" and self.cash.value >= 0)
+            or (effective_kind == "rebate" and self.cash.value <= 0)
+        ):
+            raise ValueError("asset cost requires an owned, equally signed inventory effect")
         elif effective_kind == "fee" and self.cash.value >= 0:
             raise ValueError("fee must debit cash")
         elif effective_kind == "rebate" and self.cash.value <= 0:
@@ -125,6 +147,7 @@ class EffectiveAccountPosting(WireRecord, frozen=True):
     order_id: str | None = None
     quantity: Quantity | None = None
     price: Price | None = None
+    asset_change: Quantity | None = None
 
     def __post_init__(self) -> None:
         """Validate the public effective projection with the posting rules."""
@@ -139,6 +162,7 @@ class EffectiveAccountPosting(WireRecord, frozen=True):
             order_id=self.order_id,
             quantity=self.quantity,
             price=self.price,
+            asset_change=self.asset_change,
         )
         if type(self.identity) is not str or not self.identity:
             raise ValueError("effective posting requires an original identity")
@@ -358,7 +382,8 @@ class AccountLedger:
                 continue
             code = effect.cash.currency.code
             value = Fraction(effect.cash.value)
-            cash[code] += value
+            if effect.asset_change is None:
+                cash[code] += value
             if effect.kind == "fill":
                 if effect.quantity is None:
                     raise ValueError("effective fill lacks quantity")
@@ -367,11 +392,16 @@ class AccountLedger:
                     effect.quantity.value
                 )
                 fill_ids.append(effect.identity)
-            elif effect.kind == "fee":
+            if effect.asset_change is not None:
+                dimension = effect.asset_change.dimension
+                positions[dimension] = positions.get(dimension, Fraction(0)) + Fraction(
+                    effect.asset_change.value
+                )
+            if effect.kind == "fee":
                 fees[code] -= value
             elif effect.kind == "rebate":
                 rebates[code] += value
-            else:
+            elif effect.kind == "transfer":
                 transfers[code] += value
         posting_ids = tuple(
             posting.identity
@@ -424,6 +454,7 @@ class AccountLedger:
             order_id=posting.order_id,
             quantity=posting.quantity,
             price=posting.price,
+            asset_change=posting.asset_change,
         )
 
     @staticmethod
@@ -435,10 +466,12 @@ class AccountLedger:
         instance_positions: dict[tuple[str, Dimension], Fraction],
     ) -> None:
         """Apply or reverse one effective fact in exact running totals."""
-        cash[effect.cash.currency.code] += sign * Fraction(effect.cash.value)
-        if effect.quantity is not None:
-            dimension = effect.quantity.dimension
-            delta = sign * Fraction(effect.quantity.value)
+        if effect.asset_change is None:
+            cash[effect.cash.currency.code] += sign * Fraction(effect.cash.value)
+        movement = effect.quantity if effect.quantity is not None else effect.asset_change
+        if movement is not None:
+            dimension = movement.dimension
+            delta = sign * Fraction(movement.value)
             positions[dimension] = positions.get(dimension, Fraction(0)) + delta
             if effect.instance_id is None:
                 raise ValueError("fill lacks instance identity")
@@ -479,6 +512,15 @@ class AccountLedger:
                         original.quantity is not None
                         and posting.quantity is not None
                         and posting.quantity.dimension != original.quantity.dimension
+                    )
+                    or (
+                        posting.replacement_kind is not None
+                        and (posting.asset_change is None) != (original.asset_change is None)
+                    )
+                    or (
+                        original.asset_change is not None
+                        and posting.asset_change is not None
+                        and posting.asset_change.dimension != original.asset_change.dimension
                     )
                 ):
                     raise ValueError("correction changes original ownership or units")

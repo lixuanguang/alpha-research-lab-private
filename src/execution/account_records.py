@@ -10,7 +10,7 @@ from typing import Literal
 # project library imports
 from accounting import AccountSnapshot, AccountState
 from execution.records import OrderDecision, OrderState
-from financial_units import Money, Price, Quantity
+from financial_units import Currency, Dimension, Money, Price, Quantity
 from portfolio import PortfolioContext
 from serialization import WireRecord
 
@@ -349,6 +349,129 @@ class AccountObservation(WireRecord, frozen=True):
                 raise ValueError("open-order observation contains a terminal order")
         if len({order.identity for order in self.open_orders}) != len(self.open_orders):
             raise ValueError("reconciliation repeats an order identity")
+
+
+class NativeFill(WireRecord, frozen=True):
+    """Carry one identified venue trade and its signed native asset charge.
+
+    Positive fee means a charge; negative fee means a rebate. ``quantity`` is
+    positive for a buy and negative for a sale. The caller resolves the venue
+    order identity to the journal's physical order before constructing this fact.
+    """
+
+    identity: str
+    order_id: str
+    at: datetime
+    filled_at: datetime
+    quantity: Quantity
+    price: Price
+    fee: Money
+    base_currency: Currency
+
+    def __post_init__(self) -> None:
+        """Require complete exact source economics and separate base/quote units."""
+        self._require_utc(self.at, field_name="native fill knowledge")
+        self._require_utc(self.filled_at, field_name="native fill event")
+        if (
+            type(self.identity) is not str
+            or not self.identity
+            or type(self.order_id) is not str
+            or not self.order_id
+            or self.at < self.filled_at
+        ):
+            raise ValueError("invalid native fill identity or clocks")
+        for value, kind in (
+            (self.quantity, Quantity),
+            (self.price, Price),
+            (self.fee, Money),
+            (self.base_currency, Currency),
+        ):
+            if type(value) is not kind:
+                raise TypeError("native fill requires exact financial units")
+            value.model_copy()
+        if (
+            self.quantity.value == 0
+            or self.price.value <= 0
+            or self.price.per != self.quantity.dimension
+            or self.base_currency == self.price.currency
+            or self.fee.currency not in (self.base_currency, self.price.currency)
+        ):
+            raise ValueError("native fill has incompatible base, quote or fee units")
+
+
+class NativeFeeAllocation(WireRecord, frozen=True):
+    """Bind one exact native fee or rebate share to a strategy child posting."""
+
+    child_order_id: str
+    amount: Money
+    posting_id: str
+
+    def __post_init__(self) -> None:
+        """Keep source shares independently attributable through restart."""
+        if (
+            type(self.child_order_id) is not str
+            or not self.child_order_id
+            or type(self.posting_id) is not str
+            or not self.posting_id
+            or type(self.amount) is not Money
+            or self.amount.value == 0
+        ):
+            raise ValueError("invalid native fee allocation")
+        self.amount.model_copy()
+
+
+class PhysicalAccountObservation(WireRecord, frozen=True):
+    """Retain complete venue wallet totals and confirmed physical open orders.
+
+    Fill and posting IDs are deliberately absent: a venue balance endpoint does
+    not independently certify the journal's locally derived attribution IDs.
+    """
+
+    identity: str
+    account_id: str
+    at: datetime
+    balances: tuple[Money, ...]
+    instrument_currencies: tuple[tuple[Dimension, Currency], ...]
+    open_orders: tuple[OrderState, ...]
+
+    def __post_init__(self) -> None:
+        """Reject ambiguous wallet units, mappings and physical order identities."""
+        self._require_utc(self.at, field_name="physical account observation")
+        if (
+            type(self.identity) is not str
+            or not self.identity
+            or type(self.account_id) is not str
+            or not self.account_id
+            or type(self.balances) is not tuple
+            or type(self.instrument_currencies) is not tuple
+            or type(self.open_orders) is not tuple
+        ):
+            raise ValueError("invalid physical observation")
+        for balance in self.balances:
+            if type(balance) is not Money:
+                raise TypeError("wallet balance requires exact Money")
+            balance.model_copy()
+            if balance.value < 0:
+                raise ValueError("physical spot wallet cannot be negative")
+        if len({balance.currency for balance in self.balances}) != len(self.balances):
+            raise ValueError("physical observation repeats a wallet currency")
+        for dimension, currency in self.instrument_currencies:
+            if type(dimension) is not Dimension or type(currency) is not Currency:
+                raise TypeError("instrument currency mapping requires exact units")
+            dimension.model_copy()
+            currency.model_copy()
+        if len({dimension for dimension, _ in self.instrument_currencies}) != len(
+            self.instrument_currencies
+        ):
+            raise ValueError("physical observation repeats an instrument mapping")
+        for order in self.open_orders:
+            if type(order) is not OrderState:
+                raise TypeError("physical observation requires OrderState")
+            order.__post_init__()
+            if order.is_terminal or order.status == "intent":
+                raise ValueError("venue open order requires an actual physical state")
+        if len({order.identity for order in self.open_orders}) != len(self.open_orders):
+            raise ValueError("physical observation repeats an order identity")
 
 
 type AccountPhase = Literal["running", "stopped", "faulted"]

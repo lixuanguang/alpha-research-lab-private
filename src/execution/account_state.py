@@ -22,9 +22,12 @@ from execution.account_records import (
     AccountObservation,
     AccountQuote,
     AccountView,
+    NativeFeeAllocation,
+    NativeFill,
     NetFeeAllocation,
     NetFeeCorrection,
     NetOrder,
+    PhysicalAccountObservation,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioResidual,
@@ -72,6 +75,20 @@ class _SavedNetEvent(WireRecord, frozen=True):
     fee_allocations: tuple[NetFeeAllocation, ...] = ()
 
 
+class _SavedNativeFill(WireRecord, frozen=True):
+    """Retain exact external trade bytes and independent native cost lineage."""
+
+    request: NativeFill
+    allocations: tuple[NativeFeeAllocation, ...] = ()
+
+
+class _PhysicalReconciliation(WireRecord, frozen=True):
+    """Retain an attempted venue wallet/open-order comparison and its outcome."""
+
+    observation: PhysicalAccountObservation
+    matched: bool
+
+
 class _InstanceControl(WireRecord, frozen=True):
     """Retain a selective stop or restart clock even without outstanding orders."""
 
@@ -107,6 +124,9 @@ class _FirmState(WireRecord, frozen=True):
     instance_controls: tuple[_InstanceControl, ...] = ()
     residuals: tuple[PortfolioResidual, ...] = ()
     account_controls: tuple[AccountControlResult, ...] = ()
+    native_fills: tuple[_SavedNativeFill, ...] = ()
+    failed_native_fills: tuple[NativeFill, ...] = ()
+    physical_reconciliations: tuple[_PhysicalReconciliation, ...] = ()
     schema_version: Literal["account-journal-v2"] = "account-journal-v2"
 
     def __post_init__(self) -> None:

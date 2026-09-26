@@ -11,6 +11,7 @@ from applications.execute.paper import (
     PaperExecutionRequest,
     PaperExecutionResult,
 )
+from applications.execute.venue import VenueApplicationResult, VenueExecutionApplication
 from applications.execute.workflow import main
 
 __all__ = [
@@ -20,5 +21,7 @@ __all__ = [
     "PaperExecutionApplication",
     "PaperExecutionRequest",
     "PaperExecutionResult",
+    "VenueApplicationResult",
+    "VenueExecutionApplication",
     "main",
 ]

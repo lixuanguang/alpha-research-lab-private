@@ -20,10 +20,12 @@ from execution.account_records import (
     AccountObservation,
     AccountQuote,
     AccountView,
+    PhysicalAccountObservation,
     TaggedOrder,
 )
 from execution.account_state import (
     _AccountTransaction,
+    _PhysicalReconciliation,
     _Reconciliation,
     _SavedEvent,
 )
@@ -385,6 +387,236 @@ class AccountAdmission:
         transaction.state = replace(transaction.state, reconciliations=reconciliations)
         return matched
 
+    def reconcile_physical(
+        self,
+        transaction: _AccountTransaction,
+        observation: PhysicalAccountObservation,
+        allocation: PhysicalAllocation,
+    ) -> bool:
+        """Compare independently supplied venue wallet totals and physical orders.
+
+        Wallet evidence has no local posting or strategy fill identifiers. Those
+        stay a separate internal consistency check, never invented source facts.
+        """
+        for saved in transaction.state.physical_reconciliations:
+            if saved.observation.identity == observation.identity:
+                if saved.observation != observation:
+                    raise ValueError("physical observation identity reused")
+                return saved.matched
+        account = transaction.account(observation.account_id)
+        ledger = AccountLedger(account.ledger)
+        snapshot = ledger.snapshot()
+        authorized_instruments = {
+            instrument_id
+            for owner in self.config.budgets.instances
+            if owner.account_id == observation.account_id
+            for instrument_id in owner.instruments
+        }
+        expected_dimensions = {
+            limits.lot.dimension
+            for limits in self.config.instruments
+            if limits.lot.dimension.instrument_id in authorized_instruments
+        }
+        mappings = dict(observation.instrument_currencies)
+        if set(mappings) != expected_dimensions:
+            raise ValueError("physical observation lacks configured instrument mapping")
+        account_order_ids = {
+            tagged.order.identity
+            for tagged in transaction.state.orders
+            if tagged.account_id == observation.account_id
+        } | {
+            parent.order.identity
+            for parent in transaction.state.net_orders
+            if parent.account_id == observation.account_id
+        }
+        for source in transaction.state.native_fills:
+            request = source.request
+            if (
+                request.order_id in account_order_ids
+                and request.base_currency != mappings[request.quantity.dimension]
+            ):
+                raise ValueError("physical observation changes a native base currency")
+        accepted_native_ids = {
+            source.request.identity
+            for source in transaction.state.native_fills
+            if source.request.order_id in account_order_ids
+        }
+        wallet: dict[object, Fraction] = {
+            amount.currency: Fraction(amount.value) for amount in snapshot.cash
+        }
+        for position in snapshot.positions:
+            currency = mappings[position.dimension]
+            wallet[currency] = wallet.get(currency, Fraction(0)) + Fraction(position.value)
+        observed = {amount.currency: Fraction(amount.value) for amount in observation.balances}
+        expected_nonzero = {unit: value for unit, value in wallet.items() if value}
+        observed_nonzero = {unit: value for unit, value in observed.items() if value}
+        open_orders = (
+            *(
+                tagged.order
+                for tagged in transaction.state.orders
+                if tagged.account_id == observation.account_id
+                and tagged.context is None
+                and not tagged.order.is_terminal
+                and tagged.order.status != "intent"
+            ),
+            *(
+                parent.order
+                for parent in transaction.state.net_orders
+                if parent.account_id == observation.account_id
+                and not parent.order.is_terminal
+                and parent.order.status != "intent"
+            ),
+        )
+        latest = self.account_time(transaction, account)
+        matched = (
+            observation.at >= latest
+            and (account.reconciled_at is None or observation.at >= account.reconciled_at)
+            and expected_nonzero == observed_nonzero
+            and {order.identity: order for order in open_orders}
+            == {order.identity: order for order in observation.open_orders}
+            and not any(order.status == "unknown" for order in open_orders)
+            and allocation.physical_attribution_matches(transaction, observation.account_id)
+            and self._native_attribution_matches(transaction, observation.account_id)
+            and not any(
+                posting.account_id == observation.account_id
+                and not self.failed_posting_matches_accepted_fact(account, posting)
+                for posting in transaction.state.failed_postings
+            )
+            and not any(
+                observation.account_id in self.failed_event_account_ids(transaction, event)
+                and (
+                    self.failed_event_conflicts_with_accepted_fact(transaction, event)
+                    or (event.fill is not None and event.fill.identity not in snapshot.fill_ids)
+                )
+                for event in transaction.state.failed_events
+            )
+            and not any(
+                observation.account_id in self.failed_net_event_account_ids(transaction, event)
+                and not self.failed_net_event_matches_accepted_fact(transaction, event)
+                for event in transaction.state.failed_net_events
+            )
+            and not any(
+                fill.order_id in account_order_ids or fill.identity in accepted_native_ids
+                for fill in transaction.state.failed_native_fills
+            )
+        )
+        if matched:
+            try:
+                self.require_funded(transaction, observation.account_id)
+            except ValueError:
+                matched = False
+        transaction.save_account(
+            replace(
+                account,
+                fault=None if matched else "account_break",
+                reconciled_at=observation.at if matched else account.reconciled_at,
+            )
+        )
+        physical_reconciliations: tuple[_PhysicalReconciliation, ...] = (
+            *transaction.state.physical_reconciliations,
+            _PhysicalReconciliation(observation=observation, matched=matched),
+        )
+        transaction.state = replace(
+            transaction.state,
+            physical_reconciliations=physical_reconciliations,
+        )
+        return matched
+
+    def _native_attribution_matches(
+        self, transaction: _AccountTransaction, account_id: str
+    ) -> bool:
+        """Check every venue trade's native cost against effective owned postings."""
+        effective = {
+            posting.identity: posting
+            for posting in AccountLedger(
+                transaction.account(account_id).ledger
+            ).effective_postings()
+        }
+        for saved in transaction.state.native_fills:
+            request = saved.request
+            is_direct = any(
+                tagged.account_id == account_id and tagged.order.identity == request.order_id
+                for tagged in transaction.state.orders
+            )
+            is_net = any(
+                parent.account_id == account_id and parent.order.identity == request.order_id
+                for parent in transaction.state.net_orders
+            )
+            if not is_direct and not is_net:
+                continue
+            sources: list[OrderEvent] = []
+            for saved_event in transaction.state.events:
+                if (
+                    saved_event.event.fill is not None
+                    and saved_event.event.fill.identity == request.identity
+                ):
+                    sources.append(saved_event.event)
+            for saved_net_event in transaction.state.net_events:
+                if (
+                    saved_net_event.event.fill is not None
+                    and saved_net_event.event.fill.identity == request.identity
+                ):
+                    sources.append(saved_net_event.event)
+            if len(sources) != 1:
+                return False
+            source = sources[0]
+            fill = source.fill
+            if fill is None:
+                return False
+            expected_quote_fee = (
+                request.fee.value
+                if request.fee.currency == request.price.currency and request.fee.value > 0
+                else 0
+            )
+            if (
+                source.order_id != request.order_id
+                or source.at != request.at
+                or fill.filled_at != request.filled_at
+                or fill.quantity != request.quantity
+                or fill.effective != request.price
+                or Fraction(fill.fee.value) != Fraction(expected_quote_fee)
+            ):
+                return False
+            if request.fee.value > 0 and request.fee.currency == request.price.currency:
+                if saved.allocations:
+                    return False
+                if is_direct:
+                    posting = effective.get(f"fee:{request.identity}")
+                    if (
+                        posting is None
+                        or posting.kind != "fee"
+                        or posting.order_id != request.order_id
+                        or posting.cash.currency != request.fee.currency
+                        or Fraction(posting.cash.value) != -Fraction(request.fee.value)
+                    ):
+                        return False
+                continue
+            if request.fee.value == 0:
+                if saved.allocations:
+                    return False
+                continue
+            total = Fraction(0)
+            for share in saved.allocations:
+                posting = effective.get(share.posting_id)
+                if (
+                    posting is None
+                    or posting.order_id != share.child_order_id
+                    or posting.kind != ("fee" if share.amount.value > 0 else "rebate")
+                    or posting.cash.currency != share.amount.currency
+                    or Fraction(posting.cash.value) != -Fraction(share.amount.value)
+                    or (posting.asset_change is not None)
+                    != (request.fee.currency == request.base_currency)
+                    or (
+                        posting.asset_change is not None
+                        and posting.asset_change.dimension != request.quantity.dimension
+                    )
+                ):
+                    return False
+                total += Fraction(share.amount.value)
+            if total != Fraction(request.fee.value):
+                return False
+        return True
+
     def commitments(
         self, transaction: _AccountTransaction, at: datetime
     ) -> tuple[ExposureCommitment, ...]:
@@ -717,6 +949,18 @@ class AccountAdmission:
             event.at
             for event in transaction.state.failed_net_events
             if account_id in self.failed_net_event_account_ids(transaction, event)
+        )
+        clocks.extend(
+            fill.at
+            for fill in transaction.state.failed_native_fills
+            if any(
+                tagged.account_id == account_id and tagged.order.identity == fill.order_id
+                for tagged in transaction.state.orders
+            )
+            or any(
+                parent.account_id == account_id and parent.order.identity == fill.order_id
+                for parent in transaction.state.net_orders
+            )
         )
         clocks.extend(
             control.at

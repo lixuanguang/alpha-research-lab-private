@@ -14,8 +14,9 @@ remaining work uses MR01–MR17, with MR07A/MR07B extending the completed MR07
 increment without renumbering later milestones. MR01–MR07B and MR09 are complete
 for the bounded scopes stated below. MR08 has a delivered local account/risk
 increment, while physical account qualification through MR11 remains open.
-MR10 has a delivered local operational increment; its final integrated
-qualification and MR11–MR17 remain open, including their explicitly owned
+MR10 has a delivered local operational increment; MR11 has implemented bounded
+test-venue execution/account paths with software conformance. Their external
+qualification and MR12–MR17 remain open, including their explicitly owned
 prerequisite slices.
 P1 stays deferred and unaccepted.
 
@@ -349,9 +350,9 @@ Partial: the local account/risk increment is implemented, while physical venue
 reconciliation remains unqualified. The execution, accounting and risk guides
 own current behavior. Initial qualification is local cash-funded spot with
 authored grids, a common explicit valuation currency, quote-currency fee reserves
-and normalized paper facts. FX aggregation, base-asset fee conversion, other
-product mechanics and authenticated OKX/Bitfinex account observations remain
-MR11 work.
+and normalized paper facts. MR11 adds native base/quote fees and physical wallet
+comparison at the software boundary. FX aggregation and other product mechanics
+remain unsupported; authenticated OKX/Bitfinex account observations remain open.
 
 ### MR09 delivery and acceptance
 
@@ -406,7 +407,7 @@ operating workloads retain their requests, snapshots and summaries under
 `logs/mr10/operating-okx/` and `logs/mr10/operating-bitfinex/`.
 These artifacts are local retained evidence, not published deployment records.
 
-Final MR10 acceptance remains open. Next, implement and qualify both MR11 private
+Final MR10 acceptance remains open. Next, qualify both implemented MR11 private
 execution/account adapters with explicitly authorized test endpoints/accounts
 and credentials references, then incorporate MR12 monitoring/routing, MR13
 authorization/reduce-position/deployed recovery and MR14 multi-instance results.
@@ -415,6 +416,61 @@ service/alert failure and deployed restoration cannot be proven by this local
 increment. Older snapshots are restored only into absent stopped workspaces;
 venue-generation/anti-rewind proof remains part of integrated recovery. No
 empirical strategy, service deployment, live order or capital activation is accepted.
+
+### MR11 delivery and acceptance
+
+Partial: both spot protocol adapters and the integrated test-account path are
+implemented. The [execution guide](../../src/execution/README.md#test-venue-execution)
+and [installed command guide](../../src/applications/execute/README.md#test-venue-commands)
+own behavior and commands. OKX demo and verified Bitfinex paper subaccounts share
+configured reference admission, portfolio/risk, durable physical order identities,
+native fill/fee posting, private input recovery and complete bounded wallet/order
+reconciliation. GTC, IOC and post-only limit orders are supported. Unsupported
+products, borrowing, third-currency fees, missing history and unknown physical
+orders block readiness; no implicit FX or source availability is invented.
+
+The gateway commits send uncertainty before transport, fences one owner, retains
+native receipts, and never resubmits an attempted economic order. Cancellation
+acknowledgement retains exposure; a fresh complete open-order observation is
+required before another explicit cancellation attempt. Native base fees change
+inventory, quote fees change cash, and rebates and physical-to-child attribution
+remain exact and idempotent. Physical account identity is pinned and cannot fund
+two local account aliases in the same firm journal.
+
+Quant development's [installed venue consumer](../../tests/integration/consumers/runtime/venue_execution.py)
+uses both actual adapters with scripted native HTTP responses, target/order
+intents, shared physical orders, partial fills, costs, cancellation and restart.
+Gateway tests additionally cover lost acknowledgement, absent lookup, private
+disconnect, duplicate recovery, separate authority and independent stops. These
+are software proofs, not observations of an exchange. MR08 owns the native
+accounting/reconciliation extension; MR09 attribution is reused. The explicit
+test authorization and final dispatch/recovery fences are MR13 prerequisite
+slices, not completion of MR13. Existing local MR10 evidence remains bounded;
+the added execution-wheel WebSocket dependency is independently locked.
+
+Local verification on 2026-09-26 is retained under ignored `logs/mr11/`.
+`protocol-final.log` records 13 native-protocol tests, including rejection of
+derivative symbols on the shared Bitfinex endpoint. `independent-okx.log` and
+`independent-bitfinex.log` record consumers run with `python -I` outside the
+checkout using rebuilt contracts/execution wheels in a separate nine-package
+environment. Each produced one submit, one cancel, final cash 899.90, base
+position 1 and fee 0.10, allocated equally to two children. These exact values
+are scripted workload expectations, not exchange observations. Artifact hashes,
+environment and configuration identities accompany the retained local results.
+The complete local gate uses
+`PYTEST_ADDOPTS=--basetemp=/private/tmp/mr11-check TMPDIR=/private/tmp make check`,
+with output in `logs/mr11/make-check-final.log`; earlier failed attempts are
+preserved separately. The short macOS pytest path avoids socket-path overflow.
+
+External acceptance is explicitly blocked: the user confirmed that no venue test
+access is available for this implementation. No authenticated request or test
+order was sent. The exact next action is to provision separately authorized OKX
+demo and Bitfinex paper-account credential references, expected account UIDs,
+fresh venue specifications and bounded test-order envelopes; then run each native
+path and retain acknowledgement-loss, fill/cancel, stream-loss and restart
+conformance against those accounts. Both venues remain mandatory. Deployed
+recovery, production authority, capital activation, broader runtime capacity and
+MR17/G5 remain open in their owning milestones.
 
 ## Decisive acceptance scenarios
 

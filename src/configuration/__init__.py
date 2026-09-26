@@ -35,6 +35,12 @@ from configuration.execution import (
 )
 from configuration.paper import PaperConfiguration
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
+from configuration.venue_execution import (
+    VenueAuthorization,
+    VenueCredentialReferences,
+    VenueExecutionConfiguration,
+    VenueInstrument,
+)
 
 __all__ = [
     "AccountConfiguration",
@@ -71,4 +77,8 @@ __all__ = [
     "ResolvedManifest",
     "Universe",
     "UniverseSelection",
+    "VenueAuthorization",
+    "VenueCredentialReferences",
+    "VenueExecutionConfiguration",
+    "VenueInstrument",
 ]
