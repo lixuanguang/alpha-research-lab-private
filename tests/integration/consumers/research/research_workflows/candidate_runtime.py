@@ -35,6 +35,7 @@ from runtime import (
     CandidateSession,
     CandidateStep,
     PaperCandidateRuntime,
+    PaperCheckpoint,
 )
 from serialization import DomainCodec
 from strategies import OrderIntent, TargetIntent
@@ -285,6 +286,36 @@ class _PaperCandidateAcceptance:
             ),
         )
 
+    @staticmethod
+    def _saved_step(
+        *,
+        journal_path: Path,
+        name: str,
+        bundle: CandidateBundle,
+        deployment: CandidateDeployment,
+        components: CandidateComponents,
+        registry: CapabilityRegistry,
+        config: PaperConfiguration,
+    ) -> CandidateStep:
+        """Reopen the actual timer step from the account's durable paper journal."""
+        loaded = CandidateLoader(components, registry).load(bundle, deployment)
+        journal = PaperOrderJournal(
+            journal_path,
+            account=config.account,
+            instance=deployment.instance,
+            binding_identity=PaperCandidateRuntime.binding(loaded, config),
+            mode=config.mode,
+            limits=SpotLimits(
+                maximum=config.maximum, lot=config.lot, tick=config.tick, product="spot"
+            ),
+            ledger_state=LedgerState(
+                initial_cash=config.initial_cash, dimension=config.maximum.dimension
+            ),
+        )
+        saved = journal.step(f"timer:{name}-decision")
+        assert saved is not None
+        return DomainCodec().decode_json(saved.result_bytes, CandidateStep)
+
     @classmethod
     def run_online(
         cls,
@@ -317,23 +348,15 @@ class _PaperCandidateAcceptance:
             source=None,
             features=feed,
         )
-        loaded = CandidateLoader(components, registry).load(bundle, deployment)
-        journal = PaperOrderJournal(
-            journal_path,
-            account=config.account,
-            instance=deployment.instance,
-            binding_identity=PaperCandidateRuntime.binding(loaded, config),
-            mode=config.mode,
-            limits=SpotLimits(
-                maximum=config.maximum, lot=config.lot, tick=config.tick, product="spot"
-            ),
-            ledger_state=LedgerState(
-                initial_cash=config.initial_cash, dimension=config.maximum.dimension
-            ),
+        return result, cls._saved_step(
+            journal_path=journal_path,
+            name=name,
+            bundle=bundle,
+            deployment=deployment,
+            components=components,
+            registry=registry,
+            config=config,
         )
-        saved = journal.step(f"timer:{name}-decision")
-        assert saved is not None
-        return result, DomainCodec().decode_json(saved.result_bytes, CandidateStep)
 
     @classmethod
     def exercise(
@@ -348,7 +371,7 @@ class _PaperCandidateAcceptance:
         scenario: _ScenarioView,
         source_step: CandidateStep,
         decision_second: int,
-    ) -> dict[str, object]:
+    ) -> tuple[dict[str, object], PaperCheckpoint, CandidateStep]:
         """Compare pure decisions, exact fills and reopened journal economics."""
         events = cls._events(name, scenario, decision_second)
         opened_at = scenario.at(decision_second - 1)
@@ -417,7 +440,7 @@ class _PaperCandidateAcceptance:
         assert restarted.ledger == paper.ledger
         assert restarted.orders == paper.orders
         assert restarted.checkpoint.order_sequence == paper.checkpoint.order_sequence
-        return {
+        proof: dict[str, object] = {
             "paper_shadow_intent_equal": True,
             "paper_status": paper_order.status,
             "shadow_status": shadow_order.status,
@@ -429,3 +452,14 @@ class _PaperCandidateAcceptance:
             "restart_no_duplicate_effects": True,
             "submission_attempted": False,
         }
+        step = cls._saved_step(
+            journal_path=paper_path,
+            name=name,
+            bundle=bundle,
+            deployment=deployment,
+            components=components,
+            registry=registry,
+            config=paper_config,
+        )
+        assert step.prediction == source_step.prediction
+        return proof, paper.checkpoint, step

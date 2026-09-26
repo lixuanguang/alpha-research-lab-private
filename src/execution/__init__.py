@@ -23,6 +23,7 @@ from execution.accounts import (
 )
 from execution.journal import PaperOrderJournal
 from execution.lifecycle import SpotOrderLifecycle
+from execution.monitoring import ExecutionMonitoring
 from execution.paper import PaperMarket, PaperMatcher
 from execution.records import (
     AccountReservations,
@@ -60,6 +61,7 @@ __all__ = [
     "AccountView",
     "BitfinexSpotAdapter",
     "EventKind",
+    "ExecutionMonitoring",
     "GatewayView",
     "JournalEvent",
     "NativeFill",

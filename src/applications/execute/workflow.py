@@ -10,6 +10,7 @@ from pathlib import Path
 
 # project library imports
 from applications.execute.accounts import AccountExecutionApplication
+from applications.execute.monitoring import MonitoringApplication
 from applications.execute.paper import PaperExecutionApplication
 from applications.execute.venue import VenueAction, VenueExecutionApplication
 from configuration import ExecutionConfiguration, ExecutionRequest
@@ -30,12 +31,20 @@ class ExecuteArguments(argparse.Namespace):
     order: str | None
     duration: float | None
     messages: int | None
+    output: Path
+    alerts: Path | None
+    telemetry: Path | None
 
 
 def main() -> None:
     """Run one installed admission, local account or test-venue operation."""
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
+    monitor_parser = actions.add_parser("monitor")
+    monitor_parser.add_argument("--config", type=Path, required=True)
+    monitor_parser.add_argument("--journal", type=Path, required=True)
+    monitor_parser.add_argument("--output", type=Path, required=True)
+    monitor_parser.add_argument("--alerts", type=Path)
     inspect_parser = actions.add_parser("inspect")
     inspect_parser.add_argument("--config", type=Path, required=True)
     admit_parser = actions.add_parser("admit")
@@ -50,6 +59,7 @@ def main() -> None:
     account_parser.add_argument("--config", type=Path, required=True)
     account_parser.add_argument("--journal", type=Path, required=True)
     account_parser.add_argument("--request", type=Path)
+    account_parser.add_argument("--telemetry", type=Path)
     venue_parser = actions.add_parser("venue")
     venue_parser.add_argument("--config", type=Path, required=True)
     venue_parser.add_argument("--journal", type=Path, required=True)
@@ -73,10 +83,19 @@ def main() -> None:
     venue_parser.add_argument("--order")
     venue_parser.add_argument("--duration", type=float)
     venue_parser.add_argument("--messages", type=int)
+    venue_parser.add_argument("--telemetry", type=Path)
     arguments = parser.parse_args(namespace=ExecuteArguments())
     try:
         result: object
-        if arguments.action == "venue":
+        if arguments.action == "monitor":
+            snapshot = MonitoringApplication().run(
+                config_path=arguments.config,
+                journal_path=arguments.journal,
+                output=arguments.output,
+                alerts_path=arguments.alerts,
+            )
+            result = {"identity": snapshot.identity, "directory": str(arguments.output.absolute())}
+        elif arguments.action == "venue":
             result = VenueExecutionApplication().run(
                 config_path=arguments.config,
                 journal_path=arguments.journal,
@@ -86,12 +105,14 @@ def main() -> None:
                 order_id=arguments.order,
                 duration_seconds=arguments.duration,
                 max_messages=arguments.messages,
+                telemetry_path=arguments.telemetry,
             )
         elif arguments.action == "account":
             result = AccountExecutionApplication().run(
                 config_path=arguments.config,
                 journal_path=arguments.journal,
                 request_path=arguments.request,
+                telemetry_path=arguments.telemetry,
             )
         elif arguments.action == "paper":
             result = PaperExecutionApplication().run(

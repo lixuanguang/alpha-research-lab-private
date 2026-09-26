@@ -16,8 +16,9 @@ for the bounded scopes stated below. MR08 has a delivered local account/risk
 increment, while physical account qualification through MR11 remains open.
 MR10 has a delivered local operational increment; MR11 has implemented bounded
 test-venue execution/account paths with software conformance. Their external
-qualification and MR12–MR17 remain open, including their explicitly owned
-prerequisite slices.
+qualification remains open. MR12 now delivers a local monitoring increment;
+external operating qualification and MR13–MR17 remain open, including their
+explicitly owned prerequisite slices.
 P1 stays deferred and unaccepted.
 
 This revision strengthens generalization and acceptance without reducing the
@@ -287,7 +288,7 @@ the research graph's QuantLib release restriction remains in force.
 | MR09 | **[Portfolio and shared-account infrastructure](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
 | MR10 | **[Operational qualification](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Keep paper results distinct from later MR11 private-stream/venue evidence; final operational acceptance incorporates MR11–MR14 results. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
 | MR11 | **[OKX and Bitfinex execution/account adapters](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design).** Implement both venues' declared spot operations, capability profiles, authentication, throttles, durable client IDs, private-stream recovery and reconciliation. Qualify one complete venue path first, then the second through the same strategy/OMS/risk contracts. Retain per-venue authorized test-environment conformance; fixtures supplement unavailable external proof. The first venue never closes this two-venue outcome. | MR07–MR08 contracts; MR06 before deployment; required venue access; integrate MR09 attribution |
-| MR12 | **[Monitoring, metrics, charts and alerts](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account views. Register a custom research metric/chart and delayed-label diagnostic without modifying collectors or runtime; test telemetry loss independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; basic telemetry ships earlier with each capability |
+| MR12 | **[Monitoring, metrics, charts and alerts](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence) — local increment delivered; [external qualification open](#mr12-delivery-and-acceptance).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account views. Register a custom research metric/chart and delayed-label diagnostic without modifying collectors or runtime; test telemetry loss independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; basic telemetry ships earlier with each capability |
 | MR13 | **[Activation and recovery machinery](../governance/workflow.md#activate-and-operate).** Implement disabled-by-default deployment manifests and separate authorization envelopes, scoped limits, fencing and recovery. Provide distinct block-new-exposure, cancel and reduce-position operations with defined stale-data, disconnected and illiquid behavior. Reject absent/expired authority and incompatible code/model/schema/state; prove safe restart and rollback without undoing or duplicating external fills. Completion does not require or grant live capital use. | MR06, MR10 paper drills and MR11–MR12; feed results back into final MR10 acceptance |
 | MR14 | **[Multiple-instance integration](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Run different reference components and instruments with isolated/shared-account configurations through paper/shadow; add an instance through configuration, then stop/restart it without losing attribution or weakening other accounts' controls. | MR09, MR12–MR13; actual live use remains separately authorized |
 | MR15 | **[Research and runtime capacity qualification](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices).** Define numeric launch budgets early, covering multi-day data, multiple instruments, concurrent studies/trials, replay, feature-store materialization/retrieval, live ingestion, book reconstruction, quote consolidation and dashboard queries. Record volumes, retention, throughput, p50/p95/p99 latency, memory/disk, concurrency, hardware/cache conditions and recovery targets before measurement. Remove demonstration-size limits where they prevent the workload; preserve causal/numerical parity. Retain research acceptance separately from final integrated runtime acceptance and deploy the topology needed to meet both. | Budgets start with MR01/MR04; MR01–MR04 for research acceptance; MR07/MR07A/MR07B/MR12/MR14 for final runtime acceptance; no QR bottleneck required |
@@ -471,6 +472,49 @@ path and retain acknowledgement-loss, fill/cancel, stream-loss and restart
 conformance against those accounts. Both venues remain mandatory. Deployed
 recovery, production authority, capital activation, broader runtime capacity and
 MR17/G5 remain open in their owning milestones.
+
+### MR12 delivery and acceptance
+
+Partial: the local monitoring capability is implemented and integrated. The
+[telemetry guide](../../src/telemetry/README.md) owns versioned events/metrics,
+causal revision queries, retention, configured dashboards and local alert routes.
+The [execution command](../../src/applications/execute/README.md#retained-monitoring)
+reopens actual account/venue observations, while the
+[research bridge](../../src/research/studies/README.md#research-monitoring-bridge)
+reuses MR03 report contracts. Exact units, missingness, applicability and separate
+event/availability/receipt clocks remain explicit. Named version selections never
+silently substitute another version; delayed labels and revisions cannot alter
+an earlier cutoff. Dashboards retain query/config/input/result bytes and verify
+their JSON/HTML manifest when reopened.
+
+Data/runtime views distinguish process heartbeat from ingestion and durable
+progress, local receipt-to-durable delay, queue bytes/age, gaps, duplicates and
+failure. Account/risk views expose exact currency/instrument state, independent
+blocking, reconciliation and physical-order uncertainty. A bounded background
+writer keeps monitoring I/O off the watchdog control thread; saturation, failed
+storage and unfinished shutdown are visible. Local alert attempts retain failure
+and uncertainty; socket acceptance is not operator acknowledgement. No chart
+threshold can grant authority or release a hard control.
+
+Quant development's installed study consumer registers a fresh custom metric and
+chart across retained studies and paper telemetry; saved model predictions and
+outcomes exercise delayed-label diagnostics. The existing two-venue paper
+operational consumer now exercises the installed dashboard command, exact account
+values, reopening, idempotent retry and failed local alert delivery. Focused
+faults cover blocked telemetry writes, overflow, retention expiry, incompatible
+units/schemas, changed retries and future/corrected labels. These are software
+and local operating proofs, not empirical strategy or physical venue evidence.
+Validation logs and retained artifacts live under ignored `logs/mr12/`.
+
+MR12 does not close MR11's unavailable external test-account acceptance. The
+remaining action is to run the instrumented native OKX demo and Bitfinex paper
+paths against separately authorized accounts, retain real private-stream/reject/
+reconciliation signals, and qualify service/alert delivery and host/source clock
+observations in the selected operating environment. Source clock drift is
+currently explicit `not_measured`, not inferred from receipt delay. MR10 incorporates
+these later operating results; MR13 owns activation/recovery, MR14 deployed
+multiple instances, and MR15 measured dashboard/load budgets beyond the bounded
+local query/storage contracts. Those outcomes and MR17/G5 remain open.
 
 ## Decisive acceptance scenarios
 

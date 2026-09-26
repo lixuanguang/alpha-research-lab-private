@@ -35,6 +35,12 @@ from research.studies.extensions import (
     StudyReportReader,
 )
 from research.studies.inputs import ResearchInputs
+from research.studies.monitoring import (
+    ReportChartAdapter,
+    ReportMetricAdapter,
+    ReportMonitoringBridge,
+    StudyMonitoringExporter,
+)
 from research.studies.pipelines import PipelineRun, ResearchPipeline
 from research.studies.publication import PublicationPolicy
 from research.studies.reports import BenchmarkPeriod, EconomicReport, QuantStatsReport, ReportPolicy
@@ -96,7 +102,10 @@ __all__ = [
     "PublicationReceipt",
     "QuantStatsReport",
     "QuantileRule",
+    "ReportChartAdapter",
     "ReportContext",
+    "ReportMetricAdapter",
+    "ReportMonitoringBridge",
     "ReportObservation",
     "ReportPolicy",
     "ResearchInputs",
@@ -107,6 +116,7 @@ __all__ = [
     "StudyFold",
     "StudyFoldResult",
     "StudyMarketSource",
+    "StudyMonitoringExporter",
     "StudyOutcomeSource",
     "StudyReport",
     "StudyReportBuilder",

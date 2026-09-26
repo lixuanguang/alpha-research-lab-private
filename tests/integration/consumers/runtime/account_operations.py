@@ -29,14 +29,26 @@ from portfolio_account_facts import (
 )
 
 # project library imports
-from applications.execute.accounts import AccountExecutionRequest, AccountExecutionResult
+from applications.execute import (
+    AccountExecutionRequest,
+    AccountExecutionResult,
+    MonitoringConfiguration,
+)
 from configuration import AccountConfiguration
 from execution import AccountControl, AccountJournal, AccountObservation, AccountQuote, OrderEvent
-from financial_units import Currency, Dimension, QuantityKind
+from financial_units import Currency, Dimension, ExactRatio, QuantityKind
 from reference_data.instruments import InstrumentId
 from runtime import AccountWorkspace, ImplementationIdentity, ProcessSupervisor
 from serialization import DomainCodec
-from telemetry import HealthMetric, HealthMetrics, HealthPolicy
+from telemetry import (
+    AlertRule,
+    DashboardSnapshot,
+    HealthMetric,
+    HealthMetrics,
+    HealthPolicy,
+    MonitoringQuery,
+    TelemetryStore,
+)
 
 
 class _AccountFailureResponse:
@@ -128,6 +140,7 @@ class AccountOperationsConsumer:
         self.config = self.facts.config()
         self.config_path = output / "configuration.json"
         self.journal_path = output / "workspace/state/accounts.sqlite3"
+        self.monitoring_started_at = datetime.now(UTC)
 
     def _at(self, seconds: int) -> datetime:
         """Use authored causal clocks independently of the watchdog's elapsed clocks."""
@@ -147,6 +160,8 @@ class AccountOperationsConsumer:
                 str(self.journal_path),
                 "--request",
                 str(request_path),
+                "--telemetry",
+                str(self.output / "monitoring.sqlite"),
             ],
             cwd=self.output,
             capture_output=True,
@@ -158,6 +173,7 @@ class AccountOperationsConsumer:
         assert result.returncode == 0, (label, result.stderr)
         decoded = self.codec.decode_json(result.stdout, AccountExecutionResult)
         assert decoded.submission_attempted is False
+        assert decoded.telemetry_error is None
         return decoded
 
     def _control(
@@ -395,6 +411,7 @@ class AccountOperationsConsumer:
             assert lost_alert.alerts[-1].status == "failed"
             assert lost_alert.accounts[0].phase == "stopped"
             assert lost_alert.accounts[0].ledger == resumed.accounts[0].ledger
+        dashboard = self._monitor()
         summary: dict[str, object] = {
             "qualification": "local-paper-fixture",
             "venue_label": self.venue,
@@ -410,8 +427,70 @@ class AccountOperationsConsumer:
             "alert_delivery": ["delivered", "failed"],
             "fault_drills": evidence,
             "installed_implementation": ImplementationIdentity.sha256(),
+            "dashboard_identity": dashboard.identity,
+            "monitoring_preserved_account": True,
         }
         (self.output / "summary.json").write_bytes(self.codec.encode_json(summary))
+
+    def _monitor(self) -> DashboardSnapshot:
+        """Run the installed retained dashboard command over actual account observations."""
+        now = datetime.now(UTC)
+        query = MonitoringQuery(
+            scope="account:shared",
+            mode="paper",
+            start=self.monitoring_started_at,
+            end=now,
+            as_of=now,
+        )
+        events = TelemetryStore(self.output / "monitoring.sqlite").query(query)
+        config = MonitoringConfiguration.defaults(query, events)
+        risk = next(metric for metric in config.metrics if metric.name == "risk.blocked")
+        config = replace(
+            config,
+            dashboard=replace(
+                config.dashboard,
+                alerts=(
+                    AlertRule(
+                        identity="blocked-account",
+                        metric_identity=risk.identity,
+                        operator=">",
+                        threshold=ExactRatio(numerator="0", denominator="1"),
+                        units="boolean",
+                        address="/private/tmp/mr12-absent.sock",
+                    ),
+                ),
+            ),
+        )
+        config_path = self.output / "monitoring-configuration.json"
+        config_path.write_bytes(self.codec.encode_json(config))
+        before = AccountJournal(self.journal_path, self.config).accounts()
+        command = [
+            str(Path(sys.executable).parent / "alpha-execute"),
+            "monitor",
+            "--config",
+            str(config_path),
+            "--journal",
+            str(self.output / "monitoring.sqlite"),
+            "--output",
+            str(self.output / "dashboard"),
+            "--alerts",
+            str(self.output / "alerts.sqlite"),
+        ]
+        for _ in range(2):
+            result = subprocess.run(
+                command, cwd=self.output, capture_output=True, check=False, timeout=30
+            )
+            assert result.returncode == 0, result.stderr
+        snapshot = DashboardSnapshot.read(self.output / "dashboard")
+        values = {result.spec.name: result.value for result in snapshot.results}
+        assert values["risk.blocked"] == ExactRatio(numerator="1", denominator="1")
+        assert values[f"account.cash.{self.facts.currency.code}"] == ExactRatio(
+            numerator="2489999", denominator="50"
+        )
+        assert snapshot.alert_results[0].delivery is not None
+        assert snapshot.alert_results[0].delivery.status == "failed"
+        assert AccountJournal(self.journal_path, self.config).accounts() == before
+        return snapshot
 
     def _backup_failures(self, restored_root: Path) -> None:
         """Reject running state, incompatible config and a reused restore destination."""

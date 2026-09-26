@@ -18,7 +18,7 @@ from websockets.exceptions import WebSocketException
 from configuration import CaptureConfig
 from market_data.books import BookProjection, CaptureReplay, NativeBook
 from market_data.collection.canonical import BookCapture
-from market_data.collection.receipt import ReceiptStream
+from market_data.collection.receipt import CaptureQueue, ReceiptStream
 from market_data.contracts import (
     BookObservation,
     CaptureRecord,
@@ -125,19 +125,31 @@ class CaptureRunner:
         root = output / request.recording_id
         journal = CaptureJournal(root, request)
         replay = self._replay(config)
-        journal.start()
+        try:
+            journal.start()
+        except OSError, OverflowError:
+            if self._health is not None:
+                self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
+            raise
         deadline, reason = time.monotonic() + config.duration_seconds, "not_started"
         for epoch in range(config.retries + 1):
             if self._health is not None:
                 self._health.set(HealthMetric.RECONNECTS, epoch)
             start = CaptureRecord(kind="session", epoch=epoch, received_ns=time.time_ns())
-            journal.append(start)
+            try:
+                journal.append(start)
+            except OSError, OverflowError:
+                if self._health is not None:
+                    self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
+                raise
+            if self._health is not None:
+                self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
             outcome = replay.apply(start)
             self._observe(journal, replay, start, outcome)
             socket: FeedSocket | None = None
             reader: asyncio.Task[None] | None = None
             snapshot: asyncio.Task[None] | None = None
-            queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(config.queue_capacity)
+            queue = CaptureQueue(config.queue_capacity, self._health)
             try:
                 budget = deadline - time.monotonic()
                 if budget <= 0:
@@ -168,11 +180,12 @@ class CaptureRunner:
                         or not reader.done()
                         or (snapshot is not None and not snapshot.done())
                     ):
-                        record = await queue.get()
+                        record, queued_at_ns = await queue.take()
                         if record.kind == "session_end":
                             if not replay.invalid or record.reason == "overload_unknown_loss":
                                 reason = record.reason
                             if record.reason in ("duration_limit", "message_limit"):
+                                queue.acknowledged()
                                 continue
                             record = CaptureRecord(
                                 kind="gap",
@@ -188,14 +201,30 @@ class CaptureRunner:
                             raise
                         except OverflowError:
                             reason = "storage_limit_unknown_tail"
+                            if self._health is not None:
+                                self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
                             break
+                        persisted_at_ns = time.monotonic_ns()
+                        queue.acknowledged()
                         if self._health is not None:
-                            self._health.set(HealthMetric.PERSISTENCE, time.monotonic_ns())
+                            self._health.set(HealthMetric.PERSISTENCE, persisted_at_ns)
+                            self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
+                            if record.kind in ("frame", "snapshot"):
+                                self._health.set(
+                                    HealthMetric.RECEIPT_DURABLE_LAG_NS,
+                                    max(0, persisted_at_ns - queued_at_ns),
+                                )
+                                self._health.set(
+                                    HealthMetric.DURABLE_FRAMES,
+                                    self._health.snapshot()[HealthMetric.DURABLE_FRAMES] + 1,
+                                )
                         previous_market_ns = replay.quality.last_market_ns
                         outcome = await asyncio.to_thread(replay.apply, record)
                         self._observe(journal, replay, record, outcome)
                         if self._health is not None:
                             self._health.set(HealthMetric.INVALID, len(replay.gaps))
+                            self._health.set(HealthMetric.GAPS, len(replay.gaps))
+                            self._health.set(HealthMetric.DUPLICATES, replay.duplicates)
                             if (
                                 replay.quality.last_market_ns is not None
                                 and replay.quality.last_market_ns != previous_market_ns
@@ -233,15 +262,25 @@ class CaptureRunner:
                         kind="gap", epoch=epoch, received_ns=time.time_ns(), reason=reason
                     )
                     await asyncio.to_thread(journal.append, gap)
+                    if self._health is not None:
+                        self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
                     outcome = await asyncio.to_thread(replay.apply, gap)
+                    if self._health is not None:
+                        self._health.set(HealthMetric.INVALID, len(replay.gaps))
+                        self._health.set(HealthMetric.GAPS, len(replay.gaps))
                     self._observe(journal, replay, gap, outcome)
                 ending = CaptureRecord(
                     kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason
                 )
                 await asyncio.to_thread(journal.append, ending)
+                if self._health is not None:
+                    self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
                 outcome = await asyncio.to_thread(replay.apply, ending)
+                if self._health is not None:
+                    self._health.set(HealthMetric.INVALID, len(replay.gaps))
+                    self._health.set(HealthMetric.GAPS, len(replay.gaps))
                 self._observe(journal, replay, ending, outcome)
-            except OSError:
+            except OSError, OverflowError:
                 if self._health is not None:
                     self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
                 raise
@@ -269,7 +308,7 @@ class CaptureRunner:
                 kind="end", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason
             )
             await self._append_terminal(journal, replay, end)
-        except OSError:
+        except OSError, OverflowError:
             if self._health is not None:
                 self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
             raise
@@ -282,7 +321,7 @@ class CaptureRunner:
             except asyncio.CancelledError:
                 await finalization
                 raise
-        except OSError:
+        except OSError, OverflowError:
             if self._health is not None:
                 self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
             raise
@@ -317,7 +356,12 @@ class CaptureRunner:
     ) -> None:
         """Retain a final control before publishing it to the live observer."""
         await asyncio.to_thread(journal.append, record)
+        if self._health is not None:
+            self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
         outcome = replay.apply(record)
+        if self._health is not None:
+            self._health.set(HealthMetric.INVALID, len(replay.gaps))
+            self._health.set(HealthMetric.GAPS, len(replay.gaps))
         self._observe(journal, replay, record, outcome)
 
     def _finish(

@@ -123,7 +123,8 @@ and predictive diagnostics. Their identities and returned definitions must
 match the selections. `NetReturnMetric` and `LedgerCurveChart` are explicit
 reference choices. Initial/terminal NAV points do not describe intraperiod
 drawdown; separate fold returns do not describe a continuous investment account.
-Runtime dashboard/alert integration remains MR12.
+The [research monitoring bridge](#research-monitoring-bridge) connects selected
+diagnostics to the versioned telemetry API.
 
 `applications.explore.compare_studies` accepts a typed/serialized
 `DecisionComparison`, exact variant-to-`StudyComponents` bindings, an attempt
@@ -203,6 +204,57 @@ creates a new attempt. Existing `inspect_eda` remains an exploratory interface;
 the attempt store cannot track arbitrary reads that bypass its consumer. Keep the
 matching wheel/environment with retained v1 records; an older wheel cannot
 consume newer records.
+
+## Research monitoring bridge
+
+`ReportMonitoringBridge` accepts a reviewed `MonitoringMetric`, an explicit
+research scope and the actual UTC import `recorded_at`. It maps only diagnostics
+whose names and exact units match the metric's `MetricSpec.inputs` into
+`MonitoringEvent` facts. A `ReportObservation` has no knowledge or receipt
+clock or input version; the reviewed metric supplies its selected input version.
+Imported diagnostics first become available at `recorded_at` with
+`clock_quality="unknown"`; the bridge does not backdate them to the observation
+clock. `MonitoringIdentity.study` retains the report's study identity.
+
+`ReportMetricAdapter` and `ReportChartAdapter` expose that same metric to the
+existing `StudyReportBuilder`. The metric report identity is the complete
+`MetricSpec.identity`, which includes its implementation digest, input versions,
+units and missingness policy. The chart identity also binds its title and kind.
+Exact metric points and explicit gaps become existing `MetricValue` and
+`ChartSpec` observations; a chart requires at least one point. The bridge's
+`events(context)` supplies the same facts to `TelemetryStore` and
+`DashboardBuilder`, with no report or dashboard renderer customization.
+
+`StudyMonitoringExporter.export(result, scope=..., recorded_at=...)` emits the
+retained prediction and `Outcome` facts from a completed `StudyResult` under
+distinct fold scopes. It preserves the actual fitted model, policy, source and
+study identities in `MonitoringIdentity`. Both series use the retained source
+feature identity and decision clock as their shared sample. With a fitted
+transform, `Prediction.feature_identity` names the transformed vector instead;
+the exporter resolves its unique source row by entity and decision clock and
+checks the matching committed decision. Ambiguous mappings fail. Historical
+predictions do not retain a separate knowledge clock, so import makes them
+available at the explicit receipt with
+unknown clock quality. Observed outcomes keep their genuine `Outcome.available_at`;
+a pending outcome with no availability becomes a known gap only at import. Labels
+share prediction sample, context and decision clock, enabling causal
+`DelayedLabelError` queries. Use `export_outcomes` for a later label revision so
+the original prediction receipt stays unchanged. `recorded_at` must be the
+actual import receipt; it is not reconstructed from a historical decision time.
+
+Run `PYTHONPATH=src .venv/bin/python -m pytest -q
+tests/unit/research/test_study_reports.py tests/unit/research/test_study_monitoring.py`
+for focused report and delayed-label checks. The installed
+`tests/integration/test_study_workflow.py` consumer reopens a real retained
+study, rebuilds its report context and verifies the same custom definition in
+the retained report and research dashboard. The installed
+`tests/integration/test_candidate_workflow.py` consumer reopens a committed
+`PaperCandidateRuntime` step from its journal and exports its prediction and
+source label with `CandidateMonitoringExporter`. It evaluates that same custom
+metric in a paper dashboard before and after the label becomes available. The
+authored paper scenario uses modeled clocks; a real producer must supply its
+receipt clock explicitly. Select the `integration` marker for both installed-wheel
+consumers.
 
 ## Bounded comparison and factor diagnostics
 

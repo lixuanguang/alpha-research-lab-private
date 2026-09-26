@@ -20,6 +20,7 @@ from applications.explore import StudyComponents, evaluate_study, run_candidate
 from configuration import CapabilityRegistry
 from research.experiments import AttemptStore, CandidateBundle, Fingerprint
 from research.features import FeatureKernel, FeatureSchema, TransformAdapter
+from research.labels import Outcome
 from research.models import EstimatorAdapter
 from research.studies import (
     ChartDefinition,
@@ -31,6 +32,8 @@ from research.studies import (
 from runtime import (
     CandidateComponents,
     CandidateLoader,
+    CandidateMonitoringExporter,
+    CandidateStep,
     ChartFactory,
     EstimatorFactory,
     FeatureFactory,
@@ -40,6 +43,96 @@ from runtime import (
 )
 from serialization import DomainCodec
 from strategies import DecisionPolicy, OrderIntent, TargetIntent
+from telemetry import (
+    DashboardBuilder,
+    DashboardConfig,
+    DashboardPanel,
+    MetricRegistry,
+    MonitoringMetric,
+    MonitoringQuery,
+    TelemetryStore,
+)
+
+
+class _PaperMonitoringAcceptance:
+    """Evaluate one fresh metric from a durable paper inference and delayed source label."""
+
+    @staticmethod
+    def exercise(
+        root: Path,
+        *,
+        exporter: CandidateMonitoringExporter,
+        step: CandidateStep,
+        pending: Outcome,
+        observed: Outcome,
+        metric: MonitoringMetric,
+    ) -> dict[str, object]:
+        """Keep pending and observed dashboards causal over the same saved feature sample."""
+        assert step.feature is not None and step.prediction is not None
+        prediction = exporter.prediction(step, recorded_at=step.at)
+        pending_event = exporter.outcome(step, pending, recorded_at=step.at)
+        assert observed.available_at is not None
+        observed_event = exporter.outcome(
+            step, observed, recorded_at=observed.available_at, revision=1
+        )
+        assert (
+            prediction.sample
+            == pending_event.sample
+            == observed_event.sample
+            == step.feature.identity
+        )
+        assert prediction.context == pending_event.context == observed_event.context
+        assert prediction.context.mode == "paper"
+        assert prediction.context.model == step.prediction.model_identity
+        assert prediction.value == step.prediction.value
+        assert prediction.clock_quality == observed_event.clock_quality == "modeled"
+        assert pending_event.clock_quality == "unknown"
+        assert prediction.recorded_at == pending_event.recorded_at == step.at
+        assert pending_event.value is None and pending_event.missing_reason == "pending"
+        assert observed_event.available_at == observed.available_at
+        assert observed_event.recorded_at == observed.available_at
+        store = TelemetryStore(root / "learned-paper-monitoring.sqlite")
+        assert store.append((prediction, pending_event)) == 2
+        config = DashboardConfig(
+            title="Candidate prediction error",
+            panels=(
+                DashboardPanel(
+                    title="Squared prediction error",
+                    metric_identity=metric.spec.identity,
+                    kind="line",
+                ),
+            ),
+        )
+        registry = MetricRegistry((metric,))
+        pending_query = MonitoringQuery(
+            scope=prediction.context.scope,
+            mode="paper",
+            start=step.at,
+            end=step.at + timedelta(microseconds=1),
+            as_of=step.at + timedelta(microseconds=1),
+        )
+        waiting = DashboardBuilder.build(
+            config, pending_query, store.query(pending_query), registry
+        )
+        assert waiting.results[0].status == "missing"
+        assert waiting.results[0].points[0].missing_reason == "pending"
+        assert store.append((observed_event,)) == 1
+        known_query = replace(pending_query, as_of=observed.available_at)
+        known = DashboardBuilder.build(config, known_query, store.query(known_query), registry)
+        assert known.results[0].status == "ok"
+        assert known.results[0].value is not None
+        assert known.results[0].points[0].value == known.results[0].value
+        assert (
+            DashboardBuilder.build(config, pending_query, store.query(pending_query), registry)
+            == waiting
+        )
+        assert known.write(root / "learned-paper-dashboard").exists()
+        return {
+            "saved_paper_prediction": True,
+            "pending_before_label": True,
+            "observed_after_label": True,
+            "metric_identity": metric.spec.identity,
+        }
 
 
 def main() -> None:
@@ -49,6 +142,7 @@ def main() -> None:
     if consumer_root_text not in sys.path:
         sys.path.insert(0, consumer_root_text)
     # third party library imports
+    from decision_study import _InstalledErrorMetric
     from research_workflows.candidate_bundle import _CandidateAcceptance
     from research_workflows.candidate_runtime import (
         _FeatureCandidateAcceptance,
@@ -244,7 +338,7 @@ def main() -> None:
         registry = _CandidateAcceptance._registry(manifest.requirements)
         loader = CandidateLoader(components, registry)
         loader.load(CandidateBundle(output / name), replay)
-        loader.load(CandidateBundle(output / name), runtime)
+        loaded_runtime = loader.load(CandidateBundle(output / name), runtime)
         first_at = scenario.at(30 if learned else 10)
         replay_run = run_candidate(
             CandidateBundle(output / name),
@@ -366,7 +460,7 @@ def main() -> None:
             source_step=first_replay,
             decision_second=30 if learned else 10,
         )
-        summary[f"{name}_paper"] = _PaperCandidateAcceptance.exercise(
+        paper_proof, paper_checkpoint, paper_step = _PaperCandidateAcceptance.exercise(
             root=output,
             name=name,
             bundle=bundle,
@@ -377,6 +471,29 @@ def main() -> None:
             source_step=first_runtime,
             decision_second=30 if learned else 10,
         )
+        summary[f"{name}_paper"] = paper_proof
+        if learned:
+            assert paper_step.feature is not None
+            paper_config = _PaperCandidateAcceptance._config(name, "paper", scenario)
+            exporter = CandidateMonitoringExporter(
+                loaded_runtime,
+                paper_config,
+                paper_checkpoint,
+                scope=f"{name}-paper-candidate",
+                clock_quality="modeled",
+            )
+            pending = scenario.labels.read(paper_step.feature, as_of=paper_step.at)
+            observed = scenario.labels.read(
+                paper_step.feature, as_of=paper_step.at + timedelta(seconds=1)
+            )
+            summary["learned_monitoring"] = _PaperMonitoringAcceptance.exercise(
+                output,
+                exporter=exporter,
+                step=paper_step,
+                pending=pending,
+                observed=observed,
+                metric=_InstalledErrorMetric(),
+            )
     subprocess.run(
         [sys.executable, "-I", __file__, str(output), "unused", "resume"],
         check=True,

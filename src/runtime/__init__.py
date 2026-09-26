@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         JobWorkerPool,
     )
     from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
+    from runtime.monitoring import CandidateMonitoringExporter
     from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
     from runtime.portfolio import (
         SharedDecisionCheckpoint,
@@ -99,6 +100,14 @@ def __getattr__(name: str) -> object:
 
         exports = {
             "CandidateFeatureFeed": feature_feed.CandidateFeatureFeed,
+        }
+        return exports[name]
+    if name in {"CandidateMonitoringExporter"}:
+        # project library imports
+        from runtime import monitoring
+
+        exports = {
+            "CandidateMonitoringExporter": monitoring.CandidateMonitoringExporter,
         }
         return exports[name]
     if name in {
@@ -185,6 +194,7 @@ __all__ = [
     "CandidateComponents",
     "CandidateFeatureFeed",
     "CandidateLoader",
+    "CandidateMonitoringExporter",
     "CandidateSession",
     "CandidateStep",
     "ChartFactory",
