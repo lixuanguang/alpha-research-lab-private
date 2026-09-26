@@ -212,3 +212,31 @@ configurations. Physical private account observations, authenticated submission,
 venue fee rules, deployment, capacity and activation remain separately qualified
 capabilities. The [MR09 record](../../docs/roadmap/README.md#mr09-delivery-and-acceptance)
 distinguishes their status from software acceptance.
+
+## Account operational recovery
+
+`AccountJournal.control(AccountControl)` commits local account phase and its
+identified outcome in the same firm transaction as order and accounting state.
+`startup` is the first control transition; `stop` and `fault` block admission,
+coordination and residual reissue without changing economic facts. `restart`
+compares the exact current stop identity, requires a newer complete independent
+reconciliation and fresh marks, and rechecks gross funding and budgets. Unknown
+sends, unconfirmed cancellation and account contradictions prevent recovery.
+Known accepted open orders can survive recovery with their reservations intact.
+Legacy `block()` reasons remain independent and cannot be cleared by this API.
+
+`cancel` records requests on direct orders and physical net parents without
+creating terminal outcomes. Local control history and recovery generations are
+retained by `controls()`. Stopping one account preserves other accounts' ability
+to operate when their own state and the aggregate firm valuation remain valid.
+The controls trust the local operator/source boundary; they are not a credential
+or live-capital authorization mechanism.
+
+The persisted state now declares `account-journal-v2`. Journals without an
+explicit version remain readable and acquire v2 on their next write. Unknown
+versions fail. Older artifacts that cannot decode operational state are not
+compatible rollback targets. `AccountJournal.verify(path, config)` performs
+read-only integrity/config/schema validation and sees committed WAL state;
+`storage="snapshot"` additionally requires no SQLite sidecars and leaves a
+standalone snapshot unchanged. The [workspace recovery owner](../runtime/README.md#account-workspace-recovery)
+uses these checks under backup locks and before restore publication.

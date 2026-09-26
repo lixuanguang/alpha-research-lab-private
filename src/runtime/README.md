@@ -256,3 +256,46 @@ normalized account and order events and does not add a venue adapter or automati
 matching. Private execution/account adapters, production deployment, alert
 routing and capacity qualification remain later work; paper matching is an
 explicit model, not venue fill evidence.
+
+MR10 adds `PaperCandidateRuntime.fault` and explicit `resume`. Live capture and
+scheduler failures persist a block before releasing the owner fence, including
+unhealthy completed capture summaries. Fault evidence retains observed UTC time;
+its policy callback uses the current continuation clock so an interrupted claimed
+market remains replayable. Each live invocation has a distinct fault identity.
+Resume compares an exact `PaperCheckpoint`, requires a strictly newer independent
+account reconciliation, and rejects unknown sends and pending cancellations,
+including cancel/fill races. Reopening alone never clears a stop. If persistence
+itself fails, the original failure stays visible and the run ends; the failed
+write is not claimed as a durable block.
+
+`ProcessSupervisor.run(..., protect=...)` optionally calls a parent-owned hard
+control after terminating the child and before attempting alert delivery. It
+retains whether protection succeeded or which exception class prevented it.
+The callback must not depend on a strategy or telemetry. This is the existing
+bounded local watchdog, not a deployed account service or venue owner.
+
+## Account workspace recovery
+
+`AccountWorkspace(config, component="state", journal_name="accounts.sqlite3")`
+uses `WorkspaceBackup` to snapshot the entire selected account directory. Backup
+checks explicitly stopped/faulted account phases after acquiring the selected
+SQLite write locks. It retains unresolved orders, fills, checkpoints, controls
+and the adjacent alert journal. Snapshot inspection uses the account owner's
+immutable SQLite mode, preserving hashes and excluding WAL sidecars.
+
+`restore(backup, destination, expected_manifest_sha256=...)` verifies the selected
+digest, complete inventory, exact configuration and state schema, then validates
+the staged account before publishing an absent workspace. Running accounts,
+corrupt bytes, incompatible config and existing destinations fail closed.
+Restoration does not replace the current installation or rewind its journal.
+Keep compatible signed artifacts/trust separately and reconcile missing facts
+before any explicit selection and restart. An older stopped snapshot can be
+restored for recovery inspection; this local operation provides no external
+venue-generation or anti-rewind attestation.
+
+The independent execution wheel includes only these workspace, identity and
+supervision services plus bounded local telemetry. Candidate/research services
+still require their owning research distribution. The
+[operating runbook](../../docs/governance/operations.md#local-paper-operations)
+and [execution command guide](../applications/execute/README.md#local-operational-commands)
+own concrete procedures and selected commands.

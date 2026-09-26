@@ -1,7 +1,7 @@
 # Platform infrastructure roadmap
 
 Owner: repository founder; quant development owns infrastructure delivery.
-Status updated 2026-09-25. Delivery policy: complete the initial infrastructure
+Status updated 2026-09-26. Delivery policy: complete the initial infrastructure
 stack before quant researcher (QR) onboarding.
 
 This index owns delivery status, remaining work and dependencies. Component
@@ -14,7 +14,9 @@ remaining work uses MR01–MR17, with MR07A/MR07B extending the completed MR07
 increment without renumbering later milestones. MR01–MR07B and MR09 are complete
 for the bounded scopes stated below. MR08 has a delivered local account/risk
 increment, while physical account qualification through MR11 remains open.
-MR10–MR17 remain open, including their explicitly owned prerequisite slices.
+MR10 has a delivered local operational increment; its final integrated
+qualification and MR11–MR17 remain open, including their explicitly owned
+prerequisite slices.
 P1 stays deferred and unaccepted.
 
 This revision strengthens generalization and acceptance without reducing the
@@ -360,6 +362,59 @@ qualification remains cash-funded spot; unroutable physical-lot residuals remain
 visible and reserved. Other product economics, FX/base-asset fee conversion,
 private venue conformance, broader operational drills, activation and capacity
 remain open in their owning milestones.
+
+### MR10 delivery and acceptance
+
+Partial: local paper operational commands and recovery drills are implemented.
+The [runbook](../governance/operations.md#local-paper-operations),
+[execution guide](../../src/applications/execute/README.md#local-operational-commands)
+and [runtime guide](../../src/runtime/README.md#account-workspace-recovery) own
+interfaces and procedures. Startup, account/instance stop, independent
+reconciliation, explicit restart, cancel requests, quiesced backup/restore and
+state-preserving signed code rollback reuse existing functional owners.
+No stop action claims cancellation or reduction. Typed contracts remain
+multi-account/multi-strategy; initial economics are cash-funded spot with authored
+OKX/USDT and Bitfinex/USD fixture inputs and exact account/child attribution.
+
+Quant development's [installed operational consumer](../../tests/integration/consumers/runtime/account_operations.py)
+uses both active target and order-intent policies, partial fills, fees, uncertain
+orders and pending cancellation. It preserves exact account/checkpoint state
+through restoration, tests actual child loss and bounded SQLite storage
+exhaustion, and checks local alert success/failure independently of controls.
+Dedicated runtime regressions cover malformed/disconnected capture, regressed
+scheduler time, repeated faults, failed persistence and cancel/fill recovery.
+Existing collector queue/stall/reconnect drills and MR04 workspace/job/feature
+recovery remain applicable; unchanged service integrations are not requalified
+by local fixtures. Commands and outcomes are retained under ignored `logs/mr10/`.
+
+Ownership is incremental: signed account state validation extends MR06; bounded
+local alert routing is an MR12 prerequisite; explicit recovery checks and
+compatible rollback are MR13 prerequisites; shared reference consumers reuse
+MR09 without closing deployed MR14. The
+[signed account consumer](../../tests/integration/consumers/deployment/account_installation.py)
+checks actual isolated installation, current late postings/stops across code
+upgrade/rollback, and refusal of caller config/journal overrides.
+
+Local validation on 2026-09-26 passed the focused operational tests and complete
+`make check`, including installed research-wheel smoke. The real signed account
+installation retained the same post-stop ledger payload across upgrade/rollback.
+Its evidence is `logs/mr10/account-installation.json`, with signed bundles under
+`logs/mr10/registry/`; the initial release is
+`dcb8859d4f4270e0ce1390da2bb0604964715323c8292db3282cd9492df1cfcd`.
+The final full-gate log is `logs/mr10/make-check-final.log`; the two isolated
+operating workloads retain their requests, snapshots and summaries under
+`logs/mr10/operating-okx/` and `logs/mr10/operating-bitfinex/`.
+These artifacts are local retained evidence, not published deployment records.
+
+Final MR10 acceptance remains open. Next, implement and qualify both MR11 private
+execution/account adapters with explicitly authorized test endpoints/accounts
+and credentials references, then incorporate MR12 monitoring/routing, MR13
+authorization/reduce-position/deployed recovery and MR14 multi-instance results.
+Authenticated private-stream loss, exchange timeout/cancel/fill outcomes, remote
+service/alert failure and deployed restoration cannot be proven by this local
+increment. Older snapshots are restored only into absent stopped workspaces;
+venue-generation/anti-rewind proof remains part of integrated recovery. No
+empirical strategy, service deployment, live order or capital activation is accepted.
 
 ## Decisive acceptance scenarios
 

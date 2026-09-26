@@ -17,6 +17,7 @@ from msgspec.structs import replace
 from accounting import AccountLedger, AccountPosting, AccountState
 from configuration import AccountConfiguration
 from execution.account_records import (
+    AccountControlResult,
     AccountDecision,
     AccountObservation,
     AccountQuote,
@@ -105,6 +106,13 @@ class _FirmState(WireRecord, frozen=True):
     net_fee_corrections: tuple[NetFeeCorrection, ...] = ()
     instance_controls: tuple[_InstanceControl, ...] = ()
     residuals: tuple[PortfolioResidual, ...] = ()
+    account_controls: tuple[AccountControlResult, ...] = ()
+    schema_version: Literal["account-journal-v2"] = "account-journal-v2"
+
+    def __post_init__(self) -> None:
+        """Reject future or corrupted account-journal state versions."""
+        if self.schema_version != "account-journal-v2":
+            raise ValueError("unsupported account journal state schema")
 
 
 class _AccountTransaction:
@@ -187,12 +195,64 @@ class AccountStateStore:
                 )
             elif row[0] != payload:
                 raise ValueError("account configuration or state schema differs")
+            else:
+                self._load(connection)
             connection.commit()
 
     def read(self) -> _FirmState:
         """Read one atomic firm snapshot."""
         with closing(self._connect()) as connection:
             return self._load(connection)
+
+    @staticmethod
+    def verify(
+        path: Path,
+        config: AccountConfiguration,
+        codec: DomainCodec,
+        *,
+        storage: Literal["wal", "snapshot"] = "wal",
+    ) -> tuple[AccountView, ...]:
+        """Check live WAL state or a standalone immutable SQLite backup."""
+        config.__post_init__()
+        if not path.is_file():
+            raise ValueError("account journal is missing")
+        if storage not in ("wal", "snapshot"):
+            raise ValueError("unknown account journal storage mode")
+        if storage == "snapshot":
+            AccountStateStore._require_standalone_snapshot(path)
+        uri = f"{path.resolve().as_uri()}?mode=ro"
+        if storage == "snapshot":
+            uri += "&immutable=1"
+        try:
+            with closing(sqlite3.connect(uri, uri=True, timeout=5)) as connection:
+                integrity = cast(
+                    tuple[object, ...] | None,
+                    connection.execute("PRAGMA integrity_check").fetchone(),
+                )
+                if integrity != ("ok",):
+                    raise ValueError("account journal integrity check failed")
+                row = cast(
+                    tuple[object, ...] | None,
+                    connection.execute(
+                        "SELECT configuration, payload FROM firm WHERE id=1"
+                    ).fetchone(),
+                )
+                if row is None or row[0] != codec.encode_json(config) or type(row[1]) is not bytes:
+                    raise ValueError("account configuration or state schema differs")
+                state = codec.decode_json(row[1], _FirmState)
+                if storage == "snapshot":
+                    AccountStateStore._require_standalone_snapshot(path)
+                return state.accounts
+        except sqlite3.DatabaseError as error:
+            raise ValueError("account journal is not a valid SQLite database") from error
+
+    @staticmethod
+    def _require_standalone_snapshot(path: Path) -> None:
+        """Refuse a snapshot whose current bytes depend on external SQLite files."""
+        for suffix in ("-wal", "-shm", "-journal"):
+            sidecar = path.with_name(f"{path.name}{suffix}")
+            if sidecar.exists() or sidecar.is_symlink():
+                raise ValueError("account snapshot has SQLite sidecars")
 
     @contextmanager
     def write(self) -> Iterator[_AccountTransaction]:

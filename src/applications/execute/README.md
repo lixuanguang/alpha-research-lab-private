@@ -159,3 +159,50 @@ authors configured target and order-intent strategies, retains every request and
 result, and exercises the installed CLI using both OKX/USDT and Bitfinex/USD
 fixture labels. These are local spot accounting scenarios, not private account
 observations or venue-rule qualification.
+
+## Local operational commands
+
+The `account` command also accepts `control`, `backup` and `restore` requests.
+Use a selected state directory, normally `state/accounts.sqlite3`. These
+operations work in both paper and shadow mode and always suppress submission.
+
+`control: AccountControl` selects `startup`, `stop`, `fault`, `restart` or
+`cancel`, with a stable identity, account ID and UTC knowledge time. Stop/fault
+retain a visible reason. Startup is the first local control transition after
+fresh independent reconciliation and marks; it does not launch a process.
+Restart names the exact `expected_control_identity` of the current stop/fault.
+It requires a newer complete reconciliation, fresh quotes, resolved send/cancel
+uncertainty and the existing funding/budget checks. Retry returns the original
+control result; a reused identity with changed bytes fails. Results include
+current account phases and the append-only `controls` history. Business refusal
+is `control.status=rejected`; callers must check it even after a zero CLI exit.
+
+Stop/fault block new exposure without cancelling orders. `cancel` records local
+requests for outstanding physical orders and returns their IDs; no request or
+acknowledgement releases a reservation. Selective instance stop remains the
+separate MR09 operation. Position reduction and venue dispatch are MR13/MR11
+work; no stop or cancel action claims flattening.
+
+A protective control can supply `alert_socket`, an absolute local Unix datagram
+endpoint of at most 100 bytes. The control commits before delivery. The adjacent
+`accounts.alerts.sqlite3` retains pending/delivered/failed attempts keyed to the
+control digest. Delivered means local socket acceptance. An interrupted pending
+attempt is visible and is not automatically resent. Alert-storage failure is
+reported through `alert_error`; it cannot clear the account stop.
+
+`backup` supplies `backup_root`, an absent absolute directory outside the selected
+workspace. All accounts must be explicitly stopped or faulted; the check occurs
+under the SQLite write locks. It preserves the entire journal directory,
+including alert outcomes, through the existing workspace backup owner. The
+returned `recovery.manifest_sha256` pins the snapshot. `restore` supplies that
+`backup_root`, `manifest_sha256`, and an absent absolute `restore_root`. It
+verifies config, state and bytes before publishing the new workspace. The result
+names the restored `journal_path`; it does not select that workspace for an
+installed service. Restored accounts stay stopped until missing facts are
+replayed and fresh independent reconciliation permits an explicit restart.
+
+The [operating runbook](../../../docs/governance/operations.md#local-paper-operations)
+owns startup, incident, restoration and signed rollback procedures. The
+[operational consumer](../../../tests/integration/consumers/runtime/account_operations.py)
+retains concrete JSON requests for both spot fixture labels and uses these same
+installed commands. It is quant-development software evidence, not a venue test.

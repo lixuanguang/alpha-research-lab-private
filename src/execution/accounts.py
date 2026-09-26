@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 # third party library imports
 from msgspec.structs import replace
@@ -14,9 +15,14 @@ from accounting import AccountPosting, AccountSnapshot
 from configuration import AccountConfiguration
 from execution.account_admission import AccountAdmission
 from execution.account_allocation import PhysicalAllocation
+from execution.account_operations import AccountOperations
 from execution.account_portfolio import PortfolioCoordinator
+from execution.account_records import AccountControl as AccountControl
+from execution.account_records import AccountControlKind as AccountControlKind
+from execution.account_records import AccountControlResult as AccountControlResult
 from execution.account_records import AccountDecision as AccountDecision
 from execution.account_records import AccountObservation as AccountObservation
+from execution.account_records import AccountPhase as AccountPhase
 from execution.account_records import AccountQuote as AccountQuote
 from execution.account_records import AccountView as AccountView
 from execution.account_records import NetAllocation as NetAllocation
@@ -49,12 +55,36 @@ class AccountJournal:
         self._codec = DomainCodec()
         self._store = AccountStateStore(path, config, self._codec)
         self._admission = AccountAdmission(config, self._codec)
+        self._operations = AccountOperations(self._admission)
         self._allocation = PhysicalAllocation(config, self._codec, self._admission)
         self._portfolio = PortfolioCoordinator(config, self._codec, self._admission)
 
     def accounts(self) -> tuple[AccountView, ...]:
         """Read account state, reconciliation cutoff and independent block reasons."""
         return self._store.read().accounts
+
+    @staticmethod
+    def verify(
+        path: Path,
+        config: AccountConfiguration,
+        *,
+        storage: Literal["wal", "snapshot"] = "wal",
+    ) -> tuple[AccountView, ...]:
+        """Inspect a live WAL journal or an immutable standalone backup snapshot."""
+        return AccountStateStore.verify(path, config, DomainCodec(), storage=storage)
+
+    def controls(self, account_id: str | None = None) -> tuple[AccountControlResult, ...]:
+        """Read original durable control outcomes in append order."""
+        state = self._store.read()
+        if account_id is not None and account_id not in {
+            account.ledger.account_id for account in state.accounts
+        }:
+            raise ValueError("unknown account")
+        return tuple(
+            saved
+            for saved in state.account_controls
+            if account_id is None or saved.request.account_id == account_id
+        )
 
     def orders(self) -> tuple[TaggedOrder, ...]:
         """Read tagged orders, including terminal and uncertain commitments."""
@@ -137,6 +167,12 @@ class AccountJournal:
             transaction.save_account(
                 replace(transaction.account(account_id), operator_block=reason)
             )
+
+    def control(self, request: AccountControl) -> AccountControlResult:
+        """Apply an identified local startup, stop, fault, restart or cancel."""
+        request.__post_init__()
+        with self._store.write() as transaction:
+            return self._operations.apply(transaction, request)
 
     def observe(self, quote: AccountQuote) -> None:
         """Persist a monotonic actual valuation fact without admitting an order."""

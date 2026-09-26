@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 # standard library imports
+import asyncio
 import hashlib
 from dataclasses import replace as replace_dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal
+from unittest.mock import patch
 from uuid import UUID
 
 # third party library imports
@@ -18,6 +20,7 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import Ledger, LedgerState
+from applications.paper import run_live_paper
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
@@ -32,14 +35,16 @@ from configuration import (
     PaperConfiguration,
     UniverseSelection,
 )
-from execution import PaperMarket, PaperOrderJournal
+from execution import OrderEvent, PaperMarket, PaperOrderJournal
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
+from market_data.collection import CaptureRunner, CaptureRunResult
 from market_data.contracts import CaptureRequest
 from reference_data.instruments import InstrumentId
 from research.experiments import (
     CandidateArtifact,
+    CandidateBundle,
     CandidateComponent,
     CandidateManifest,
     CandidateMetricContract,
@@ -65,12 +70,16 @@ from research.observations import (
 )
 from risk import SpotLimits
 from runtime import (
+    CandidateComponents,
     CandidateFeatureFeed,
+    CandidateLoader,
     CandidateSession,
     LoadedCandidate,
     PaperCandidateRuntime,
     PaperCaptureObserver,
+    PaperCheckpoint,
 )
+from runtime.paper import PaperFaultEvidence
 from serialization import DomainCodec, WireRecord
 from strategies import (
     DecisionContext,
@@ -90,6 +99,47 @@ _INPUT = InputRequirement(
     name="signal", family="non-book", clock="authored", field=_FIELD, max_age_us=10_000_000
 )
 _CODE = "a" * 64
+
+
+class _MalformedCaptureRunner(CaptureRunner):
+    """Fail one live capture after the dedicated runtime has opened."""
+
+    async def run(self, request: CaptureRequest, output: Path) -> CaptureRunResult:
+        """Expose the original protocol failure to workflow fault handling."""
+        raise ValueError("malformed capture frame")
+
+
+class _DisconnectedCaptureRunner(CaptureRunner):
+    """Return a completed recording with an unavailable terminal book."""
+
+    async def run(self, request: CaptureRequest, output: Path) -> CaptureRunResult:
+        """Expose finite connection loss through the capture result contract."""
+        return CaptureRunResult(
+            request=request,
+            root=output,
+            summary={"stop_reason": "connect_failed_unknown_loss", "synchronized": False},
+        )
+
+
+class _RegressingUTCClock(datetime):
+    """Expose a scheduler wall clock that moves backward between two reads."""
+
+    reads = 0
+
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> _RegressingUTCClock:
+        """Return two UTC instants in descending order."""
+        cls.reads += 1
+        instant = _AT + timedelta(seconds=3 if cls.reads == 1 else 2)
+        return cls(
+            instant.year,
+            instant.month,
+            instant.day,
+            instant.hour,
+            instant.minute,
+            instant.second,
+            tzinfo=UTC,
+        )
 
 
 class _ReferencePolicy:
@@ -685,10 +735,16 @@ class _LifecycleHistory(WireRecord, frozen=True):
 class _LifecyclePolicy(_ReferencePolicy):
     """Retain callback observations in pure state so restart delivery can be asserted."""
 
-    def __init__(self) -> None:
-        """Start with callbacks enabled and an explicit failure switch."""
-        super().__init__()
+    def __init__(
+        self,
+        *,
+        target: Decimal = Decimal("1"),
+        output: Literal["target", "order"] = "target",
+    ) -> None:
+        """Start with callbacks enabled, an explicit failure switch and intent."""
+        super().__init__(output=output)
         self.fail_kind: str | None = None
+        self.target = target
 
     def initial_state(self) -> bytes:
         """Start with an empty lifecycle event history."""
@@ -706,16 +762,29 @@ class _LifecyclePolicy(_ReferencePolicy):
         return DomainCodec().encode_json(_LifecycleHistory(events=(*events, event)))
 
     def decide(self, context: DecisionContext, state: bytes) -> DecisionTransition:
-        """Request the same one-unit target regardless of callback history."""
+        """Request the configured target regardless of callback history."""
         context.__post_init__()
         self.validate_state(state)
+        quantity = Quantity(
+            value=self.target,
+            dimension=Dimension(instrument_id=_INSTRUMENT, kind=QuantityKind.BASE_UNIT),
+        )
+        intent: DecisionIntent
+        if self.output == "order":
+            intent = OrderIntent(
+                side="buy",
+                quantity=quantity,
+                limit=Price(
+                    value=Decimal("100"),
+                    currency=Currency.from_code("USD"),
+                    per=quantity.dimension,
+                ),
+                time_in_force="gtc",
+            )
+        else:
+            intent = TargetIntent(quantity=quantity)
         return DecisionTransition(
-            intent=TargetIntent(
-                quantity=Quantity(
-                    value=Decimal("1"),
-                    dimension=Dimension(instrument_id=_INSTRUMENT, kind=QuantityKind.BASE_UNIT),
-                )
-            ),
+            intent=intent,
             state=state,
         )
 
@@ -789,6 +858,50 @@ class TestPaperCandidateRuntime:
             ask_quantity=runtime.config.lot,
         )
 
+    def _live_fixture(
+        self, tmp_path: Path
+    ) -> tuple[LoadedCandidate, CaptureRequest, PaperConfiguration]:
+        """Bind a native book request to a fixture candidate without network I/O."""
+        config = self._runtime(tmp_path / "template.sqlite3").config
+        capture = replace(
+            CaptureConfig.read(Path(__file__).parents[3] / "configs/live/bitfinex-btc-usd.json"),
+            instrument_id=_INSTRUMENT,
+        )
+        request = CaptureRequest(
+            config=capture, recording_id="a" * 36, implementation_identity="b" * 64
+        )
+        book_input = InputRequirement(
+            name="book",
+            family="book",
+            clock="receipt",
+            field=NumericField(name="imbalance", units="dimensionless"),
+            max_age_us=1_000_000,
+        )
+        source_identity = LiveBookDecisionSource(request, book_input, history_capacity=8).identity
+        loaded = TestCandidateSession._loaded(_LifecyclePolicy(), source_identity=source_identity)
+        requirement: CapabilityRequirement = replace(
+            loaded.manifest.requirements[0],
+            name="book",
+            channel=capture.channel,
+            clock="receipt",
+            fields=(CapabilityField(name="imbalance", units="dimensionless"),),
+        )
+        requirements: list[CapabilityRequirement] = [requirement]
+        requirements.extend(loaded.manifest.requirements[1:])
+        selected_requirements: tuple[CapabilityRequirement, ...] = tuple(requirements)
+        manifest = replace(
+            loaded.manifest,
+            inputs=(book_input,),
+            requirements=selected_requirements,
+        )
+        deployment = replace(
+            loaded.deployment,
+            mode="runtime",
+            candidate_identity=manifest.identity,
+            source_identity=source_identity,
+        )
+        return replace_dataclass(loaded, manifest=manifest, deployment=deployment), request, config
+
     def test_paper_observer_rejects_misbound_registry_reference(self, tmp_path: Path) -> None:
         """Matching source IDs cannot conceal a different product or native listing."""
         runtime = self._runtime(tmp_path / "reference.sqlite3")
@@ -837,6 +950,29 @@ class TestPaperCandidateRuntime:
             )
             with pytest.raises(ValueError, match="selected native venue and units"):
                 PaperCaptureObserver(source, runtime, books=misbound)
+
+    def test_scheduler_rejects_regressed_utc_clock(self, tmp_path: Path) -> None:
+        """A backward wall clock exits visibly before a cadence decision."""
+        loaded, request, _ = self._live_fixture(tmp_path)
+        runtime = self._runtime(tmp_path / "clock.sqlite3")
+        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        selected = BookSelection.from_capture(
+            request.config,
+            source_id=request.identity,
+            capability=BookAdapters.capability(request.config),
+            max_age_ns=1_000_000_000,
+            allow_degraded=True,
+        )
+        books = BookRegistry(
+            BookRegistryConfiguration(selections=(selected,), equivalences=(), history_capacity=8)
+        )
+        observer = PaperCaptureObserver(source, runtime, books=books)
+        _RegressingUTCClock.reads = 0
+        with (
+            patch("runtime.live_paper.datetime", _RegressingUTCClock),
+            pytest.raises(ValueError, match="UTC clock regressed"),
+        ):
+            asyncio.run(observer.timers(asyncio.Event()))
 
     def test_paper_shadow_parity_and_restart(self, tmp_path: Path) -> None:
         """Keep decisions identical while only paper posts a single exact modeled fill."""
@@ -970,3 +1106,425 @@ class TestPaperCandidateRuntime:
         assert step.reason == "operator-stop"
         assert not runtime.journal.orders()
         runtime.release()
+
+    def test_fault_clamps_callback_clock_and_survives_reopen(self, tmp_path: Path) -> None:
+        """A delayed fault blocks durably without delivering a regressed policy event."""
+        path = tmp_path / "fault.sqlite3"
+        runtime = self._runtime(path)
+        runtime.open(owner="first", at=_AT)
+        runtime.market(self._market(runtime, 0))
+        runtime.timer(identity="later", at=_AT + timedelta(seconds=2))
+        runtime.fault(
+            identity="capture", at=_AT + timedelta(seconds=1), reason="capture-disconnected"
+        )
+        assert runtime.checkpoint().blocked == "capture-disconnected"
+        events = (
+            DomainCodec()
+            .decode_json(runtime.checkpoint().candidate.policy.state, _LifecycleHistory)
+            .events
+        )
+        assert events[-1].kind == "fault"
+        assert events[-1].at == _AT + timedelta(seconds=2)
+        guard = runtime.journal.step("guard:fault:capture")
+        assert guard is not None
+        evidence = DomainCodec().decode_json(guard.input_bytes, PaperFaultEvidence)
+        assert evidence.event == events[-1]
+        assert evidence.observed_at == _AT + timedelta(seconds=1)
+        runtime.release()
+
+        restored = self._runtime(path)
+        restored.open(owner="second", at=_AT + timedelta(seconds=2))
+        assert restored.checkpoint().blocked == "capture-disconnected"
+        paused, _ = restored.timer(identity="blocked", at=_AT + timedelta(seconds=3))
+        assert paused.reason == "capture-disconnected"
+        assert not restored.journal.orders()
+        restored.release()
+
+    def test_fault_guard_does_not_replay_callback_against_later_state(self, tmp_path: Path) -> None:
+        """A failing fault callback leaves a hard block and an idempotent old fault."""
+        policy = _LifecyclePolicy()
+        runtime = self._runtime(tmp_path / "fault-callback.sqlite3", policy=policy)
+        runtime.open(owner="first", at=_AT)
+        policy.fail_kind = "fault"
+        with pytest.raises(ValueError, match="callback failure"):
+            runtime.fault(identity="failure", at=_AT, reason="feed-failed")
+        assert runtime.checkpoint().blocked == "feed-failed"
+        runtime.timer(identity="later", at=_AT + timedelta(seconds=1))
+        policy.fail_kind = None
+        runtime.fault(identity="failure", at=_AT, reason="feed-failed")
+        events = (
+            DomainCodec()
+            .decode_json(runtime.checkpoint().candidate.policy.state, _LifecycleHistory)
+            .events
+        )
+        assert all(event.kind != "fault" for event in events)
+        with pytest.raises(ValueError, match="another reason"):
+            runtime.fault(identity="failure", at=_AT, reason="different-failure")
+        runtime.release()
+
+    def test_fault_keeps_interrupted_quote_replayable(self, tmp_path: Path) -> None:
+        """Hard fault persistence does not advance past a claimed quote and its fill."""
+        policy = _LifecyclePolicy()
+        path = tmp_path / "interrupted-fault.sqlite3"
+        runtime = self._runtime(path, policy=policy)
+        runtime.open(owner="first", at=_AT)
+        runtime.market(self._market(runtime, 0))
+        runtime.timer(identity="intent", at=_AT)
+        policy.fail_kind = "order"
+        with pytest.raises(ValueError, match="callback failure"):
+            runtime.market(self._market(runtime, 1))
+        policy.fail_kind = None
+        runtime.fault(
+            identity="capture",
+            at=_AT + timedelta(seconds=3),
+            reason="capture-interrupted",
+        )
+        assert runtime.checkpoint().last_at == _AT
+        assert runtime.checkpoint().blocked == "capture-interrupted"
+        runtime.release()
+
+        restored = self._runtime(path)
+        restored.open(owner="second", at=_AT + timedelta(seconds=3))
+        assert restored.journal.step("market:quote-1") is not None
+        assert len(restored.journal.ledger_state().fills) == 1
+        assert restored.checkpoint().blocked == "capture-interrupted"
+        restored.release()
+
+    def test_resume_requires_exact_block_fresh_reconciliation_and_known_orders(
+        self, tmp_path: Path
+    ) -> None:
+        """Resume accepts a matched account and retains identified open reservations."""
+        path = tmp_path / "resume.sqlite3"
+        runtime = self._runtime(path)
+        runtime.open(owner="first", at=_AT)
+        runtime.market(self._market(runtime, 0))
+        step, _ = runtime.timer(identity="intent", at=_AT)
+        assert step.decision is not None
+        order = runtime.journal.orders()[0]
+        runtime.stop(identity="operator", at=_AT)
+        stopped = runtime.checkpoint()
+        balance = Ledger(runtime.journal.ledger_state()).balance
+        with pytest.raises(ValueError, match="unresolved order outcome"):
+            runtime.resume(
+                identity="too-early",
+                at=_AT + timedelta(seconds=1),
+                expected_checkpoint=stopped,
+                cash=balance.cash,
+                holding=balance.holding,
+                open_order_ids=(order.identity,),
+            )
+        assert runtime.checkpoint() == stopped
+        runtime.order(
+            OrderEvent(identity="accepted", order_id=order.identity, at=_AT, kind="accepted")
+        )
+        observed = runtime.checkpoint()
+        with pytest.raises(ValueError, match="expected checkpoint differs"):
+            runtime.resume(
+                identity="stale",
+                at=_AT + timedelta(seconds=1),
+                expected_checkpoint=stopped,
+                cash=balance.cash,
+                holding=balance.holding,
+                open_order_ids=(order.identity,),
+            )
+        with pytest.raises(ValueError, match="fresh reconciliation clock"):
+            runtime.resume(
+                identity="old-observation",
+                at=observed.last_at,
+                expected_checkpoint=observed,
+                cash=balance.cash,
+                holding=balance.holding,
+                open_order_ids=(order.identity,),
+            )
+        assert not runtime.resume(
+            identity="wrong-account",
+            at=_AT + timedelta(seconds=1),
+            expected_checkpoint=observed,
+            cash=balance.cash,
+            holding=balance.holding,
+            open_order_ids=(),
+        )
+        assert runtime.checkpoint().blocked == "operator-stop"
+        mismatched = runtime.checkpoint()
+        assert runtime.journal.blocked_reason() == "account_break"
+        assert runtime.resume(
+            identity="matched-account",
+            at=_AT + timedelta(seconds=2),
+            expected_checkpoint=mismatched,
+            cash=balance.cash,
+            holding=balance.holding,
+            open_order_ids=(order.identity,),
+        )
+        assert runtime.checkpoint().blocked is None
+        assert runtime.journal.blocked_reason() is None
+        runtime.release()
+
+        restored = self._runtime(path)
+        restored.open(owner="second", at=_AT + timedelta(seconds=2))
+        assert restored.checkpoint().blocked is None
+        assert restored.journal.orders()[0].identity == order.identity
+        restored.release()
+
+    def test_fault_persistence_failure_is_visible(self, tmp_path: Path) -> None:
+        """A failed checkpoint write cannot be reported as a successful hard stop."""
+        runtime = self._runtime(tmp_path / "unwritable-fault.sqlite3")
+        runtime.open(owner="first", at=_AT)
+        before = runtime.checkpoint()
+        with patch.object(runtime.journal, "commit_step", side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                runtime.fault(identity="disk", at=_AT, reason="capture-failed")
+        assert runtime.checkpoint() == before
+        runtime.release()
+
+    def test_resume_waits_for_unknown_order_reconciliation(self, tmp_path: Path) -> None:
+        """An unknown outcome must be resolved by an identified order fact first."""
+        runtime = self._runtime(tmp_path / "unknown-resume.sqlite3")
+        runtime.open(owner="first", at=_AT)
+        runtime.market(self._market(runtime, 0))
+        runtime.timer(identity="intent", at=_AT)
+        order = runtime.journal.orders()[0]
+        runtime.stop(identity="operator", at=_AT)
+        runtime.order(
+            OrderEvent(identity="unknown", order_id=order.identity, at=_AT, kind="unknown")
+        )
+        balance = Ledger(runtime.journal.ledger_state()).balance
+        with pytest.raises(ValueError, match="unresolved order outcome"):
+            runtime.resume(
+                identity="uncertain",
+                at=_AT + timedelta(seconds=1),
+                expected_checkpoint=runtime.checkpoint(),
+                cash=balance.cash,
+                holding=balance.holding,
+                open_order_ids=(order.identity,),
+            )
+        runtime.order(
+            OrderEvent(
+                identity="reconciled-open", order_id=order.identity, at=_AT, kind="reconcile_open"
+            )
+        )
+        assert runtime.resume(
+            identity="resolved",
+            at=_AT + timedelta(seconds=1),
+            expected_checkpoint=runtime.checkpoint(),
+            cash=balance.cash,
+            holding=balance.holding,
+            open_order_ids=(order.identity,),
+        )
+        assert runtime.checkpoint().blocked is None
+        runtime.release()
+
+    def test_resume_waits_for_cancel_fill_race_resolution(self, tmp_path: Path) -> None:
+        """A partial fill cannot hide a pending cancel behind an open status."""
+        runtime = self._runtime(
+            tmp_path / "cancel-race.sqlite3",
+            policy=_LifecyclePolicy(target=Decimal("2"), output="order"),
+        )
+        runtime.open(owner="first", at=_AT)
+        runtime.market(self._market(runtime, 0))
+        runtime.timer(identity="order", at=_AT)
+        runtime.market(self._market(runtime, 1))
+        partially_filled = runtime.journal.orders()[0]
+        assert partially_filled.status == "partial"
+        assert partially_filled.filled.value == Decimal("1")
+        runtime.stop(identity="operator", at=_AT + timedelta(seconds=1))
+        runtime.cancel(
+            identity="cancel",
+            order_id=partially_filled.identity,
+            at=_AT + timedelta(seconds=1),
+        )
+        pending = runtime.journal.orders()[0]
+        assert pending.cancel_requested and not pending.is_terminal
+        balance = Ledger(runtime.journal.ledger_state()).balance
+        with (
+            patch.object(
+                runtime.journal, "orders", return_value=(replace(pending, status="partial"),)
+            ),
+            pytest.raises(ValueError, match="unresolved order outcome"),
+        ):
+            runtime.resume(
+                identity="masked-cancel",
+                at=_AT + timedelta(seconds=2),
+                expected_checkpoint=runtime.checkpoint(),
+                cash=balance.cash,
+                holding=balance.holding,
+                open_order_ids=(pending.identity,),
+            )
+        runtime.order(
+            OrderEvent(
+                identity="cancelled",
+                order_id=pending.identity,
+                at=_AT + timedelta(seconds=1),
+                kind="cancelled",
+            )
+        )
+        assert runtime.resume(
+            identity="resolved-cancel",
+            at=_AT + timedelta(seconds=2),
+            expected_checkpoint=runtime.checkpoint(),
+            cash=balance.cash,
+            holding=balance.holding,
+            open_order_ids=(),
+        )
+        assert runtime.checkpoint().blocked is None
+        runtime.release()
+
+    def test_live_capture_faults_block_before_fence_release(self, tmp_path: Path) -> None:
+        """Raised protocol faults and completed disconnects survive a new owner."""
+        loaded, request, config = self._live_fixture(tmp_path)
+        for runner_type in (_MalformedCaptureRunner, _DisconnectedCaptureRunner):
+            path = tmp_path / f"{runner_type.__name__}.sqlite3"
+            with (
+                patch.object(CandidateLoader, "load", return_value=loaded),
+                patch("applications.paper.workflow.CaptureRunner", runner_type),
+                pytest.raises(BaseException) as raised,
+            ):
+                asyncio.run(
+                    run_live_paper(
+                        CandidateBundle(tmp_path / "unused"),
+                        loaded.deployment,
+                        config,
+                        components=CandidateComponents(features={}, policies={}),
+                        registry=CapabilityRegistry(()),
+                        request=request,
+                        capture_output=tmp_path / "capture",
+                        journal_path=path,
+                        owner="capture-owner",
+                        history_capacity=8,
+                    )
+                )
+            if runner_type is _MalformedCaptureRunner:
+                assert isinstance(raised.value, ExceptionGroup)
+                assert "malformed capture frame" in str(raised.value.exceptions[0])
+            else:
+                assert isinstance(raised.value, ValueError)
+                assert "without a healthy book" in str(raised.value)
+            journal = PaperOrderJournal(
+                path,
+                account=config.account,
+                instance=loaded.deployment.instance,
+                binding_identity=PaperCandidateRuntime.binding(loaded, config),
+                mode=config.mode,
+                limits=SpotLimits(
+                    maximum=config.maximum, lot=config.lot, tick=config.tick, product="spot"
+                ),
+                ledger_state=LedgerState(
+                    initial_cash=config.initial_cash, dimension=config.maximum.dimension
+                ),
+            )
+            source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+            restored = PaperCandidateRuntime(loaded, config, journal, source=source)
+            restored.open(owner="inspector", at=datetime.now(UTC) + timedelta(seconds=1))
+            assert restored.checkpoint().blocked == "live-paper-failure:ValueError"
+            restored.release()
+
+    def test_live_fault_persistence_failure_preserves_capture_cause(self, tmp_path: Path) -> None:
+        """A failed hard-block write annotates rather than replaces the protocol fault."""
+        loaded, request, config = self._live_fixture(tmp_path)
+        with (
+            patch.object(CandidateLoader, "load", return_value=loaded),
+            patch("applications.paper.workflow.CaptureRunner", _MalformedCaptureRunner),
+            patch.object(PaperCandidateRuntime, "fault", side_effect=OSError("disk full")),
+            pytest.raises(ExceptionGroup) as raised,
+        ):
+            asyncio.run(
+                run_live_paper(
+                    CandidateBundle(tmp_path / "unused"),
+                    loaded.deployment,
+                    config,
+                    components=CandidateComponents(features={}, policies={}),
+                    registry=CapabilityRegistry(()),
+                    request=request,
+                    capture_output=tmp_path / "capture",
+                    journal_path=tmp_path / "persistence.sqlite3",
+                    owner="capture-owner",
+                    history_capacity=8,
+                )
+            )
+        assert "malformed capture frame" in str(raised.value.exceptions[0])
+        assert any("paper fault handling also failed" in note for note in raised.value.__notes__)
+
+    def test_second_live_failure_after_resume_records_a_new_fault(self, tmp_path: Path) -> None:
+        """The same capture request cannot reuse a cleared prior run's fault guard."""
+        loaded, request, config = self._live_fixture(tmp_path)
+        path = tmp_path / "repeated-live.sqlite3"
+        bundle = CandidateBundle(tmp_path / "unused")
+        components = CandidateComponents(features={}, policies={})
+        registry = CapabilityRegistry(())
+        with (
+            patch.object(CandidateLoader, "load", return_value=loaded),
+            patch("applications.paper.workflow.CaptureRunner", _MalformedCaptureRunner),
+            pytest.raises(ExceptionGroup, match="unhandled errors") as first,
+        ):
+            asyncio.run(
+                run_live_paper(
+                    bundle,
+                    loaded.deployment,
+                    config,
+                    components=components,
+                    registry=registry,
+                    request=request,
+                    capture_output=tmp_path / "capture",
+                    journal_path=path,
+                    owner="same-owner",
+                    history_capacity=8,
+                )
+            )
+        assert "malformed capture frame" in str(first.value.exceptions[0])
+        journal = PaperOrderJournal(
+            path,
+            account=config.account,
+            instance=loaded.deployment.instance,
+            binding_identity=PaperCandidateRuntime.binding(loaded, config),
+            mode=config.mode,
+            limits=SpotLimits(
+                maximum=config.maximum, lot=config.lot, tick=config.tick, product="spot"
+            ),
+            ledger_state=LedgerState(
+                initial_cash=config.initial_cash, dimension=config.maximum.dimension
+            ),
+        )
+        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        runtime = PaperCandidateRuntime(loaded, config, journal, source=source)
+        runtime.open(owner="operator", at=datetime.now(UTC))
+        blocked = runtime.checkpoint()
+        assert blocked.blocked == "live-paper-failure:ValueError"
+        balance = Ledger(journal.ledger_state()).balance
+        assert runtime.resume(
+            identity="operator-resume",
+            at=max(datetime.now(UTC), blocked.last_at + timedelta(microseconds=1)),
+            expected_checkpoint=blocked,
+            cash=balance.cash,
+            holding=balance.holding,
+            open_order_ids=(),
+        )
+        assert runtime.checkpoint().blocked is None
+        runtime.release()
+        with (
+            patch.object(CandidateLoader, "load", return_value=loaded),
+            patch("applications.paper.workflow.CaptureRunner", _MalformedCaptureRunner),
+            pytest.raises(ExceptionGroup, match="unhandled errors") as second,
+        ):
+            asyncio.run(
+                run_live_paper(
+                    bundle,
+                    loaded.deployment,
+                    config,
+                    components=components,
+                    registry=registry,
+                    request=request,
+                    capture_output=tmp_path / "capture",
+                    journal_path=path,
+                    owner="same-owner",
+                    history_capacity=8,
+                )
+            )
+        assert "malformed capture frame" in str(second.value.exceptions[0])
+        saved = journal.checkpoint()
+        assert saved is not None
+        assert DomainCodec().decode_json(saved, PaperCheckpoint).blocked == (
+            "live-paper-failure:ValueError"
+        )
+        guards = [
+            step.step_id for step in journal.steps() if step.step_id.startswith("guard:fault:")
+        ]
+        assert len(guards) == 2 and len(set(guards)) == 2

@@ -9,6 +9,7 @@ import os
 import re
 import sqlite3
 import stat
+from collections.abc import Callable
 from contextlib import ExitStack, closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -98,6 +99,7 @@ class WorkspaceBackup:
         components: tuple[str, ...],
         max_files: int = 100_000,
         max_total_bytes: int = 109_951_162_777,
+        validate_quiescence: Callable[[], None] | None = None,
     ) -> str:
         """Publish a checked backup at an absent destination.
 
@@ -107,6 +109,7 @@ class WorkspaceBackup:
             components: Explicit stores to preserve, including ``jobs`` for queue state.
             max_files: Positive cap on retained regular files.
             max_total_bytes: Positive aggregate copy budget.
+            validate_quiescence: Optional owner check under the acquired database write locks.
 
         Returns:
             SHA-256 of the canonical backup manifest bytes.
@@ -119,6 +122,8 @@ class WorkspaceBackup:
         with ExitStack() as stack:
             cls._acquire_locks(stack, source_root, components)
             cls._require_idle_jobs(source_root, components)
+            if validate_quiescence is not None:
+                validate_quiescence()
             before = cls._inventory(source_root, components, max_files, max_total_bytes)
             with TemporaryDirectory(dir=backup_root.parent, prefix=".workspace-backup-") as temp:
                 staging = Path(temp)
@@ -168,10 +173,12 @@ class WorkspaceBackup:
         *,
         max_files: int = 100_000,
         max_total_bytes: int = 109_951_162_777,
+        validate_restored: Callable[[Path], None] | None = None,
     ) -> WorkspaceManifest:
         """Verify a backup and atomically publish it into an absent workspace path.
 
         The absent destination prevents replacing an active worker or partial state.
+        An optional owner validator checks the staged workspace before publication.
         Callers switch application references only after this method succeeds.
         """
         if destination_root.exists() or destination_root.is_symlink():
@@ -188,6 +195,8 @@ class WorkspaceBackup:
                 cls._copy_file(backup_root / "payload" / record.name, destination)
                 os.chmod(destination, record.mode)
             cls._verify_payload(staging, manifest, max_files, max_total_bytes)
+            if validate_restored is not None:
+                validate_restored(staging)
             cls._sync_tree(staging)
             os.rename(staging, destination_root)
             cls._sync_directory(destination_root.parent)

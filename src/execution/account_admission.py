@@ -58,6 +58,8 @@ class AccountAdmission:
     ) -> StepCommit:
         """Evaluate a decision against authoritative holdings and firm commitments."""
         account = transaction.account(request.account_id)
+        if account.phase != "running":
+            raise ValueError("account_operationally_blocked")
         if account.operator_block or account.fault:
             raise ValueError(account.operator_block or account.fault or "account_blocked")
         if request.instance_id in transaction.state.stopped_instances:
@@ -408,7 +410,7 @@ class AccountAdmission:
                 and (not tagged.order.is_terminal or tagged.order.identity in attached)
             )
             if positions or orders:
-                if account.fault or account.operator_block or account.reconciled_at is None:
+                if account.fault or account.reconciled_at is None:
                     raise ValueError("firm_account_unavailable")
                 age = at - account.reconciled_at
                 if (
@@ -720,6 +722,11 @@ class AccountAdmission:
             control.at
             for control in transaction.state.instance_controls
             if self.instance_account(control.instance_id) == account_id
+        )
+        clocks.extend(
+            control.request.at
+            for control in transaction.state.account_controls
+            if control.request.account_id == account_id and control.status == "applied"
         )
         return max(clocks)
 

@@ -44,7 +44,14 @@ class RuntimeFiles:
             "strategies",
         ),
         "alpha-research-collector": ("applications", "market_data", "runtime", "telemetry"),
-        "alpha-research-execution": ("applications", "execution", "accounting", "portfolio"),
+        "alpha-research-execution": (
+            "applications",
+            "execution",
+            "accounting",
+            "portfolio",
+            "runtime",
+            "telemetry",
+        ),
     }
 
     @classmethod

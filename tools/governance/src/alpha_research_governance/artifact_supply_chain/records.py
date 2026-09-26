@@ -70,6 +70,13 @@ class ReleaseRuntime(ImmutableModel):
         """Keep collector and intent-only execution placement modes distinct."""
         if (self.application == "collector") != (self.mode == "collection"):
             raise ValueError("application and operating mode are incompatible")
+        account_configuration = self.config_schema == "account-runtime-v1"
+        account_state = self.state_schema == "account-journal-v2"
+        if account_configuration != account_state or (
+            account_configuration
+            and (self.application != "execution" or self.mode not in ("paper", "shadow"))
+        ):
+            raise ValueError("account configuration, state and mode are incompatible")
         return self
 
 

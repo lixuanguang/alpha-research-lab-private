@@ -5,13 +5,16 @@ from __future__ import annotations
 # standard library imports
 import base64
 import hashlib
+import json
 import platform
+import sqlite3
 import sys
 import sysconfig
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from threading import Event
 from typing import Literal, cast
@@ -19,6 +22,7 @@ from unittest.mock import patch
 
 # third party library imports
 import pytest
+from pydantic import TypeAdapter
 
 # project library imports
 from alpha_research_governance.artifact_supply_chain.bundles import ReleaseRegistry, VerifiedRelease
@@ -35,6 +39,16 @@ from alpha_research_governance.artifact_supply_chain.records import (
     StateEnvelope,
     TrustedBuilder,
 )
+from applications.execute.accounts import (
+    AccountExecutionApplication,
+    AccountExecutionRequest,
+    AccountExecutionResult,
+)
+from configuration import AccountConfiguration, OpeningAccount
+from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
+from reference_data.instruments import InstrumentId
+from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
+from serialization import DomainCodec
 
 _NOW = datetime(2026, 9, 24, 12, tzinfo=UTC)
 
@@ -64,8 +78,8 @@ class InstallationScenario:
             ssh_keygen_executable="/pinned/ssh-keygen",
             ssh_keygen_sha256="0" * 64,
             builders=(builder,),
-            config_schemas=("config-v1",),
-            state_schemas=("state-v1", "state-v2"),
+            config_schemas=("config-v1", "account-runtime-v1"),
+            state_schemas=("state-v1", "state-v2", "account-journal-v2"),
         )
         self.installation = LocalInstallation(root / "target", self.policy)
         self.candidates: dict[str, VerifiedRelease] = {}
@@ -78,13 +92,17 @@ class InstallationScenario:
         config: bytes,
         state_schema: str = "state-v1",
         application: Literal["collector", "execution"] = "collector",
+        config_schema: str = "config-v1",
+        mode: Literal["collection", "research", "paper", "shadow"] | None = None,
+        initial_state: bool = True,
     ) -> Path:
         """Create a complete inert release and register its mocked verified identity."""
         initial = b"initial state\n"
+        initial_files = (ReleaseFile.describe("checkpoint.bin", initial),) if initial_state else ()
         envelope = StateEnvelope(
             schema_version=state_schema,
             application=application,
-            files=(ReleaseFile.describe("checkpoint.bin", initial),),
+            files=initial_files,
         )
         payloads = {
             "configuration/config.json": config,
@@ -93,10 +111,11 @@ class InstallationScenario:
             "provenance/dependency-admission.toml": b"admitted = true\n",
             "provenance/source.json": b"{}\n",
             "provenance/uv.lock": b"version = 1\n",
-            "state/checkpoint.bin": initial,
             "state/state.json": envelope.model_dump_json().encode(),
             "wheels/collector.whl": b"inert wheel fixture\n",
         }
+        if initial_state:
+            payloads["state/checkpoint.bin"] = initial
         contents = tuple(sorted(payloads.items()))
         manifest = ReleaseManifest(
             name=name,
@@ -112,8 +131,8 @@ class InstallationScenario:
                 platform="darwin_arm64",
                 contract_version="1",
                 application=application,
-                mode="collection" if application == "collector" else "research",
-                config_schema="config-v1",
+                mode=mode or ("collection" if application == "collector" else "research"),
+                config_schema=config_schema,
                 state_schema=state_schema,
             ),
             root_distribution=(
@@ -146,16 +165,19 @@ class InstallationScenario:
         return self.identities[expected_identity]
 
     @contextmanager
-    def isolated_installation(self) -> Iterator[None]:
+    def isolated_installation(self, *, inspect_application: bool = False) -> Iterator[None]:
         """Keep tests on local pointer and state logic without creating a real venv."""
         with (
             patch.object(ReleaseRegistry, "verify", side_effect=self.verify),
             patch.object(ReleaseProvenance, "verify", return_value=None),
             patch.object(LocalInstallation, "_require_tools", return_value=None),
             patch.object(LocalInstallation, "_install_wheels", return_value=None),
-            patch.object(LocalInstallation, "_inspect_application", return_value=None),
         ):
-            yield
+            if inspect_application:
+                yield
+            else:
+                with patch.object(LocalInstallation, "_inspect_application", return_value=None):
+                    yield
 
 
 class PointerInterruption:
@@ -201,6 +223,31 @@ class RecordedApplication:
         """Record one invocation without executing a stub wheel entrypoint."""
         self.calls.append((arguments, cwd))
         return b"accepted\n"
+
+
+class AccountInstalledApplication:
+    """Exercise actual account decoding behind the mock signed wheel installation."""
+
+    def __init__(self) -> None:
+        """Retain installed invocations for argument-binding assertions."""
+        self.calls: list[list[str]] = []
+
+    def run(self, arguments: list[str], *, cwd: Path) -> bytes:
+        """Apply only the account CLI shape using the real account application."""
+        assert cwd.is_dir()
+        assert arguments[0].endswith("/venv/bin/alpha-execute")
+        assert arguments[1] == "account"
+        self.calls.append(arguments)
+        config = Path(arguments[arguments.index("--config") + 1])
+        journal = Path(arguments[arguments.index("--journal") + 1])
+        request = (
+            Path(arguments[arguments.index("--request") + 1]) if "--request" in arguments else None
+        )
+        return DomainCodec().encode_json(
+            AccountExecutionApplication().run(
+                config_path=config, journal_path=journal, request_path=request
+            )
+        )
 
 
 class PinnedToolProbe:
@@ -277,6 +324,235 @@ class PinnedToolProbe:
 
 class TestLocalInstallation:
     """Retain atomic selection, compatible state and complete local integrity."""
+
+    @staticmethod
+    def _account_configuration(opening_at: datetime) -> AccountConfiguration:
+        """Provide one bounded account whose opening still requires reconciliation."""
+        currency = Currency.from_code("USDT")
+        dimension = Dimension(
+            instrument_id=InstrumentId.from_canonical_text("11111111-1111-4111-8111-111111111111"),
+            kind=QuantityKind.BASE_UNIT,
+        )
+        money = Money(value=Decimal("10000"), currency=currency)
+        return AccountConfiguration(
+            mode="paper",
+            opening_at=opening_at,
+            accounts=(OpeningAccount(account_id="shared", cash=(money,)),),
+            instruments=(
+                SpotLimits(
+                    maximum=Quantity(value=Decimal("100"), dimension=dimension),
+                    lot=Quantity(value=Decimal("1"), dimension=dimension),
+                    tick=Price(value=Decimal("0.01"), currency=currency, per=dimension),
+                    product="spot",
+                ),
+            ),
+            budgets=BudgetPolicy(
+                valuation_currency=currency,
+                firm_maximum=money,
+                accounts=(AccountLimit(account_id="shared", maximum=money),),
+                instances=(
+                    InstanceLimit(
+                        instance_id="alpha",
+                        account_id="shared",
+                        maximum=money,
+                        instruments=(dimension.instrument_id,),
+                    ),
+                ),
+                max_quote_age_us=1_000_000,
+                max_state_age_us=86_400_000_000,
+                max_price_deviation_bps=100,
+                max_order_notional=money,
+            ),
+        )
+
+    def test_signed_account_run_preserves_latest_journal_on_rollback(self, tmp_path: Path) -> None:
+        """Bind account requests to signed config and retain operator stops across rollback."""
+        scenario = InstallationScenario(tmp_path)
+        config = DomainCodec().encode_json(self._account_configuration(_NOW))
+        first = scenario.candidate(
+            "first-account",
+            config=config,
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v2",
+            initial_state=False,
+        )
+        second = scenario.candidate(
+            "second-account",
+            config=config,
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v2",
+            initial_state=False,
+        )
+        changed = scenario.candidate(
+            "changed-account",
+            config=DomainCodec().encode_json(
+                self._account_configuration(_NOW + timedelta(seconds=1))
+            ),
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v2",
+            initial_state=False,
+        )
+        application = AccountInstalledApplication()
+        request = tmp_path / "operator-stop.json"
+        request.write_bytes(
+            DomainCodec().encode_json(
+                AccountExecutionRequest(action="block", account_id="shared", reason="operator-stop")
+            )
+        )
+        with scenario.isolated_installation(inspect_application=True):
+            with patch.object(LocalInstallation, "_run", side_effect=application.run):
+                original = scenario.installation.install(first, now=_NOW)
+                journal = scenario.installation.root / "state/accounts.sqlite3"
+                assert journal.is_file()
+                stopped = DomainCodec().decode_json(
+                    scenario.installation.run(("account", "--request", str(request)), now=_NOW),
+                    AccountExecutionResult,
+                )
+                assert stopped.accounts[0].operator_block == "operator-stop"
+                updated = scenario.installation.install(second, now=_NOW)
+                with pytest.raises(ValueError, match="configuration or state schema differs"):
+                    scenario.installation.install(changed, now=_NOW)
+                assert scenario.installation.current() == updated
+                rolled_back = scenario.installation.install(first, now=_NOW)
+                reopened = DomainCodec().decode_json(
+                    scenario.installation.run(("account",), now=_NOW),
+                    AccountExecutionResult,
+                )
+
+        assert rolled_back.release == original.release
+        assert reopened.accounts[0].operator_block == "operator-stop"
+        assert application.calls[-1][-2:] == ["--journal", str(journal)]
+        assert application.calls[-1][-4:-2] == [
+            "--config",
+            str(scenario.installation.root / rolled_back.slot / "bundle/configuration/config.json"),
+        ]
+
+    def test_signed_account_run_rejects_overrides_and_lost_journal(self, tmp_path: Path) -> None:
+        """Do not let a request supply another config or silently recreate lost state."""
+        scenario = InstallationScenario(tmp_path)
+        release = scenario.candidate(
+            "account",
+            config=DomainCodec().encode_json(self._account_configuration(_NOW)),
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v2",
+            initial_state=False,
+        )
+        application = AccountInstalledApplication()
+        with scenario.isolated_installation(inspect_application=True):
+            with patch.object(LocalInstallation, "_run", side_effect=application.run):
+                scenario.installation.install(release, now=_NOW)
+                prior_calls = len(application.calls)
+                for arguments in (
+                    ("account", "--config", str(tmp_path / "other.json")),
+                    ("account", "--journal", str(tmp_path / "other.sqlite3")),
+                    ("account", "--journ", str(tmp_path / "other.sqlite3")),
+                    ("account", "--request", "relative.json"),
+                    ("paper",),
+                ):
+                    with pytest.raises(ValueError):
+                        scenario.installation.run(arguments, now=_NOW)
+                assert len(application.calls) == prior_calls
+                journal = scenario.installation.root / "state/accounts.sqlite3"
+                journal.unlink()
+                with pytest.raises(FileNotFoundError):
+                    scenario.installation.run(("account",), now=_NOW)
+                assert not journal.exists()
+
+    def test_account_rollback_rejects_unknown_actual_journal_schema(self, tmp_path: Path) -> None:
+        """A manifest schema label cannot make an unreadable account ledger compatible."""
+        scenario = InstallationScenario(tmp_path)
+        config = DomainCodec().encode_json(self._account_configuration(_NOW))
+        candidates = tuple(
+            scenario.candidate(
+                name,
+                config=config,
+                application="execution",
+                mode="paper",
+                config_schema="account-runtime-v1",
+                state_schema="account-journal-v2",
+                initial_state=False,
+            )
+            for name in ("first-account", "second-account")
+        )
+        application = AccountInstalledApplication()
+        with scenario.isolated_installation(inspect_application=True):
+            with patch.object(LocalInstallation, "_run", side_effect=application.run):
+                scenario.installation.install(candidates[0], now=_NOW)
+                selected = scenario.installation.install(candidates[1], now=_NOW)
+                journal = scenario.installation.root / "state/accounts.sqlite3"
+                with closing(sqlite3.connect(journal)) as connection:
+                    row = cast(
+                        tuple[object, ...] | None,
+                        connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+                    )
+                    assert row is not None and type(row[0]) is bytes
+                    state = TypeAdapter(dict[str, object]).validate_json(row[0])
+                    state["schema_version"] = "unknown-account-journal"
+                    connection.execute(
+                        "UPDATE firm SET payload=? WHERE id=1",
+                        (json.dumps(state, separators=(",", ":")).encode(),),
+                    )
+                    connection.commit()
+                with pytest.raises(ValueError):
+                    scenario.installation.install(candidates[0], now=_NOW)
+                assert scenario.installation.current() == selected
+
+    @pytest.mark.parametrize("changed", (False, True))
+    def test_interrupted_account_install_adopts_only_pristine_initial_state(
+        self, tmp_path: Path, changed: bool
+    ) -> None:
+        """A lost pointer cannot adopt account actions taken against orphan state."""
+        scenario = InstallationScenario(tmp_path)
+        release = scenario.candidate(
+            "account",
+            config=DomainCodec().encode_json(self._account_configuration(_NOW)),
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v2",
+            initial_state=False,
+        )
+        application = AccountInstalledApplication()
+        interruption = PointerInterruption(LocalInstallation._atomic_write)
+        with scenario.isolated_installation(inspect_application=True):
+            with patch.object(LocalInstallation, "_run", side_effect=application.run):
+                with patch.object(
+                    LocalInstallation, "_atomic_write", side_effect=interruption.interrupt
+                ):
+                    with pytest.raises(OSError, match="simulated pointer interruption"):
+                        scenario.installation.install(release, now=_NOW)
+                journal = scenario.installation.root / "state/accounts.sqlite3"
+                original_inode = journal.stat().st_ino
+                if changed:
+                    request = tmp_path / "orphan-stop.json"
+                    request.write_bytes(
+                        DomainCodec().encode_json(
+                            AccountExecutionRequest(
+                                action="block", account_id="shared", reason="orphan-stop"
+                            )
+                        )
+                    )
+                    staged = next((scenario.installation.root / "releases").iterdir())
+                    AccountExecutionApplication().run(
+                        config_path=staged / "bundle/configuration/config.json",
+                        journal_path=journal,
+                        request_path=request,
+                    )
+                    with pytest.raises(ValueError, match="unbound account state differs"):
+                        scenario.installation.install(release, now=_NOW)
+                    assert scenario.installation.current() is None
+                else:
+                    scenario.installation.install(release, now=_NOW)
+                    assert scenario.installation.current() is not None
+                    assert journal.stat().st_ino == original_inode
 
     def test_interrupted_initial_switch_recovers_exact_existing_state(self, tmp_path: Path) -> None:
         """Finish the pointer switch without replacing an identical orphan state tree."""
