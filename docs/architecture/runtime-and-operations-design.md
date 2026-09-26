@@ -4,6 +4,11 @@
 identified as current. Quant development owns the implementation boundaries;
 the roadmap owns delivery and acceptance.
 
+The initial operating scope is paper trading. Live deployment, authenticated
+venue qualification and real-capital operation are
+[KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration); their destination
+contracts below are retained for reconsideration, outside QR onboarding.
+
 [Platform design and dependency direction](platform-design.md).
 
 ## Runtime lanes and deployment
@@ -11,7 +16,7 @@ the roadmap owns delivery and acceptance.
 The platform has three possible lanes with one shared semantic waist:
 
 1. **Batch/research — CURRENT, bounded local scope.** Saved datasets, features, model studies, simulation and reports run with reproducible inputs. Distributed execution and measured parallel scaling remain planned.
-2. **Ordinary event-driven — CURRENT local paper/shadow increments; broader deployment PLANNED.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. A separate local shared-account workflow reuses per-instance decision sessions and coordinates attributable child and physical orders over normalized events. Private venue reconciliation and deployed operating qualification remain open.
+2. **Ordinary event-driven — CURRENT local paper/shadow increments; integrated paper deployment PLANNED.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. A separate local shared-account workflow reuses per-instance decision sessions and coordinates attributable child and physical orders over normalized events. Integrated paper operating qualification remains open; private venue reconciliation is KIV.
 3. **Latency-sensitive — OPTIONAL PLANNED.** A native component or dedicated host is added only after a measured latency, jitter, or vendor ABI need. It consumes compatible schemas and remains behind independent risk and kill controls.
 
 Lanes may use different artifacts, process models, stores, and release cadences. A deployment is placement of an
@@ -27,7 +32,8 @@ actual wheel/source/lock/audit bytes, out-of-band builder trust, configuration a
 exact state compatibility before an offline installation. Rollback preserves
 current mutable state. The initial local target and acceptance record do not
 qualify remote production deployment, OMS state migration or venue recovery.
-The broader destination below remains required at its owning milestones.
+The paper destination below remains required at its owning milestones; live
+qualification is deferred under the roadmap's KIV gate.
 
 An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
 references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained
@@ -66,8 +72,9 @@ implemented interfaces. MR12 extends the original local alert prerequisite with
 causal query/metric APIs and report adapters. Periodic collector observations use
 a bounded background writer; disk stalls cannot hold the watchdog control thread.
 Account/venue commands project committed state into a separate optional journal.
-This local increment does not complete external monitoring qualification,
-activation, venue recovery or the final MR10 operating record.
+This local increment does not complete integrated paper monitoring, activation,
+recovery or the final MR10 paper operating record. External private venue
+qualification remains unproven and KIV.
 
 Current monitoring events correlate release, strategy, model, dataset/source/study,
 account, instrument, venue, order, fill, state epoch and incident through fixed
@@ -110,9 +117,10 @@ Expose block-new-exposure, cancel-outstanding and reduce-position as distinct
 operations with explicit connectivity, freshness and liquidity requirements.
 Stopping a strategy does not imply immediate flattening or release of uncertain
 orders. The roadmap's failure scenarios cover disk/queue exhaustion, malformed
-inputs, clock anomalies, private-stream loss and exchange timeouts alongside
-process/service loss. Paper evidence is supplemented by each venue's external
-conformance before final operational acceptance.
+inputs, clock anomalies and modeled order-event loss/timeouts alongside
+process/service loss. Final paper acceptance requires both public-input paper
+paths and their actual service/failure evidence. Private-stream loss, exchange
+timeouts and external venue conformance remain live KIV requirements.
 
 ### Feed health and observable loss
 

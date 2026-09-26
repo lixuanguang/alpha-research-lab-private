@@ -1,7 +1,7 @@
 # Alpha Research Platform
 
-After the entire infrastructure is built and accepted at MR17, quant research
-starts with an economic question: can an observable market state improve
+After the research and paper-trading infrastructure is built and accepted at MR17,
+quant research starts with an economic question: can an observable market state improve
 a trading decision after costs, delay and risk? The planned agenda investigates
 one execution venue and a narrow product/instrument scope, beginning with an
 opportunity map and pressure/replenishment hypotheses.
@@ -23,6 +23,9 @@ to exact spot simulation, model studies and reports. The
 [remaining roadmap](roadmap/README.md#delivery-order-and-dependencies)
 owns completion of the OKX/Bitfinex spot stack before QR onboarding, including
 research extension points, runtime, monitoring and capacity qualification.
+QD's initial delivery ends at paper-trading capability. Live trading is
+[KIV pending profitable OOS and forward paper evidence](roadmap/README.md#live-trading-kiv-and-reconsideration),
+net of transaction costs, slippage and applicable digital-asset gas fees.
 Candidate bundles load the same rule/model components into replay and local
 paper/shadow runtime, including versioned Feast features and native public books.
 The durable OMS preserves partial orders, pending exposure and restart state.

@@ -4,6 +4,12 @@
 identified as current. Quant development owns the implementation boundaries;
 the roadmap owns delivery and acceptance.
 
+The initial delivery is research and paper trading. Live execution, authenticated
+venue qualification and real-account recovery are
+[KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration). Their destination
+contracts below remain requirements only if that work is reopened; existing
+test-adapter implementation and evidence retain their stated limits.
+
 [Platform design and dependency direction](platform-design.md).
 
 ## Portfolio, accounting, and position state
@@ -105,8 +111,9 @@ The [MR09 roadmap boundary](../roadmap/README.md#mr09-delivery-and-acceptance) r
 the qualified scope and remaining limits. Quant development supplies the deterministic
 reference policy; QR later supplies economic allocation choices within limits.
 This local paper/software proof does not establish OKX or Bitfinex private-stream,
-order, fill or account conformance; each venue remains separately qualified by
-MR11 in its authorized test environment.
+order, fill or account conformance; that authenticated qualification is KIV.
+MR11 now requires separate public-input simulated paper execution and account
+evidence for each venue under the revised roadmap.
 
 Initial strategies are trusted founder-authored code. Logical separation,
 immutable limits, per-instance state and final risk enforcement outside strategy
@@ -131,7 +138,7 @@ physical net orders, deterministic fill/fee allocation, append-only corrections
 and complete local reconciliation. MR11 adds an implemented test-venue gateway,
 both native protocols, signed native fees and wallet/order comparison through
 these same owners. Its scripted conformance remains software evidence; actual
-authenticated venue qualification is open. The
+authenticated venue qualification is unproven and KIV. The
 [test-venue contract](../../src/execution/README.md#test-venue-execution) owns
 supported operations, separate authority and recovery limits.
 
@@ -146,6 +153,7 @@ support rather than rewriting terminal state. The
 [MR07 roadmap boundary](../roadmap/README.md#mr07-delivery-and-acceptance)
 qualifies the bounded scope and separates source observations from modeled fills.
 
+The retained live adapter contract below applies if live work is reopened.
 Venue adapters translate canonical orders into one broker or venue protocol. They own credentials, throttles, sequence
 numbers, venue-specific timeouts, retry rules, idempotency keys, and source errors. They expose normalized events back
 to the OMS and retain raw protocol messages for investigation.
@@ -158,8 +166,9 @@ Request acknowledgement, venue acceptance and final economic state are distinct.
 A cancel acknowledgement is not confirmed cancellation and cannot alone free a
 reservation. Private-stream loss, cancel/fill races and process restart reconcile
 against venue state before retry or resumption. One fenced owner may execute for
-an account. Qualify the first venue end to end, then the second through the same
-contracts; both OKX and Bitfinex conformance remain required for final acceptance.
+an account. Any reopened live scope must qualify the first venue end to end, then
+the second through the same contracts. This native venue conformance is KIV;
+initial onboarding instead requires both venues' public-input paper conformance.
 
 ## Asset-class specializations
 
@@ -184,8 +193,8 @@ stress remain distinct calculations.
 resets, issuer hierarchy, embedded options, financing, DV01, key-rate, and scenario risk.
 
 **Digital assets — CURRENT bounded spot; full initial stack PLANNED and required.**
-Complete OKX/Bitfinex spot data, simulation, account/risk and execution interfaces
-under the roadmap's pre-onboarding gate. Perpetuals and other later extensions add
+Complete OKX/Bitfinex spot data, simulation, paper account/risk and paper execution
+interfaces under the roadmap's pre-onboarding gate. Perpetuals and other later extensions add
 funding, index/mark prices, collateral haircuts, liquidation and venue credit risk. For on-chain strategies, add chain
 and token identity, finality, reorgs, gas, nonce and custody state, AMM/oracle semantics, MEV, and bridge/transfer risk.
 Apply stablecoin FX and venue/chain outage scenarios where relevant. Only the selected operating scope is required.

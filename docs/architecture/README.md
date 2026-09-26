@@ -18,14 +18,15 @@ a local shared-account portfolio increment: it commits selected strategy decisio
 through independent budgets, retains tagged child orders, nets compatible spot
 orders, and allocates normalized fills and fees back to their owners. The
 [MR09 acceptance record](../roadmap/README.md#mr09-delivery-and-acceptance) owns
-its validation status; physical venue execution remains separately qualified.
+its validation status; physical venue execution remains unqualified and KIV.
 Configured economic reports,
 serial local ClearML pipelines and pinned lakeFS dataset versions are also available.
 Named multi-feature, fitted-transform, estimator-state and restartable decision contracts
 now have [installed research consumers](../../src/research/features/README.md#generalized-feature-lifecycle).
 MR06 adds independent operating packages and trusted local installation. Economic
-portfolio construction, physical venue order execution, deployed services and live
-trading monitoring remain planned. See the
+portfolio construction and deployed paper services remain planned. Live venue
+order execution and live trading monitoring are
+[KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration). See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.
 
@@ -34,11 +35,11 @@ financial values, canonical market-data records, configuration, acquisition,
 datasets, simulation orders/fills/checkpoints and retained research reports.
 Wire records use frozen `msgspec.Struct` values with strict typed codecs;
 the C01, C02 and C03 foundation models retain their Pydantic contracts.
-Venue order submission and live execution remain planned.
+Production venue order submission and live execution remain KIV.
 
 The [platform roadmap](../roadmap/README.md) requires the complete initial
-OKX/Bitfinex spot infrastructure before QR onboarding. Quant development supplies
-reference rule/model studies, paper instances and metric/chart extensions to
+OKX/Bitfinex spot research and paper infrastructure before QR onboarding. Quant
+development supplies reference rule/model studies, paper instances and metric/chart extensions to
 qualify the shared APIs without waiting for accepted QR research. The same
 versioned decision components serve research and runtime; actual research
 acceptance and trading activation remain separate. Current bounded capabilities
@@ -67,7 +68,8 @@ configured fixture -> versioned data + explicit availability
     -> reproducible baseline with declared cost assumptions and exact accounting
     -> reusable research + qualified live inputs + verified artifact
     -> paper/shadow with risk, reconciliation, monitoring, stop and recovery
-    -> explicit bounded live activation using those qualified controls
+    -> OOS and forward paper profitability net of applicable costs
+    -> decision whether to reopen live work (KIV); separate qualification/activation
 ```
 
 The [delivery dependencies](../roadmap/README.md#delivery-order-and-dependencies)
@@ -144,8 +146,8 @@ Current dependency direction is organized by functional owner:
   child orders, compatible physical net orders, allocated event postings and
   complete local reconciliation. [Risk](../../src/risk/README.md) owns independent
   policy and [accounting](../../src/accounting/README.md) owns exact multi-currency
-  postings and append-only corrections. Physical venue reconciliation remains
-  with MR11.
+  postings and append-only corrections. MR11 owns integrated paper reconciliation;
+  authenticated physical venue reconciliation is KIV.
 - [`applications.paper`](../../src/applications/paper/README.md) composes the
   existing dedicated-account candidate flows and `run_shared_paper`, which
   consumes explicit normalized account/order events without venue submission or
