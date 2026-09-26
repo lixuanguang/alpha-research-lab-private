@@ -25,6 +25,24 @@ def test_secret_patterns_report_identifiers_without_secret_contents() -> None:
     assert "A" * 24 not in str(secrets.scan_secret_bytes(payload))
 
 
+def test_python_credential_references_do_not_hide_literal_secrets() -> None:
+    """Exclude valid attribute expressions only, retaining literal/config detection."""
+    key = b'"apiKey": '
+    attribute = b"self.credentials.api_key"
+    dynamic = b"request = {" + key + attribute + b"}\n"
+    assert secrets.scan_secret_bytes(dynamic, python_source=True) == ()
+    assert secrets.scan_secret_bytes(dynamic) == ("assigned_credential",)
+    for literal in (attribute, b"A" * 24):
+        quoted = b"request = {" + key + b'"' + literal + b'"}\n'
+        assert secrets.scan_secret_bytes(quoted, python_source=True) == ("assigned_credential",)
+    invalid = dynamic + b"\nthis is not valid python!"
+    assert secrets.scan_secret_bytes(invalid, python_source=True) == ("assigned_credential",)
+    mixed = dynamic + b"password = '" + b"B" * 24 + b"'\n"
+    assert secrets.scan_secret_bytes(mixed, python_source=True) == ("assigned_credential",)
+    unicode_prefix = "label = '价格'; ".encode() + dynamic
+    assert secrets.scan_secret_bytes(unicode_prefix, python_source=True) == ()
+
+
 @pytest.mark.parametrize(
     ("filename", "prefix", "suffix"),
     [

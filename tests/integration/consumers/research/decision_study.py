@@ -7,8 +7,9 @@ import hashlib
 import subprocess
 import sys
 from dataclasses import replace as dataclass_replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Protocol
 
@@ -17,6 +18,7 @@ import msgspec
 from msgspec.structs import replace
 
 # project library imports
+from accounting import Ledger, LedgerState
 from applications.explore import (
     StudyComponents,
     StudyJobHandler,
@@ -30,8 +32,18 @@ from research.studies import (
     ClearMLDestination,
     DecisionComparison,
     DecisionStudy,
+    FoldSummary,
+    LedgerPoint,
     PublicationPolicy,
+    ReportChartAdapter,
+    ReportContext,
+    ReportMetricAdapter,
+    ReportMonitoringBridge,
+    ReportObservation,
     StudyArtifact,
+    StudyFoldResult,
+    StudyMonitoringExporter,
+    StudyReportBuilder,
     StudyReportReader,
     StudyResult,
 )
@@ -45,6 +57,21 @@ from runtime import (
 )
 from serialization import DomainCodec
 from strategies import OrderIntent
+from telemetry import (
+    DashboardBuilder,
+    DashboardConfig,
+    DashboardPanel,
+    DashboardSnapshot,
+    DelayedLabelError,
+    MetricInput,
+    MetricPoint,
+    MetricRegistry,
+    MetricResult,
+    MetricSpec,
+    MonitoringEvent,
+    MonitoringQuery,
+    TelemetryStore,
+)
 
 
 class _ScenarioView(Protocol):
@@ -72,6 +99,86 @@ class _LostStudyAcknowledgement:
         return result
 
 
+class _InstalledErrorMetric:
+    """Provide a fresh exact metric for reports, research and paper dashboards."""
+
+    def __init__(self) -> None:
+        """Pin the actual installed consumer code that implements this definition."""
+        self.spec = MetricSpec(
+            name="installed-squared-error",
+            version="1",
+            implementation_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            inputs=(
+                MetricInput(
+                    name=StudyMonitoringExporter.prediction_name,
+                    version="1",
+                    units="dimensionless",
+                ),
+                MetricInput(
+                    name=StudyMonitoringExporter.outcome_name,
+                    version="1",
+                    units="dimensionless",
+                ),
+            ),
+            units="(dimensionless)^2",
+            modes=("research", "paper"),
+            aggregation="custom",
+            missingness="retain gaps and average observed errors",
+        )
+
+    def evaluate(self, query: MonitoringQuery, events: tuple[MonitoringEvent, ...]) -> MetricResult:
+        """Use unchanged exact inputs for both retained reports and runtime views."""
+        outcomes = {
+            event.sample: event
+            for event in events
+            if event.name == StudyMonitoringExporter.outcome_name
+        }
+        values: list[Fraction] = []
+        points: list[MetricPoint] = []
+        for prediction in events:
+            if prediction.name != StudyMonitoringExporter.prediction_name:
+                continue
+            outcome = outcomes.get(prediction.sample)
+            if outcome is not None and (outcome.at, outcome.context) != (
+                prediction.at,
+                prediction.context,
+            ):
+                raise ValueError("prediction and outcome correlation differs")
+            value = None
+            reason: str | None = "pending label"
+            if prediction.value is None:
+                reason = prediction.missing_reason or "missing prediction"
+            elif outcome is not None and outcome.value is None:
+                reason = outcome.missing_reason or "missing outcome"
+            elif outcome is not None and outcome.value is not None:
+                difference = Fraction(
+                    int(prediction.value.numerator), int(prediction.value.denominator)
+                ) - Fraction(int(outcome.value.numerator), int(outcome.value.denominator))
+                error = difference * difference
+                values.append(error)
+                value = ExactRatio.from_fraction(error)
+                reason = None
+            points.append(
+                MetricPoint(
+                    sample=prediction.sample,
+                    at=prediction.at,
+                    value=value,
+                    missing_reason=reason,
+                )
+            )
+        return MetricResult(
+            spec=self.spec,
+            query=query,
+            value=ExactRatio.from_fraction(sum(values, Fraction()) / len(values))
+            if values
+            else None,
+            status="ok" if values else "missing",
+            reason=None if values else "no observed prediction/outcome pairs",
+            input_ids=tuple(event.identity for event in events),
+            points=tuple(points),
+        )
+
+
 class _Run:
     """Assert the installed API's retained behavior with independent hand economics."""
 
@@ -92,6 +199,205 @@ class _Run:
             assert report.metrics[0].value == ExactRatio(numerator="2", denominator="1")
             assert report.charts[0].title == "Custom fold net profit"
             assert b"Custom fold net profit" in store.artifact(attempt, "report-html")
+            receipt = datetime.now(UTC)
+            exported = StudyMonitoringExporter().export(
+                result, scope=result.config.identity, recorded_at=receipt
+            )
+            assert exported
+            journal = TelemetryStore(root / f"telemetry-{attempt}.sqlite")
+            assert journal.append(exported) == len(exported)
+            for fold in result.folds:
+                assert fold.model is not None
+                query = MonitoringQuery(
+                    scope=f"{result.config.identity}/{fold.name}",
+                    mode="research",
+                    start=fold.split.validation.start,
+                    end=fold.split.validation.end,
+                    as_of=receipt,
+                )
+                spec = MetricSpec(
+                    name="retained-prediction-error",
+                    version="1",
+                    implementation_sha256=hashlib.sha256(
+                        b"installed-delayed-label-error-v1"
+                    ).hexdigest(),
+                    inputs=(
+                        MetricInput(
+                            name=StudyMonitoringExporter.prediction_name,
+                            version="1",
+                            units=fold.model.output.units,
+                        ),
+                        MetricInput(
+                            name=StudyMonitoringExporter.outcome_name,
+                            version="1",
+                            units=fold.model.output.units,
+                        ),
+                    ),
+                    units=f"({fold.model.output.units})^2",
+                    modes=("research",),
+                    aggregation="custom",
+                    missingness="pending labels remain gaps; mean uses observed pairs",
+                )
+                dashboard = MetricRegistry((DelayedLabelError(spec),)).evaluate(
+                    spec.identity, query, journal.query(query)
+                )
+                expected = tuple(
+                    observation.value
+                    for observation in fold.prediction_errors(fold.split.validation)
+                    if observation.value is not None
+                )
+                assert expected
+                expected_mean = ExactRatio.from_fraction(
+                    sum(
+                        (
+                            Fraction(int(value.numerator), int(value.denominator))
+                            for value in expected
+                        ),
+                        Fraction(),
+                    )
+                    / len(expected)
+                )
+                assert dashboard.value == expected_mean
+                assert dashboard.points and dashboard.points[0].value == dashboard.value
+                assert all(
+                    event.recorded_at == receipt
+                    and event.context.model == fold.model.identity
+                    and event.context.source == result.config.source_identity
+                    and event.context.study == result.config.identity
+                    for event in exported
+                    if event.context.scope == query.scope
+                )
+                for outcome in fold.outcomes:
+                    matching = tuple(
+                        event
+                        for event in exported
+                        if event.context.scope == query.scope
+                        and event.name == StudyMonitoringExporter.outcome_name
+                        and event.sample == outcome.feature_identity
+                    )
+                    assert len(matching) == 1
+                    assert matching[0].available_at == (outcome.available_at or receipt)
+            _Run.monitoring_report(root, attempt, result, receipt, journal)
+
+    @staticmethod
+    def monitoring_report(
+        root: Path,
+        attempt: str,
+        result: StudyResult,
+        receipt: datetime,
+        journal: TelemetryStore,
+    ) -> None:
+        """Reuse actual retained fold diagnostics in report, dashboard and paper views."""
+        summaries: list[FoldSummary] = []
+        for fold, selected in zip(result.folds, result.config.folds, strict=True):
+            window = result.config.window(selected)
+            initial = Ledger(
+                LedgerState(
+                    initial_cash=result.config.economics.initial_cash,
+                    dimension=result.config.economics.limits.lot.dimension,
+                )
+            ).mark(None)
+            summaries.append(
+                FoldSummary(
+                    fold_id=fold.name,
+                    window=window,
+                    ledger=fold.economics.ledger,
+                    terminal_mark=fold.economics.mark,
+                    curve=(
+                        LedgerPoint(at=window.start, mark=initial),
+                        LedgerPoint(at=window.end, mark=fold.economics.mark),
+                    ),
+                    diagnostics=_Run.monitoring_diagnostics(fold, window),
+                )
+            )
+        context = ReportContext(study_identity=result.config.identity, folds=tuple(summaries))
+        metric = _InstalledErrorMetric()
+        bridge = ReportMonitoringBridge(metric, scope=f"report-{attempt}", recorded_at=receipt)
+        report_metric = ReportMetricAdapter(bridge)
+        report_chart = ReportChartAdapter(bridge, title="Installed squared errors", kind="line")
+        report = StudyReportBuilder.build(
+            context,
+            expected_metrics=(report_metric.identity,),
+            expected_charts=(report_chart.identity,),
+            metrics=(report_metric,),
+            charts=(report_chart,),
+        )
+        assert report.metrics[0].definition.sha256 == metric.spec.identity
+        assert report.metrics[0].units == metric.spec.units
+        assert report.metrics[0].value is not None
+        assert report.charts[0].observations
+        assert b"Installed squared errors" in report.render()
+
+        events = bridge.events(context)
+        assert all(event.context.study == result.config.identity for event in events)
+        assert journal.append(events) == len(events)
+        config = DashboardConfig(
+            title="Installed error monitoring",
+            panels=(
+                DashboardPanel(
+                    title="Installed squared errors",
+                    metric_identity=metric.spec.identity,
+                    kind="line",
+                ),
+            ),
+        )
+        registry = MetricRegistry((metric,))
+        query = MonitoringQuery(
+            scope=f"report-{attempt}",
+            mode="research",
+            start=min(event.at for event in events),
+            end=receipt,
+            as_of=receipt,
+        )
+        dashboard = DashboardBuilder.build(config, query, journal.query(query), registry)
+        assert dashboard.results[0].value == report.metrics[0].value
+        assert dashboard.results[0].spec.identity == report.metrics[0].definition.sha256
+        assert dashboard.results[0].points
+        saved = root / f"dashboard-{attempt}"
+        assert dashboard.write(saved).exists()
+        assert DashboardSnapshot.read(saved) == dashboard
+
+    @staticmethod
+    def monitoring_diagnostics(
+        fold: StudyFoldResult, window: TimeWindow
+    ) -> tuple[ReportObservation, ...]:
+        """Expose retained prediction and label pairs to one selected report metric."""
+        outcomes = {outcome.feature_identity: outcome for outcome in fold.outcomes}
+        rows = {(row.entity, row.decision_at): row for row in fold.features}
+        if len(rows) != len(fold.features):
+            raise ValueError("retained fold has ambiguous decision samples")
+        diagnostics: list[ReportObservation] = []
+        for prediction in fold.predictions:
+            if not window.contains(prediction.decision_at):
+                continue
+            row = rows.get((prediction.entity, prediction.decision_at))
+            if row is None:
+                raise ValueError("retained prediction lacks its source feature")
+            outcome = outcomes.get(row.identity)
+            diagnostics.append(
+                ReportObservation(
+                    fold_id=fold.name,
+                    name=StudyMonitoringExporter.prediction_name,
+                    at=prediction.decision_at,
+                    units=prediction.field.units,
+                    value=prediction.value,
+                )
+            )
+            diagnostics.append(
+                ReportObservation(
+                    fold_id=fold.name,
+                    name=StudyMonitoringExporter.outcome_name,
+                    at=prediction.decision_at,
+                    units=prediction.field.units,
+                    value=None if outcome is None else outcome.value,
+                    missing_reason="pending label"
+                    if outcome is None
+                    else outcome.reason
+                    if outcome.value is None
+                    else None,
+                )
+            )
+        return tuple(diagnostics)
 
     @staticmethod
     def jobs(

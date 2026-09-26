@@ -358,6 +358,17 @@ rules, visible depth and archive unknown-continuity restrictions remain unchange
 
 ## Independent health supervision
 
+The watchdog also retains periodic and final versioned observations in
+`monitor.sqlite3` within its supervision directory. The
+[monitoring guide](../../src/telemetry/README.md#operating-signals-and-commands)
+owns query/default-panel configuration. Receipt-to-durable lag uses actual local
+monotonic receipt and completed durable-append clocks. Queue bytes/age include
+in-flight persistence; heartbeat, received/durable frames, invalid/duplicate/gap
+counts and reconnects stay distinct. A bounded background recorder isolates disk
+I/O from the hard watchdog. Its dropped/failed/pending counts and shutdown state
+are retained in `health-summary.json`; this does not establish source-clock drift
+or external delivery/venue qualification.
+
 The optional `--health-config` capture flag selects a separate parent watchdog.
 The parent owns one spawned collector and observes a fixed nine-integer shared
 report; no telemetry files or unbounded message queue sit on the capture path.

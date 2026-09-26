@@ -107,7 +107,8 @@ Each factory binds implementation bytes and decodes its own parameter schema.
 installed code/environment, capability, feature/model signature and availability
 before source or feature-service reads. It recreates the selected implementations
 without a built-in fallback. Metrics and charts use the existing study interfaces;
-their runtime rendering/alert routing remains MR12.
+their local rendering/alert routing uses the [monitoring interfaces](../telemetry/README.md).
+External operating qualification remains MR12 work.
 
 `applications.explore.run_candidate` accepts that bundle/deployment, factories,
 registry, a `DecisionSource`, and an explicit UTC decision tuple. It returns a

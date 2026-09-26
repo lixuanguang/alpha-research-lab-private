@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -30,8 +31,67 @@ from research.studies.extensions import (
     StudyReportBuilder,
     StudyReportReader,
 )
+from research.studies.monitoring import (
+    ReportChartAdapter,
+    ReportMetricAdapter,
+    ReportMonitoringBridge,
+)
 from research.studies.results import ResultManifest
 from serialization import DomainCodec
+from telemetry import (
+    MetricInput,
+    MetricPoint,
+    MetricRegistry,
+    MetricResult,
+    MetricSpec,
+    MonitoringEvent,
+    MonitoringIdentity,
+    MonitoringQuery,
+    TelemetryStore,
+)
+
+
+class _RetainedErrorMetric:
+    """Exercise one new metric definition through reports and telemetry queries."""
+
+    spec = MetricSpec(
+        name="retained-error",
+        version="1",
+        implementation_sha256=hashlib.sha256(b"retained-error-test-definition-v1").hexdigest(),
+        inputs=(MetricInput(name="error<script>", version="1", units="ratio"),),
+        units="ratio",
+        modes=("research", "paper"),
+        aggregation="custom",
+        missingness="preserve gaps; mean observed values",
+    )
+
+    def evaluate(self, query: MonitoringQuery, events: tuple[MonitoringEvent, ...]) -> MetricResult:
+        """Retain the exact observed mean and each explicit gap for charting."""
+        values = tuple(
+            Fraction(int(event.value.numerator), int(event.value.denominator))
+            for event in events
+            if event.value is not None
+        )
+        points = tuple(
+            MetricPoint(
+                sample=event.sample,
+                at=event.at,
+                value=event.value,
+                missing_reason=event.missing_reason,
+            )
+            for event in events
+        )
+        return MetricResult(
+            spec=self.spec,
+            query=query,
+            value=ExactRatio.from_fraction(sum(values, Fraction()) / len(values))
+            if values
+            else None,
+            status="ok" if values else "missing",
+            reason=None if values else "no observed errors",
+            input_ids=tuple(event.identity for event in events),
+            points=points,
+        )
 
 
 class _ForecastErrorMetric:
@@ -214,6 +274,85 @@ class TestStudyReports:
         assert "<rect x=" in rendered
         assert "&lt;no deployment authority&gt;" in rendered
         assert "quote unavailable &lt;late&gt;" in rendered
+
+    def test_custom_monitoring_definition_renders_retained_report_and_dashboard(
+        self, tmp_path: Path
+    ) -> None:
+        """Reuse injected metric code and exact units without report or dashboard edits."""
+        context = self._context()
+        imported_at = self.start + timedelta(days=1)
+        metric = _RetainedErrorMetric()
+        bridge = ReportMonitoringBridge(metric, scope="research-study", recorded_at=imported_at)
+        report_metric = ReportMetricAdapter(bridge)
+        report_chart = ReportChartAdapter(bridge, title="Retained errors", kind="line")
+        report = StudyReportBuilder.build(
+            context,
+            expected_metrics=(report_metric.identity,),
+            expected_charts=(report_chart.identity,),
+            metrics=(report_metric,),
+            charts=(report_chart,),
+        )
+        assert report.metrics[0].definition.sha256 == metric.spec.identity
+        assert report.metrics[0].units == "ratio"
+        assert report.metrics[0].value == ExactRatio.from_fraction(Fraction(1, 3))
+        assert tuple(point.units for point in report.charts[0].observations) == ("ratio", "ratio")
+        assert b"Retained errors" in report.render()
+
+        events = bridge.events(context)
+        assert len(events) == 2
+        assert all(
+            event.available_at == imported_at
+            and event.recorded_at == imported_at
+            and event.clock_quality == "unknown"
+            and event.context.study == context.study_identity
+            for event in events
+        )
+        store = TelemetryStore(tmp_path / "research-telemetry.sqlite")
+        assert store.append(events) == 2
+        query = MonitoringQuery(
+            scope="research-study",
+            mode="research",
+            start=context.folds[0].window.start,
+            end=imported_at,
+            as_of=imported_at,
+        )
+        dashboard_result = MetricRegistry((metric,)).evaluate(
+            metric.spec.identity, query, store.query(query)
+        )
+        assert dashboard_result.spec.implementation_sha256 == metric.spec.implementation_sha256
+        assert dashboard_result.value == report.metrics[0].value
+        assert tuple(point.value for point in dashboard_result.points) == tuple(
+            point.value for point in report.charts[0].observations
+        )
+        earlier = replace(
+            query,
+            end=imported_at - timedelta(microseconds=1),
+            as_of=imported_at - timedelta(microseconds=1),
+        )
+        assert store.query(earlier) == ()
+        paper_event = MonitoringEvent(
+            context=MonitoringIdentity(scope="paper-strategy", mode="paper"),
+            name="error<script>",
+            version="1",
+            sample="paper-error-1",
+            at=imported_at,
+            available_at=imported_at,
+            recorded_at=imported_at,
+            units="ratio",
+            value=ExactRatio.from_fraction(Fraction(2, 3)),
+        )
+        paper_query = MonitoringQuery(
+            scope="paper-strategy",
+            mode="paper",
+            start=imported_at,
+            end=imported_at + timedelta(microseconds=1),
+            as_of=imported_at + timedelta(microseconds=1),
+        )
+        paper_result = MetricRegistry((metric,)).evaluate(
+            metric.spec.identity, paper_query, (paper_event,)
+        )
+        assert paper_result.value == ExactRatio.from_fraction(Fraction(2, 3))
+        assert paper_result.spec.identity == report.metrics[0].definition.sha256
 
     def test_missing_values_and_bad_ledger_marks_are_explicit(self) -> None:
         """Withhold zero-capital returns and reject invented terminal NAV."""

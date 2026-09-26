@@ -6,6 +6,7 @@ from applications.execute.accounts import (
     AccountExecutionRequest,
     AccountExecutionResult,
 )
+from applications.execute.monitoring import MonitoringApplication, MonitoringConfiguration
 from applications.execute.paper import (
     PaperExecutionApplication,
     PaperExecutionRequest,
@@ -18,6 +19,8 @@ __all__ = [
     "AccountExecutionApplication",
     "AccountExecutionRequest",
     "AccountExecutionResult",
+    "MonitoringApplication",
+    "MonitoringConfiguration",
     "PaperExecutionApplication",
     "PaperExecutionRequest",
     "PaperExecutionResult",

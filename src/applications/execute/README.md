@@ -8,6 +8,33 @@ journal and account state. These original commands retain no venue submission
 authority. The separate test-venue command below adds authenticated test-account
 operations; production trading remains unavailable.
 
+## Retained monitoring
+
+`account` and `venue` accept optional `--telemetry /absolute/monitor.sqlite3`.
+They project committed state into a separate versioned journal after the
+authoritative operation. `telemetry_error` reports persistence failure without
+undoing a stop, changing account state or retrying venue activity.
+
+`MonitoringConfiguration` selects a bounded UTC query, exact implementation-pinned
+metric definitions, panels and optional local alert rules. Its `defaults` method
+creates editable operating views without routes. The
+[telemetry guide](../../telemetry/README.md#operating-signals-and-commands)
+owns the configuration example, clocks, retention and missingness contracts.
+
+```sh
+alpha-execute monitor --config /absolute/view.json \
+  --journal /absolute/monitor.sqlite3 --output /absolute/retained-view
+```
+
+This command writes verified `snapshot.json`, `dashboard.html` and `manifest.json`
+and returns their directory and snapshot identity. Identical retries do not
+overwrite content. Add `--alerts /absolute/alerts.sqlite3` only to attempt the
+configured local syslog routes. The command grants no venue or hard-control
+authority; local datagram acceptance is not remote or human acknowledgement.
+It is available in the independently installed execution wheel without research
+dependencies. The programmatic `MonitoringApplication` is exported with the
+other execution application APIs.
+
 `ExecutionConfiguration` (`execution-admission-v1`) binds the environment,
 research/paper/shadow mode, mode-scoped credential reference, execution capability
 profile, reference history, maximum quantity and quote currency. Credential

@@ -267,6 +267,13 @@ and pending-commitment reconciliation is mandatory. Shared allocation/arbitratio
 and allocation reconciliation must additionally pass before the second
 instance shares the account. Stop and recovery controls apply in either scope.
 
+The local [dashboard/metric/query/alert interfaces](../../src/telemetry/README.md)
+are implemented with configured exact thresholds, retained input/result bytes
+and local routing. Use the [installed monitoring command](../../src/applications/execute/README.md#retained-monitoring)
+to reopen observations without changing operating state. Socket delivery remains
+local acceptance; inspect pending/failed attempts and telemetry loss separately
+from hard controls. Deployed routing and external venue signals remain unqualified.
+
 The dashboard/metric/query/alert infrastructure and default health, execution,
 risk and account views are required before QR onboarding. Quant development tests
 custom metric/chart registration and alert delivery with the reference workloads;

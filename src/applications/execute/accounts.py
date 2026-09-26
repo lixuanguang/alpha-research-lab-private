@@ -5,9 +5,13 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
+
+# third party library imports
+from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountPosting
@@ -20,6 +24,7 @@ from execution import (
     AccountObservation,
     AccountQuote,
     AccountView,
+    ExecutionMonitoring,
     NetFeeCorrection,
     NetOrder,
     OrderEvent,
@@ -30,9 +35,9 @@ from execution import (
     StepCommit,
     TaggedOrder,
 )
-from runtime import AccountRecoveryReceipt, AccountWorkspace
+from runtime import AccountRecoveryReceipt, AccountWorkspace, InstalledIdentity
 from serialization import DomainCodec, WireRecord
-from telemetry import OperationalAlerts, OperationAlert
+from telemetry import OperationalAlerts, OperationAlert, TelemetryStore
 
 
 class AccountExecutionRequest(WireRecord, frozen=True):
@@ -170,6 +175,7 @@ class AccountExecutionResult(WireRecord, frozen=True):
     controls: tuple[AccountControlResult, ...] = ()
     alerts: tuple[OperationAlert, ...] = ()
     alert_error: str | None = None
+    telemetry_error: str | None = None
     recovery: AccountRecoveryReceipt | None = None
     journal_path: str | None = None
 
@@ -211,13 +217,22 @@ class AccountExecutionResult(WireRecord, frozen=True):
             alert.__post_init__()
         if self.alert_error not in (None, "alert_persistence_failed", "alert_store_invalid"):
             raise ValueError("invalid alert persistence outcome")
+        if self.telemetry_error is not None and (
+            type(self.telemetry_error) is not str or not self.telemetry_error.isidentifier()
+        ):
+            raise ValueError("invalid telemetry persistence outcome")
 
 
 class AccountExecutionApplication:
     """Bind bounded installed request files to the authoritative account journal."""
 
     def run(
-        self, *, config_path: Path, journal_path: Path, request_path: Path | None = None
+        self,
+        *,
+        config_path: Path,
+        journal_path: Path,
+        request_path: Path | None = None,
+        telemetry_path: Path | None = None,
     ) -> AccountExecutionResult:
         """Validate configuration/request bytes before any persistent operation."""
         codec = DomainCodec()
@@ -307,7 +322,7 @@ class AccountExecutionApplication:
         except OSError, sqlite3.Error, ValueError:
             alerts = ()
             alert_error = "alert_store_invalid"
-        return AccountExecutionResult(
+        result = AccountExecutionResult(
             accounts=journal.accounts(),
             orders=journal.orders(),
             net_orders=journal.net_orders(),
@@ -331,6 +346,49 @@ class AccountExecutionApplication:
             recovery=recovery,
             journal_path=str(journal_path),
         )
+        if telemetry_path is not None:
+            operation_account_id = (
+                request.decision.account_id
+                if request.decision is not None
+                else request.observation.snapshot.account_id
+                if request.observation is not None
+                else request.control.account_id
+                if request.control is not None
+                else request.account_id
+            )
+            alert_accounts = {
+                saved.request.identity: saved.request.account_id for saved in result.controls
+            }
+            alert_failures: dict[str, int] = {}
+            for alert in alerts:
+                if alert.status != "delivered" and alert.identity in alert_accounts:
+                    account_id = alert_accounts[alert.identity]
+                    alert_failures[account_id] = alert_failures.get(account_id, 0) + 1
+            if alert_error == "alert_persistence_failed" and request.control is not None:
+                account_id = request.control.account_id
+                alert_failures[account_id] = alert_failures.get(account_id, 0) + 1
+            try:
+                events = ExecutionMonitoring(InstalledIdentity.sha256()).account(
+                    journal,
+                    observed_at=datetime.now(UTC),
+                    sample=uuid4().hex,
+                    admission=admission,
+                    reconciled=reconciled,
+                    control_rejected=control.status == "rejected" if control is not None else None,
+                    alert_failures=alert_failures,
+                    alert_store_invalid=alert_error == "alert_store_invalid",
+                    operation_account_id=operation_account_id,
+                )
+                completed_at = datetime.now(UTC)
+                events = tuple(
+                    replace(event, available_at=completed_at, recorded_at=completed_at)
+                    for event in events
+                )
+                TelemetryStore(telemetry_path).append(events)
+            except Exception as error:
+                # Account controls and their alert outcomes have already committed.
+                result = replace(result, telemetry_error=type(error).__name__)
+        return result
 
     @staticmethod
     def _read(path: Path) -> bytes:

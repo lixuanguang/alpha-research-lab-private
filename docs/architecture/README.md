@@ -132,6 +132,9 @@ Current dependency direction is organized by functional owner:
   it is not yet a general economic portfolio optimizer.
 - `configuration/` resolves definitions and selections. `runtime/` and `telemetry/`
   supply identity, supervision and observations without importing applications.
+  The [monitoring guide](../../src/telemetry/README.md) owns causal versioned
+  telemetry, exact metrics, retained dashboards, local routing and independent
+  watchdog emission. Research report adapters stay in `research.studies`.
   `runtime.SharedDecisionRuntime` reuses one `DecisionSession` per selected
   instance and restores its policy state from the account journal.
 - [`execution/`](../../src/execution/README.md) owns the portable paper/shadow

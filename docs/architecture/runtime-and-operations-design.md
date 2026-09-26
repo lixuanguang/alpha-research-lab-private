@@ -61,12 +61,21 @@ and signed account installation/rollback. Dedicated live-paper failures persist
 a decision block before releasing their fence. The
 [runbook](../governance/operations.md#local-paper-operations) and
 [runtime guide](../../src/runtime/README.md#account-workspace-recovery) own the
-implemented interfaces. These MR12/MR13 prerequisite slices do not complete
-monitoring, activation, venue recovery or the final MR10 operating record.
+implemented interfaces. MR12 extends the original local alert prerequisite with
+[versioned telemetry and retained dashboards](../../src/telemetry/README.md),
+causal query/metric APIs and report adapters. Periodic collector observations use
+a bounded background writer; disk stalls cannot hold the watchdog control thread.
+Account/venue commands project committed state into a separate optional journal.
+This local increment does not complete external monitoring qualification,
+activation, venue recovery or the final MR10 operating record.
 
-Planned telemetry correlates release, strategy, model, dataset, account, instrument, venue, order, fill, state epoch,
-and incident without unbounded labels on a hot path. Events carry units, clock quality, and sensitivity classification.
-Latency-sensitive emission is bounded and loss is observable; telemetry failure cannot disable an emergency stop.
+Current monitoring events correlate release, strategy, model, dataset/source/study,
+account, instrument, venue, order, fill, state epoch and incident through fixed
+bounded fields. Exact units, clock quality and sensitivity classification are
+retained alongside separate event, availability and receipt clocks. Input
+revisions, missing/stale results and telemetry loss are observable; telemetry
+failure cannot disable an emergency stop. Source-clock qualification, remote
+service/alert delivery and measured operating capacity remain open.
 
 Minimum signals include stale or missing data, heartbeat loss, sequence gaps, reject/error bursts, clock drift, risk-
 limit breaches, position/cash mismatch, open-order mismatch, fill duplication, reconciliation failure, resource

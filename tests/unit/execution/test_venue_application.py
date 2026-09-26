@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
+from unittest.mock import patch
 
 # third party library imports
 import pytest
@@ -29,6 +30,8 @@ from reference_data.catalogs import InstrumentDefinition, ReferenceHistory, Venu
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from serialization import DomainCodec
+from telemetry.events import MonitoringQuery
+from telemetry.store import TelemetryStore
 
 
 class TestVenueExecutionApplication:
@@ -271,3 +274,34 @@ class TestVenueExecutionApplication:
                 action="admit",
                 request_path=request_path,
             )
+
+    def test_monitoring_inspection_projects_retained_venue_state(self, tmp_path: Path) -> None:
+        """Read venue recovery state and exact cash through an opt-in monitor store."""
+        config_path = tmp_path / "venue.json"
+        config_path.write_bytes(DomainCodec().encode_json(self._config()))
+        monitor_path = tmp_path / "monitor.sqlite3"
+        with patch("applications.execute.venue.InstalledIdentity.sha256", return_value="a" * 64):
+            result = VenueExecutionApplication().run(
+                config_path=config_path,
+                journal_path=tmp_path / "account.sqlite3",
+                action="inspect",
+                telemetry_path=monitor_path,
+            )
+        assert result.telemetry_error is None
+        end = datetime.now(UTC) + timedelta(seconds=1)
+        events = TelemetryStore(monitor_path).query(
+            MonitoringQuery(
+                scope="account:test-account",
+                mode="venue_test",
+                start=end - timedelta(minutes=1),
+                end=end,
+                as_of=end,
+            )
+        )
+        assert {event.name for event in events} >= {
+            "risk.blocked",
+            "account.cash.USDT",
+            "execution.venue_recovery_required",
+            "execution.receipts",
+        }
+        assert all(event.context.release == "a" * 64 for event in events)

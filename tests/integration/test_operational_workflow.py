@@ -55,3 +55,5 @@ class TestOperationalWorkflow:
         assert summary["duplicate_fill_preserved"] is True
         assert summary["active_strategies"] == ["inventory-target", "limit-order"]
         assert summary["alert_delivery"] == ["delivered", "failed"]
+        assert summary["monitoring_preserved_account"] is True
+        assert type(summary["dashboard_identity"]) is str

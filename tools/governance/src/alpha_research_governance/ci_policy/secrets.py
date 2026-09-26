@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import ast
 import re
 import subprocess  # nosec B404  # [owner=platform; rationale=external scanner argv boundary; expires=2027-03-01]
 from pathlib import Path, PurePosixPath
@@ -24,7 +25,7 @@ _SECRET_PATTERNS = {
     "assigned_credential": re.compile(
         rb"(?i)(?P<key_quote>['\"]?)"
         rb"(?:api[_-]?key|client[_-]?secret|password|private[_-]?key|token)"
-        rb"(?P=key_quote)[ \t]*[:=][ \t]*['\"]?[A-Za-z0-9+/_.=-]{20,}['\"]?"
+        rb"(?P=key_quote)[ \t]*[:=][ \t]*['\"]?(?P<value>[A-Za-z0-9+/_.=-]{20,})['\"]?"
     ),
     "aws_access_key": re.compile(rb"(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}"),
     "github_token": re.compile(rb"gh[pousr]_[A-Za-z0-9]{36,255}"),
@@ -39,19 +40,50 @@ _MAXIMUM_FILE_BYTES = 1_000_000
 _EXTERNAL_SCANNER = "detect-private-key"
 
 
-def scan_secret_bytes(payload: bytes) -> tuple[str, ...]:
+def scan_secret_bytes(payload: bytes, *, python_source: bool = False) -> tuple[str, ...]:
     """Scan bytes without returning matching secret material.
 
     Args:
         payload: Byte content to inspect for known secret patterns.
+        python_source: Exclude parsed attribute expressions, never credential literals.
 
     Returns:
         Matching pattern identifiers in lexical order, without secret contents.
     """
+    attributes = _python_attribute_spans(payload) if python_source else frozenset()
     return tuple(
         pattern_id
         for pattern_id, pattern in sorted(_SECRET_PATTERNS.items())
-        if pattern.search(payload) is not None
+        if any(
+            pattern_id != "assigned_credential" or match.span("value") not in attributes
+            for match in pattern.finditer(payload)
+        )
+    )
+
+
+def _python_attribute_spans(payload: bytes) -> frozenset[tuple[int, int]]:
+    """Identify exact dynamic attribute spans in valid UTF-8 Python source.
+
+    AST column offsets are UTF-8 byte offsets. Invalid/non-UTF-8 input receives
+    no exclusions, and strings or comments cannot become attribute expressions.
+    """
+    try:
+        source = payload.decode("utf-8")
+        tree = ast.parse(source)
+    except UnicodeDecodeError, SyntaxError:
+        return frozenset()
+    offsets = [0]
+    for line in payload.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    return frozenset(
+        (
+            offsets[node.lineno - 1] + node.col_offset,
+            offsets[node.end_lineno - 1] + node.end_col_offset,
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.end_lineno is not None
+        and node.end_col_offset is not None
     )
 
 
@@ -121,7 +153,7 @@ def scan_repository_paths(
         if size > maximum_file_bytes:
             findings.append(f"secret scan file exceeds {maximum_file_bytes} bytes: {relative_path}")
             continue
-        matches = scan_secret_bytes(path.read_bytes())
+        matches = scan_secret_bytes(path.read_bytes(), python_source=path.suffix == ".py")
         if matches:
             findings.append(f"secret pattern {','.join(matches)} detected in {relative_path}")
     if findings:

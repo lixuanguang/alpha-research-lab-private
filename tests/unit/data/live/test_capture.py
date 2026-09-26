@@ -273,6 +273,13 @@ class TestCapture:
         assert final[HealthMetric.MARKET] > initial[HealthMetric.MARKET]
         assert final[HealthMetric.FINALIZING] == 1
         assert final[HealthMetric.INVALID] == final[HealthMetric.PERSISTENCE_FAILED] == 0
+        assert final[HealthMetric.RECEIVED_FRAMES] > 0
+        assert final[HealthMetric.DURABLE_FRAMES] > 0
+        assert final[HealthMetric.PERSISTED_RECORDS] >= final[HealthMetric.DURABLE_FRAMES]
+        assert final[HealthMetric.RECEIPT_DURABLE_LAG_NS] >= 0
+        assert final[HealthMetric.QUEUE_BYTES] == final[HealthMetric.QUEUE_OLDEST_NS] == 0
+        assert final[HealthMetric.DUPLICATES] == result["duplicates"]
+        assert final[HealthMetric.GAPS] == 0 and result["gaps"] == []
 
     def test_heartbeat_continues_during_offloaded_finalization(self, tmp_path: Path) -> None:
         """Keep process liveness advancing while saved-input replay is deliberately blocked."""

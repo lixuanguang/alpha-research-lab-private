@@ -1,11 +1,14 @@
 """Verify bounded health policy, alert failure and independent installed supervision."""
 
 # standard library imports
+import os
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,10 +18,90 @@ from msgspec.structs import replace
 
 # project library imports
 from market_data.adapters.wire import Wire
+from runtime import ProcessSupervisor
 from serialization import DomainCodec
-from telemetry import HealthAlert, HealthMetric, HealthMetrics, HealthPolicy
+from telemetry import (
+    HealthAlert,
+    HealthMetric,
+    HealthMetrics,
+    HealthPolicy,
+    HealthRecorder,
+    HealthSignals,
+    MonitoringQuery,
+    TelemetryStore,
+)
 
 _ROOT = Path(__file__).parents[4]
+
+
+class AdvancingWorkload:
+    """Advance real watchdog clocks long enough for a periodic observation."""
+
+    def __call__(self, root: Path, health: HealthMetrics) -> None:
+        """Keep source, disk and process clocks separate during a bounded child run."""
+        for _ in range(15):
+            now = time.monotonic_ns()
+            for metric in (
+                HealthMetric.HEARTBEAT,
+                HealthMetric.INGESTION,
+                HealthMetric.PERSISTENCE,
+                HealthMetric.MARKET,
+            ):
+                health.set(metric, now)
+            time.sleep(0.1)
+
+
+class LostWorkload:
+    """Exit a child without a final event to exercise independent protection."""
+
+    def __call__(self, root: Path, health: HealthMetrics) -> None:
+        """Terminate before any capture health or telemetry can claim success."""
+        os._exit(17)
+
+
+class AdvancingLostWorkload:
+    """Produce a live monitor sample, then lose the child before normal completion."""
+
+    def __call__(self, root: Path, health: HealthMetrics) -> None:
+        """Keep source and process clocks current until a periodic offer occurs."""
+        for _ in range(18):
+            now = time.monotonic_ns()
+            for metric in (
+                HealthMetric.HEARTBEAT,
+                HealthMetric.INGESTION,
+                HealthMetric.PERSISTENCE,
+                HealthMetric.MARKET,
+            ):
+                health.set(metric, now)
+            time.sleep(0.1)
+        os._exit(17)
+
+
+class StalledAppend:
+    """Hold the monitoring disk writer while the supervisor remains responsive."""
+
+    def __init__(self) -> None:
+        """Bind test-only synchronization for one stalled store call."""
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def __call__(self, events: object) -> int:
+        """Simulate storage stalled after a periodic snapshot was offered."""
+        self.entered.set()
+        self.release.wait(10)
+        return 0
+
+
+class DurableStopRecorder:
+    """Retain one parent-owned hard response independently of monitoring storage."""
+
+    def __init__(self, path: Path) -> None:
+        """Bind a local observed stop marker."""
+        self.path = path
+
+    def __call__(self, reason: str) -> None:
+        """Persist the supervised stop reason before alert or telemetry emission."""
+        self.path.write_text(reason, encoding="utf-8")
 
 
 class TestHealth:
@@ -125,6 +208,167 @@ class TestHealth:
         health.set(HealthMetric.QUEUE, 3)
         assert health.snapshot() == (before[0] + 1, *before[1:4], 3, *before[5:])
 
+    def test_retained_health_distinguishes_heartbeat_from_progress(self) -> None:
+        """An advancing heartbeat cannot manufacture source or disk freshness."""
+        initial = (
+            0,
+            1_000_000_000,
+            1_000_000_000,
+            1_000_000_000,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+        final = (
+            3_000_000_000,
+            1_000_000_000,
+            1_000_000_000,
+            1_000_000_000,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+        events = HealthSignals.project(
+            scope="capture:fixture",
+            release="a" * 64,
+            sample="one",
+            observed_at=datetime(2026, 9, 26, tzinfo=UTC),
+            observed_monotonic_ns=4_000_000_000,
+            initial=initial,
+            final=final,
+            stop_reason="completed",
+            alert_delivered=False,
+        )
+        by_name = {event.name: event for event in events}
+        assert by_name["runtime.heartbeat_age_seconds"].value is not None
+        assert by_name["data.persistence_age_seconds"].value is None
+        assert by_name["data.persistence_age_seconds"].missing_reason == "no_persistence_progress"
+        assert by_name["runtime.stopped"].value is not None
+        assert by_name["runtime.stopped"].value.numerator == "1"
+        assert by_name["runtime.faulted"].value is not None
+        assert by_name["runtime.faulted"].value.numerator == "0"
+
+    def test_supervisor_retains_progress_while_child_is_running(self, tmp_path: Path) -> None:
+        """A retained time series includes a live sample before terminal completion."""
+        root = tmp_path / "capture"
+        root.mkdir()
+        result = ProcessSupervisor.run(
+            root,
+            self.policy(),
+            AdvancingWorkload(),
+            duration_seconds=2,
+            label="progress",
+            implementation_identity="a" * 64,
+        )
+        assert result["stop_reason"] == "completed"
+        assert result["telemetry_failures"] == 0
+        end = datetime.now(UTC) + timedelta(seconds=1)
+        events = TelemetryStore(root / "monitor.sqlite3").query(
+            MonitoringQuery(
+                scope="capture:capture",
+                mode="data",
+                start=end - timedelta(minutes=1),
+                end=end,
+                as_of=end,
+            )
+        )
+        samples = {
+            event.sample for event in events if event.name == "runtime.heartbeat_age_seconds"
+        }
+        assert len(samples) >= 2
+
+    def test_monitoring_loss_cannot_disable_supervisor_protection(self, tmp_path: Path) -> None:
+        """A bad telemetry path leaves the parent stop and failure evidence intact."""
+        root = tmp_path / "capture"
+        root.mkdir()
+        (root / "monitor.sqlite3").mkdir()
+        stop = tmp_path / "stopped.txt"
+        result = ProcessSupervisor.run(
+            root,
+            self.policy(),
+            LostWorkload(),
+            duration_seconds=1,
+            label="loss",
+            implementation_identity="a" * 64,
+            protect=DurableStopRecorder(stop),
+        )
+        assert result["stop_reason"] == "collector_lost"
+        assert result["protection_applied"] is True
+        assert result["telemetry_failures"] == 1
+        assert result["telemetry_dropped"] == 20
+        assert stop.read_text(encoding="utf-8") == "collector_lost"
+
+    def test_stalled_monitoring_writer_does_not_delay_protection(self, tmp_path: Path) -> None:
+        """A blocked telemetry fsync cannot hold the watchdog control path."""
+        root = tmp_path / "capture"
+        root.mkdir()
+        stop = tmp_path / "stopped.txt"
+        stalled = StalledAppend()
+        started = time.monotonic()
+        try:
+            with patch.object(TelemetryStore, "append", stalled):
+                result = ProcessSupervisor.run(
+                    root,
+                    self.policy(),
+                    AdvancingLostWorkload(),
+                    duration_seconds=2,
+                    label="stalled-monitoring",
+                    implementation_identity="a" * 64,
+                    protect=DurableStopRecorder(stop),
+                )
+            assert stalled.entered.is_set()
+            assert result["stop_reason"] == "collector_lost"
+            assert result["protection_applied"] is True
+            assert stop.read_text(encoding="utf-8") == "collector_lost"
+            assert isinstance(result["telemetry_pending"], int)
+            assert result["telemetry_pending"] > 0
+            assert result["telemetry_worker_alive"] is True
+            assert time.monotonic() - started < 5
+        finally:
+            stalled.release.set()
+
+    def test_monitoring_worker_start_failure_does_not_disable_protection(
+        self, tmp_path: Path
+    ) -> None:
+        """A missing monitor worker cannot prevent the already-started child stop."""
+        root = tmp_path / "capture"
+        root.mkdir()
+        stop = tmp_path / "stopped.txt"
+        with patch.object(HealthRecorder, "start", side_effect=OSError("unavailable")):
+            result = ProcessSupervisor.run(
+                root,
+                self.policy(),
+                LostWorkload(),
+                duration_seconds=1,
+                label="worker-unavailable",
+                implementation_identity="a" * 64,
+                protect=DurableStopRecorder(stop),
+            )
+        assert result["protection_applied"] is True
+        assert result["telemetry_failures"] == 1
+        assert result["telemetry_error"] == "OSError"
+        assert stop.read_text(encoding="utf-8") == "collector_lost"
+
     def test_full_alert_socket_never_blocks(self, tmp_path: Path) -> None:
         """Verify real delivery and deterministic kernel backpressure on nonblocking sockets."""
         address = str(tmp_path / "a.sock")
@@ -171,9 +415,24 @@ class TestHealth:
         assert isinstance(package, str) and "/site-packages/" in package
         assert isinstance(report["observations"], list)
         assert len(report["observations"]) == 10
-        summary = Wire.mapping(
-            Wire.decode(
-                (next((tmp_path / "runs/healthy").iterdir()) / "health-summary.json").read_bytes()
+        run_root = next((tmp_path / "runs/healthy").iterdir())
+        summary = Wire.mapping(Wire.decode((run_root / "health-summary.json").read_bytes()))
+        assert summary["stop_reason"] == "completed"
+        assert isinstance(summary["telemetry_events"], int)
+        assert summary["telemetry_events"] >= 19
+        end = datetime.now(UTC) + timedelta(seconds=1)
+        events = TelemetryStore(run_root / "monitor.sqlite3").query(
+            MonitoringQuery(
+                scope=f"capture:{run_root.name}",
+                mode="data",
+                start=end - timedelta(minutes=5),
+                end=end,
+                as_of=end,
             )
         )
-        assert summary["stop_reason"] == "completed"
+        assert {event.name for event in events} >= {
+            "runtime.heartbeat_age_seconds",
+            "data.persistence_age_seconds",
+            "data.source_clock_drift_seconds",
+            "runtime.alert_delivery_failure",
+        }

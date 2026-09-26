@@ -27,6 +27,14 @@ class HealthMetric(IntEnum):
     INVALID = 6
     FINALIZING = 7
     PERSISTENCE_FAILED = 8
+    RECEIPT_DURABLE_LAG_NS = 9
+    QUEUE_BYTES = 10
+    QUEUE_OLDEST_NS = 11
+    DUPLICATES = 12
+    GAPS = 13
+    PERSISTED_RECORDS = 14
+    RECEIVED_FRAMES = 15
+    DURABLE_FRAMES = 16
 
 
 class HealthPolicy(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
@@ -103,12 +111,12 @@ class HealthPolicy(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fie
 
 
 class HealthMetrics:
-    """Share nine integers with a separate watchdog, without files or unbounded queues."""
+    """Share fixed bounded slots with a watchdog, without files or unbounded queues."""
 
     def __init__(self) -> None:
         """Start elapsed budgets before child startup, using the spawn process context."""
         self._values = multiprocessing.get_context("spawn").Array(
-            ctypes.c_longlong, [0] + [time.monotonic_ns()] * 3 + [0] * 5
+            ctypes.c_longlong, [0] + [time.monotonic_ns()] * 3 + [0] * (len(HealthMetric) - 4)
         )
 
     def set(self, metric: HealthMetric, value: int) -> None:
@@ -132,7 +140,7 @@ class HealthMetrics:
         """Read a coherent bounded observation without waiting on a lost collector.
 
         Returns:
-            Nine integer clocks, counts and phase flags.
+            Fixed integer clocks, counts and phase flags.
 
         Raises:
             TimeoutError: The collector died or stalled while holding its observation lock.

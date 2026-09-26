@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 # third party library imports
 import pytest
@@ -16,6 +17,7 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountSnapshot
+from applications.execute.accounts import AccountExecutionApplication, AccountExecutionRequest
 from configuration import AccountConfiguration, OpeningAccount
 from execution import (
     AccountControl,
@@ -24,6 +26,7 @@ from execution import (
     AccountJournal,
     AccountObservation,
     AccountQuote,
+    ExecutionMonitoring,
     OrderDecision,
     OrderEvent,
     OrderState,
@@ -31,10 +34,12 @@ from execution import (
     PortfolioContext,
     PortfolioDecision,
 )
-from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
+from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
+from serialization import DomainCodec
 from strategies import OrderIntent
+from telemetry.store import TelemetryStore
 
 
 class TestAccountOperations:
@@ -527,3 +532,55 @@ class TestAccountOperations:
             with pytest.raises(ValueError, match="SQLite sidecars"):
                 AccountJournal.verify(snapshot_path, self._config(), storage="snapshot")
             sidecar.unlink()
+
+    def test_monitoring_observes_exact_balances_and_isolated_account_stop(
+        self, tmp_path: Path
+    ) -> None:
+        """A stopped account is visible while its peer remains open and funded."""
+        journal = self._ready(tmp_path / "accounts.sqlite3")
+        journal.control(self._control("stop:east", "east", "stop", self._at(4), reason="operator"))
+        events = ExecutionMonitoring("a" * 64).account(
+            journal, observed_at=self._at(5), sample="snapshot-one"
+        )
+        values = {(event.context.account, event.name, event.units): event.value for event in events}
+        assert values[("east", "risk.blocked", "boolean")] == ExactRatio(
+            numerator="1", denominator="1"
+        )
+        assert values[("west", "risk.blocked", "boolean")] == ExactRatio(
+            numerator="0", denominator="1"
+        )
+        assert values[("east", "account.cash.USDT", "USDT")] == ExactRatio(
+            numerator="20000", denominator="1"
+        )
+        assert values[("west", "account.cash.USDT", "USDT")] == ExactRatio(
+            numerator="20000", denominator="1"
+        )
+        assert TelemetryStore(tmp_path / "monitor.sqlite3").append(events) == len(events)
+
+    def test_telemetry_storage_failure_cannot_undo_applied_stop(self, tmp_path: Path) -> None:
+        """An unusable monitor path is reported after the account stop commits."""
+        journal_path = tmp_path / "accounts.sqlite3"
+        self._ready(journal_path)
+        codec = DomainCodec()
+        config_path, request_path = tmp_path / "config.json", tmp_path / "request.json"
+        config_path.write_bytes(codec.encode_json(self._config()))
+        request_path.write_bytes(
+            codec.encode_json(
+                AccountExecutionRequest(
+                    action="control",
+                    control=self._control(
+                        "stop:east", "east", "stop", self._at(4), reason="operator"
+                    ),
+                )
+            )
+        )
+        with patch("applications.execute.accounts.InstalledIdentity.sha256", return_value="a" * 64):
+            result = AccountExecutionApplication().run(
+                config_path=config_path,
+                journal_path=journal_path,
+                request_path=request_path,
+                telemetry_path=tmp_path,
+            )
+        assert result.control is not None and result.control.status == "applied"
+        assert result.telemetry_error == "OperationalError"
+        assert AccountJournal(journal_path, self._config()).accounts()[0].phase == "stopped"

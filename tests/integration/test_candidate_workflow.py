@@ -55,6 +55,13 @@ class TestCandidateWorkflow:
         assert learned["output"] == "target"
         assert rule["qualification"] == learned["qualification"] == "engineering"
         assert rule["candidate"] != learned["candidate"]
+        monitoring = summary["learned_monitoring"]
+        assert isinstance(monitoring, dict)
+        assert monitoring["saved_paper_prediction"] is True
+        assert monitoring["pending_before_label"] is True
+        assert monitoring["observed_after_label"] is True
+        assert isinstance(monitoring["metric_identity"], str)
+        assert len(monitoring["metric_identity"]) == 64
         assert rule["admission_rejections_before_source_reads"] == 5
         assert learned["admission_rejections_before_source_reads"] == 5
         for name in ("rule", "learned"):
