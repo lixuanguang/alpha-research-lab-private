@@ -348,3 +348,43 @@ belong to the [MR09 acceptance record](../docs/roadmap/README.md#mr09-delivery-a
 These are local software proofs over authored account and order facts. They do
 not qualify physical OKX or Bitfinex private streams, order handling or account
 state; those venue conformance results belong to MR11.
+
+## Local operational qualification
+
+The [operational workflow](integration/test_operational_workflow.py) copies
+[`account_operations.py`](integration/consumers/runtime/account_operations.py) and
+[`portfolio_account_facts.py`](integration/consumers/runtime/portfolio_account_facts.py)
+outside the checkout and exercises installed `alpha-execute account` requests.
+For retained evidence, copy those files together and run:
+
+```sh
+/absolute/execution/bin/python -I /absolute/consumer/account_operations.py \
+  --venue okx --output /absolute/new-operations-output
+```
+
+Run `--venue bitfinex` separately with another absent output. Both are authored
+spot fixtures. Retained requests, control history, partial/cancel state, exact
+fees/cash/positions, backup identity and local watchdog/alert outcomes distinguish
+software behavior from physical venue qualification. The watchdog drills use
+actual process loss and a bounded SQLite page quota, not host-volume exhaustion.
+The account unit tests cover stale recovery, unknown outcomes and snapshot
+verification; dedicated candidate tests cover clock/protocol faults and repeat
+failure after resume. Existing capture health/recovery and workspace tests cover
+their unchanged component boundaries.
+
+The [signed account consumer](integration/consumers/deployment/account_installation.py)
+requires two actual signed compatible `account-runtime-v1`/`account-journal-v2`
+releases, identical configuration, empty signed initial state and an absent target:
+
+```sh
+python -I -B /absolute/account_installation.py \
+  --policy /protected/account-policy.json \
+  --initial /absolute/registry/INITIAL_SHA256 \
+  --upgrade /absolute/registry/UPGRADE_SHA256 \
+  --target /absolute/new-account-target --output /absolute/account-installation.json
+```
+
+It checks real isolated package bytes and fixed configuration/state binding,
+then retains a late posting and an operator stop across upgrade and rollback.
+The [runbook](../docs/governance/operations.md#local-paper-operations) owns safe
+reconciliation, snapshot selection and the remaining external evidence gates.

@@ -121,7 +121,9 @@ the QuantLib release restriction.
 
 The [data command reference](../src/market_data/README.md) and
 [collector guide](data/l3-collectors.md) own acquisition usage and limits.
-[Backtesting](research/l2-book-backtest.md) has an installed offline command;
-paper trading, deployment, activation and trading stop commands remain planned.
+[Backtesting](research/l2-book-backtest.md) has an installed offline command.
+The [local paper operator commands](../src/applications/execute/README.md#local-operational-commands)
+cover account controls and recovery; production deployment, activation and venue
+stop/cancel remain unqualified.
 Keep actual release identities, data provenance and unresolved dependency
 evidence; no current result grants live readiness.

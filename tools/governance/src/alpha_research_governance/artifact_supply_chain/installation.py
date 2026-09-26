@@ -8,14 +8,20 @@ import hashlib
 import os
 import platform
 import re
+import sqlite3
 import stat
 import subprocess  # nosec B404  # [owner=platform; rationale=verified offline installer and installed command argv; expires=2027-03-01]
 import sys
 import sysconfig
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import BinaryIO, Literal, cast
 from uuid import uuid4
+
+# third party library imports
+from pydantic import TypeAdapter
 
 # project library imports
 from alpha_research_governance._models import ImmutableModel
@@ -25,6 +31,7 @@ from alpha_research_governance.artifact_supply_chain.records import (
     Digest,
     InstallationPolicy,
     ReleaseFile,
+    ReleaseManifest,
     ReleaseRuntime,
     StateEnvelope,
 )
@@ -82,6 +89,15 @@ class LocalInstallation:
             self._write_bundle(destination / "bundle", verified)
             self._install_wheels(destination, verified)
             self._inspect_application(destination, verified.manifest.runtime)
+            if self._account_runtime(verified.manifest.runtime) and (
+                previous is not None or initial_state_exists
+            ):
+                self._verify_account_state(
+                    destination,
+                    self.root / "state/accounts.sqlite3",
+                    initial_without_snapshot=previous is None
+                    and not any(name == "state/accounts.sqlite3" for name, _ in verified.contents),
+                )
             files = self._describe_installation(destination)
             receipt = InstallationReceipt(
                 release=verified.identity,
@@ -92,7 +108,7 @@ class LocalInstallation:
             )
             self._atomic_write(destination / "receipt.json", receipt.model_dump_json().encode())
             if previous is None and not initial_state_exists:
-                self._initialize_state(verified)
+                self._initialize_state(verified, destination)
             self._atomic_write(self.root / "current.json", receipt.model_dump_json().encode())
             return receipt
 
@@ -138,7 +154,9 @@ class LocalInstallation:
             self._require_state(receipt.runtime, receipt)
             executable = destination / "venv/bin" / self._command(receipt.runtime)
             configuration = bundle / "configuration/config.json"
-            invocation = self._bound_arguments(receipt.runtime, arguments, configuration)
+            invocation = self._bound_arguments(
+                receipt.runtime, arguments, configuration, self.root / "state/accounts.sqlite3"
+            )
             return self._run([str(executable), *invocation], cwd=self.root)
 
     def _require_tools(self, runtime: ReleaseRuntime) -> None:
@@ -226,7 +244,16 @@ class LocalInstallation:
                 for name, content in initial_release.contents
                 if name.startswith("state/")
             )
-            if ReleaseRegistry.inventory(state) != tuple(name for name, _ in expected):
+            signed_names = tuple(name for name, _ in expected)
+            generated_account = (
+                self._account_runtime(runtime) and "accounts.sqlite3" not in signed_names
+            )
+            expected_names = (
+                tuple(sorted((*signed_names, "accounts.sqlite3")))
+                if generated_account
+                else signed_names
+            )
+            if ReleaseRegistry.inventory(state) != expected_names:
                 raise ValueError("unbound state differs from authenticated initial state")
             expected_directories = {
                 parent.as_posix()
@@ -258,21 +285,57 @@ class LocalInstallation:
             or envelope.application != runtime.application
         ):
             raise ValueError("current state schema differs from its installed binding")
+        if self._account_runtime(runtime):
+            self._require_account_journal(state / "accounts.sqlite3")
         return False
 
-    def _initialize_state(self, release: VerifiedRelease) -> None:
+    def _initialize_state(self, release: VerifiedRelease, release_slot: Path) -> None:
         """Publish initial state once without overwriting any existing application state."""
         staging = self.root / (".state-" + uuid4().hex)
         staging.mkdir(mode=0o700)
         for name, content in release.contents:
             if name.startswith("state/"):
-                destination = staging / name.removeprefix("state/")
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(content)
+                state_file = staging / name.removeprefix("state/")
+                state_file.parent.mkdir(parents=True, exist_ok=True)
+                state_file.write_bytes(content)
+        if self._account_runtime(release.manifest.runtime):
+            journal = staging / "accounts.sqlite3"
+            if journal.exists() or journal.is_symlink():
+                self._verify_account_state(release_slot, journal)
+            else:
+                self._run_account_inspect(release_slot, journal)
+                self._require_account_journal(journal)
         state = self.root / "state"
         if state.exists() or state.is_symlink():
             raise ValueError("initial state appeared during publication")
+        self._sync_state(staging)
         staging.rename(state)
+        self._sync_directory(self.root)
+
+    @staticmethod
+    def _sync_state(state: Path) -> None:
+        """Persist every initial state byte and directory before selecting a release."""
+        for name in ReleaseRegistry.inventory(state):
+            descriptor = os.open(state / name, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        for directory in sorted(
+            (path for path in state.rglob("*") if path.is_dir()),
+            reverse=True,
+        ):
+            LocalInstallation._sync_directory(directory)
+        LocalInstallation._sync_directory(state)
+
+    @staticmethod
+    def _sync_directory(directory: Path) -> None:
+        """Durably retain a completed local directory publication."""
+        descriptor = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     @staticmethod
     def _write_bundle(destination: Path, release: VerifiedRelease) -> None:
@@ -341,6 +404,10 @@ class LocalInstallation:
 
     def _inspect_application(self, destination: Path, runtime: ReleaseRuntime) -> None:
         """Exercise the actual installed application before changing the active pointer."""
+        if self._account_runtime(runtime):
+            with TemporaryDirectory(dir=self.root, prefix=".account-inspect-") as temporary:
+                self._run_account_inspect(destination, Path(temporary) / "accounts.sqlite3")
+            return
         executable = destination / "venv/bin" / self._command(runtime)
         arguments = [str(executable), "--help"]
         if runtime.application == "execution":
@@ -353,18 +420,112 @@ class LocalInstallation:
         self._run(arguments, cwd=destination)
 
     @staticmethod
+    def _account_runtime(runtime: ReleaseRuntime) -> bool:
+        """Identify the signed local account contract without changing other releases."""
+        return runtime.application == "execution" and runtime.config_schema == "account-runtime-v1"
+
+    def _run_account_inspect(self, release_slot: Path, journal: Path) -> None:
+        """Ask the candidate installed code to decode its signed config and account state."""
+        config = release_slot / "bundle/configuration/config.json"
+        manifest = ReleaseManifest.model_validate_json(
+            ReleaseRegistry.read_regular(release_slot / "bundle/release.json", 4_194_304)
+        )
+        configuration = TypeAdapter(dict[str, object]).validate_json(
+            ReleaseRegistry.read_regular(config, 1_048_576)
+        )
+        if (
+            configuration.get("mode") != manifest.runtime.mode
+            or configuration.get("schema_version") != manifest.runtime.config_schema
+        ):
+            raise ValueError("signed account configuration differs from release mode or schema")
+        self._run(
+            [
+                str(release_slot / "venv/bin/alpha-execute"),
+                "account",
+                "--config",
+                str(config),
+                "--journal",
+                str(journal),
+            ],
+            cwd=release_slot,
+        )
+
+    @staticmethod
+    def _require_account_journal(journal: Path) -> None:
+        """Reject a lost or redirected account store before any command can recreate it."""
+        metadata = journal.lstat()
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size == 0:
+            raise ValueError("account journal is absent or not a nonempty regular file")
+
+    @staticmethod
+    def _account_record(journal: Path) -> tuple[bytes, bytes]:
+        """Read the complete saved firm row for interrupted first-install comparison."""
+        with closing(sqlite3.connect(journal.as_uri() + "?mode=ro", uri=True)) as connection:
+            integrity = cast(
+                tuple[object, ...] | None, connection.execute("PRAGMA quick_check").fetchone()
+            )
+            if integrity != ("ok",):
+                raise ValueError("account journal failed SQLite integrity check")
+            row = cast(
+                tuple[object, ...] | None,
+                connection.execute("SELECT configuration, payload FROM firm WHERE id=1").fetchone(),
+            )
+        if row is None or type(row[0]) is not bytes or type(row[1]) is not bytes:
+            raise ValueError("account journal lacks a complete firm state")
+        return row[0], row[1]
+
+    def _verify_account_state(
+        self, release_slot: Path, journal: Path, *, initial_without_snapshot: bool = False
+    ) -> None:
+        """Validate a quiesced copy with candidate code before selecting it for use."""
+        self._require_account_journal(journal)
+        self._account_record(journal)
+        with TemporaryDirectory(dir=self.root, prefix=".account-state-check-") as temporary:
+            checked = Path(temporary) / "accounts.sqlite3"
+            with (
+                closing(sqlite3.connect(journal.as_uri() + "?mode=ro", uri=True)) as source,
+                closing(sqlite3.connect(checked)) as target,
+            ):
+                source.backup(target)
+            self._run_account_inspect(release_slot, checked)
+            if initial_without_snapshot:
+                pristine = Path(temporary) / "pristine.sqlite3"
+                self._run_account_inspect(release_slot, pristine)
+                if self._account_record(checked) != self._account_record(pristine):
+                    raise ValueError("unbound account state differs from its initial state")
+
+    @staticmethod
     def _command(runtime: ReleaseRuntime) -> str:
         """Select the installed entrypoint belonging to this signed application."""
         return "alpha-collect" if runtime.application == "collector" else "alpha-execute"
 
     @staticmethod
     def _bound_arguments(
-        runtime: ReleaseRuntime, arguments: tuple[str, ...], configuration: Path
+        runtime: ReleaseRuntime,
+        arguments: tuple[str, ...],
+        configuration: Path,
+        journal: Path,
     ) -> list[str]:
         """Select only installed commands and bind config consumers to signed bytes."""
         if not arguments:
             raise ValueError("installed run requires an application command")
         action = arguments[0]
+        if LocalInstallation._account_runtime(runtime):
+            if action != "account":
+                raise ValueError("unsupported installed application command")
+            if len(arguments) != 1 and not (
+                len(arguments) == 3
+                and arguments[1] == "--request"
+                and Path(arguments[2]).is_absolute()
+            ):
+                raise ValueError("installed account run accepts only an absolute request path")
+            return [
+                *arguments,
+                "--config",
+                str(configuration),
+                "--journal",
+                str(journal),
+            ]
         configured = (
             {"capture", "probe"} if runtime.application == "collector" else {"inspect", "admit"}
         )

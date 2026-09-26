@@ -86,9 +86,10 @@ retention requirement.
 
 ## Activate and operate
 
-Deployment and trading operation are planned; there are no activation, monitoring
-or stop commands in this repository yet. Add tested commands and venue-specific
-thresholds to the strategy's runbook before following this section in operation.
+Production deployment and trading activation remain unqualified. The
+[local paper runbook](operations.md#local-paper-operations) owns implemented account
+stop, cancel-request, reconciliation and recovery commands. Add venue-qualified
+responses and operating thresholds before following this section in production.
 
 Implement and qualify deployment, authorization, limits, stop/cancel and recovery
 machinery with reference paper/shadow and authorized venue-test workloads before

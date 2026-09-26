@@ -4,10 +4,12 @@ from __future__ import annotations
 
 # standard library imports
 import asyncio
+import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 # project library imports
 from accounting import LedgerState
@@ -35,7 +37,7 @@ from runtime import (
     PaperCaptureObserver,
     PaperCheckpoint,
 )
-from serialization import WireRecord
+from serialization import DomainCodec, WireRecord
 
 
 class PaperTimer(WireRecord, frozen=True):
@@ -209,8 +211,21 @@ async def run_live_paper(
         subscriptions=VenueSubscriptions(),
         observer=observer,
     )
-    runtime.open(owner=owner, at=datetime.now(UTC))
+    opened_at = datetime.now(UTC)
+    fault_identity = hashlib.sha256(
+        DomainCodec().encode_json(
+            (
+                request.identity,
+                owner,
+                str(capture_output.absolute()),
+                opened_at,
+                uuid4().hex,
+            )
+        )
+    ).hexdigest()
+    runtime.open(owner=owner, at=opened_at)
     stop = asyncio.Event()
+    failure: BaseException | None = None
     try:
         async with asyncio.TaskGroup() as group:
             group.create_task(observer.timers(stop))
@@ -218,6 +233,11 @@ async def run_live_paper(
                 capture = await runner.run(request, capture_output)
             finally:
                 stop.set()
+        stop_reason = capture.summary.get("stop_reason")
+        if stop_reason not in ("duration_limit", "message_limit") or (
+            capture.summary.get("synchronized") is not True
+        ):
+            raise ValueError(f"live paper capture ended without a healthy book: {stop_reason}")
         return LivePaperRunResult(
             capture=capture,
             book_registry=books.config,
@@ -227,5 +247,24 @@ async def run_live_paper(
                 orders=journal.orders(),
             ),
         )
+    except BaseException as error:
+        failure = error
+        cause = error
+        while isinstance(cause, BaseExceptionGroup) and cause.exceptions:
+            cause = cause.exceptions[0]
+        try:
+            runtime.fault(
+                identity=fault_identity,
+                at=datetime.now(UTC),
+                reason=f"live-paper-failure:{type(cause).__name__}",
+            )
+        except BaseException as fault_error:
+            error.add_note(f"paper fault handling also failed: {fault_error!r}")
+        raise
     finally:
-        runtime.release()
+        try:
+            runtime.release()
+        except BaseException as release_error:
+            if failure is None:
+                raise
+            failure.add_note(f"paper process fence release also failed: {release_error!r}")

@@ -1,8 +1,8 @@
 # Operations and security runbook
 
-This runbook owns the implemented local MR06 installation lifecycle and the
-requirements for later deployed strategies/services. Activation, operating
-monitoring, venue stop/cancel and account recovery remain future capabilities.
+This runbook owns the implemented local installation and paper account recovery
+lifecycle and the requirements for later deployed strategies/services. Activation,
+complete operating monitoring and physical venue stop/cancel remain open.
 Add the selected target, numeric limits and tested responses to the strategy's
 runbook before operation. The repository does not claim live readiness.
 
@@ -38,8 +38,8 @@ The installer is administrative governance tooling; operating applications do
 not install their own dependencies. `packages/collector` and `packages/execution`
 have separate locks and both depend on an exact `alpha-research-contracts`
 version. The collector keeps market-data/storage functionality; the execution
-artifact evaluates spot limit intents against existing exact risk/reference
-contracts and suppresses submission. It is not an OMS or a venue adapter.
+artifact includes independent spot admission, the durable paper OMS and shared
+account controls. It has no venue submission transport.
 
 Provision an `InstallationPolicy` outside the untrusted registry, through a
 trusted local configuration channel. Pin the absolute Python, uv and ssh-keygen
@@ -125,6 +125,98 @@ restoration. Preserve registry bytes, public trust history, manifests, locks,
 audit output and known-compatible rollback releases for the operating lifetime.
 Back them up with the selected local workspace; never delete the sole retained
 artifact or replace an active virtual environment in place.
+
+## Local paper operations
+
+Owner: quant development. Scope: trusted local macOS/Linux paper/shadow accounts,
+cash-funded spot, configured instruments and strategies, with normalized paper
+facts. OKX/Bitfinex labels do not certify private venue behavior. The
+[command guide](../../src/applications/execute/README.md#local-operational-commands)
+owns exact request fields; the [account journal](../../src/execution/README.md#account-operational-recovery)
+owns phase, uncertainty and reconciliation semantics.
+
+For a signed shared-account installation, select execution `paper` or `shadow`,
+`config_schema=account-runtime-v1`, `state_schema=account-journal-v2`, and admit
+both schemas in the independently provisioned installation policy. The initial
+empty state creates a journal from signed configuration under the installation
+fence. Upgrade/rollback validates a consistent copy of the latest journal through
+the candidate installed reader before switching the release. A lost journal,
+incompatible config/schema or nonregular state refuses the switch. The previous
+`paper-runtime-v1` dedicated command remains a standalone development interface;
+it is not silently admitted by this account installation contract.
+
+Every installed account operation uses the same command, with a different typed
+request file. The launcher fixes config and `state/accounts.sqlite3`; request
+paths must be absolute, and caller config/journal overrides fail:
+
+```sh
+uv run --frozen alpha-governance-artifacts run \
+  --target /absolute/account-target --policy /protected/account-policy.json -- account
+uv run --frozen alpha-governance-artifacts run \
+  --target /absolute/account-target --policy /protected/account-policy.json -- \
+  account --request /absolute/operator-request.json
+```
+
+1. **Start:** verify the installed artifact and inspect state. Supply independent
+   `quote` and complete `reconcile` requests, then the initial `control/startup`.
+   Check the returned control status. This opens local admission; starting the
+   selected runtime workload remains explicit. No command creates live authority.
+2. **Stop or fault:** send `control/stop` or `control/fault` for the affected
+   account. It blocks new exposure and retains all current economic state.
+   Supply the local `alert_socket` when routing an operator alert. Inspect the
+   durable control and pending/delivered/failed alert outcome independently.
+   Stop an individual strategy with the existing `stop_instance` operation when
+   account-wide protection is unnecessary.
+3. **Cancel:** separately send `control/cancel`. It records requests and returns
+   the physical order IDs. Supply subsequent identified order facts through
+   `event`/`net_event`; a cancellation acknowledgement is not a terminal outcome.
+   Position reduction is not implemented by these actions and remains MR13.
+4. **Recover:** replay missing identified fills, fees, transfers and order facts,
+   then supply a complete fresh account observation and current marks. A matching
+   observation cannot clear unresolved sends, cancels, contradictions or legacy
+   operator blocks. `control/restart` must name the current stop identity and
+   rechecks freshness, funding and budgets. Selective instance restarts remain
+   explicit. Inspect account and strategy attribution before resuming work.
+5. **Back up:** stop producers and every selected account, then send `backup`
+   with an absent external `backup_root`. The SQLite locks prevent a concurrent
+   restart during capture. Retain its manifest digest with the compatible signed
+   release, trust policy, configuration and local service backups.
+6. **Restore:** send `restore` with that digest and an absent `restore_root`.
+   The new workspace is verified before publication and remains stopped. It is
+   not automatically selected by the installed target. Compare newer retained
+   facts and authoritative observations before selection; an old backup cannot
+   prove that no activity occurred after it. Never replace a running target's
+   journal with a historical snapshot to implement rollback.
+7. **Roll back code:** stop the account, retain the latest journal, and use the
+   existing signed `alpha-governance-artifacts rollback` command. The candidate
+   reader must accept the current state/config. Reconcile and explicitly restart
+   through the newly selected compatible release. Code rollback preserves fills,
+   late postings and stops; it does not restore old accounting bytes.
+
+For standalone local development, the same request files run through
+`alpha-execute account --config CONFIG --journal WORKSPACE/state/accounts.sqlite3
+--request REQUEST`. The signed launcher is the trust boundary when installation
+verification matters. The [reference consumer](../../tests/integration/consumers/runtime/account_operations.py)
+generates concrete requests/results without hand-authored manifests.
+
+The existing collector watchdog detects stalled receipt/persistence/market work,
+heartbeat loss, invalid messages and bounded-queue/reconnect limits. Its parent
+terminates the child before protection and local alert delivery. Paper account
+workloads can supply `ProcessSupervisor.run(protect=...)` to persist the independent
+account fault. Dedicated `run_live_paper` records a fault for capture/scheduler
+failure before releasing its OMS fence. Disk failures remain visible even when
+the failed write cannot record a block; process termination must precede recovery.
+Alert failure never clears a hard control. Durable account controls and pending
+orders survive restart; a new process must inspect and reconcile before admission.
+
+The local drills exercise real process termination, SQLite capacity exhaustion,
+local datagram delivery/loss and fixture market/protocol faults. They reuse MR04
+workspace/feature/job restoration and collector failure proofs. They do not
+establish host-volume reliability, remote service disaster recovery, authenticated
+private-stream reconnect, venue timeout behavior, remote alert acknowledgement,
+deployment failover or production readiness. The
+[MR10 record](../roadmap/README.md#mr10-delivery-and-acceptance)
+retains the remaining integrated acceptance boundary.
 
 ## Security controls
 

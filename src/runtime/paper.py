@@ -59,6 +59,21 @@ class PaperCheckpoint(WireRecord, frozen=True):
                 raise ValueError("paper checkpoint includes a future market")
 
 
+class PaperFaultEvidence(WireRecord, frozen=True):
+    """Retain the observed fault clock separately from its safe callback clock."""
+
+    event: StrategyEvent
+    observed_at: datetime
+    schema_version: Literal["paper-fault-v1"] = "paper-fault-v1"
+
+    def __post_init__(self) -> None:
+        """Require an identified fault and an original UTC observation time."""
+        self.event.__post_init__()
+        self._require_utc(self.observed_at, field_name="observed paper fault")
+        if self.schema_version != "paper-fault-v1" or self.event.kind != "fault":
+            raise ValueError("invalid paper fault evidence")
+
+
 class PaperCandidateRuntime:
     """Own one dedicated account's fenced candidate lifecycle and durable decisions.
 
@@ -298,6 +313,35 @@ class PaperCandidateRuntime:
         event = StrategyEvent(identity=f"block:{identity}", kind="fault", at=at, reason=reason)
         self._lifecycle(event, blocked=reason)
 
+    def fault(self, *, identity: str, at: datetime, reason: str) -> None:
+        """Durably block a failed run before its owner releases the process fence.
+
+        The observed fault clock may differ from the continuation clock. Deliver
+        its callback at the current continuation clock so the policy never sees
+        time move backward and an interrupted claimed quote remains replayable.
+        The original failure remains the application's responsibility to report.
+        """
+        PaperCheckpoint._require_utc(at, field_name="paper fault")
+        if type(identity) is not str or not identity or type(reason) is not str or not reason:
+            raise ValueError("paper fault requires an identity and visible reason")
+        self._fence()
+        current = self._current()
+        saved = self.journal.step(f"guard:fault:{identity}")
+        if saved is not None:
+            prior = self._codec.decode_json(saved.input_bytes, PaperFaultEvidence)
+            if prior.event.reason != reason:
+                raise ValueError("paper fault identity reused for another reason")
+            return
+        effective_at = current.last_at
+        event = StrategyEvent(
+            identity=f"fault:{identity}", kind="fault", at=effective_at, reason=reason
+        )
+        self._lifecycle(
+            event,
+            blocked=reason,
+            evidence=PaperFaultEvidence(event=event, observed_at=at),
+        )
+
     def reconcile(
         self,
         *,
@@ -336,6 +380,61 @@ class PaperCandidateRuntime:
             clear_block=matched and current_block == "paper-account-break",
         )
         return matched
+
+    def resume(
+        self,
+        *,
+        identity: str,
+        at: datetime,
+        expected_checkpoint: PaperCheckpoint,
+        cash: Money,
+        holding: Quantity,
+        open_order_ids: tuple[str, ...],
+    ) -> bool:
+        """Explicitly clear a candidate block after fresh independent account reconciliation.
+
+        A caller must name the exact blocked continuation it inspected. Unknown
+        outcomes and unconfirmed order or cancel requests need identified order
+        facts before this operation; known accepted/partial open orders remain
+        reserved and must appear in the independent account observation.
+        """
+        if type(identity) is not str or not identity:
+            raise ValueError("paper resume requires an identity")
+        expected_checkpoint.__post_init__()
+        current = self._current()
+        if current != expected_checkpoint:
+            raise ValueError("paper resume expected checkpoint differs")
+        if current.blocked is None:
+            raise ValueError("paper resume requires a candidate block")
+        PaperCheckpoint._require_utc(at, field_name="paper resume")
+        if at <= current.last_at:
+            raise ValueError("paper resume requires a fresh reconciliation clock")
+        if any(
+            order.status in ("intent", "request_ack", "cancel_requested", "cancel_ack", "unknown")
+            or (not order.is_terminal and order.cancel_requested)
+            for order in self.journal.orders()
+        ):
+            raise ValueError("unresolved order outcome blocks paper resume")
+        if not self.reconcile(
+            identity=f"resume:{identity}",
+            at=at,
+            cash=cash,
+            holding=holding,
+            open_order_ids=open_order_ids,
+        ):
+            return False
+        if self.journal.blocked_reason() is not None:
+            raise ValueError("paper account remains blocked after reconciliation")
+        self._lifecycle(
+            StrategyEvent(
+                identity=f"resume:{identity}",
+                kind="recovery",
+                at=at,
+                reason="paper-operator-resume",
+            ),
+            clear_block=True,
+        )
+        return True
 
     def cancel(self, *, identity: str, order_id: str, at: datetime) -> None:
         """Request cancellation independently of candidate health; retain pending exposure."""
@@ -393,18 +492,30 @@ class PaperCandidateRuntime:
             )
 
     def _lifecycle(
-        self, event: StrategyEvent, *, blocked: str | None = None, clear_block: bool = False
+        self,
+        event: StrategyEvent,
+        *,
+        blocked: str | None = None,
+        clear_block: bool = False,
+        evidence: PaperFaultEvidence | None = None,
     ) -> None:
         """Persist one lifecycle callback and its independent operating state."""
-        payload = self._codec.encode_json(event)
+        if evidence is not None and evidence.event != event:
+            raise ValueError("paper fault evidence differs from its callback")
+        payload = self._codec.encode_json(event if evidence is None else evidence)
         if self.journal.has_step(event.identity, payload):
+            return
+        guard_id = f"guard:{event.identity}"
+        if blocked is not None and self.journal.has_step(guard_id, payload):
+            # A prior attempt already persisted the hard block. Its callback
+            # cannot be re-evaluated against policy state from a later event.
             return
         self._admit_time(event.at)
         if blocked is not None:
             # Hard block first: a failing strategy callback cannot disable the
             # independent stop path or let a restart resume new decisions.
             self._persist(
-                f"guard:{event.identity}",
+                guard_id,
                 payload,
                 CandidateSession(self.loaded, self._current().candidate),
                 event.at,

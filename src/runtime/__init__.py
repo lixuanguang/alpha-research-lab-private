@@ -9,6 +9,7 @@ from runtime.supervision import ProcessSupervisor
 
 if TYPE_CHECKING:
     # project library imports
+    from runtime.account_recovery import AccountRecoveryReceipt, AccountWorkspace
     from runtime.candidates import (
         CandidateCheckpoint,
         CandidateLoader,
@@ -49,6 +50,15 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str) -> object:
     """Load research and workspace services only for their explicit consumers."""
+    if name in {"AccountRecoveryReceipt", "AccountWorkspace"}:
+        # project library imports
+        from runtime import account_recovery
+
+        exports: dict[str, object] = {
+            "AccountRecoveryReceipt": account_recovery.AccountRecoveryReceipt,
+            "AccountWorkspace": account_recovery.AccountWorkspace,
+        }
+        return exports[name]
     if name in {
         "SharedDecisionCheckpoint",
         "SharedDecisionRuntime",
@@ -58,7 +68,7 @@ def __getattr__(name: str) -> object:
         # project library imports
         from runtime import portfolio
 
-        exports: dict[str, object] = {
+        exports = {
             "SharedDecisionCheckpoint": portfolio.SharedDecisionCheckpoint,
             "SharedDecisionRuntime": portfolio.SharedDecisionRuntime,
             "SharedStrategyBinding": portfolio.SharedStrategyBinding,
@@ -169,6 +179,8 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
+    "AccountRecoveryReceipt",
+    "AccountWorkspace",
     "CandidateCheckpoint",
     "CandidateComponents",
     "CandidateFeatureFeed",

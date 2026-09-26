@@ -36,6 +36,7 @@ class ProcessSupervisor:
         duration_seconds: int,
         label: str,
         implementation_identity: str,
+        protect: Callable[[str], None] | None = None,
     ) -> dict[str, object]:
         """Watch one child, terminate it before bounded alert delivery and retain its result.
 
@@ -46,6 +47,7 @@ class ProcessSupervisor:
             duration_seconds: Explicit finite workload duration.
             label: Safe non-secret workload identity for local alert delivery.
             implementation_identity: Retained installed runtime fingerprint.
+            protect: Optional parent-owned durable stop after the child has been fenced.
 
         Returns:
             Stop reason, last health observation and bounded alert outcome.
@@ -79,6 +81,14 @@ class ProcessSupervisor:
             if process.is_alive():
                 process.kill()
                 process.join(1)
+        protection_error: str | None = None
+        if reason != "completed" and protect is not None:
+            try:
+                protect(reason)
+            except Exception as error:
+                # This is the process boundary: the child is already stopped.
+                # Retain failure and still attempt the independent alert channel.
+                protection_error = type(error).__name__
         result: dict[str, object] = {
             "stop_reason": reason,
             "implementation_identity": implementation_identity,
@@ -86,9 +96,17 @@ class ProcessSupervisor:
             "supervision_directory": str(root.absolute()),
             "collector_stopped": not process.is_alive(),
             "exitcode": process.exitcode,
+            "protection_applied": reason != "completed"
+            and protect is not None
+            and protection_error is None,
+            "protection_error": protection_error,
             "health": {metric.name.lower(): values[metric] for metric in HealthMetric},
             "alert_delivered": reason != "completed"
-            and HealthAlert.deliver(policy.alert_socket, f"{root.name} {label} {reason}"),
+            and HealthAlert.deliver(
+                policy.alert_socket,
+                f"{root.name} {label} {reason}"
+                + (" protection_failed" if protection_error else ""),
+            ),
         }
         (root / "health-summary.json").write_bytes(codec.encode_json(result))
         return result

@@ -55,6 +55,15 @@ when state or schema changed.
 
 ## Monitoring, recovery, and operational evidence
 
+**Current local increment:** MR10 connects durable account stop/fault/restart and
+cancel requests, retained local alert outcomes, quiesced account backup/restore,
+and signed account installation/rollback. Dedicated live-paper failures persist
+a decision block before releasing their fence. The
+[runbook](../governance/operations.md#local-paper-operations) and
+[runtime guide](../../src/runtime/README.md#account-workspace-recovery) own the
+implemented interfaces. These MR12/MR13 prerequisite slices do not complete
+monitoring, activation, venue recovery or the final MR10 operating record.
+
 Planned telemetry correlates release, strategy, model, dataset, account, instrument, venue, order, fill, state epoch,
 and incident without unbounded labels on a hot path. Events carry units, clock quality, and sensitivity classification.
 Latency-sensitive emission is bounded and loss is observable; telemetry failure cannot disable an emergency stop.

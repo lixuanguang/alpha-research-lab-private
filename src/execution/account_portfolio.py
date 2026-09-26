@@ -294,7 +294,8 @@ class PortfolioCoordinator:
             raise ValueError("instance is not stopped")
         account = transaction.account(self.admission.instance_account(instance_id))
         if (
-            account.fault
+            account.phase != "running"
+            or account.fault
             or account.operator_block
             or account.reconciled_at is None
             or account.reconciled_at < self.admission.account_time(transaction, account)
@@ -323,7 +324,12 @@ class PortfolioCoordinator:
     ) -> tuple[NetOrder, ...]:
         """Create physical orders for unaffected residuals after observation."""
         account = transaction.account(account_id)
-        if account.fault or account.operator_block or account.reconciled_at is None:
+        if (
+            account.phase != "running"
+            or account.fault
+            or account.operator_block
+            or account.reconciled_at is None
+        ):
             raise ValueError("account_not_reconciled")
         if account.reconciled_at < self.admission.account_time(transaction, account):
             raise ValueError("reissue_requires_current_reconciliation")

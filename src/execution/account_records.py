@@ -351,6 +351,69 @@ class AccountObservation(WireRecord, frozen=True):
             raise ValueError("reconciliation repeats an order identity")
 
 
+type AccountPhase = Literal["running", "stopped", "faulted"]
+type AccountControlKind = Literal["startup", "stop", "fault", "restart", "cancel"]
+
+
+class AccountControl(WireRecord, frozen=True):
+    """Identify one local paper-account operation and its recovery expectation."""
+
+    identity: str
+    account_id: str
+    kind: AccountControlKind
+    at: datetime
+    reason: str = ""
+    expected_control_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        """Reject ambiguous ownership, clocks, and recovery compare targets."""
+        self._require_utc(self.at, field_name="account control")
+        if (
+            type(self.identity) is not str
+            or not self.identity
+            or type(self.account_id) is not str
+            or not self.account_id
+            or self.kind not in ("startup", "stop", "fault", "restart", "cancel")
+            or type(self.reason) is not str
+            or (self.kind in ("stop", "fault") and not self.reason.strip())
+            or (self.kind == "restart")
+            != (
+                type(self.expected_control_identity) is str and bool(self.expected_control_identity)
+            )
+        ):
+            raise ValueError("invalid account control")
+
+
+class AccountControlResult(WireRecord, frozen=True):
+    """Retain the exact operation request and its durable local outcome."""
+
+    request: AccountControl
+    status: Literal["applied", "rejected"]
+    phase: AccountPhase
+    recovery_generation: int
+    reason: str | None = None
+    cancel_order_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Require a complete typed receipt without claiming terminal cancellation."""
+        if type(self.request) is not AccountControl:
+            raise TypeError("control result requires AccountControl")
+        self.request.__post_init__()
+        if (
+            self.status not in ("applied", "rejected")
+            or self.phase not in ("running", "stopped", "faulted")
+            or type(self.recovery_generation) is not int
+            or self.recovery_generation < 0
+            or (self.status == "rejected") != (type(self.reason) is str and bool(self.reason))
+            or type(self.cancel_order_ids) is not tuple
+            or (self.request.kind != "cancel" and self.cancel_order_ids)
+            or (self.status == "rejected" and self.cancel_order_ids)
+            or any(type(order_id) is not str or not order_id for order_id in self.cancel_order_ids)
+            or len(set(self.cancel_order_ids)) != len(self.cancel_order_ids)
+        ):
+            raise ValueError("invalid account control result")
+
+
 class AccountView(WireRecord, frozen=True):
     """Expose authoritative local balances and independent admission blocks."""
 
@@ -358,6 +421,10 @@ class AccountView(WireRecord, frozen=True):
     reconciled_at: datetime | None = None
     fault: str | None = None
     operator_block: str | None = None
+    phase: AccountPhase = "running"
+    recovery_generation: int = 0
+    active_control_identity: str | None = None
+    control_cutoff_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """Require a typed ledger and separately attributable blocking state."""
@@ -369,3 +436,21 @@ class AccountView(WireRecord, frozen=True):
         for reason in (self.fault, self.operator_block):
             if reason is not None and (type(reason) is not str or not reason):
                 raise ValueError("account block requires a reason")
+        if (
+            self.phase not in ("running", "stopped", "faulted")
+            or type(self.recovery_generation) is not int
+            or self.recovery_generation < 0
+            or (self.active_control_identity is None) != (self.control_cutoff_at is None)
+            or (self.phase == "running" and self.active_control_identity is not None)
+            or (self.phase != "running" and self.active_control_identity is None)
+            or (
+                self.active_control_identity is not None
+                and (
+                    type(self.active_control_identity) is not str
+                    or not self.active_control_identity
+                )
+            )
+        ):
+            raise ValueError("invalid account operating phase")
+        if self.control_cutoff_at is not None:
+            self._require_utc(self.control_cutoff_at, field_name="account control cutoff")
