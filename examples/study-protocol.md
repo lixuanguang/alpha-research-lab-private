@@ -111,5 +111,8 @@ and next decisive experiment. State when to stop or revisit. A forward-validatio
 proposal identifies the frozen policy, capital/risk limits, calibration needs,
 measures and stop criteria. Surviving candidates then retain reproduction/parity
 and authorized forward evidence under QR-16–QR-18. Shadow establishes no actual
-fill quality; paper fills remain modeled. A deployment recommendation does not
-itself authorize activation.
+fill quality; paper fills remain modeled. Live development remains KIV until the
+same frozen strategy shows net-of-cost profitability in both untouched OOS and
+forward paper evidence under the
+[live-trading reconsideration policy](../docs/roadmap/README.md#live-trading-kiv-and-reconsideration);
+a recommendation does not authorize activation.

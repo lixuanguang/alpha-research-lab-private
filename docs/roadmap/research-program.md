@@ -1,7 +1,8 @@
 # Research program
 
 Owner: quant research after infrastructure handoff; repository founder maintains
-this plan until then. Updated 2026-09-23 from the research-deliverable notes.
+this plan until then. Updated 2026-09-26; research agenda refreshed from the
+2026-09-23 research-deliverable notes.
 **Status: planned, not started. All QR milestones and deliverables below wait for
 full infrastructure acceptance.** Existing bounded simulation evidence and empty
 study worksheets complete none of them.
@@ -15,7 +16,7 @@ candidate priority; the [research guide](../../examples/README.md) owns workbook
 usage. The [platform roadmap](README.md) owns infrastructure scope and status.
 
 The [infrastructure completion policy](README.md#infrastructure-completion-before-qr-onboarding)
-requires quant development to build the complete initial OKX/Bitfinex spot stack
+requires quant development to build the complete initial OKX/Bitfinex spot research/paper stack
 before any stage of this QR program starts, including research readiness.
 **MR01–MR16 complete → MR17/G5 integrated acceptance → QR research milestones.**
 G1–G4 are engineering increments, not permission to begin QR early. Quant
@@ -35,8 +36,14 @@ dependency and stop affected claims rather than build a parallel research stack.
 Platform acceptance proves the declared machinery works; QR must still challenge
 and calibrate its assumptions for each candidate.
 
-Actual production activation remains a later decision. The long-term model can
-add asset classes and strategy families beyond the initial spot infrastructure.
+QD's complete MR17 handoff will deliver paper-trading capability. Live trading
+remains KIV under the [live-trading reconsideration policy](README.md#live-trading-kiv-and-reconsideration):
+the same frozen strategy must have both forward paper-trading evidence and
+untouched final out-of-sample (OOS) test evidence demonstrating profitability net
+of transaction costs, slippage and applicable digital-asset gas fees before live
+development is reconsidered. This prerequisite neither authorizes live trading
+nor guarantees profitable live results. The long-term model can add asset classes
+and strategy families beyond the initial spot infrastructure.
 Independent research, model-risk, risk, release and activation controls become
 formal organizational controls when people are hired. Staffing does not block
 the founder's infrastructure implementation or reproducible research after handoff.
@@ -108,9 +115,9 @@ A fitted predictor alone does not complete QR-M2.
 
 | ID | Deliverable | Acceptance evidence |
 | --- | --- | --- |
-| QR-11 | Cost/execution assumption pack | Versioned applicable fee schedules, feed/decision/order delays, depth consumption, partial fills and relevant financing; passive scenarios when applicable. Separate measured inputs, estimates and stresses; identify calibration gaps and avoid double-counting execution-price costs. |
+| QR-11 | Cost/execution assumption pack | Versioned applicable transaction fees, feed/decision/order delays, depth consumption, slippage, partial fills, relevant financing and digital-asset gas fees when actual on-chain activity is required; passive scenarios when applicable. Record why gas is inapplicable to initial off-chain spot execution rather than silently setting it to zero. Separate measured inputs, estimates and stresses; identify calibration gaps and avoid double-counting costs embedded in execution prices. |
 | QR-12 | Strategy implementation and policy | Existing strategy interface with entry/exit, sizing, inventory, order type/price limits, cancellation/expiry and invalid/stale/warm-up/depth/risk no-trade behavior. Deterministic policy tests use then-known market and account/order state. |
-| QR-13 | Costed evaluation and reconciliation | Development OOS prediction and trading reports with decisions, orders/fills, positions, cash, costs, P&L and attribution reconciled to the ledger. Retain non-fills, abstention and failures; a final result uses the QR-05 freeze/access protocol. |
+| QR-13 | Costed evaluation and reconciliation | Development OOS prediction and trading reports with decisions, orders/fills, positions, cash, applicable costs, net P&L and attribution reconciled to the ledger. Retain non-fills, abstention and failures; a final result uses the QR-05 freeze/access protocol. |
 | QR-14 | Robustness and falsification | Parameter neighborhoods, ablations, negative controls, period/instrument/venue dependence, latency/cost deterioration and alternative fill/impact assumptions. Account for attempted variants and concentration rather than selecting favorable scenarios. |
 | QR-15 | Risk, capital and capacity | Exposure/inventory, losses, turnover, liquidity usage, failure responses and capacity bounds. Compare candidates under shared capital/exposure constraints; independent platform hard limits still apply. |
 
@@ -125,13 +132,16 @@ passive calibration, never implicit additions to an L2-only experiment.
 | ID | Deliverable | Acceptance evidence |
 | --- | --- | --- |
 | QR-16 | Frozen candidate and reproduction/parity | Package the selected code, data/model/features, policy, costs and evaluation identity already frozen before final testing. Clean rerun and same-input replay/intended-runtime feature and decision parity; second-person reproduction when staffed. Any changed candidate requires new validation. |
-| QR-17 | Forward-validation plan and evidence | Predeclare measures, duration/sample sufficiency and stop criteria, then retain evidence from authorized shadow/paper modes; small-capital live requires separate approval. Compare availability, timing, delay, costs and outcomes with research assumptions; distinguish modeled from actual fills. A plan alone is not completed forward validation. |
-| QR-18 | Candidate decision and monitoring specification | Mechanism, evidence, uncertainty, costs, risk/capital envelope, failure modes, metrics and stop/review conditions. Explicitly reject, retain as a component, obtain specified evidence or propose controlled deployment. |
+| QR-17 | Forward-validation plan and evidence | Predeclare candidate-specific forward paper-trading windows, sample sufficiency, measures, net-profitability acceptance, stress scenarios and stop criteria. Retain the authorized paper results and any useful shadow diagnostics. Compare availability, timing, delay, transaction costs, slippage, applicable on-chain gas fees and outcomes with research assumptions; distinguish modeled paper fills from actual fills. A plan alone is not completed forward validation; small-capital live trading does not substitute for it. |
+| QR-18 | Candidate decision and monitoring specification | Mechanism, untouched final OOS and forward paper evidence, uncertainty, costs, risk/capital envelope, failure modes, metrics and stop/review conditions. Explicitly reject, retain as a component, obtain specified evidence or, only after both evidence legs meet the candidate's predeclared net-profitability criteria, recommend reconsidering live development under the KIV policy. |
 
 Shadow decisions establish no actual fill quality; paper fills remain modeled.
-Unresolved execution assumptions stay visible in the recommendation. QD owns
-engineering readiness and deployment mechanisms; the founder or designated risk
-authority separately decides capital and activation.
+Unresolved execution assumptions stay visible in the recommendation. The initial
+off-chain spot scope does not require an on-chain adapter merely to evaluate gas;
+later on-chain candidates must account for applicable gas fees. QD owns paper
+engineering readiness. Any later live development, release and capital activation
+remain separate decisions under the
+[KIV policy](README.md#live-trading-kiv-and-reconsideration).
 
 ### Coverage by the accepted infrastructure
 
@@ -143,7 +153,7 @@ not alternative early-start gates or new infrastructure work packages.
 | QR-01–QR-05 | MR01 data/reference/quality; MR03 evaluation; MR15 workload envelope | R01/R02/R13/R15 |
 | QR-06–QR-10 | MR01–MR04 data, features, models, studies and retained experiment artifacts | R02/R05–R09/R15 |
 | QR-11–QR-15 | MR02/MR03/MR05 strategy/replay; MR08/MR09/MR13 shared capital, risk and accounting | R01/R10–R15 |
-| QR-16–QR-18 | MR04–MR14 candidate, feature serving, runtime, deployment, OMS, monitoring and recovery; MR15 budgets | R15/R16 |
+| QR-16–QR-18 | Accepted MR04–MR14 paper scope for candidate serving, runtime, OMS, monitoring, cost reports and recovery; MR15 budgets. Authenticated venue execution and live activation are outside this handoff. | R15/R16 |
 
 Use the [study protocol](../../examples/study-protocol.md) as the compact study
 specification. A result must answer whether there is predictive information,
@@ -192,7 +202,8 @@ final OOS to decide what to try next. When a holdout is consumed, label it evalu
 evidence for a new experiment.
 
 Once a strategy is promoted into the package, use the same versioned strategy logic in formal research,
-deterministic replay, paper, shadow, and live operation.
+deterministic replay, paper and shadow, and in eventual live operation only if
+that mode is separately qualified and authorized.
 Adapters may supply asset- or venue-specific data, execution, representation, and precision, but economic
 semantics and the decision contract remain the same. Test conversion and parity at those boundaries; do not
 create a second production implementation merely because runtime representation differs.
@@ -479,8 +490,11 @@ Deliverables: untouched-OOS package, attribution and uncertainty, capacity/stres
 reconciliation, handoff manifest, rollback reference, monitoring conditions, and
 continue/de-risk/reject/new-trial decision. Decisive tests prohibit retuning or selection from the holdout;
 rerunning the unchanged frozen candidate for reproducibility is allowed. They also check same-logic
-research/replay, future perturbation, and stop/recovery paths. This does not authorize live capital; release,
-security, limits, risk separation, activation, and operations follow current policies.
+research/replay, future perturbation, and stop/recovery paths. This final OOS result
+is one evidence leg for reconsidering live development; forward paper trading of
+the same frozen strategy is the other. Neither result authorizes live capital;
+release, security, limits, risk separation, activation, and operations follow
+current policies.
 
 ## From research to production and monitoring
 
@@ -490,7 +504,7 @@ founder can review and rerun these records without a committee. An operating tar
 dependency lock, configuration, model/data references, limits, state compatibility, rollback, secrets
 handling, reconciliation, and a tested stop path.
 
-The long-term platform should give each strategy one versioned kernel and contract shared across replay, paper, shadow, canary, and live. Monitoring should surface stale inputs, missing heartbeats, reject/error bursts, position or cash
+The long-term platform should give each strategy one versioned kernel and contract shared across replay, paper, shadow and any later qualified canary or live mode. Monitoring should surface stale inputs, missing heartbeats, reject/error bursts, position or cash
 mismatch, drift, risk and loss limits, and broken reconciliation. Preserve orders, fills, decisions, state,
 alerts, and recovery evidence for the operating lifetime. Choose process and computing topology from measured
 latency, availability, data, and broker requirements.

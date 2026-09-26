@@ -1,8 +1,9 @@
 # Platform infrastructure roadmap
 
 Owner: repository founder; quant development owns infrastructure delivery.
-Status updated 2026-09-26. Delivery policy: complete the initial infrastructure
-stack before quant researcher (QR) onboarding.
+Status updated 2026-09-26. Delivery policy: complete the initial research and
+paper-trading infrastructure before quant researcher (QR) onboarding. Live trading
+is **KIV (keep in view)** under the [reconsideration gate](#live-trading-kiv-and-reconsideration).
 
 This index owns delivery status, remaining work and dependencies. Component
 guides own implemented behavior; the milestone sections below retain only the
@@ -13,19 +14,21 @@ The completed MR09A saved-book baseline retains its historical identity. The
 remaining work uses MR01–MR17, with MR07A/MR07B extending the completed MR07
 increment without renumbering later milestones. MR01–MR07B and MR09 are complete
 for the bounded scopes stated below. MR08 has a delivered local account/risk
-increment, while physical account qualification through MR11 remains open.
+increment, while integrated paper-account qualification through MR11 remains open.
 MR10 has a delivered local operational increment; MR11 has implemented bounded
 test-venue execution/account paths with software conformance. Their external
-qualification remains open. MR12 now delivers a local monitoring increment;
-external operating qualification and MR13–MR17 remain open, including their
+qualification remains unavailable and is deferred from the onboarding gate.
+MR12 now delivers a local monitoring increment; integrated paper operating
+qualification and MR13–MR17 remain open, including their
 explicitly owned prerequisite slices.
 P1 stays deferred and unaccepted.
 
-This revision strengthens generalization and acceptance without reducing the
-destination. Intermediate gates expose usable increments; they do not retire
-feature-store, portfolio/netting, second-venue, dashboard, capacity or handoff
-requirements. All MR01–MR17 outcomes, including MR07A/MR07B, remain mandatory
-before formal QR onboarding.
+This revision replaces live-capable delivery with paper-trading delivery.
+Feature-store, portfolio/netting, second-venue market-data and paper simulation,
+dashboard, capacity and handoff requirements remain. All MR01–MR17 outcomes,
+including MR07A/MR07B, remain mandatory within the revised paper scope before
+formal QR onboarding. Removing live qualification from that scope does not mark
+the remaining paper integration complete or change historical evidence.
 
 The [QR implementation guide](../../examples/README.md) explains how researchers
 use the available capabilities. The [research program](research-program.md) owns
@@ -68,17 +71,21 @@ The existing capabilities establish useful bounded foundations for this gate.
 The initial market scope is **OKX/Bitfinex spot**, with explicit extension
 interfaces for other assets. It includes historical and captured market data,
 reference data, research and model lifecycles, backtesting, portfolio/account
-state, paper/shadow and live-capable execution, deployment, monitoring, recovery
+state, paper/shadow execution, paper service deployment, monitoring, recovery
 and the storage/computation needed to run them. Supported venue operations,
 order types, dataset history, workload sizes and operating modes must be stated
 in each capability's acceptance record. Both venues need explicit conformance
-evidence for their declared support; one venue's pass does not qualify the other.
+evidence for their declared market-data and simulated execution support; one
+venue's pass does not qualify the other. Paper trading uses live public inputs
+and simulated orders, fills, balances and positions without real-capital orders.
+Shadow mode supplies decision comparisons but cannot replace paper fill/account
+and cost evidence. Authenticated venue execution is outside this initial gate.
 
 The destination remains a generalized multi-asset, multi-source, multi-strategy
 monorepo. Required infrastructure includes a versioned feature store with offline
 PIT retrieval and online materialization/retrieval, experiment/model/artifact
 tracking, dataset versioning, concurrent job services, allocation and compatible
-netting, both venue execution adapters, extensible reports/dashboards and recovery.
+netting, paper execution for both venues, extensible reports/dashboards and recovery.
 Preserve and extend the existing Feast, lakeFS, ClearML, search and analytical
 integrations through their owned interfaces. Their present bounded support does
 not complete the generalized capability; technology changes require equivalent
@@ -104,8 +111,43 @@ are separate outcomes. Quant development qualifies the machinery with engineerin
 workloads, including losing/no-trade cases. QR later supplies and evaluates the
 research content. Executable credentials, purchases, deployment and live capital
 retain their existing separate authority; this plan does not authorize them.
-An unavailable required external integration remains an explicit blocker to that
-capability's qualification, while independent infrastructure work continues.
+An unavailable required data or paper service integration remains an explicit
+blocker to that capability's qualification, while independent work continues.
+Unavailable private venue credentials or live qualification do not block paper
+delivery or QR onboarding. Existing test-venue adapters and their software evidence
+are retained; using an external demo/paper account is supplementary and does not
+establish live execution fidelity.
+
+## Live trading KIV and reconsideration
+
+Live trading development, production order routing, authenticated venue execution
+qualification, live account recovery and real-capital activation are parked as
+KIV. They are outside MR17/G5 and are not prerequisites for QD's paper delivery or
+QR onboarding. Preserve existing interfaces, adapter code and evidence without
+claiming that deferred live requirements are complete.
+
+Reconsider live trading only when the same frozen strategy has **both** untouched
+out-of-sample (OOS) test evidence and forward paper-trading evidence demonstrating
+profitability net of transaction costs, slippage and applicable digital-asset gas
+fees. Gross returns, an in-sample backtest, shadow decisions or engineering
+fixtures cannot satisfy this gate. QR owns the candidate-specific evaluation and
+evidence through [QR-15–QR-18](research-program.md#stage-d--surviving-candidate-validation-and-handoff);
+QD owns the paper runtime, cost-model interfaces, reconciliation and retained
+reports needed to evaluate it.
+
+Predeclare evaluation periods, sample sufficiency, selection and stop criteria,
+cost assumptions and adverse cost/slippage scenarios before testing. Retain net
+P&L, cost attribution, risk/capacity limits and uncertainty against those criteria;
+do not choose thresholds after inspecting OOS or paper results. Charge gas for
+required on-chain activity, including relevant transfers or failed transactions;
+record a reason when gas is inapplicable to an off-chain spot strategy. Missing
+cost evidence is unresolved, not a zero-cost assumption. On-chain execution
+adapters remain later scope.
+
+Passing this evidence gate permits a decision to reopen live work; it does not
+qualify exchange fills or authorize deployment or capital. Any reopened live scope
+needs its own venue, security, execution and recovery qualification and the
+existing explicit activation decision. Until then, live trading stays KIV.
 
 ## Platform and researcher responsibilities
 
@@ -114,9 +156,9 @@ capability's qualification, while independent infrastructure work continues.
 | Data | Source adapters, reference/universe contracts, collection/backfill, quality, revisions, discovery, PIT assembly, storage and replay | Research universe, datasets/fields, sample, horizon and stricter question-specific quality requirements |
 | Features and labels | Typed extensible definitions, execution/alignment, lineage, fitted-transform lifecycle, batch/incremental state, versioned offline/online feature-store access and recovery | Formulas, targets, windows, transformations and missingness choices within the supported contracts |
 | Models and rules | Training/inference adapters, temporal evaluation/search, artifact reload, prediction-to-target/order-intent binding and isolated state | Estimator/strategy implementations, parameters, comparison space and selection criteria |
-| Backtesting | Reusable study runner, execution/cost model interfaces, portfolio/risk/accounting, checkpoints and analysis | Backtest specifications, hypotheses, scenarios, economic assumptions and interpretation |
+| Backtesting | Reusable study runner, execution/cost model interfaces including transaction costs, slippage and applicable gas fees, portfolio/risk/accounting, checkpoints and net-of-cost analysis | Backtest specifications, hypotheses, scenarios, economic assumptions and interpretation |
 | Metrics and charts | Versioned metric/result contracts, computation, query/export, report/dashboard rendering and alert evaluation | Research metrics, chart definitions, diagnostic views and strategy-specific thresholds |
-| Promotion and operation | Candidate loading, trusted artifacts, provisioning, scheduling, OMS/venue adapters, reconciliation, limits, stop and recovery | Candidate content and accepted research evidence; investigation and proposed revisions |
+| Paper promotion and operation | Candidate loading, trusted artifacts, provisioning, scheduling, paper OMS/execution, reconciliation, limits, stop, recovery and cost-attributed paper reports | Candidate content, OOS and forward paper evidence; investigation and proposed revisions |
 
 QR-authored strategies, features, estimators, backtest specifications, metrics and
 charts within the advertised support boundary must work through public library
@@ -196,13 +238,13 @@ acceptance can be established earlier without waiting for execution adapters.
 | G1 — Foundation and contracts | Clean installed build; typed configuration; four distinct universes; versioned reference and adapter capability admission; incompatible inputs rejected before work. | Existing foundations plus MR01/MR02/MR16 contracts. Current domain tests are reusable evidence, not a pass for new contracts. |
 | G2 — Research-ready increment | From a clean workspace, acquire/capture the declared inputs, publish pinned datasets, retrieve versioned offline features, add a fresh compatible strategy/feature/model, run temporal studies and costed backtests, and reopen results. Meet the declared research workload and restore data/artifacts. | MR01–MR03; MR04 research/feature-store services; MR15 research budgets. MR06 precedes any actual service deployment. Online serving and operating scope remain required at later gates. |
 | G3 — Paper/shadow increment | Reuse decision components on live inputs with submission suppressed; exercise online features, durable order state, independent risk, base reconciliation, essential alerts and restart. | MR04 online path, MR05–MR08, applicable MR10/MR12 controls and MR06 installation. Initial dedicated-account evidence does not qualify shared accounts. |
-| G4 — Integrated operating infrastructure | Qualify shared-account controls/netting, both venue adapters, complete monitoring, scoped activation machinery and operational failure drills, using authorized test environments. | MR09–MR14 and runtime MR15 budgets. A first-venue increment is useful evidence; the second venue remains mandatory. No gate authorizes live capital. |
-| G5 — Generalized handoff | Demonstrate fresh extensions through the installed integrated stack, all launch workloads, service/venue evidence and the operator/researcher guides. | MR17, after every MR01–MR16 outcome, including MR07A/MR07B. This is full infrastructure acceptance, separate from empirical strategy acceptance and activation. |
+| G4 — Integrated paper operating infrastructure | Qualify shared paper-account controls/netting, both venues' paper execution models, cost attribution, monitoring, scoped paper activation and operational failure drills in the selected paper environment. | MR09–MR14 and runtime MR15 budgets. Both venues' public inputs and paper behavior remain mandatory; private venue execution qualification is KIV. |
+| G5 — Generalized paper handoff | Demonstrate fresh extensions through the installed integrated stack, all research/paper launch workloads, data/service evidence and the operator/researcher guides. | MR17, after every in-scope MR01–MR16 outcome, including MR07A/MR07B. This accepts research/paper infrastructure; profitability and live reconsideration are subsequent outcomes. |
 
 ## Delivery order and dependencies
 
-All rows below are required for the initial infrastructure gate. The restarted
-numbering follows delivery scope: MR01–MR04 close research/data usability gaps left by
+All rows below are required within the research/paper scope for the initial
+infrastructure gate. The restarted numbering follows delivery scope: MR01–MR04 close research/data usability gaps left by
 the bounded foundations, and MR17 proves the integrated QR handoff. Quant development
 owns every row. Dependencies are technical capabilities and reference workloads,
 not progress in the [research program](research-program.md).
@@ -284,13 +326,13 @@ the research graph's QuantLib release restriction remains in force.
 | MR07 | **[Paper/shadow runtime and OMS](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design) — complete for the [declared local scope](#mr07-delivery-and-acceptance).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
 | MR07A | **[Common BBO and incremental L3 aggregates](#mr07a-common-bbo-and-incremental-l3-aggregates) — complete for the declared per-book scope.** Expose one typed per-book quote contract for native L2/L3, maintain exact L3 quantities/counts by side and price during lifecycle updates, and integrate existing research and paper consumers. Preserve native identity, clocks, quality and recovery; verify against independent full aggregation. | Completed MR01–MR07 contracts and consumers; preserve MR06 package boundaries |
 | MR07B | **[Book registry and consolidated BBO](#mr07b-book-registry-and-consolidated-bbo) — complete for the declared read-only scope.** Own independent books by venue/instrument and expose per-venue and consolidated BBO queries over explicitly equivalent instruments. Scan cached eligible venue quotes with causal cutoffs, freshness, provenance, ties and partial-coverage semantics. | MR07A; existing reference/capability admission and MR07 paper/replay interfaces |
-| MR08 | **[Independent risk and account reconciliation](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Unknown sends, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate physical venue reconciliation through MR11. | MR07 and existing risk/accounting; base paper acceptance precedes MR11 external evidence |
+| MR08 | **[Independent paper risk and account reconciliation](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile simulated orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Uncertain orders, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate both venues' paper ledgers through MR11. | MR07 and existing risk/accounting; authenticated physical venue reconciliation is KIV |
 | MR09 | **[Portfolio and shared-account infrastructure](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
-| MR10 | **[Operational qualification](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Keep paper results distinct from later MR11 private-stream/venue evidence; final operational acceptance incorporates MR11–MR14 results. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
-| MR11 | **[OKX and Bitfinex execution/account adapters](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design).** Implement both venues' declared spot operations, capability profiles, authentication, throttles, durable client IDs, private-stream recovery and reconciliation. Qualify one complete venue path first, then the second through the same strategy/OMS/risk contracts. Retain per-venue authorized test-environment conformance; fixtures supplement unavailable external proof. The first venue never closes this two-venue outcome. | MR07–MR08 contracts; MR06 before deployment; required venue access; integrate MR09 attribution |
-| MR12 | **[Monitoring, metrics, charts and alerts](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence) — local increment delivered; [external qualification open](#mr12-delivery-and-acceptance).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account views. Register a custom research metric/chart and delayed-label diagnostic without modifying collectors or runtime; test telemetry loss independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; basic telemetry ships earlier with each capability |
-| MR13 | **[Activation and recovery machinery](../governance/workflow.md#activate-and-operate).** Implement disabled-by-default deployment manifests and separate authorization envelopes, scoped limits, fencing and recovery. Provide distinct block-new-exposure, cancel and reduce-position operations with defined stale-data, disconnected and illiquid behavior. Reject absent/expired authority and incompatible code/model/schema/state; prove safe restart and rollback without undoing or duplicating external fills. Completion does not require or grant live capital use. | MR06, MR10 paper drills and MR11–MR12; feed results back into final MR10 acceptance |
-| MR14 | **[Multiple-instance integration](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Run different reference components and instruments with isolated/shared-account configurations through paper/shadow; add an instance through configuration, then stop/restart it without losing attribution or weakening other accounts' controls. | MR09, MR12–MR13; actual live use remains separately authorized |
+| MR10 | **[Paper operational qualification](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Final paper acceptance incorporates MR11–MR14 results; private-stream and real venue recovery qualification is KIV. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
+| MR11 | **[OKX and Bitfinex paper execution/account integration](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design).** Deliver live-public-input spot paper execution through the same strategy/OMS/risk contracts, with per-venue capability/specification profiles, simulated order lifecycle, balances and reconciliation. Expose explicit fill, delay, transaction-cost and slippage assumptions, applicable gas-cost inputs or recorded inapplicability, and sensitivity scenarios. Retain separate per-venue integrated paper traces, cost attribution and net P&L; reconcile fills/fees to each strategy and the account. Qualify one complete paper path, then the second. Existing native test adapters are supplementary; authenticated private venue qualification is KIV. | MR07–MR08 contracts and MR03 cost interfaces; MR06 before paper deployment; public market-data access; MR09 attribution; no private trading credentials required |
+| MR12 | **[Monitoring, metrics, charts and alerts](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence) — local increment delivered; [integrated paper qualification open](#mr12-delivery-and-acceptance).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account views. Register a custom research metric/chart and delayed-label diagnostic without modifying collectors or runtime; test telemetry loss independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; basic telemetry ships earlier with each capability |
+| MR13 | **[Paper activation and recovery machinery](../governance/workflow.md#activate-and-operate).** Implement disabled-by-default paper manifests and separate paper authorization envelopes, scoped simulated limits, fencing and recovery. Provide distinct block-new-exposure, cancel and reduce-position operations with defined stale-data, disconnected and illiquid paper behavior. Reject absent/expired paper authority and incompatible code/model/schema/state; prove restart and rollback preserve simulated fills and costs without duplication. Paper configuration must reject production submission authority. Live activation and external-fill recovery are KIV. | MR06, MR10 paper drills and MR11–MR12; feed results back into final MR10 acceptance |
+| MR14 | **[Multiple-instance integration](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Run different reference components and instruments with isolated/shared-account configurations through paper/shadow; add an instance through configuration, then stop/restart it without losing attribution or weakening other accounts' controls. | MR09, MR12–MR13; live trading remains KIV |
 | MR15 | **[Research and runtime capacity qualification](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices).** Define numeric launch budgets early, covering multi-day data, multiple instruments, concurrent studies/trials, replay, feature-store materialization/retrieval, live ingestion, book reconstruction, quote consolidation and dashboard queries. Record volumes, retention, throughput, p50/p95/p99 latency, memory/disk, concurrency, hardware/cache conditions and recovery targets before measurement. Remove demonstration-size limits where they prevent the workload; preserve causal/numerical parity. Retain research acceptance separately from final integrated runtime acceptance and deploy the topology needed to meet both. | Budgets start with MR01/MR04; MR01–MR04 for research acceptance; MR07/MR07A/MR07B/MR12/MR14 for final runtime acceptance; no QR bottleneck required |
 | MR16 | **[Python ownership and enforcement](../coding_standards/README.md#python-scope-and-migration).** Complete the retained ownership/enforcement work with supported imports, packaging, checks and migration guidance; verify the APIs consumed by the reference workflows. | Existing engineering rules; can proceed alongside other work |
 | MR17 | **[QR onboarding acceptance](#qr-onboarding-acceptance).** Exercise the installed integrated stack from a clean environment with fresh research extensions and the published onboarding guide. Close every in-scope platform gap before declaring it ready for QR. | All planned rows above, retaining valid earlier evidence |
@@ -306,17 +348,18 @@ contracts while this extension is built; consumers adopting the common or
 consolidated quote APIs depend on the corresponding follow-on. MR15 owns measured
 data-structure optimization and capacity acceptance; no separate MR07C is planned.
 
-MR07 supplies the runtime/OMS for MR08; portfolio integration (MR09) and venue
-adapters (MR11) follow those contracts. MR10 can qualify paper operations before
-MR11 external qualification; its final record includes the later venue and
-activation drills. MR13 depends on MR10's paper increment, not that final record,
-so their evidence integration introduces no circular implementation dependency.
-MR12 joins the report, operational and venue paths before MR13–MR14 complete
-activation machinery and multiple instances; essential telemetry accompanies
+MR07 supplies the runtime/OMS for MR08; portfolio integration (MR09) and both
+venues' paper execution (MR11) follow those contracts. MR10 can qualify initial
+paper operations before MR11 integration; its final record includes the integrated
+paper execution and activation drills. MR13 depends on MR10's paper increment,
+not that final record, so their evidence integration introduces no circular implementation dependency.
+MR12 joins the report, operational and paper execution paths before MR13–MR14 complete
+paper activation machinery and multiple instances; essential telemetry accompanies
 each earlier capability. MR15 sets budgets at the start, accepts research capacity
 at G2 and completes against the integrated runtime before MR17. MR16 proceeds
 alongside delivery; packaging changes relevant to MR06 cannot wait until handoff.
-The tables own exact prerequisites; incremental acceptance never erases open scope.
+The tables own exact prerequisites; incremental acceptance never erases open
+paper scope. Deferred live requirements remain in the KIV gate.
 
 ### MR07 delivery and acceptance
 
@@ -347,13 +390,14 @@ capacity remain outside this scope.
 
 ### MR08 delivery and acceptance
 
-Partial: the local account/risk increment is implemented, while physical venue
-reconciliation remains unqualified. The execution, accounting and risk guides
-own current behavior. Initial qualification is local cash-funded spot with
+Partial: the local account/risk increment is implemented; integrated two-venue
+paper reconciliation remains to be accepted under the revised scope. Physical
+venue reconciliation remains unqualified and KIV. The execution, accounting and
+risk guides own current behavior. Initial qualification is local cash-funded spot with
 authored grids, a common explicit valuation currency, quote-currency fee reserves
 and normalized paper facts. MR11 adds native base/quote fees and physical wallet
 comparison at the software boundary. FX aggregation and other product mechanics
-remain unsupported; authenticated OKX/Bitfinex account observations remain open.
+remain unsupported; authenticated OKX/Bitfinex account observations are deferred.
 
 ### MR09 delivery and acceptance
 
@@ -362,8 +406,8 @@ Complete for local shared-account portfolio coordination and recovery. The
 and component guides own allocation, netting, attribution and recovery. Initial
 qualification remains cash-funded spot; unroutable physical-lot residuals remain
 visible and reserved. Other product economics, FX/base-asset fee conversion,
-private venue conformance, broader operational drills, activation and capacity
-remain open in their owning milestones.
+broader paper operational drills, paper activation and capacity remain open in
+their owning milestones. Private venue conformance is KIV.
 
 ### MR10 delivery and acceptance
 
@@ -408,20 +452,23 @@ operating workloads retain their requests, snapshots and summaries under
 `logs/mr10/operating-okx/` and `logs/mr10/operating-bitfinex/`.
 These artifacts are local retained evidence, not published deployment records.
 
-Final MR10 acceptance remains open. Next, qualify both implemented MR11 private
-execution/account adapters with explicitly authorized test endpoints/accounts
-and credentials references, then incorporate MR12 monitoring/routing, MR13
-authorization/reduce-position/deployed recovery and MR14 multi-instance results.
-Authenticated private-stream loss, exchange timeout/cancel/fill outcomes, remote
-service/alert failure and deployed restoration cannot be proven by this local
-increment. Older snapshots are restored only into absent stopped workspaces;
-venue-generation/anti-rewind proof remains part of integrated recovery. No
-empirical strategy, service deployment, live order or capital activation is accepted.
+Final MR10 paper acceptance remains open. Next, integrate both MR11 public-input
+paper paths, MR12 monitoring/routing, MR13 paper authorization/reduce-position/
+recovery and MR14 multi-instance results. Qualify service/alert failure and
+restoration in the selected paper operating environment; local fixtures cannot
+establish an untested deployed service boundary. Older snapshots are restored
+only into absent stopped workspaces; integrated paper recovery must prevent
+rewinding or duplicating committed simulated fills. Authenticated private-stream
+loss, exchange timeout/cancel/fill outcomes and real-account anti-rewind evidence
+remain unqualified and KIV. No empirical strategy, service deployment, live order
+or capital activation is accepted by the retained local evidence.
 
 ### MR11 delivery and acceptance
 
-Partial: both spot protocol adapters and the integrated test-account path are
-implemented. The [execution guide](../../src/execution/README.md#test-venue-execution)
+Partial under the revised paper scope: both spot protocol adapters and the
+integrated test-account path are implemented, but do not alone close the public-input
+paper integration and cost evidence above. The retained implementation and its
+historical validation are described below. The [execution guide](../../src/execution/README.md#test-venue-execution)
 and [installed command guide](../../src/applications/execute/README.md#test-venue-commands)
 own behavior and commands. OKX demo and verified Bitfinex paper subaccounts share
 configured reference admission, portfolio/risk, durable physical order identities,
@@ -463,15 +510,19 @@ The complete local gate uses
 with output in `logs/mr11/make-check-final.log`; earlier failed attempts are
 preserved separately. The short macOS pytest path avoids socket-path overflow.
 
-External acceptance is explicitly blocked: the user confirmed that no venue test
-access is available for this implementation. No authenticated request or test
-order was sent. The exact next action is to provision separately authorized OKX
-demo and Bitfinex paper-account credential references, expected account UIDs,
-fresh venue specifications and bounded test-order envelopes; then run each native
-path and retain acknowledgement-loss, fill/cancel, stream-loss and restart
-conformance against those accounts. Both venues remain mandatory. Deployed
-recovery, production authority, capital activation, broader runtime capacity and
-MR17/G5 remain open in their owning milestones.
+External acceptance remains unavailable: the user confirmed that no venue test
+access was available for that implementation. No authenticated request or test
+order was sent. This unresolved external evidence is retained as a qualification
+limit and deferred from MR17/G5 under the paper delivery policy.
+
+The next required action is to integrate and qualify both venues' public-input
+paper execution, cost/slippage scenarios, paper-account reconciliation and
+retained net P&L through the installed runtime. MR10/MR12–MR15 then qualify paper
+operations, monitoring, recovery, multiple instances and capacity before MR17/G5.
+If live work is reopened, native conformance still needs separately authorized
+OKX demo and Bitfinex paper-account access, account identities, venue specifications
+and bounded test-order envelopes, followed by actual acknowledgement-loss,
+fill/cancel, stream-loss and restart evidence. Scripted proofs do not supply it.
 
 ### MR12 delivery and acceptance
 
@@ -506,15 +557,16 @@ units/schemas, changed retries and future/corrected labels. These are software
 and local operating proofs, not empirical strategy or physical venue evidence.
 Validation logs and retained artifacts live under ignored `logs/mr12/`.
 
-MR12 does not close MR11's unavailable external test-account acceptance. The
-remaining action is to run the instrumented native OKX demo and Bitfinex paper
-paths against separately authorized accounts, retain real private-stream/reject/
-reconciliation signals, and qualify service/alert delivery and host/source clock
-observations in the selected operating environment. Source clock drift is
-currently explicit `not_measured`, not inferred from receipt delay. MR10 incorporates
-these later operating results; MR13 owns activation/recovery, MR14 deployed
-multiple instances, and MR15 measured dashboard/load budgets beyond the bounded
-local query/storage contracts. Those outcomes and MR17/G5 remain open.
+MR12 does not close MR11's unavailable external test-account acceptance; that
+qualification is now deferred. The remaining paper action is to instrument both
+public-input paper paths with simulated order/reject/reconciliation and cost/net
+P&L signals, and qualify service/alert delivery and host/source clock observations
+in the selected paper environment. Source clock drift is currently explicit
+`not_measured`, not inferred from receipt delay. MR10 incorporates these operating
+results; MR13 owns paper activation/recovery, MR14 multiple paper instances, and
+MR15 measured dashboard/load budgets beyond the bounded local query/storage
+contracts. Those outcomes and MR17/G5 remain open. Native private-stream signals
+remain unqualified and KIV.
 
 ## Decisive acceptance scenarios
 
@@ -522,6 +574,9 @@ Implement these at their owning boundary and reuse them in the final installed
 journey. Use independent expected results and targeted faults; do not repeat a
 full test matrix for every gate. Record actual bytes, configuration, environment,
 workload, outcomes and limits in the existing capability acceptance record.
+Order/account fault cases below use the declared paper model. Real private-stream,
+exchange-fill and live-account qualification remain KIV; public-source and paper
+service observations must still establish their actual supported boundaries.
 
 | Scenario | Required observable result | Owning MRs |
 | --- | --- | --- |
@@ -532,16 +587,18 @@ workload, outcomes and limits in the existing capability acceptance record.
 | Book and consolidated quote parity | Incremental L3 aggregates match independent expected levels/BBO; venue/instrument isolation, query cutoffs and freshness preserve eligible quote provenance, ties and explicit partial coverage. See the scoped acceptance cases above. | MR07A/MR07B |
 | Shared-budget race | With no prior exposure, A and B each request 8,000 account-currency units against a shared 10,000 limit. Atomic admission rejects or policy-clips requests so admitted, pending and uncertain commitments never exceed 10,000; retry/restart cannot release unknown exposure. | MR08/MR09 |
 | Conflicting strategies and netting | Two active strategies on one instrument retain intent/child-order/fill ownership; self-trade conflicts follow explicit policy. Netting, partial fills, fees and residuals reconcile to both strategy allocations and physical account state; stopping one preserves the other's ownership. | MR09/MR14 |
-| External order uncertainty | Lost acknowledgement, duplicate events, rejects, partial fills, cancel/fill races, private-stream loss and restart with open orders cannot duplicate submissions or postings. Cancel acknowledgement alone does not release exposure; venue reconciliation resolves uncertainty. | MR07/MR08/MR11 |
-| Faults and operator actions | Market-data/private-stream disconnect, malformed messages, clock regression, queue overload, disk exhaustion, process/service loss and exchange timeout cause the declared visible response. Block, cancel and reduce remain distinct; telemetry loss cannot disable hard controls. Test recovery and alert delivery. | MR01/MR04/MR07/MR10–MR13 |
-| Trusted installation and restoration | Install the appropriate research or operating artifact in a clean environment; research/shadow lacks production submission authority. Reject incompatible state, restore data/features/artifacts/account state, and reconcile before resuming. | MR04/MR06/MR10/MR13 |
+| Paper order uncertainty | Modeled lost acknowledgement, duplicate events, rejects, partial fills, cancel/fill races, event loss and restart with open simulated orders cannot duplicate submissions or postings. Cancel acknowledgement alone does not release exposure; paper reconciliation resolves uncertainty. | MR07/MR08/MR11 |
+| Paper cost and economics | Transaction costs, slippage and applicable gas reconcile from simulated fills/activity to strategy/account net P&L with explicit units and assumptions. Missing costs or unjustified gas inapplicability prevent economic acceptance. Reference losing/no-trade and adverse-cost cases exercise the machinery without claiming empirical profitability. | MR03/MR08/MR11/MR12 |
+| Faults and operator actions | Public market-data disconnect, simulated order-event loss/timeouts, malformed messages, clock regression, queue overload, disk exhaustion and process/service loss cause the declared visible response. Block, cancel and reduce remain distinct; telemetry loss cannot disable hard controls. Test recovery and alert delivery. | MR01/MR04/MR07/MR10–MR13 |
+| Trusted installation and restoration | Install the appropriate research or paper operating artifact in a clean environment; research/paper/shadow lacks production submission authority. Reject incompatible state, restore data/features/artifacts/account state, and reconcile before resuming. | MR04/MR06/MR10/MR13 |
 | Architectural extension | Add a supported-family instrument by reference/configuration and another compatible adapter through its public boundary. Carry a non-book input and a non-24/7 calendar or different-economics fixture through relevant research/simulation consumers without disguising source semantics or changing unrelated code. Unsupported lifecycle behavior is rejected. | MR01–MR03/MR11/MR17 |
 
 ## Deliverable coverage
 
 The quant-development work packages remain acceptance obligations inside this
-single roadmap. This mapping connects the original D01–D18 deliverables to the
-broader retained platform; it is not a second backlog or a completion score.
+single roadmap. This mapping connects the original D01–D18 identifiers to the
+revised research/paper scope; live obligations remain KIV. It is not a second
+backlog or a completion score.
 
 | Deliverable | Owning MRs |
 | --- | --- |
@@ -554,12 +611,12 @@ broader retained platform; it is not a second backlog or a completion score.
 | D07 — Storage, catalog and dataset builder | MR01/MR04/MR15 |
 | D08 — Research SDK and feature computation, extended with offline/online feature store | MR02–MR04/MR07 |
 | D09 — Replay and execution-aware backtesting | MR03/MR05/MR07 |
-| D10 — Experiments, artifacts and production handoff | MR03–MR06 |
+| D10 — Experiments, artifacts and paper handoff | MR03–MR06 |
 | D11 — Strategy SDK and multi-strategy runtime | MR02/MR05/MR07/MR14 |
 | D12 — Portfolio coordination and centralized risk | MR08/MR09/MR13 |
-| D13 — OMS and execution gateways for both venues | MR07/MR11/MR13 |
+| D13 — Paper OMS and execution models for both venues | MR07/MR11/MR13 |
 | D14 — Ledger, portfolio state and reconciliation | MR08/MR09/MR11 |
-| D15 — Deployment, security and release pipeline | MR04/MR06/MR13 |
+| D15 — Paper deployment, security and release pipeline | MR04/MR06/MR13 |
 | D16 — Monitoring, operator controls and runbooks, extended with metric/chart APIs | MR10/MR12/MR13 |
 | D17 — Correctness, failure and capacity qualification | Each owning MR; integrated MR10/MR15/MR17 |
 | D18 — Operating documentation and extension demonstrations | Each owning guide; MR16/MR17 |
@@ -587,11 +644,13 @@ infrastructure or selecting an alpha:
 5. Package/load candidates, run two distinct active strategies on shared and
    isolated paper accounts, and exercise independent risk, compatible netting,
    allocation reconciliation, order uncertainty, selective stop and recovery.
-   Retain separate OKX and Bitfinex execution/account conformance evidence.
+   Retain separate OKX and Bitfinex public-input paper execution/account evidence,
+   with transaction-cost/slippage attribution, applicable gas fees or recorded
+   inapplicability, net P&L and adverse-cost scenarios.
    Reference components do not acquire live authority by being installed.
 6. Meet both MR15 research and runtime budgets, restore data/features/artifacts/state
    from backup, and show independent operating-package installation, trusted
-   deployment/rollback, service integration and the runnable operational guide.
+   paper deployment/rollback, service integration and the runnable operational guide.
 
 Reuse milestone proofs for unchanged components; run an integrated fresh-entry
 journey to establish that provisioning, interfaces and retention compose. Retain
@@ -602,7 +661,8 @@ prove. An unverified required boundary keeps onboarding acceptance open.
 
 ## Research phase after full handoff
 
-Only after every MR01–MR16 outcome, including MR07A/MR07B, and MR17/G5 integrated acceptance does QR begin
+Only after every in-scope research/paper MR01–MR16 outcome, including MR07A/MR07B,
+and MR17/G5 integrated acceptance does QR begin
 the [research milestones](research-program.md#post-infrastructure-research-milestones):
 
 1. **QR-M1 — Research-ready:** question-specific data acceptance, ranked hypotheses,
@@ -610,14 +670,16 @@ the [research milestones](research-program.md#post-infrastructure-research-miles
 2. **QR-M2 — End-to-end prototype:** reproducible feature/label and rule/model code,
    a complete policy, costed replay and ledger reconciliation.
 3. **QR-M3 — Evidence-backed decision:** robustness, final evaluation and
-   risk/capacity evidence supporting a forward-validation proposal or rejection.
+   risk/capacity evidence supporting a forward paper-validation proposal or rejection.
 
 The research program owns QR-01–QR-18 across readiness, signal experiments,
 strategy prototypes and conditional candidate validation/handoff. All are planned
 and not started. Even QR-M1 waits for the full infrastructure; G2's research-ready
 engineering increment is not QR-M1. A losing or rejected study can be a completed
 research outcome. Surviving candidates need frozen reproduction/parity and forward
-evidence before a deployment recommendation; actual activation remains separate.
+paper evidence. Both OOS and paper trading must show net-of-cost profitability
+under the [KIV reconsideration gate](#live-trading-kiv-and-reconsideration) before
+live work can be reconsidered; actual activation remains separate.
 
 These QR deliverables consume the accepted platform and add no infrastructure
 milestones. QR owns empirical content and candidate-specific assumptions; QD

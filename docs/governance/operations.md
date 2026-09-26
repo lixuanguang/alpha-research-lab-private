@@ -1,15 +1,19 @@
 # Operations and security runbook
 
 This runbook owns the implemented local installation and paper account recovery
-lifecycle and the requirements for later deployed strategies/services. Activation,
-complete operating monitoring and physical venue stop/cancel remain open.
+lifecycle and the requirements for later deployed strategies/services. Paper
+activation and complete paper operating monitoring remain open. Physical venue
+stop/cancel and other live operations are
+[KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration).
 Add the selected target, numeric limits and tested responses to the strategy's
 runbook before operation. The repository does not claim live readiness.
 
 The operating destination includes multiple strategy instances, accounts, venues
 and asset classes. Quant development must deliver the initial OKX/Bitfinex spot
-operating infrastructure before QR onboarding, using reference instances and
-authorized test environments under the [platform roadmap](../roadmap/README.md).
+paper operating infrastructure before QR onboarding, using reference instances
+and public-input paper environments under the [platform roadmap](../roadmap/README.md).
+Authenticated venue qualification is deferred from that gate. Live procedures
+below are retained requirements for reconsideration, not current delivery scope.
 Its commands, dashboards, default operational metrics and recovery procedures
 must not wait for a selected QR strategy. QR later supplies strategy-specific
 metrics, chart definitions and diagnostic thresholds through supported interfaces;

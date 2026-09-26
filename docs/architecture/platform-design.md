@@ -16,18 +16,21 @@ boundaries. Detailed contracts have cohesive homes:
 The long-term goal is an institutional-grade monorepo for multi-asset, multi-strategy research, productionization, and
 monitoring. It should approach the engineering depth expected at a strong proprietary trading or hedge-fund platform
 through measured delivery. Quant development delivers the complete initial
-OKX/Bitfinex spot infrastructure before QR onboarding, using its own reference
-research and operating workloads. The [roadmap's onboarding gate](../roadmap/README.md#infrastructure-completion-before-qr-onboarding)
+OKX/Bitfinex spot research and paper infrastructure before QR onboarding, using
+its own reference research and operating workloads. The [roadmap's onboarding gate](../roadmap/README.md#infrastructure-completion-before-qr-onboarding)
 defines the required scope and separates software completion from empirical
 strategy acceptance and live activation. Staffing, independent review, operational
 separation and broader organizational controls arrive as contributors and operators join.
 
 The roadmap's intermediate research, shadow and operating gates improve delivery
-sequencing without reducing the complete destination. Versioned offline/online
-feature-store capabilities, both execution venues, portfolio allocation/netting,
+sequencing within that paper scope. Versioned offline/online
+feature-store capabilities, both venues' paper execution, portfolio allocation/netting,
 extensible dashboards and capacity qualification remain required. The initial
 spot integrations exercise generalized contracts for other sources, products and
 strategies; they do not define the limits of the monorepo's architecture.
+Live execution and qualification remain
+[KIV pending profitable OOS and paper evidence](../roadmap/README.md#live-trading-kiv-and-reconsideration);
+retained live design contracts below are outside the initial delivery gate.
 
 This design records the technical destination and functional source owners without
 requiring empty skeletons or prematurely installed infrastructure. Every module, service, store, and native lane below is
@@ -466,17 +469,17 @@ See [external simulator reuse](runtime-and-operations-design.md#external-simulat
 The single [implementation roadmap](../roadmap/README.md) owns maturity, status,
 delivery dependencies and acceptance criteria.
 Quant development completes data/research APIs, offline/online feature stores,
-candidate/runtime interfaces, portfolio/risk/OMS, venue adapters, deployment,
-observability, recovery and launch
-capacity using reference consumers before QR onboarding. Paper/shadow and permitted
-venue test evidence qualify infrastructure independently of empirical research;
-actual strategy activation remains a later explicit decision. The roadmap owns
+candidate/runtime interfaces, portfolio/risk/OMS, both venues' paper execution,
+paper deployment, observability, recovery and launch capacity using reference
+consumers before QR onboarding. Public-source and paper operating evidence qualify
+infrastructure independently of empirical research; private venue qualification
+and live activation are KIV. The roadmap owns
 the clean-environment handoff gate. People-dependent organizational work remains
 separate from technical completion and follows actual staffing.
 
-G1–G5 record foundation, research, paper/shadow, integrated operating and generalized
-handoff acceptance. They preserve all MR outcomes and the full pre-onboarding
-gate. MR10 establishes paper drills first and incorporates later venue/activation
+G1–G5 record foundation, research, paper/shadow, integrated paper operating and
+generalized handoff acceptance. They preserve all in-scope paper MR outcomes and
+the pre-onboarding gate. MR10 establishes paper drills first and incorporates integrated paper execution/activation
 evidence; MR13 uses that paper increment rather than waiting on MR10's final
 integrated record. Generalization is demonstrated by fresh installed extensions,
 including a non-book input and calendar/product fixture, with source limits intact.

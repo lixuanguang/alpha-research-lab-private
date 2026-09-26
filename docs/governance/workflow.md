@@ -5,8 +5,8 @@ capability being built; a package catalog, role register, evidence bundle, or
 institutional approval is not a prerequisite for ordinary development.
 
 The [platform roadmap](../roadmap/README.md#infrastructure-completion-before-qr-onboarding)
-requires quant development to complete the initial OKX/Bitfinex spot stack before
-QR onboarding. Quant development authors reference research/runtime consumers and
+requires quant development to complete the initial OKX/Bitfinex spot research and
+paper-trading stack before QR onboarding. Quant development authors reference research/runtime consumers and
 qualifies their public extension points; accepted QR strategies are not delivery
 prerequisites. The final handoff demonstrates new strategy/study/metric/chart
 content without changes to shared infrastructure. This policy changes planned
@@ -86,16 +86,21 @@ retention requirement.
 
 ## Activate and operate
 
-Production deployment and trading activation remain unqualified. The
+Live trading is [KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration)
+until both OOS testing and forward paper trading demonstrate profitability net
+of transaction costs, slippage and applicable digital-asset gas fees. Live
+execution qualification and capital activation are outside QR onboarding. The
 [local paper runbook](operations.md#local-paper-operations) owns implemented account
-stop, cancel-request, reconciliation and recovery commands. Add venue-qualified
-responses and operating thresholds before following this section in production.
+stop, cancel-request, reconciliation and recovery commands. Live venue responses
+and operating thresholds remain unqualified requirements if live work is reopened.
 
-Implement and qualify deployment, authorization, limits, stop/cancel and recovery
-machinery with reference paper/shadow and authorized venue-test workloads before
+Implement and qualify paper deployment, authorization, limits, stop/cancel and
+recovery with reference paper/shadow workloads and live public inputs before
 QR onboarding. Completion of that infrastructure does not require an empirically
-selected strategy or live-capital experiment. A real strategy's qualification,
-deployment and activation are subsequent decisions using the completed machinery.
+selected strategy. Authenticated venue-test qualification is deferred; it does not
+block paper handoff. A real strategy's OOS and forward paper evidence subsequently
+determines whether live work may be reconsidered. Passing that evidence gate does
+not itself qualify venue execution or grant live authority.
 
 The founder makes a separate, explicit activation decision for each actual
 strategy or service. Trading is off by default. Before activation, verify safe
