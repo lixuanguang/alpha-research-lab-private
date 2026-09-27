@@ -46,16 +46,31 @@ if TYPE_CHECKING:
         SharedStrategyBinding,
         SharedStrategyInput,
     )
+    from runtime.shared_paper import (
+        SharedBookDelivery,
+        SharedBookInputs,
+        SharedPaperCaptureObserver,
+    )
     from runtime.workspace import WorkspaceBackup, WorkspaceFile, WorkspaceManifest
 
 
 def __getattr__(name: str) -> object:
     """Load research and workspace services only for their explicit consumers."""
+    if name in {"SharedBookDelivery", "SharedBookInputs", "SharedPaperCaptureObserver"}:
+        # project library imports
+        from runtime import shared_paper
+
+        exports: dict[str, object] = {
+            "SharedBookDelivery": shared_paper.SharedBookDelivery,
+            "SharedBookInputs": shared_paper.SharedBookInputs,
+            "SharedPaperCaptureObserver": shared_paper.SharedPaperCaptureObserver,
+        }
+        return exports[name]
     if name in {"AccountRecoveryReceipt", "AccountWorkspace"}:
         # project library imports
         from runtime import account_recovery
 
-        exports: dict[str, object] = {
+        exports = {
             "AccountRecoveryReceipt": account_recovery.AccountRecoveryReceipt,
             "AccountWorkspace": account_recovery.AccountWorkspace,
         }
@@ -219,8 +234,11 @@ __all__ = [
     "PolicyFactory",
     "ProcessSupervisor",
     "RuntimeFiles",
+    "SharedBookDelivery",
+    "SharedBookInputs",
     "SharedDecisionCheckpoint",
     "SharedDecisionRuntime",
+    "SharedPaperCaptureObserver",
     "SharedStrategyBinding",
     "SharedStrategyInput",
     "TransformFactory",

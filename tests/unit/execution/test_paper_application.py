@@ -21,7 +21,7 @@ from applications.execute import (
     PaperExecutionResult,
 )
 from applications.execute import main as execute_main
-from configuration import PaperConfiguration
+from configuration import PaperConfiguration, PaperExecutionScenario
 from execution import OrderDecision, OrderEvent, PaperMarket
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
@@ -167,6 +167,78 @@ class TestPaperExecutionApplication:
         assert inspected.orders == matched.orders
         assert inspected.submission_attempted is False
         assert inspected.binding_identity == matched.binding_identity
+
+    def test_profiled_market_request_retries_after_newer_quote_and_reopen(
+        self, tmp_path: Path
+    ) -> None:
+        """An older exact request reopens its result without rewinding liquidity or fills."""
+        scenario = PaperExecutionScenario(
+            venue="okx",
+            instrument_id=self.dimension.instrument_id,
+            entry_delay_us=0,
+            cancel_delay_us=0,
+            adverse=self._price("0"),
+            fee_rate=Decimal("0.001"),
+            take_fraction=Decimal("1"),
+            gas_inapplicable_reason="off-chain spot venue matching has no chain gas",
+        )
+        config = PaperConfiguration(
+            account="reference-account",
+            mode="paper",
+            initial_cash=self._money("1000"),
+            maximum=self._quantity("10"),
+            lot=self._quantity("1"),
+            tick=self._price("0.01"),
+            maximum_fee=self._money("1"),
+            fee_rate=scenario.fee_rate,
+            market_max_age_us=60_000_000,
+            execution=scenario,
+        )
+        config_path = self._write(tmp_path / "scenario-config.json", config)
+        journal_path = tmp_path / "scenario.sqlite3"
+        decide = self._write(
+            tmp_path / "scenario-decide.json",
+            PaperExecutionRequest(action="decide", identity="decision", decision=self._decision()),
+        )
+        first = self._write(
+            tmp_path / "scenario-first.json",
+            PaperExecutionRequest(action="market", identity="first", market=self._market()),
+        )
+        later_market = PaperMarket(
+            identity="received-next",
+            at=self.start + timedelta(seconds=2),
+            bid=self._price("99"),
+            ask=self._price("100"),
+            bid_quantity=self._quantity("1"),
+            ask_quantity=self._quantity("1"),
+        )
+        later = self._write(
+            tmp_path / "scenario-later.json",
+            PaperExecutionRequest(action="market", identity="later", market=later_market),
+        )
+        application = PaperExecutionApplication()
+        for request in (decide, first):
+            application.run(
+                config_path=config_path,
+                journal_path=journal_path,
+                instance="reference-instance",
+                request_path=request,
+            )
+        current = application.run(
+            config_path=config_path,
+            journal_path=journal_path,
+            instance="reference-instance",
+            request_path=later,
+        )
+        reopened = PaperExecutionApplication().run(
+            config_path=config_path,
+            journal_path=journal_path,
+            instance="reference-instance",
+            request_path=first,
+        )
+        assert reopened.orders == current.orders
+        assert reopened.balance == current.balance
+        assert reopened.last_event_sequence == current.last_event_sequence
 
     def test_shadow_refuses_modeled_fill_and_reconciliation_blocks_new_risk(
         self, tmp_path: Path

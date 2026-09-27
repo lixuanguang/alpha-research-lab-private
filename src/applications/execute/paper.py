@@ -289,9 +289,12 @@ class PaperExecutionApplication:
                         raise ValueError("market matching is available only in paper mode")
                     step_id = f"market:{request.identity}"
                     journal.has_step(step_id, request_bytes)
-                    PaperMatcher(journal, fee_rate=config.fee_rate, lot=config.lot).match(
-                        request.market, epoch=epoch
-                    )
+                    PaperMatcher(
+                        journal,
+                        fee_rate=config.fee_rate,
+                        lot=config.lot,
+                        scenario=config.execution,
+                    ).match(request.market, epoch=epoch)
                     step = journal.commit_step(
                         epoch=epoch,
                         step_id=step_id,

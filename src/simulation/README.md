@@ -49,6 +49,17 @@ shared-account OMS, venue conformance and deployed execution remain open under
 MR05/MR07–MR11. The engine's one-account spot support rejects unsupported products
 and does not qualify venue latency, historical queue position or empirical alpha.
 
+The [public-input paper matcher](../execution/README.md#dedicated-paper-order-journal)
+uses the same signed adverse-price and half-even quote-fee arithmetic as
+`SpotCosts` when its authored scenario selects that convention. Its entry and
+cancel delays choose later eligible received quotes, while the offline L2
+executor uses separate source/knowledge clocks, book depth and a modeled passive
+queue advanced by eligible trade prints. Paper matching caps each account's
+fill at displayed best-price quantity and retains same-touch liquidity debt;
+it does not classify maker/taker fills, infer queue position or model an exchange
+response clock. Neither model makes observed public liquidity an executable
+venue fill.
+
 ## Saved L2 IOC research
 
 `applications.backtest.run_books` and `alpha-backtest books` now compose verified

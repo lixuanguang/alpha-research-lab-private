@@ -13,11 +13,20 @@ import pytest
 
 # project library imports
 from accounting import Ledger, LedgerState
-from execution import OrderDecision, OrderState, PaperMarket, PaperMatcher, PaperOrderJournal
+from configuration import PaperConfiguration, PaperExecutionScenario
+from execution import (
+    OrderDecision,
+    OrderEvent,
+    OrderState,
+    PaperMarket,
+    PaperMatcher,
+    PaperOrderJournal,
+)
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import SpotLimits
 from serialization import DomainCodec
+from simulation import SpotCosts
 from strategies import OrderIntent
 
 
@@ -75,6 +84,7 @@ class TestPaperMatcher:
         limit: str,
         time_in_force: Literal["gtc", "ioc", "post-only"] = "gtc",
         maximum_fee: str = "0.50",
+        at: datetime | None = None,
     ) -> OrderState:
         """Admit one cash-backed buy order with an explicit fee reserve."""
         result = journal.commit_step(
@@ -83,7 +93,7 @@ class TestPaperMatcher:
             checkpoint=step_id.encode(),
             decision=OrderDecision(
                 identity=f"decision-{step_id}",
-                at=cls.decision_at,
+                at=cls.decision_at if at is None else at,
                 intent=OrderIntent(
                     side="buy",
                     quantity=cls._quantity(quantity),
@@ -115,6 +125,26 @@ class TestPaperMatcher:
             ask=cls._price(ask),
             bid_quantity=cls._quantity("10"),
             ask_quantity=cls._quantity(ask_quantity),
+        )
+
+    @classmethod
+    def _scenario(
+        cls,
+        *,
+        entry_delay_us: int = 0,
+        cancel_delay_us: int = 0,
+        adverse: str = "0.02",
+    ) -> PaperExecutionScenario:
+        """Declare an authored venue assumption independent of native source evidence."""
+        return PaperExecutionScenario(
+            venue="okx",
+            instrument_id=cls.dimension.instrument_id,
+            entry_delay_us=entry_delay_us,
+            cancel_delay_us=cancel_delay_us,
+            adverse=cls._price(adverse),
+            fee_rate=Decimal("0.005"),
+            take_fraction=Decimal("1"),
+            gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
         )
 
     def test_two_orders_share_finite_ask_and_replay_has_no_extra_fill(self, tmp_path: Path) -> None:
@@ -310,3 +340,318 @@ class TestPaperMatcher:
             assert fill.effective.value == Decimal("0.94")
             assert fill.fee.value == Decimal("0.01")
             assert Ledger(journal.ledger_state()).balance.cash.value == Decimal("998.11")
+
+    def test_scenario_reuses_touch_debt_after_restart_and_attributes_adverse_cost(
+        self, tmp_path: Path
+    ) -> None:
+        """An unchanged public touch cannot refill twice; new visible size adds only its delta."""
+        scenario = self._scenario()
+        first = self._market(
+            "first-depth", at=self.decision_at + timedelta(seconds=1), ask_quantity="2"
+        )
+        unchanged = self._market(
+            "same-depth", at=self.decision_at + timedelta(seconds=2), ask_quantity="2"
+        )
+        increased = self._market(
+            "more-depth", at=self.decision_at + timedelta(seconds=3), ask_quantity="3"
+        )
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("initial-owner")
+            order = self._admit(journal, epoch, step_id="debt", quantity="3", limit="1.10")
+            matcher = PaperMatcher(
+                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
+            )
+            matcher.match(first, epoch=epoch)
+            state = journal.order(order.identity)
+            assert state is not None and state.filled.value == Decimal("2")
+            first_economics = journal.ledger_state()
+        with self._journal(tmp_path) as restarted:
+            epoch = restarted.claim("second-owner")
+            matcher = PaperMatcher(
+                restarted,
+                fee_rate=scenario.fee_rate,
+                lot=self._quantity("1"),
+                scenario=scenario,
+            )
+            matcher.match(first, epoch=epoch)
+            with pytest.raises(ValueError, match="market availability regressed"):
+                matcher.match(
+                    self._market("older-quote", at=self.decision_at + timedelta(milliseconds=500)),
+                    epoch=epoch,
+                )
+            matcher.match(unchanged, epoch=epoch)
+            assert restarted.ledger_state() == first_economics
+            matcher.match(increased, epoch=epoch)
+            matcher.match(increased, epoch=epoch)
+            completed_economics = restarted.ledger_state()
+            original = restarted.match_scenario_market(epoch=epoch, market=first, scenario=scenario)
+            assert tuple(event.kind for event in original) == ("request_ack", "accepted", "fill")
+            assert restarted.ledger_state() == completed_economics
+            state = restarted.order(order.identity)
+            assert state is not None and state.status == "filled"
+            fills = restarted.ledger_state().fills
+            assert tuple(fill.quantity.value for fill in fills) == (Decimal("2"), Decimal("1"))
+            assert tuple(fill.reference.value for fill in fills) == (
+                Decimal("1.00"),
+                Decimal("1.00"),
+            )
+            assert tuple(fill.effective.value for fill in fills) == (
+                Decimal("1.02"),
+                Decimal("1.02"),
+            )
+            assert tuple(fill.fee.value for fill in fills) == (
+                Decimal("0.01"),
+                Decimal("0.01"),
+            )
+            expected = SpotCosts(
+                adverse=scenario.adverse, fee_rate=scenario.fee_rate, rounding="half_even"
+            ).fill(
+                fills[0].identity,
+                decision_at=order.decision_at,
+                filled_at=first.at,
+                quantity=self._quantity("2"),
+                reference=first.ask,
+            )
+            assert fills[0] == expected
+            balance = Ledger(restarted.ledger_state()).balance
+            assert balance.cash.value == Decimal("996.92")
+            assert balance.slippage.value == Decimal("0.06")
+            with pytest.raises(ValueError, match="scenario differs from retained journal"):
+                PaperMatcher(
+                    restarted,
+                    fee_rate=scenario.fee_rate,
+                    lot=self._quantity("1"),
+                    scenario=self._scenario(adverse="0.03"),
+                ).match(first, epoch=epoch)
+            assert restarted.ledger_state().fills == fills
+
+    def test_entry_and_cancel_delay_allow_a_partial_fill_before_confirmed_cancel(
+        self, tmp_path: Path
+    ) -> None:
+        """A pending cancellation retains risk until its modeled later quote."""
+        scenario = self._scenario(entry_delay_us=2_000_000, cancel_delay_us=3_000_000)
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("delayed-owner")
+            order = self._admit(journal, epoch, step_id="delay", quantity="2", limit="1.10")
+            matcher = PaperMatcher(
+                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
+            )
+            matcher.match(
+                self._market("early", at=self.decision_at + timedelta(seconds=1)), epoch=epoch
+            )
+            assert journal.order(order.identity) == order
+            matcher.match(
+                self._market("arrival", at=self.decision_at + timedelta(seconds=2), ask="1.20"),
+                epoch=epoch,
+            )
+            journal.request_cancel(
+                epoch=epoch,
+                order_id=order.identity,
+                event_id="cancel-request",
+                at=self.decision_at + timedelta(seconds=2, milliseconds=500),
+            )
+            matcher.match(
+                self._market(
+                    "cancel-in-flight",
+                    at=self.decision_at + timedelta(seconds=3),
+                    ask_quantity="1",
+                ),
+                epoch=epoch,
+            )
+            pending = journal.order(order.identity)
+            assert pending is not None and pending.status == "cancel_requested"
+            assert pending.filled.value == Decimal("1")
+            assert journal.reservations().cash.value > 0
+            matcher.match(
+                self._market(
+                    "cancel-due", at=self.decision_at + timedelta(seconds=6), ask_quantity="1"
+                ),
+                epoch=epoch,
+            )
+            final = journal.order(order.identity)
+            assert final is not None and final.status == "cancelled"
+            assert len(journal.ledger_state().fills) == 1
+            assert journal.reservations().cash.value == 0
+
+    def test_scenario_never_fills_on_its_own_decision_quote(self, tmp_path: Path) -> None:
+        """Zero modeled entry delay still requires a subsequent public observation."""
+        scenario = self._scenario()
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("same-time-owner")
+            order = self._admit(journal, epoch, step_id="same-time", quantity="1", limit="1.10")
+            matcher = PaperMatcher(
+                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
+            )
+            matcher.match(self._market("decision-quote", at=self.decision_at), epoch=epoch)
+            assert journal.order(order.identity) == order
+            assert journal.ledger_state().fills == ()
+            matcher.match(
+                self._market("later-quote", at=self.decision_at + timedelta(microseconds=1)),
+                epoch=epoch,
+            )
+            current = journal.order(order.identity)
+            assert current is not None and current.status == "filled"
+
+    def test_smaller_public_touch_caps_fill_even_without_prior_consumption(
+        self, tmp_path: Path
+    ) -> None:
+        """A later smaller visible quote cannot reuse a larger earlier display."""
+        scenario = self._scenario()
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("shrink-owner")
+            matcher = PaperMatcher(
+                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
+            )
+            matcher.match(
+                self._market(
+                    "initial-large", at=self.decision_at + timedelta(seconds=1), ask_quantity="3"
+                ),
+                epoch=epoch,
+            )
+            order = self._admit(
+                journal,
+                epoch,
+                step_id="after-large",
+                quantity="3",
+                limit="1.10",
+                at=self.decision_at + timedelta(seconds=1, milliseconds=500),
+            )
+            matcher.match(
+                self._market(
+                    "later-small", at=self.decision_at + timedelta(seconds=2), ask_quantity="1"
+                ),
+                epoch=epoch,
+            )
+            current = journal.order(order.identity)
+            assert current is not None and current.status == "partial"
+            assert current.filled.value == Decimal("1")
+
+    def test_cancel_confirmed_before_entry_delay_releases_unfilled_reservation(
+        self, tmp_path: Path
+    ) -> None:
+        """A cancelled in-flight intent cannot become a later modeled fill."""
+        scenario = self._scenario(entry_delay_us=5_000_000, cancel_delay_us=1_000_000)
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("pre-arrival-cancel-owner")
+            order = self._admit(journal, epoch, step_id="pre-arrival", quantity="1", limit="1.10")
+            journal.request_cancel(
+                epoch=epoch,
+                order_id=order.identity,
+                event_id="pre-arrival-cancel",
+                at=self.decision_at + timedelta(seconds=1),
+            )
+            PaperMatcher(
+                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
+            ).match(
+                self._market("cancel-confirmation", at=self.decision_at + timedelta(seconds=2)),
+                epoch=epoch,
+            )
+            current = journal.order(order.identity)
+            assert current is not None and current.status == "cancelled"
+            assert journal.reservations().cash.value == 0
+            assert journal.ledger_state().fills == ()
+
+    def test_scenario_fee_shortfall_rolls_back_entire_market(self, tmp_path: Path) -> None:
+        """A late fee-cap failure cannot leave earlier orders partially committed."""
+        scenario = self._scenario()
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("atomic-market-owner")
+            first = self._admit(journal, epoch, step_id="funded", quantity="2", limit="1.10")
+            second = self._admit(
+                journal,
+                epoch,
+                step_id="underfunded-fee",
+                quantity="1",
+                limit="1.10",
+                maximum_fee="0.00",
+            )
+            with pytest.raises(ValueError, match="fill exceeds order economics or limit"):
+                PaperMatcher(
+                    journal,
+                    fee_rate=scenario.fee_rate,
+                    lot=self._quantity("1"),
+                    scenario=scenario,
+                ).match(
+                    self._market("fee-shortfall", at=self.decision_at + timedelta(seconds=1)),
+                    epoch=epoch,
+                )
+            assert journal.order(first.identity) == first
+            assert journal.order(second.identity) == second
+            assert journal.markets() == ()
+            assert journal.events() == ()
+            assert journal.ledger_state().fills == ()
+
+    def test_unknown_order_stays_reserved_and_unmatched(self, tmp_path: Path) -> None:
+        """A public touch cannot resolve or release an unknown order outcome."""
+        scenario = self._scenario()
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("unknown-owner")
+            order = self._admit(journal, epoch, step_id="uncertain", quantity="1", limit="1.10")
+            journal.apply_event(
+                epoch=epoch,
+                event=OrderEvent(
+                    identity="uncertain-send",
+                    order_id=order.identity,
+                    at=self.decision_at + timedelta(microseconds=1),
+                    kind="unknown",
+                ),
+            )
+            reserved = journal.reservations()
+            PaperMatcher(
+                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
+            ).match(
+                self._market("unknown-touch", at=self.decision_at + timedelta(seconds=1)),
+                epoch=epoch,
+            )
+            current = journal.order(order.identity)
+            assert current is not None and current.status == "unknown"
+            assert journal.reservations() == reserved
+            assert journal.ledger_state().fills == ()
+
+    def test_legacy_claim_is_not_mistaken_for_completed_scenario_match(
+        self, tmp_path: Path
+    ) -> None:
+        """A preclaimed legacy quote has no atomic scenario result to replay."""
+        scenario = self._scenario()
+        market = self._market("legacy-claim", at=self.decision_at + timedelta(seconds=1))
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("legacy-claim-owner")
+            journal.claim_market(
+                epoch=epoch, identity=market.identity, payload=DomainCodec().encode_json(market)
+            )
+            with pytest.raises(ValueError, match="legacy market history cannot adopt"):
+                journal.match_scenario_market(epoch=epoch, market=market, scenario=scenario)
+            assert journal.markets() == ((market.identity, DomainCodec().encode_json(market)),)
+
+    def test_scenario_rejects_off_grid_public_touch_before_any_effect(self, tmp_path: Path) -> None:
+        """An invalid native quote cannot acquire liquidity or advance the ledger."""
+        scenario = self._scenario()
+        market = self._market("off-grid", at=self.decision_at + timedelta(seconds=1), ask="1.005")
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("grid-owner")
+            order = self._admit(journal, epoch, step_id="grid", quantity="1", limit="1.10")
+            with pytest.raises(ValueError, match="paper market, account or scenario differs"):
+                PaperMatcher(
+                    journal,
+                    fee_rate=scenario.fee_rate,
+                    lot=self._quantity("1"),
+                    scenario=scenario,
+                ).match(market, epoch=epoch)
+            assert journal.order(order.identity) == order
+            assert journal.markets() == ()
+            assert journal.ledger_state().fills == ()
+
+    def test_legacy_paper_configuration_keeps_its_original_binding_identity(self) -> None:
+        """Adding an optional authored scenario does not strand a prior paper journal."""
+        config = PaperConfiguration(
+            account="paper-account",
+            mode="paper",
+            initial_cash=self._money("1000"),
+            maximum=self._quantity("10"),
+            lot=self._quantity("1"),
+            tick=self._price("0.01"),
+            maximum_fee=self._money("0.50"),
+            fee_rate=Decimal("0.005"),
+            market_max_age_us=5_000_000,
+        )
+        assert config.identity == "ad5f2860388ae323b587d7023285e2b428dc69e754dbbf1346e1d59997190ec3"

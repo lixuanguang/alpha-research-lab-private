@@ -290,6 +290,62 @@ PYTEST_ADDOPTS=--basetemp=/private/tmp/mr07-check \
 ```
 
 
+## Automatic public paper acceptance
+
+The [public paper consumer](integration/consumers/runtime/public_paper.py) runs
+`applications.paper.run_live_shared_paper` through the installed research wheel.
+It selects the existing native OKX L2 or Bitfinex L3 adapter, two distinct active
+order policies, independent budgets, automatic matching, exact child attribution,
+source-event-derived reconciliation and last-eligible-bid net-P&L reports.
+`--dedicated` selects one instance on the account. Source profiles and economic
+assumptions are retained separately; fixed grids/costs remain authored scenarios.
+
+Copy that single file and the selected `configs/live/okx-btc-usdt.json` or
+`configs/live/bitfinex-btc-usd.json` outside the checkout. With an installed core
+interpreter, run each venue into a separate absent output:
+
+```sh
+/absolute/core/bin/python -I /absolute/copied/public_paper.py \
+  --config /absolute/copied/okx-btc-usdt.json --output /absolute/fixture-okx
+/absolute/core/bin/python -I /absolute/copied/public_paper.py \
+  --config /absolute/copied/bitfinex-btc-usd.json --output /absolute/fixture-bitfinex
+```
+
+By default, scripted native frames establish deterministic economic expectations.
+Add `--no-trade` for zero economics, `--adverse 1.00` for the higher-cost case, or
+`--dedicated` for one active instance. The discovered
+[workflow tests](integration/test_public_paper_workflow.py) cover those distinct
+cases on both venues, copy the consumer outside the checkout, and verify retained
+results and exact replay in a second isolated process. Run them with:
+
+```sh
+uv run --frozen --no-editable pytest -q -m integration \
+  --basetemp=/private/tmp/public-paper-tests tests/integration/test_public_paper_workflow.py
+```
+
+`--live --adverse 0.01` explicitly selects actual public network input, bounded
+to 20 frames or ten seconds. It sends only public subscriptions. The output keeps
+the account SQLite journal, original captures, manifests, delivery clocks,
+matching traces, child orders/costs, independent reconciliation and reports.
+It distinguishes observed public source from modeled execution; a finite capture
+cannot qualify historical continuity, queue behavior, calibrated venue costs,
+service availability or profitability. Actual source runs and artifact identities
+belong to the [delivery record](../docs/roadmap/paper-integration.md).
+
+To verify a retained run in a fresh process, repeat its original command with
+`--replay` and the same output path, flags, copied consumer and installed artifact.
+This mode makes no network request. It checks the retained configuration,
+consumer and implementation identities, rebuilds native source state from saved
+deliveries, and writes `replay-verification.json` with equal before/after hashes
+for accounts, child orders, net orders and matching traces. Existing economic
+reports and reconciliation files remain byte-identical.
+
+The focused `test_paper_matching.py`, `test_account_paper_matching.py`,
+`test_public_paper.py` and `test_paper_reports.py` cases cover timing, liquidity,
+cancel/fill races, uncertainty, failure blocks, duplicate/restart behavior and
+independent monetary reconciliation. Existing shared-budget, allocation and
+operational tests remain evidence for their unchanged boundaries.
+
 ## Shared account admission and reconciliation
 
 The [account consumer](integration/consumers/runtime/shared_account.py) runs

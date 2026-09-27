@@ -51,12 +51,59 @@ their reservations until a terminal outcome and reconciliation. The result
 returns current account views, tagged child orders, physical net orders and
 batch outcomes with `submission_attempted=False`.
 
-This workflow processes explicit local paper/account facts. It does not connect
-to venue private streams, submit orders, or infer fills from observed book
-liquidity. Shadow mode refuses fill events. Physical OKX and Bitfinex execution
-and account conformance remain MR11 qualification; broader multiple-instance
-deployment remains MR14. `run_paper` and `run_live_paper` continue to provide the
-existing dedicated-account candidate and live-input paths.
+`run_shared_paper` preserves the explicit normalized-fact workflow. For automatic
+native-book matching use `run_live_shared_paper` below. Shadow mode refuses fill
+events. `run_paper` and `run_live_paper` retain the dedicated candidate paths;
+broader multiple-instance deployment remains MR14 and authenticated execution is KIV.
+
+## Automatic public-input accounts
+
+`run_live_shared_paper` composes the existing native `CaptureRunner`,
+`LiveBookDecisionSource`, `BookRegistry`, `SharedDecisionRuntime` and
+`AccountJournal`. It supports one selected OKX or Bitfinex spot instrument/account
+per invocation, with one dedicated instance or several sharing the account.
+Supply `AccountConfiguration`, selected `SharedStrategyBinding` values, a
+`PaperExecutionScenario`, one native `InputRequirement`/`CaptureRequest`, an
+input adapter implementing `SharedBookInputs`, the account journal path and an
+absent output directory. The input adapter supplies pure feature/prediction
+contexts for the existing decision SDK; policy state remains in the journal.
+It must preserve native input identity, actual cutoff and the independently
+observed ask-valued account quote. Frozen candidate loading remains owned by
+`CandidateLoader`; this bounded composition does not add promotion or activation.
+
+Before decisions, supply a complete independently derived `AccountObservation`
+when the journal requires opening or recovery reconciliation. The workflow never
+constructs a successful reconciliation from its own output. For each eligible
+book it first matches earlier orders and then coordinates new decisions, so the
+decision's input cannot also fill that new order. Matching uses the declared
+entry/cancel delays, fee, adverse price and take fraction. All physical net fills
+and child allocations commit with finite touch liquidity in one account transaction.
+Two distinct active reference policies exercise the public extension points;
+their formulas are engineering workloads, not profitability evidence.
+
+Output retains `manifest.json`, native `capture/`, fsynced `deliveries.jsonl`,
+`paper-result.json`, `execution-traces.json` and `cost-report.json`. The manifest
+pins configuration, source/implementation, book registry, policies, execution
+assumptions and `last_eligible_bid_v1` mark policy. Reports require fresh marks
+for all open holdings and retain exact account/strategy P&L, fees and slippage.
+Slippage already paid through effective fill prices is disclosed without a second
+deduction. Gas is explicitly inapplicable for the off-chain spot profile, with
+a retained reason; applicable gas requires a future activity/accounting contract.
+
+Replay retained `SharedBookDelivery` envelopes through a fresh
+`SharedPaperCaptureObserver` over the same source/registry configuration. Native
+state rebuilds from the beginning of the recording; exact old account/decision
+retries preserve newer state. A new capture uses a new recording and waits for
+fresh synchronization. Known invalid input blocks admission without releasing
+unresolved exposure. Completion neither cancels orders nor liquidates holdings.
+This is a bounded local invocation; service fencing/activation, deployment-wide
+scheduling, dashboards and capacity qualification stay in MR13/MR14/MR12/MR15.
+
+The [installed acceptance consumer](../../../tests/integration/consumers/runtime/public_paper.py)
+adds independently calculated balances and order cumulatives, reconciliation,
+replay, losing/no-trade and adverse-cost controls. The
+[test guide](../../../tests/README.md#automatic-public-paper-acceptance) owns commands;
+the [delivery record](../../../docs/roadmap/paper-integration.md) owns actual evidence.
 
 `run_live_paper` is an asynchronous bounded public-book workflow. It accepts the
 same candidate/configuration plus a `CaptureRequest`, capture output and journal
@@ -97,6 +144,6 @@ the execution wheel owns only the portable order/account boundary.
 
 All modes are local and non-executable. Native input supports declared OKX/Bitfinex
 spot books; other named sources use `run_paper` and must satisfy the candidate's
-admitted signatures. Shared-account coordination is a local paper/shadow spot
-increment over normalized events. Venue order/account conformance, full MR14
+admitted signatures. Shared-account coordination accepts normalized facts or
+automatically matched public books. Authenticated venue conformance, full MR14
 multi-instance deployment and production activation remain separate outcomes.

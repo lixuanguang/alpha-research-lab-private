@@ -1,7 +1,7 @@
 # Platform infrastructure roadmap
 
 Owner: repository founder; quant development owns infrastructure delivery.
-Status updated 2026-09-26. Delivery policy: complete the initial research and
+Status updated 2026-09-27. Delivery policy: complete the initial research and
 paper-trading infrastructure before quant researcher (QR) onboarding. Live trading
 is **KIV (keep in view)** under the [reconsideration gate](#live-trading-kiv-and-reconsideration).
 
@@ -12,12 +12,12 @@ commands and evidence identities remain available in Git history.
 
 The completed MR09A saved-book baseline retains its historical identity. The
 remaining work uses MR01–MR17, with MR07A/MR07B extending the completed MR07
-increment without renumbering later milestones. MR01–MR07B and MR09 are complete
-for the bounded scopes stated below. MR08 has a delivered local account/risk
-increment, while integrated paper-account qualification through MR11 remains open.
-MR10 has a delivered local operational increment; MR11 has implemented bounded
-test-venue execution/account paths with software conformance. Their external
-qualification remains unavailable and is deferred from the onboarding gate.
+increment without renumbering later milestones. MR01–MR09 (including MR07A/MR07B)
+and MR11 are complete for the bounded scopes stated below. MR08/MR11 now include
+installed OKX/Bitfinex public-input paper matching, independent reconciliation and
+retained exact cost/P&L reports. MR10 has a delivered local operational increment.
+Native authenticated test-venue qualification remains unavailable and KIV; its
+existing software evidence is retained separately from public-paper acceptance.
 MR12 now delivers a local monitoring increment; integrated paper operating
 qualification and MR13–MR17 remain open, including their
 explicitly owned prerequisite slices.
@@ -25,10 +25,11 @@ P1 stays deferred and unaccepted.
 
 This revision replaces live-capable delivery with paper-trading delivery.
 Feature-store, portfolio/netting, second-venue market-data and paper simulation,
-dashboard, capacity and handoff requirements remain. All MR01–MR17 outcomes,
+dashboard, capacity and handoff requirements retain their stated acceptance gates.
+All MR01–MR17 outcomes,
 including MR07A/MR07B, remain mandatory within the revised paper scope before
 formal QR onboarding. Removing live qualification from that scope does not mark
-the remaining paper integration complete or change historical evidence.
+later operating milestones complete or change historical evidence.
 
 The [QR implementation guide](../../examples/README.md) explains how researchers
 use the available capabilities. The [research program](research-program.md) owns
@@ -41,7 +42,9 @@ owns shared contracts.
 The supported research path is configured acquisition or capture → retained raw
 inputs → validation and versioned publication → explicit snapshot queries/replay
 → EDA, model studies or configured bounded spot economics → retained costed
-reports.
+reports. The installed [public-paper application](../../src/applications/paper/README.md#automatic-public-input-accounts)
+now connects native books to reference decisions, portfolio/risk, paper matching,
+attributed ledgers, independent reconciliation and retained cost/P&L evidence.
 
 The [data command reference](../../src/market_data/README.md) owns current
 invocations. The [saved L2 workflow](../research/l2-book-backtest.md)
@@ -326,10 +329,10 @@ the research graph's QuantLib release restriction remains in force.
 | MR07 | **[Paper/shadow runtime and OMS](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design) — complete for the [declared local scope](#mr07-delivery-and-acceptance).** Supervise candidates with lifecycle callbacks, timers, market/account/order events and checkpointed instance state. Bind live inputs/features and a durable order-intent journal; support target and order/quote decisions, partial fills, rejects, cancel/replace, unknown outcomes and restart. Keep request acknowledgement separate from accepted order state and confirmed cancellation. Stable client IDs, deduplication and one fenced execution owner prevent duplicate effects; reconcile an uncertain submission before retry. Same-component replay/live-input paper and shadow runs suppress executable submission. | MR05 and applicable MR04 serving; MR06 before deployment; base independent spot controls remain active throughout |
 | MR07A | **[Common BBO and incremental L3 aggregates](#mr07a-common-bbo-and-incremental-l3-aggregates) — complete for the declared per-book scope.** Expose one typed per-book quote contract for native L2/L3, maintain exact L3 quantities/counts by side and price during lifecycle updates, and integrate existing research and paper consumers. Preserve native identity, clocks, quality and recovery; verify against independent full aggregation. | Completed MR01–MR07 contracts and consumers; preserve MR06 package boundaries |
 | MR07B | **[Book registry and consolidated BBO](#mr07b-book-registry-and-consolidated-bbo) — complete for the declared read-only scope.** Own independent books by venue/instrument and expose per-venue and consolidated BBO queries over explicitly equivalent instruments. Scan cached eligible venue quotes with causal cutoffs, freshness, provenance, ties and partial-coverage semantics. | MR07A; existing reference/capability admission and MR07 paper/replay interfaces |
-| MR08 | **[Independent paper risk and account reconciliation](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile simulated orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Uncertain orders, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate both venues' paper ledgers through MR11. | MR07 and existing risk/accounting; authenticated physical venue reconciliation is KIV |
+| MR08 | **[Independent paper risk and account reconciliation](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk) — complete for the [bounded paper scope](#mr08-delivery-and-acceptance).** Enforce authorized instruments and instance/account/firm limits with atomic pending/uncertain exposure reservations, price/size/freshness checks and independent protection. Reconcile simulated orders, fills, positions, currency cash, fees/rebates and transfers; duplicate events do not double-book. Uncertain orders, stale state and breaks preserve exposure and trigger a defined safe response. Exercise shared-budget admission before portfolio netting, then integrate both venues' paper ledgers through MR11. | MR07 and existing risk/accounting; authenticated physical venue reconciliation is KIV |
 | MR09 | **[Portfolio and shared-account infrastructure](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
 | MR10 | **[Paper operational qualification](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Final paper acceptance incorporates MR11–MR14 results; private-stream and real venue recovery qualification is KIV. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
-| MR11 | **[OKX and Bitfinex paper execution/account integration](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design).** Deliver live-public-input spot paper execution through the same strategy/OMS/risk contracts, with per-venue capability/specification profiles, simulated order lifecycle, balances and reconciliation. Expose explicit fill, delay, transaction-cost and slippage assumptions, applicable gas-cost inputs or recorded inapplicability, and sensitivity scenarios. Retain separate per-venue integrated paper traces, cost attribution and net P&L; reconcile fills/fees to each strategy and the account. Qualify one complete paper path, then the second. Existing native test adapters are supplementary; authenticated private venue qualification is KIV. | MR07–MR08 contracts and MR03 cost interfaces; MR06 before paper deployment; public market-data access; MR09 attribution; no private trading credentials required |
+| MR11 | **[OKX and Bitfinex paper execution/account integration](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design) — complete for the [bounded paper scope](#mr11-delivery-and-acceptance).** Deliver live-public-input spot paper execution through the same strategy/OMS/risk contracts, with per-venue capability/specification profiles, simulated order lifecycle, balances and reconciliation. Expose explicit fill, delay, transaction-cost and slippage assumptions, applicable gas-cost inputs or recorded inapplicability, and sensitivity scenarios. Retain separate per-venue integrated paper traces, cost attribution and net P&L; reconcile fills/fees to each strategy and the account. Qualify one complete paper path, then the second. Existing native test adapters are supplementary; authenticated private venue qualification is KIV. | MR07–MR08 contracts and MR03 cost interfaces; MR06 before paper deployment; public market-data access; MR09 attribution; no private trading credentials required |
 | MR12 | **[Monitoring, metrics, charts and alerts](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence) — local increment delivered; [integrated paper qualification open](#mr12-delivery-and-acceptance).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account views. Register a custom research metric/chart and delayed-label diagnostic without modifying collectors or runtime; test telemetry loss independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; basic telemetry ships earlier with each capability |
 | MR13 | **[Paper activation and recovery machinery](../governance/workflow.md#activate-and-operate).** Implement disabled-by-default paper manifests and separate paper authorization envelopes, scoped simulated limits, fencing and recovery. Provide distinct block-new-exposure, cancel and reduce-position operations with defined stale-data, disconnected and illiquid paper behavior. Reject absent/expired paper authority and incompatible code/model/schema/state; prove restart and rollback preserve simulated fills and costs without duplication. Paper configuration must reject production submission authority. Live activation and external-fill recovery are KIV. | MR06, MR10 paper drills and MR11–MR12; feed results back into final MR10 acceptance |
 | MR14 | **[Multiple-instance integration](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Run different reference components and instruments with isolated/shared-account configurations through paper/shadow; add an instance through configuration, then stop/restart it without losing attribution or weakening other accounts' controls. | MR09, MR12–MR13; live trading remains KIV |
@@ -343,8 +346,8 @@ for MR04's deployed-service acceptance. MR04's deployed services then use the
 verified installation path. MR06 precedes every deployment.
 
 The book-data extension follows MR07 → MR07A → MR07B. These additive milestones
-retain MR01–MR07's accepted scopes and evidence. MR08 can proceed on its existing
-contracts while this extension is built; consumers adopting the common or
+retain MR01–MR07's accepted scopes and evidence. MR08 builds on its existing
+contracts; consumers adopting the common or
 consolidated quote APIs depend on the corresponding follow-on. MR15 owns measured
 data-structure optimization and capacity acceptance; no separate MR07C is planned.
 
@@ -390,14 +393,22 @@ capacity remain outside this scope.
 
 ### MR08 delivery and acceptance
 
-Partial: the local account/risk increment is implemented; integrated two-venue
-paper reconciliation remains to be accepted under the revised scope. Physical
-venue reconciliation remains unqualified and KIV. The execution, accounting and
-risk guides own current behavior. Initial qualification is local cash-funded spot with
-authored grids, a common explicit valuation currency, quote-currency fee reserves
-and normalized paper facts. MR11 adds native base/quote fees and physical wallet
-comparison at the software boundary. FX aggregation and other product mechanics
-remain unsupported; authenticated OKX/Bitfinex account observations are deferred.
+Complete for local cash-funded off-chain spot paper accounts with explicit limits,
+one valuation currency and independently reconciled OKX/Bitfinex modeled effects.
+The installed public-input workflow now matches direct/net orders atomically and
+compares orders, source fills, attributed children, cash, positions and fees against
+independent expected facts. Duplicate/restarted inputs preserve fills, postings,
+policy continuation and unresolved reservations. Existing shared-budget contention,
+transfers/rebates/corrections and operational evidence remain valid; the
+[delivery record](paper-integration.md) identifies renewed numerical and installed
+proof. The execution, risk, portfolio and accounting guides own the contracts.
+
+Public-paper profiles retain authored tick/lot, delay, fee, adverse-price and
+finite-liquidity assumptions. They do not qualify authenticated physical account
+reconciliation, venue execution fidelity, implicit FX or other products. Native
+base/quote fees and wallet comparison retain their earlier software evidence;
+authenticated OKX/Bitfinex observations remain KIV. MR10/MR12–MR15 own wider
+operating qualification and do not become complete through this acceptance.
 
 ### MR09 delivery and acceptance
 
@@ -452,8 +463,8 @@ operating workloads retain their requests, snapshots and summaries under
 `logs/mr10/operating-okx/` and `logs/mr10/operating-bitfinex/`.
 These artifacts are local retained evidence, not published deployment records.
 
-Final MR10 paper acceptance remains open. Next, integrate both MR11 public-input
-paper paths, MR12 monitoring/routing, MR13 paper authorization/reduce-position/
+Final MR10 paper acceptance remains open. Next, incorporate both delivered MR11
+public-input paper paths, MR12 monitoring/routing, MR13 paper authorization/reduce-position/
 recovery and MR14 multi-instance results. Qualify service/alert failure and
 restoration in the selected paper operating environment; local fixtures cannot
 establish an untested deployed service boundary. Older snapshots are restored
@@ -465,10 +476,26 @@ or capital activation is accepted by the retained local evidence.
 
 ### MR11 delivery and acceptance
 
-Partial under the revised paper scope: both spot protocol adapters and the
-integrated test-account path are implemented, but do not alone close the public-input
-paper integration and cost evidence above. The retained implementation and its
-historical validation are described below. The [execution guide](../../src/execution/README.md#test-venue-execution)
+Complete for the bounded installed public-input paper scope: native OKX books and
+Bitfinex R0 feed the existing decision SDK, portfolio/risk, paper OMS/matching,
+account ledger/allocation, independent reconciliation and retained cost/P&L reports.
+Dedicated and shared accounts use explicit versioned execution scenarios. Entry
+and cancellation delays, half-even fees, adverse prices, finite touch liquidity,
+partial fills and GTC/IOC/post-only rules preserve causal timing and limits.
+Unsupported mechanics fail explicitly. Gas is declared inapplicable with a reason
+for off-chain spot; applicable gas accounting and on-chain execution are absent.
+
+Separate installed venue fixtures establish losing/no-trade and adverse-cost
+numbers, attribution and recovery. Actual bounded public-feed runs establish the
+native-source path only. Assumptions remain authored, with no exchange fill,
+queue, latency-calibration or profitability claim. The [delivery record](paper-integration.md)
+retains commands, artifact/source identities, failures, results and precise limits;
+the [paper guide](../../src/applications/paper/README.md#automatic-public-input-accounts)
+owns the user journey. MR12 can consume retained versioned traces/reports; dashboard
+expansion, MR13 activation, MR14 broader deployment and MR15 capacity remain open.
+
+The native private-adapter implementation and its historical validation below are
+supplementary software evidence and remain KIV for external qualification. The [execution guide](../../src/execution/README.md#test-venue-execution)
 and [installed command guide](../../src/applications/execute/README.md#test-venue-commands)
 own behavior and commands. OKX demo and verified Bitfinex paper subaccounts share
 configured reference admission, portfolio/risk, durable physical order identities,
@@ -515,10 +542,9 @@ access was available for that implementation. No authenticated request or test
 order was sent. This unresolved external evidence is retained as a qualification
 limit and deferred from MR17/G5 under the paper delivery policy.
 
-The next required action is to integrate and qualify both venues' public-input
-paper execution, cost/slippage scenarios, paper-account reconciliation and
-retained net P&L through the installed runtime. MR10/MR12–MR15 then qualify paper
-operations, monitoring, recovery, multiple instances and capacity before MR17/G5.
+The next required actions belong to MR10/MR12–MR15: qualify wider paper operations,
+monitoring, activation/recovery, multi-instance deployment and capacity before
+MR17/G5. These operating gates remain open after this bounded integration.
 If live work is reopened, native conformance still needs separately authorized
 OKX demo and Bitfinex paper-account access, account identities, venue specifications
 and bounded test-order envelopes, followed by actual acknowledgement-loss,

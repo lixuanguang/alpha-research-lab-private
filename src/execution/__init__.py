@@ -9,6 +9,9 @@ from execution.accounts import (
     AccountDecision,
     AccountJournal,
     AccountObservation,
+    AccountPaperCost,
+    AccountPaperFill,
+    AccountPaperTrace,
     AccountPhase,
     AccountQuote,
     AccountView,
@@ -24,7 +27,14 @@ from execution.accounts import (
 from execution.journal import PaperOrderJournal
 from execution.lifecycle import SpotOrderLifecycle
 from execution.monitoring import ExecutionMonitoring
-from execution.paper import PaperMarket, PaperMatcher
+from execution.paper import (
+    PaperLiquidityState,
+    PaperMarket,
+    PaperMatcher,
+    PaperMatchEvaluator,
+    PaperMatchProjection,
+    PaperTouchLiquidity,
+)
 from execution.records import (
     AccountReservations,
     EventKind,
@@ -55,6 +65,9 @@ __all__ = [
     "AccountDecision",
     "AccountJournal",
     "AccountObservation",
+    "AccountPaperCost",
+    "AccountPaperFill",
+    "AccountPaperTrace",
     "AccountPhase",
     "AccountQuote",
     "AccountReservations",
@@ -72,9 +85,13 @@ __all__ = [
     "OrderDecision",
     "OrderEvent",
     "OrderState",
+    "PaperLiquidityState",
     "PaperMarket",
+    "PaperMatchEvaluator",
+    "PaperMatchProjection",
     "PaperMatcher",
     "PaperOrderJournal",
+    "PaperTouchLiquidity",
     "PhysicalAccountObservation",
     "PortfolioBatch",
     "PortfolioCommit",

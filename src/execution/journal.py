@@ -11,10 +11,11 @@ from contextlib import closing, contextmanager
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import BinaryIO, Literal, cast
+from typing import TYPE_CHECKING, BinaryIO, Literal, cast
 
 # project library imports
 from accounting import Ledger, LedgerBalance, LedgerState
+from configuration import PaperExecutionScenario
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import (
     AccountReservations,
@@ -29,6 +30,10 @@ from financial_units import Money, Price, Quantity
 from risk import SpotLimits
 from serialization import DomainCodec
 from strategies import ExposureIntent, TargetIntent
+
+if TYPE_CHECKING:
+    # project library imports
+    from execution.paper import PaperMarket
 
 
 class PaperOrderJournal:
@@ -245,10 +250,15 @@ class PaperOrderJournal:
         return True
 
     def claim_market(self, *, epoch: int, identity: str, payload: bytes) -> None:
-        """Bind one quote identity to its exact bytes before any matching effect."""
+        """Bind a legacy quote before its separately committed matching effects."""
         if type(identity) is not str or not identity or type(payload) is not bytes or not payload:
             raise ValueError("paper market claim requires an identity and immutable bytes")
         with self._write(epoch) as connection:
+            if (
+                self._query_one(connection, "SELECT id FROM paper_scenario WHERE id = 1")
+                is not None
+            ):
+                raise ValueError("legacy quote claim cannot enter a scenario-bound journal")
             saved = self._query_one(
                 connection, "SELECT payload FROM markets WHERE market_id = ?", (identity,)
             )
@@ -273,6 +283,101 @@ class PaperOrderJournal:
                 raise ValueError("paper market identity is malformed")
             claims.append((identity, self._blob(row[1])))
         return tuple(claims)
+
+    def match_scenario_market(
+        self, *, epoch: int, market: PaperMarket, scenario: PaperExecutionScenario
+    ) -> tuple[OrderEvent, ...]:
+        """Claim and apply a modeled quote, all fills and liquidity debt atomically.
+
+        The existing legacy touch matcher retains its separate callback recovery
+        contract. A versioned scenario uses this complete transaction so a crash
+        cannot publish a fill while losing the capacity consumed at that touch.
+        """
+        # project library imports
+        from execution.paper import PaperLiquidityState, PaperMatchEvaluator, PaperMatchProjection
+
+        market.__post_init__()
+        scenario.__post_init__()
+        payload = self._codec.encode_json(market)
+        scenario_payload = self._codec.encode_json(scenario)
+        with self._write(epoch) as connection:
+            saved_scenario = self._query_one(
+                connection, "SELECT payload FROM paper_scenario WHERE id = 1"
+            )
+            if saved_scenario is None:
+                if self._query_one(connection, "SELECT market_id FROM markets LIMIT 1") is not None:
+                    raise ValueError("legacy market history cannot adopt an execution scenario")
+                connection.execute(
+                    "INSERT INTO paper_scenario(id, payload) VALUES (1, ?)",
+                    (scenario_payload,),
+                )
+            elif self._blob(saved_scenario[0]) != scenario_payload:
+                raise ValueError("paper execution scenario differs from retained journal")
+            saved = self._query_one(
+                connection, "SELECT payload FROM markets WHERE market_id = ?", (market.identity,)
+            )
+            completed = self._query_one(
+                connection,
+                "SELECT payload FROM paper_market_results WHERE market_id = ?",
+                (market.identity,),
+            )
+            if saved is None:
+                if completed is not None:
+                    raise ValueError("paper market result lacks its original claim")
+                connection.execute(
+                    "INSERT INTO markets(market_id, payload) VALUES (?, ?)",
+                    (market.identity, payload),
+                )
+            elif self._blob(saved[0]) != payload:
+                raise ValueError("paper market identity was reused with different payload")
+            elif completed is None:
+                raise ValueError("paper market was claimed outside completed scenario matching")
+            if completed is not None:
+                original = self._codec.decode_json(self._blob(completed[0]), PaperMatchProjection)
+                original.__post_init__()
+                if (
+                    original.liquidity.last_market_identity != market.identity
+                    or original.liquidity.scenario_identity != scenario.identity
+                ):
+                    raise ValueError("paper market result differs from retained scenario")
+                return original.events
+            saved_liquidity = self._query_one(
+                connection, "SELECT payload FROM paper_liquidity WHERE id = 1"
+            )
+            liquidity = (
+                None
+                if saved_liquidity is None
+                else self._codec.decode_json(self._blob(saved_liquidity[0]), PaperLiquidityState)
+            )
+            prior = tuple(
+                self._codec.decode_json(self._blob(row[0]), OrderEvent)
+                for row in self._query_all(
+                    connection, "SELECT payload FROM events ORDER BY sequence"
+                )
+            )
+            projection = PaperMatchEvaluator(
+                scenario, lot=self.limits.lot, tick=self.limits.tick
+            ).project(
+                market,
+                account_id=self.account,
+                orders=self._orders(connection),
+                prior_events=prior,
+                liquidity=liquidity,
+            )
+            for event in projection.events:
+                _, is_terminal_break = self._apply_event_fact(connection, event)
+                if is_terminal_break:
+                    raise ValueError("terminal order cannot receive a late paper fill")
+            connection.execute(
+                "INSERT INTO paper_liquidity(id, payload) VALUES (1, ?) "
+                "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload",
+                (self._codec.encode_json(projection.liquidity),),
+            )
+            connection.execute(
+                "INSERT INTO paper_market_results(market_id, payload) VALUES (?, ?)",
+                (market.identity, self._codec.encode_json(projection)),
+            )
+            return projection.events
 
     def steps(self) -> tuple[StepRecord, ...]:
         """Read decision/checkpoint commits in durable sequence."""
@@ -502,6 +607,24 @@ class PaperOrderJournal:
                 """CREATE TABLE IF NOT EXISTS fill_ids (
                     fill_id TEXT PRIMARY KEY,
                     order_id TEXT NOT NULL,
+                    payload BLOB NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS paper_scenario (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    payload BLOB NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS paper_liquidity (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    payload BLOB NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS paper_market_results (
+                    market_id TEXT PRIMARY KEY,
                     payload BLOB NOT NULL
                 )"""
             )

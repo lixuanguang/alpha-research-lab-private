@@ -4,8 +4,9 @@
 source has two distinct ledgers. [`ledger.py`](ledger.py) retains the original
 single-instrument simulation and dedicated paper contract;
 [`accounts.py`](accounts.py) adds a normalized account posting history for
-multiple instruments and currencies. These schemas are not interchangeable, and
-the new account ledger does not calculate P&L or marks. The
+multiple instruments and currencies. These schemas are not interchangeable;
+the account ledger retains postings, while [`paper.py`](paper.py) calculates
+marked paper P&L from that state and explicit source evidence. The
 [MR08 roadmap record](../../docs/roadmap/README.md#mr08-delivery-and-acceptance)
 owns the wider risk and reconciliation acceptance status.
 
@@ -99,6 +100,52 @@ accounting does not silently choose a valuation currency, FX source, fee
 rounding rule or display precision. Fee and rebate postings here change
 currency cash; representing a native base-asset fee as a position deduction
 requires an explicit instrument-to-currency mapping before venue qualification.
+
+## Paper cost and net P&L reports
+
+`PaperAccountReporter.build` in [`paper.py`](paper.py) values one complete
+`AccountState` at an explicit UTC knowledge cutoff. The caller supplies exactly
+one `PaperPositionMark` for each open `Dimension`, with its effective availability
+time and a maximum allowed age. A mark must be available by the cutoff, fresh,
+and no older than the latest known fill or native asset cost on its position.
+Extra, missing, stale and incompatible marks fail. This is availability-based
+freshness; it does not fabricate a market source timestamp.
+
+The caller also supplies every current direct or attributed child `Fill` as an
+`AttributedPaperFill`, retaining its reference and effective prices. Every fill
+must match one current ledger posting in identity, owner, time, quantity and
+effective price. `PaperCostEvidence` covers each current fee or rebate posting
+exactly once, in its native currency, and explicitly records a zero-cost fill
+when applicable. Positive evidence is a charge; negative evidence is a rebate.
+Original positive `Fill.fee` values must have their initial posting; later fee
+corrections use the current effective posting or an explicit zero evidence
+record. Fee-only child allocations can name their retained physical source
+fill. Missing or unrelated costs fail before a report is returned. The execution
+journal retains the modeled source and child events; a report consumer maps its
+`paper_report_facts` result to the accounting input records.
+
+The versioned `PaperAccountReport` contains a physical account scope and a
+scope for each instance with posting history. Each scope retains its exact
+`AccountSnapshot` (currency cash, positions, fees, rebates and explicit
+transfers), marked positions and native-currency results. For each currency,
+`nav = cash + marked position value` and `net_pnl = nav − transfers`. Execution
+slippage is separately attributed as the signed sum of
+`(effective price − reference price) × fill quantity`. Effective execution
+cash already includes that difference, so slippage is not debited again. The
+account's net P&L and slippage must equal the sum of instance results by
+currency. A native base-asset fee reduces its position and hence marked NAV;
+its native fee amount remains visible in the snapshot without an invented FX
+conversion. An open instrument traded in multiple quote currencies cannot be
+marked into a single native-currency result and is rejected.
+
+`PaperGasPolicy` binds the report to an authored scenario ID and a nonempty
+off-chain gas inapplicability reason. Applicable gas is rejected until activity
+and posting lineage exist; no zero gas cost is inferred for on-chain activity.
+These results are deterministic software accounting from supplied paper facts,
+not an empirical profitability result or a venue execution claim. The
+[paper report tests](../../tests/unit/accounting/test_paper_reports.py) include
+independent no-trade, losing, adverse execution, native fee and correction
+calculations, plus missing-input failures.
 
 ## Recovery and consumers
 

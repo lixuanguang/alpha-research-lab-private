@@ -118,7 +118,12 @@ class PaperCandidateRuntime:
         self.loaded, self.config, self.journal = loaded, config, journal
         self._source, self._features = source, features
         self._codec = DomainCodec()
-        self._matcher = PaperMatcher(journal, fee_rate=config.fee_rate, lot=config.lot)
+        self._matcher = PaperMatcher(
+            journal,
+            fee_rate=config.fee_rate,
+            lot=config.lot,
+            scenario=config.execution,
+        )
         self._state: PaperCheckpoint | None = None
         self._epoch: int | None = None
 
@@ -197,7 +202,10 @@ class PaperCandidateRuntime:
         self._admit_time(market.at)
         if market.bid.per != self.config.maximum.dimension:
             raise ValueError("paper market instrument differs from its account")
-        self.journal.claim_market(epoch=self._fence(), identity=market.identity, payload=payload)
+        if self.config.execution is None or self.config.mode == "shadow":
+            self.journal.claim_market(
+                epoch=self._fence(), identity=market.identity, payload=payload
+            )
         if self.config.mode == "paper":
             self._matcher.match(market, epoch=self._fence())
         self._drain_orders()

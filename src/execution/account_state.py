@@ -20,6 +20,8 @@ from execution.account_records import (
     AccountControlResult,
     AccountDecision,
     AccountObservation,
+    AccountPaperBinding,
+    AccountPaperTrace,
     AccountQuote,
     AccountView,
     NativeFeeAllocation,
@@ -127,6 +129,8 @@ class _FirmState(WireRecord, frozen=True):
     native_fills: tuple[_SavedNativeFill, ...] = ()
     failed_native_fills: tuple[NativeFill, ...] = ()
     physical_reconciliations: tuple[_PhysicalReconciliation, ...] = ()
+    paper_bindings: tuple[AccountPaperBinding, ...] = ()
+    paper_traces: tuple[AccountPaperTrace, ...] = ()
     schema_version: Literal["account-journal-v2"] = "account-journal-v2"
 
     def __post_init__(self) -> None:
