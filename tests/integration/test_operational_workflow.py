@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -57,3 +58,21 @@ class TestOperationalWorkflow:
         assert summary["alert_delivery"] == ["delivered", "failed"]
         assert summary["monitoring_preserved_account"] is True
         assert type(summary["dashboard_identity"]) is str
+        assert type(summary["installed_implementation"]) is str
+        assert Path(str(summary["installed_interpreter"])).is_absolute()
+        assert "/site-packages/" in str(summary["installed_paper_monitoring_source"])
+        assert (
+            summary["reference_consumer_sha256"]
+            == hashlib.sha256((tmp_path / "output/reference-consumer.py").read_bytes()).hexdigest()
+        )
+        alerts = msgspec.convert(summary["dashboard_alerts"], type=dict[str, object], strict=True)
+        assert alerts["socket_send_status"] == ["delivered", "failed", "delivered"]
+        assert alerts["socket_accepted"] == [True, False, True]
+        assert alerts["receiver_observed"] == [True, False, True]
+        assert alerts["human_acknowledged"] == "not_tested"
+        assert alerts["failed_attempt_replayed"] is False
+        identities = msgspec.convert(alerts["delivery_identities"], type=list[str], strict=True)
+        assert len(set(identities)) == 3
+        assert (tmp_path / "output/dashboard-alert-evidence.json").is_file()
+        for label in ("socket-accepted", "receiver-unavailable", "receiver-restored"):
+            assert (tmp_path / "output" / f"dashboard-{label}/manifest.json").is_file()

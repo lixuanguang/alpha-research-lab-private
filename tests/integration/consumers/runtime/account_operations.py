@@ -4,6 +4,8 @@ from __future__ import annotations
 
 # standard library imports
 import argparse
+import hashlib
+import inspect
 import os
 import socket
 import sqlite3
@@ -35,7 +37,14 @@ from applications.execute import (
     MonitoringConfiguration,
 )
 from configuration import AccountConfiguration
-from execution import AccountControl, AccountJournal, AccountObservation, AccountQuote, OrderEvent
+from execution import (
+    AccountControl,
+    AccountJournal,
+    AccountObservation,
+    AccountQuote,
+    OrderEvent,
+    PaperMonitoring,
+)
 from financial_units import Currency, Dimension, ExactRatio, QuantityKind
 from reference_data.instruments import InstrumentId
 from runtime import AccountWorkspace, ImplementationIdentity, ProcessSupervisor
@@ -411,7 +420,9 @@ class AccountOperationsConsumer:
             assert lost_alert.alerts[-1].status == "failed"
             assert lost_alert.accounts[0].phase == "stopped"
             assert lost_alert.accounts[0].ledger == resumed.accounts[0].ledger
-        dashboard = self._monitor()
+        dashboard, dashboard_alerts = self._monitor()
+        consumer_bytes = Path(__file__).read_bytes()
+        (self.output / "reference-consumer.py").write_bytes(consumer_bytes)
         summary: dict[str, object] = {
             "qualification": "local-paper-fixture",
             "venue_label": self.venue,
@@ -427,13 +438,126 @@ class AccountOperationsConsumer:
             "alert_delivery": ["delivered", "failed"],
             "fault_drills": evidence,
             "installed_implementation": ImplementationIdentity.sha256(),
+            "installed_interpreter": sys.executable,
+            "installed_paper_monitoring_source": inspect.getfile(PaperMonitoring),
+            "reference_consumer_sha256": hashlib.sha256(consumer_bytes).hexdigest(),
             "dashboard_identity": dashboard.identity,
+            "dashboard_alerts": dashboard_alerts,
             "monitoring_preserved_account": True,
         }
         (self.output / "summary.json").write_bytes(self.codec.encode_json(summary))
 
-    def _monitor(self) -> DashboardSnapshot:
-        """Run the installed retained dashboard command over actual account observations."""
+    def _monitor(self) -> tuple[DashboardSnapshot, dict[str, object]]:
+        """Qualify installed dashboard delivery, outage and recovery over account facts."""
+        journal = AccountJournal(self.journal_path, self.config)
+        before = (journal.accounts(), journal.orders(), journal.net_orders(), journal.controls())
+        store = TelemetryStore(self.output / "monitoring.sqlite")
+        with TemporaryDirectory(prefix="paper-alert-", dir="/private/tmp") as temporary:
+            address = Path(temporary) / "alerts.sock"
+            self._project_paper_account(journal, store, "initial-monitoring")
+            first_config = self._monitoring_configuration(store, str(address))
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
+                receiver.bind(str(address))
+                receiver.settimeout(0.25)
+                first = self._run_monitor(first_config, "socket-accepted")
+                assert first.alert_results[0].state == "triggered"
+                first_delivery = first.alert_results[0].delivery
+                assert first_delivery is not None and first_delivery.status == "delivered"
+                first_payload = receiver.recv(1024)
+                assert first_delivery.control_sha256.encode() in first_payload
+                assert self._run_monitor(first_config, "socket-accepted") == first
+                try:
+                    receiver.recv(1024)
+                except TimeoutError:
+                    pass
+                else:
+                    raise AssertionError("identical dashboard retry delivered a second alert")
+            address.unlink()
+            self._project_paper_account(journal, store, "receiver-unavailable")
+            failed_config = self._monitoring_configuration(store, str(address))
+            failed = self._run_monitor(failed_config, "receiver-unavailable")
+            assert failed.alert_results[0].state == "triggered"
+            failed_delivery = failed.alert_results[0].delivery
+            assert failed_delivery is not None and failed_delivery.status == "failed"
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
+                receiver.bind(str(address))
+                receiver.settimeout(0.25)
+                assert self._run_monitor(failed_config, "receiver-unavailable") == failed
+                try:
+                    receiver.recv(1024)
+                except TimeoutError:
+                    pass
+                else:
+                    raise AssertionError("failed alert attempt was silently replayed")
+                self._project_paper_account(journal, store, "receiver-restored")
+                restored_config = self._monitoring_configuration(store, str(address))
+                restored = self._run_monitor(restored_config, "receiver-restored")
+                assert restored.alert_results[0].state == "triggered"
+                restored_delivery = restored.alert_results[0].delivery
+                assert restored_delivery is not None and restored_delivery.status == "delivered"
+                restored_payload = receiver.recv(1024)
+                assert restored_delivery.control_sha256.encode() in restored_payload
+        after = (journal.accounts(), journal.orders(), journal.net_orders(), journal.controls())
+        assert after == before
+        values = {result.spec.name: result.value for result in restored.results}
+        assert values["risk.blocked"] == ExactRatio(numerator="1", denominator="1")
+        assert values[f"account.cash.{self.facts.currency.code}"] == ExactRatio(
+            numerator="2489999", denominator="50"
+        )
+        evidence: dict[str, object] = {
+            "socket_send_status": [
+                first_delivery.status,
+                failed_delivery.status,
+                restored_delivery.status,
+            ],
+            "socket_accepted": [True, False, True],
+            "receiver_observed": [True, False, True],
+            "human_acknowledged": "not_tested",
+            "failed_attempt_replayed": False,
+            "delivery_identities": [
+                first_delivery.identity,
+                failed_delivery.identity,
+                restored_delivery.identity,
+            ],
+            "first_payload_sha256": hashlib.sha256(first_payload).hexdigest(),
+            "restored_payload_sha256": hashlib.sha256(restored_payload).hexdigest(),
+        }
+        (self.output / "dashboard-alert-evidence.json").write_bytes(
+            self.codec.encode_json(evidence)
+        )
+        return restored, evidence
+
+    def _project_paper_account(
+        self, journal: AccountJournal, store: TelemetryStore, sample: str
+    ) -> None:
+        """Append a fresh read-only paper view without fabricating an economic report."""
+        events = PaperMonitoring().account(
+            journal,
+            account_id="shared",
+            observed_at=datetime.now(UTC),
+            sample=sample,
+            report=None,
+        )
+        assert events and all(event.context.account == "shared" for event in events)
+        assert {
+            event.context.strategy for event in events if event.context.strategy is not None
+        } == {
+            "alpha",
+            "beta",
+        }
+        missing_net = next(
+            event
+            for event in events
+            if event.context.scope == "account:shared"
+            and event.name == f"paper.net_pnl.{self.facts.currency.code}"
+        )
+        assert missing_net.value is None and missing_net.missing_reason == "report_unavailable"
+        store.append(events)
+
+    def _monitoring_configuration(
+        self, store: TelemetryStore, address: str
+    ) -> MonitoringConfiguration:
+        """Select one exact diagnostic alert over the retained blocked-account view."""
         now = datetime.now(UTC)
         query = MonitoringQuery(
             scope="account:shared",
@@ -442,10 +566,9 @@ class AccountOperationsConsumer:
             end=now,
             as_of=now,
         )
-        events = TelemetryStore(self.output / "monitoring.sqlite").query(query)
-        config = MonitoringConfiguration.defaults(query, events)
+        config = MonitoringConfiguration.defaults(query, store.query(query))
         risk = next(metric for metric in config.metrics if metric.name == "risk.blocked")
-        config = replace(
+        return replace(
             config,
             dashboard=replace(
                 config.dashboard,
@@ -456,14 +579,16 @@ class AccountOperationsConsumer:
                         operator=">",
                         threshold=ExactRatio(numerator="0", denominator="1"),
                         units="boolean",
-                        address="/private/tmp/mr12-absent.sock",
+                        address=address,
                     ),
                 ),
             ),
         )
-        config_path = self.output / "monitoring-configuration.json"
+
+    def _run_monitor(self, config: MonitoringConfiguration, label: str) -> DashboardSnapshot:
+        """Render and reopen one retained view through the installed command."""
+        config_path = self.output / f"monitoring-{label}.json"
         config_path.write_bytes(self.codec.encode_json(config))
-        before = AccountJournal(self.journal_path, self.config).accounts()
         command = [
             str(Path(sys.executable).parent / "alpha-execute"),
             "monitor",
@@ -472,25 +597,15 @@ class AccountOperationsConsumer:
             "--journal",
             str(self.output / "monitoring.sqlite"),
             "--output",
-            str(self.output / "dashboard"),
+            str(self.output / f"dashboard-{label}"),
             "--alerts",
             str(self.output / "alerts.sqlite"),
         ]
-        for _ in range(2):
-            result = subprocess.run(
-                command, cwd=self.output, capture_output=True, check=False, timeout=30
-            )
-            assert result.returncode == 0, result.stderr
-        snapshot = DashboardSnapshot.read(self.output / "dashboard")
-        values = {result.spec.name: result.value for result in snapshot.results}
-        assert values["risk.blocked"] == ExactRatio(numerator="1", denominator="1")
-        assert values[f"account.cash.{self.facts.currency.code}"] == ExactRatio(
-            numerator="2489999", denominator="50"
+        result = subprocess.run(
+            command, cwd=self.output, capture_output=True, check=False, timeout=30
         )
-        assert snapshot.alert_results[0].delivery is not None
-        assert snapshot.alert_results[0].delivery.status == "failed"
-        assert AccountJournal(self.journal_path, self.config).accounts() == before
-        return snapshot
+        assert result.returncode == 0, result.stderr
+        return DashboardSnapshot.read(self.output / f"dashboard-{label}")
 
     def _backup_failures(self, restored_root: Path) -> None:
         """Reject running state, incompatible config and a reused restore destination."""

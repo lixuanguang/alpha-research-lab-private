@@ -17,6 +17,7 @@ from accounting import (
     PaperGasPolicy,
     PaperPositionMark,
 )
+from applications.paper.monitoring import PaperMonitoringResult, retain_public_paper_monitoring
 from applications.paper.shared import SharedPaperResult
 from configuration import (
     AccountConfiguration,
@@ -49,6 +50,7 @@ class SharedPublicPaperResult:
     book_registry: BookRegistryConfiguration
     last_market: PaperMarket | None
     report: PaperAccountReport
+    monitoring: PaperMonitoringResult
 
 
 async def run_live_shared_paper(
@@ -65,6 +67,7 @@ async def run_live_shared_paper(
     observations: tuple[AccountObservation, ...] = (),
     history_capacity: int = 1000,
     transport: CaptureTransport | None = None,
+    alert_socket: str | None = None,
 ) -> SharedPublicPaperResult:
     """Run selected policies over a finite native feed without private access.
 
@@ -113,6 +116,7 @@ async def run_live_shared_paper(
         )
     )
     journal = AccountJournal(journal_path, config)
+    initial_traces = frozenset(trace.input_sha256 for trace in journal.paper_traces(account_id))
     runtime = SharedDecisionRuntime(journal, bindings)
     observer = SharedPaperCaptureObserver(
         source=source,
@@ -125,8 +129,10 @@ async def run_live_shared_paper(
         delivery_path=output / "deliveries.jsonl",
     )
     codec = DomainCodec()
+    owns_output = False
     try:
         output.mkdir(parents=True, exist_ok=False)
+        owns_output = True
         manifest = {
             "schema_version": "public-paper-run-v1",
             "account_configuration": config,
@@ -213,13 +219,6 @@ async def run_live_shared_paper(
             residuals=journal.portfolio_residuals(account_id),
         )
         (output / "paper-result.json").write_bytes(codec.encode_json(paper))
-        return SharedPublicPaperResult(
-            capture=capture,
-            paper=paper,
-            book_registry=books.config,
-            last_market=observer.last_market,
-            report=report,
-        )
     except BaseException as error:
         try:
             account = next(
@@ -229,4 +228,44 @@ async def run_live_shared_paper(
                 journal.block(account_id, "public_paper_failure")
         except BaseException as block_error:
             error.add_note(f"paper account block also failed: {type(block_error).__name__}")
+        if owns_output:
+            monitoring = retain_public_paper_monitoring(
+                journal,
+                account_id=account_id,
+                request=request,
+                root=output,
+                observed_at=datetime.now(UTC),
+                report=None,
+                decisions=tuple(observer.decisions),
+                prior_trace_ids=initial_traces,
+                summary={},
+                processing_ns=observer.processing_ns,
+                delivered_count=observer.delivered_count,
+                alert_socket=alert_socket,
+                faulted=True,
+            )
+            if monitoring.errors:
+                error.add_note(f"monitoring errors: {monitoring.errors}")
         raise
+    monitoring = retain_public_paper_monitoring(
+        journal,
+        account_id=account_id,
+        request=request,
+        root=output,
+        observed_at=datetime.now(UTC),
+        report=report,
+        decisions=tuple(observer.decisions),
+        prior_trace_ids=initial_traces,
+        summary=capture.summary,
+        processing_ns=observer.processing_ns,
+        delivered_count=observer.delivered_count,
+        alert_socket=alert_socket,
+    )
+    return SharedPublicPaperResult(
+        capture=capture,
+        paper=paper,
+        book_registry=books.config,
+        last_market=observer.last_market,
+        report=report,
+        monitoring=monitoring,
+    )

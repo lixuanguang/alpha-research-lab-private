@@ -69,6 +69,8 @@ class TestPublicPaperWorkflow:
         assert summary["independent_reconciliation"] is True
         assert summary["submission_attempted"] is False
         assert summary["gas_applicable"] is False
+        assert summary["monitoring_reconciled"] is True
+        assert (output / "monitoring-reconciliation.json").is_file()
         pnl = summary["net_pnl"]
         assert isinstance(pnl, str)
         fee = Decimal("0") if no_trade else (Decimal("100") + Decimal(adverse)) * Decimal("0.002")
@@ -106,6 +108,8 @@ class TestPublicPaperWorkflow:
         )
         assert verification["schema_version"] == "public-paper-replay-v1"
         assert verification["equal"] is True
+        assert verification["monitoring_equal"] is True
+        assert verification["monitoring_inserted"] == 0
         assert verification["deliveries_replayed"] == len(
             (output / "run/deliveries.jsonl").read_bytes().splitlines()
         )

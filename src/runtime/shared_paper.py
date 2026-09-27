@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import os
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -117,6 +118,8 @@ class SharedPaperCaptureObserver:
         self._retained_bytes = 0
         self._maximum_bytes = request.config.max_bytes * 4
         self.decisions: list[PortfolioCommit] = []
+        self.processing_ns: int | None = None
+        self.delivered_count = 0
         self.last_market: PaperMarket | None = None
         journal.bind_paper_scenario(account_id, scenario)
 
@@ -134,7 +137,12 @@ class SharedPaperCaptureObserver:
             coordinated_at=self._coordination_time(source.available_at) if selected else None,
         )
         self._retain(delivery)
-        self._apply(delivery, market)
+        started_ns = time.monotonic_ns()
+        try:
+            self._apply(delivery, market)
+        finally:
+            self.processing_ns = time.monotonic_ns() - started_ns
+            self.delivered_count += 1
 
     def deliver(self, delivery: SharedBookDelivery) -> None:
         """Replay one retained envelope into a fresh source and an existing account journal."""

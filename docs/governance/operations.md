@@ -1,9 +1,11 @@
 # Operations and security runbook
 
 This runbook owns the implemented local installation and paper account recovery
-lifecycle and the requirements for later deployed strategies/services. Paper
-activation and complete paper operating monitoring remain open. Physical venue
-stop/cancel and other live operations are
+lifecycle and the requirements for later deployed strategies/services. The
+public-paper workflow now emits a finite final monitoring view; continuous
+operating monitoring, acceptance and activation remain open. The
+[paper-monitoring record](../roadmap/paper-monitoring.md) owns its integration
+evidence and limits. Physical venue stop/cancel and other live operations are
 [KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration).
 Add the selected target, numeric limits and tested responses to the strategy's
 runbook before operation. The repository does not claim live readiness.
@@ -12,8 +14,9 @@ The operating destination includes multiple strategy instances, accounts, venues
 and asset classes. Quant development must deliver the initial OKX/Bitfinex spot
 paper operating infrastructure before QR onboarding, using reference instances
 and public-input paper environments under the [platform roadmap](../roadmap/README.md).
-Authenticated venue qualification is deferred from that gate. Live procedures
-below are retained requirements for reconsideration, not current delivery scope.
+Private authenticated venue qualification is KIV outside the bounded
+paper-acceptance gate. Live procedures below are retained requirements for
+reconsideration, not current delivery scope.
 Its commands, dashboards, default operational metrics and recovery procedures
 must not wait for a selected QR strategy. QR later supplies strategy-specific
 metrics, chart definitions and diagnostic thresholds through supported interfaces;
@@ -213,12 +216,19 @@ the failed write cannot record a block; process termination must precede recover
 Alert failure never clears a hard control. Durable account controls and pending
 orders survive restart; a new process must inspect and reconcile before admission.
 
+The public-paper monitoring output is a finite end-of-invocation snapshot. Its
+immutable receipt envelope, recovery call and dashboard files are described in
+the [MR12 monitoring record](../roadmap/paper-monitoring.md) and
+[telemetry guide](../../src/telemetry/README.md). It does not keep a background
+monitor running or change the account when a diagnostic fails.
+
 The local drills exercise real process termination, SQLite capacity exhaustion,
 local datagram delivery/loss and fixture market/protocol faults. They reuse MR04
 workspace/feature/job restoration and collector failure proofs. They do not
 establish host-volume reliability, remote service disaster recovery, authenticated
 private-stream reconnect, venue timeout behavior, remote alert acknowledgement,
-deployment failover or production readiness. The
+deployment failover or production readiness. Private venue qualification remains
+KIV outside paper acceptance. The
 [MR10 record](../roadmap/README.md#mr10-delivery-and-acceptance)
 retains the remaining integrated acceptance boundary.
 
@@ -255,10 +265,12 @@ Alert on stale data, missing heartbeat, reject or error bursts, position or cash
 mismatches, reconciliation breaks, and limit breaches. Retain orders, fills,
 state transitions, and alert outcomes for the operating lifetime.
 
-On an alert, stop new orders, cancel where safe, preserve state and logs, and
-reconcile against the venue before resuming. If the founder is unavailable,
-the process must take its defined safe action automatically. Test stop,
-restart, backup/restore, rollback, and reconciliation before increasing limits.
+For a later authenticated venue operation, the owning runbook must stop new
+orders, cancel where safe, preserve state and logs, and reconcile independent
+venue facts before resuming. That venue qualification is KIV outside the current
+paper-acceptance gate. If the founder is unavailable, a deployed process must
+take its defined safe action automatically. Test stop, restart, backup/restore,
+rollback, and reconciliation before increasing limits.
 
 As strategies and accounts multiply, identify every event and alert by release,
 strategy instance, account and venue where applicable. Reconcile both each
@@ -267,24 +279,33 @@ exposure, margin and pending orders across strategies. Define which failures sto
 one instance, an account or all trading. A failed strategy must not disable shared
 account protection or conceal another strategy's live orders.
 For a first dedicated single-instance paper account, base cash/position/order
-and pending-commitment reconciliation is mandatory. Shared allocation/arbitration
-and allocation reconciliation must additionally pass before the second
-instance shares the account. Stop and recovery controls apply in either scope.
+and pending-commitment reconciliation against independently supplied facts is
+mandatory. This local paper contract does not require or establish private venue
+access. Shared allocation/arbitration and allocation reconciliation must
+additionally pass before the second instance shares the account. Stop and
+recovery controls apply in either scope.
 
 The local [dashboard/metric/query/alert interfaces](../../src/telemetry/README.md)
-are implemented with configured exact thresholds, retained input/result bytes
-and local routing. Use the [installed monitoring command](../../src/applications/execute/README.md#retained-monitoring)
-to reopen observations without changing operating state. Socket delivery remains
-local acceptance; inspect pending/failed attempts and telemetry loss separately
-from hard controls. Deployed routing and external venue signals remain unqualified.
+include configured exact thresholds, retained input/result bytes and explicit
+local routes. The public-paper workflow writes a final local snapshot and exposes
+monitoring failures in its result. The installed
+[monitoring command](../../src/applications/execute/README.md#retained-monitoring)
+can reopen configured telemetry without changing operating state. Socket status
+means local datagram acceptance; it does not establish receiver processing or
+human acknowledgement. Inspect pending/failed attempts and telemetry loss
+separately from hard controls. Deployed routing and external venue/source-clock
+qualification remain unqualified. MR13 activation/recovery, MR14 deployed
+multi-instance operation and MR15 capacity remain separate work. Additional
+operators and staffing-dependent approval/review programs follow actual
+organizational need and remain separate from technical completion.
 
 The dashboard/metric/query/alert infrastructure and default health, execution,
 risk and account views are required before QR onboarding. Quant development tests
-custom metric/chart registration and alert delivery with the reference workloads;
+custom metric/chart registration and alert delivery with reference workloads;
 telemetry topology follows the launch capacity budget. Minimum monitoring and
-tested recovery accompany each capability as it is built. Additional operators
-and staffing-dependent approval/review programs follow actual organizational need
-and remain separate from technical completion.
+tested recovery accompany each capability as it is built. The local paper
+consumer retains actual receiver observations separately from socket acceptance;
+human acknowledgement and remote-service delivery remain untested.
 
 ## Incident record
 

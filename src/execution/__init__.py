@@ -35,6 +35,7 @@ from execution.paper import (
     PaperMatchProjection,
     PaperTouchLiquidity,
 )
+from execution.paper_monitoring import PaperMonitoring
 from execution.records import (
     AccountReservations,
     EventKind,
@@ -90,6 +91,7 @@ __all__ = [
     "PaperMatchEvaluator",
     "PaperMatchProjection",
     "PaperMatcher",
+    "PaperMonitoring",
     "PaperOrderJournal",
     "PaperTouchLiquidity",
     "PhysicalAccountObservation",
