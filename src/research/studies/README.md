@@ -59,7 +59,7 @@ admitted earlier rows to fitting. Transform/model bytes are retained before
 reload-only inference. Missing learned inputs are explicitly excluded;
 unavailable labels retain their reasons in exact predictive diagnostics.
 Feature/policy sessions and exact cash accounts start independently in every
-fold. Up to 32 nonoverlapping evaluation folds and 1,024 decisions per schedule
+fold. Up to 32 nonoverlapping evaluation folds and 8,192 decisions per schedule
 are supported; this is bounded materialized research, not MR15 scale acceptance.
 
 All folds share one frozen final holdout. Validation label cutoffs must precede

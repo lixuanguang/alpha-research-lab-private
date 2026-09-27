@@ -685,7 +685,7 @@ class TestFeatureStudies:
             changed.specification(implementation="b" * 64, environment="c" * 64).identity
             != study.specification(implementation="b" * 64, environment="c" * 64).identity
         )
-        with pytest.raises(ValueError, match="1024"):
+        with pytest.raises(ValueError, match="16384"):
             replace(study, feature=replace(study.feature, cadence_us=1))
         assert study.label is not None
         with pytest.raises(ValueError, match="holdout"):

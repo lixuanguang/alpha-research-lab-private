@@ -216,6 +216,14 @@ concurrency, hardware/cache conditions and recovery targets. Research capacity
 can be accepted at G2; final runtime and service capacity qualification remains
 MR15 work. MR14's bounded service failure drills do not establish that capacity.
 
+The provisional numeric [research launch profile and measured diagnostics](../roadmap/research-capacity.md)
+and [integrated runtime profile](../roadmap/runtime-capacity.md) now declare those
+budgets. Research diagnostics cover the enlarged study schedules, incremental
+scheduled replay and isolated Feast worker; representative 72-hour acceptance
+remains open. Runtime qualification must separately resolve MR14's 120-second
+service lifetime, finite capture limits and signed-grant validity before a
+sustained claim. Neither record closes MR16 ownership or MR17 onboarding.
+
 Useful triggers include a dataset build that misses research cadence, concurrent readers that contend on local storage,
 replay throughput that blocks iteration, recovery time beyond the operating target, or measured native latency/jitter
 that Python cannot meet. Each trigger records the measurement, failure mode, target, cost, and rollback path.

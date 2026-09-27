@@ -297,12 +297,13 @@ Failures and rejected holdout reuse remain inspectable.
 
 ## Bounds, verification and reversal
 
-This is a materialized reference implementation with at most 1,024
+This is a materialized reference implementation with at most 16,384
 decision/binding rows. Windows, cadence and delays are bounded integer microseconds;
 source byte ceilings remain explicit. Each cutoff reopens/verifies its pinned
 selection. Batch size changes query delivery shape only; it does not reduce total
 result memory. Large studies, caching and incremental execution need their own
-measured consumer and are not claimed here.
+measured consumer. The [capacity record](../../../docs/roadmap/research-capacity.md)
+distinguishes admitted bounds and diagnostics from representative qualification.
 
 The [domain examples](../../../tests/unit/research/test_features.py) independently
 check exact ratios, future perturbations, late corrections, clock distinctions,
@@ -339,14 +340,17 @@ schemas and values. No model is fitted or inferred for this rule-only consumer.
 `ScheduledFeatureSpec` pins an instance, source/stream/instrument, price dimensions,
 sample, cadence and maximum event age. Its version fixes the
 `completed-price-return-v1` formula and the existing observation policy. The first
-close is `start + cadence`; closes are strictly before `end`, with at most 1,023
-closes in a sample of at most 1,024 cadences. `ScheduledFeatures.evaluate(t)` accepts
+close is `start + cadence`; closes are strictly before `end`, with at most 8,192
+closes in a sample of at most 8,193 cadences. `ScheduledFeatures.evaluate(t)` accepts
 only the next scheduled UTC close. Skipped/repeated/reversed/end clocks fail;
 explicitly process missed scheduled closes against the same retained input before
-continuing. Each evaluation reconstructs the then-known source prefix through
-`Replay`, then calls `Observations.close` for `[t-cadence,t)`. This deliberately
-bounded batch path rereads admitted history per close; it makes no throughput or
-latency-budget claim and does not acquire or subscribe to data.
+continuing. The first evaluation loads one pinned history into `Replay`; later
+evaluations advance its causal cursor and call `Observations.close` for
+`[t-cadence,t)`. Reading future history into the replay index does not admit an
+event before its knowledge clock. Completed windows stay frozen, and observation
+state keeps only the last close and event/gap heads that can affect later windows.
+`_BatchClose` remains an independent per-cutoff reference for exact parity checks.
+The saved-input path does not acquire or subscribe to data.
 
 Availability at `t` is inclusive, event-window end is exclusive, ties use existing
 causal logical source order, and unknown availability remains excluded. Missing,
@@ -359,12 +363,21 @@ Fresh valid adjacent windows restore a return after a gap; this is the existing
 completed-observation policy, not a new source-completeness guarantee.
 
 `ScheduledFeatureCheckpoint` retains the full frozen trace, definition, source
-identity and value digest. Reload rejects changed instance, source bytes, timing,
-units, version, incompatible schedules, stale endpoints or inconsistent exact
-returns. Failed evaluation leaves prior state unchanged. Restore with the same
-`QueryReader`, definition and serialized checkpoint; changing batch size is allowed.
-The digest detects corruption, not hostile forgery. Independent instances have
-independent frozen state; no account or order recovery is provided.
+identity and value digest, plus a paired replay cursor and compact observation
+state after an evaluated close. Reload rejects changed instance, source bytes,
+timing, units, version, incompatible schedules, stale endpoints or inconsistent
+exact returns. An older value-only checkpoint remains readable; its source state
+is reconstructed once from the pinned history before the next decision. Failed
+evaluation discards partially advanced replay state and leaves the last committed
+checkpoint unchanged. Restore with the same `QueryReader`, definition and
+serialized checkpoint; changing batch size is allowed. The digest detects
+corruption, not hostile forgery. Independent instances have independent frozen
+state; no account or order recovery is provided. Older installed readers that
+reject unknown fields may refuse checkpoints carrying the new optional cursor
+fields despite the retained v1 schema; deploy matching readers with new writers.
+The full frozen trace remains a tuple and its append/serialization cost grows
+with the number of completed closes; measure that residual cost at the planned
+8,192-close ceiling.
 
 `applications.backtest.qualify_scheduled_features(reader, reference)` verifies the
 retained economic reference's source cursor, compares its full feature trace with

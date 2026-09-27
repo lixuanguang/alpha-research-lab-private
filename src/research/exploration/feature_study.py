@@ -31,7 +31,10 @@ from serialization import DomainCodec, WireRecord
 
 
 class FeatureStudy(WireRecord, frozen=True, kw_only=True):
-    """Configure an unfitted diagnostic, keeping input coverage separate from decision windows."""
+    """Configure an unfitted diagnostic with separate inputs and decision windows.
+
+    The generated decision/instrument grid is limited to 16,384 rows.
+    """
 
     schema_version: Literal["feature-study-v1"] = "feature-study-v1"
     family: str
@@ -92,8 +95,8 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
             for item in self.selection.inputs
             if isinstance(item, TradeSelection)
         )
-        if count * bindings > 1024:
-            raise ValueError("feature study exceeds 1024 decision/instrument rows")
+        if count * bindings > 16_384:
+            raise ValueError("feature study exceeds 16384 decision/instrument rows")
         last = self.decisions.start + (count - 1) * cadence
         first_input = self.decisions.start - timedelta(
             microseconds=self.feature.processing_delay_us + self.feature.policy.lookback_us
