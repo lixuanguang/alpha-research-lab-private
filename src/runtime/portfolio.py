@@ -11,9 +11,9 @@ from typing import Literal
 # project library imports
 from execution import (
     AccountDecision,
-    AccountJournal,
     AccountQuote,
     OrderDecision,
+    PaperAccount,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioContext,
@@ -130,9 +130,7 @@ class SharedDecisionRuntime:
     quote. Stop/restart and physical events use the journal's operator interface.
     """
 
-    def __init__(
-        self, journal: AccountJournal, bindings: tuple[SharedStrategyBinding, ...]
-    ) -> None:
+    def __init__(self, journal: PaperAccount, bindings: tuple[SharedStrategyBinding, ...]) -> None:
         """Validate active selection against existing account authority and restored state."""
         if type(bindings) is not tuple or not bindings:
             raise ValueError("shared runtime requires immutable selected bindings")

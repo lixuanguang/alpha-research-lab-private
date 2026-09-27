@@ -22,24 +22,37 @@ from accounting import (
     PaperGasPolicy,
     PaperPositionMark,
 )
-from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
+from configuration import (
+    AccountConfiguration,
+    OpeningAccount,
+    PaperAuthorization,
+    PaperDeployment,
+    PaperExecutionScenario,
+    PaperStrategyIdentity,
+)
 from execution import (
     AccountDecision,
     AccountJournal,
     AccountObservation,
     AccountQuote,
     OrderDecision,
+    OrderState,
+    PaperActivation,
     PaperMarket,
     PaperMonitoring,
+    PaperOwner,
+    PaperReductionRequest,
+    PaperReductionResult,
     PortfolioBatch,
     PortfolioContext,
     PortfolioDecision,
+    TaggedOrder,
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from strategies import OrderIntent
-from telemetry import MonitoringEvent, MonitoringQuery, TelemetryStore
+from telemetry import MonitoringDefinitions, MonitoringEvent, MonitoringQuery, TelemetryStore
 
 
 class TestPaperMonitoring:
@@ -114,6 +127,58 @@ class TestPaperMonitoring:
             fee_rate=Decimal("0.005"),
             take_fraction=Decimal("1"),
             gas_inapplicable_reason="off-chain spot paper order",
+        )
+
+    @classmethod
+    def _monitoring_authorization(
+        cls,
+        deployment: PaperDeployment,
+        identity: str,
+        valid_from: datetime,
+        expires_at: datetime,
+    ) -> PaperAuthorization:
+        """Build a bounded grant for authority-state projection tests."""
+        return PaperAuthorization(
+            identity=identity,
+            deployment_sha256=deployment.identity,
+            valid_from=valid_from,
+            expires_at=expires_at,
+            quantities=(cls._quantity("5"),),
+            maximum_order_notional=cls._money("100"),
+            maximum_orders=5,
+        )
+
+    @classmethod
+    def _monitoring_reduction_request(cls, identity: str, at: datetime) -> PaperReductionRequest:
+        """Build one exact reduction receipt for non-mutating metric projection."""
+        return PaperReductionRequest(
+            identity=identity,
+            account_id="shared",
+            instance_id="alpha",
+            quantity=cls._quantity("1"),
+            quote=AccountQuote(price=cls._price("10"), at=at),
+            limit=cls._price("9.90"),
+            maximum_fee=cls._money("0"),
+            at=at,
+        )
+
+    @classmethod
+    def _monitoring_reduction_order(cls, identity: str, at: datetime) -> OrderState:
+        """Build the retained initial order state for one accepted reduction."""
+        return OrderState(
+            identity=identity,
+            decision_identity=f"decision-{identity}",
+            decision_at=at,
+            intent=OrderIntent(
+                side="sell",
+                quantity=cls._quantity("1"),
+                limit=cls._price("9.90"),
+                time_in_force="ioc",
+            ),
+            status="intent",
+            filled=cls._quantity("0"),
+            paid_fee=cls._money("0"),
+            maximum_fee=cls._money("0"),
         )
 
     @classmethod
@@ -479,3 +544,132 @@ class TestPaperMonitoring:
                     children=journal.orders(),
                 )
             )
+
+    def test_managed_authority_and_reduction_outcomes_are_monitorable_without_mutation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Expose managed controls and unresolved reductions as read-only paper signals."""
+        journal = self._ready(tmp_path / "managed-monitoring.sqlite3", self._scenario())
+        observed_at = self.opening_at + timedelta(seconds=10)
+        deployment = PaperDeployment(
+            account_id="shared",
+            configuration_sha256="c" * 64,
+            releases=("a" * 64,),
+            strategies=(
+                PaperStrategyIdentity(
+                    instance_id="alpha",
+                    policy_identity="rule-v1",
+                    candidate_identity="candidate-v1",
+                    model_identity="none",
+                    feature_identity="features-v1",
+                ),
+            ),
+            input_identity="public-book-v1",
+            scenario=self._scenario(),
+            state_identity="paper-account-state-v1",
+        )
+        pending_order = self._monitoring_reduction_order("pending-reduction-order", observed_at)
+        terminal_order = self._monitoring_reduction_order("terminal-reduction-order", observed_at)
+        reductions = (
+            PaperReductionResult(
+                request=self._monitoring_reduction_request("unresolved-reduction", observed_at),
+                status="accepted",
+                reason="reserved",
+                orders=(pending_order,),
+            ),
+            PaperReductionResult(
+                request=self._monitoring_reduction_request("resolved-reduction", observed_at),
+                status="accepted",
+                reason="reserved",
+                orders=(terminal_order,),
+            ),
+            PaperReductionResult(
+                request=self._monitoring_reduction_request("rejected-reduction", observed_at),
+                status="rejected",
+                reason="account_not_reconciled",
+                orders=(),
+            ),
+        )
+        terminal = replace(terminal_order, status="cancelled")
+        monkeypatch.setattr(
+            journal,
+            "paper_reductions",
+            lambda: reductions,
+        )
+        monkeypatch.setattr(
+            journal,
+            "orders",
+            lambda: (TaggedOrder(account_id="shared", instance_id="alpha", order=terminal),),
+        )
+        monkeypatch.setattr(journal, "paper_restore_quarantined", lambda: True)
+        ledger_before = journal.accounts()[0].ledger
+
+        cases = (
+            (
+                "valid",
+                observed_at - timedelta(seconds=1),
+                observed_at + timedelta(seconds=1),
+                False,
+            ),
+            ("expired", observed_at - timedelta(seconds=2), observed_at, False),
+            (
+                "revoked",
+                observed_at - timedelta(seconds=1),
+                observed_at + timedelta(seconds=1),
+                True,
+            ),
+        )
+        for label, valid_from, expires_at, is_revoked in cases:
+            authorization = self._monitoring_authorization(
+                deployment, f"grant-{label}", valid_from, expires_at
+            )
+            activation = PaperActivation(
+                deployment=deployment,
+                changed_at=observed_at - timedelta(seconds=2),
+                authorization=authorization,
+                revoked=(authorization.identity,) if is_revoked else (),
+                owner=PaperOwner(
+                    account_id="shared",
+                    deployment_sha256=deployment.identity,
+                    authorization_id=authorization.identity,
+                    release_identity="a" * 64,
+                    owner_id="monitor-worker",
+                    generation=3,
+                ),
+                generation=3,
+            )
+            monkeypatch.setattr(journal, "paper_activations", lambda: (activation,))
+            events = PaperMonitoring("monitor-release").account(
+                journal,
+                account_id="shared",
+                observed_at=observed_at,
+                sample=f"managed-{label}",
+            )
+            scope = "account:shared"
+            assert self._value(events, scope, "paper.deployment_installed") == 1
+            assert self._value(events, scope, "paper.deployment_disabled") == 1
+            assert self._value(events, scope, "paper.authority_present") == 1
+            assert self._value(events, scope, "paper.authority_valid") == int(label == "valid")
+            assert self._value(events, scope, "paper.authority_expired") == int(label == "expired")
+            assert self._value(events, scope, "paper.authority_revoked") == int(is_revoked)
+            assert self._value(events, scope, "paper.owner_generation") == 3
+            assert self._value(events, scope, "paper.recovery_quarantined") == 1
+            assert self._value(events, scope, "paper.reduction_accepted") == 2
+            assert self._value(events, scope, "paper.reduction_rejected") == 1
+            assert self._value(events, scope, "paper.reduction_unresolved") == 1
+
+        default_names = {spec.name for spec in MonitoringDefinitions.defaults("paper")}
+        assert {
+            "paper.deployment_installed",
+            "paper.deployment_disabled",
+            "paper.authority_present",
+            "paper.authority_valid",
+            "paper.authority_expired",
+            "paper.authority_revoked",
+            "paper.owner_generation",
+            "paper.recovery_quarantined",
+            "paper.reduction_accepted",
+            "paper.reduction_rejected",
+            "paper.reduction_unresolved",
+        } <= default_names
+        assert journal.accounts()[0].ledger == ledger_before

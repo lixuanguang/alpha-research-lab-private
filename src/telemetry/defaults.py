@@ -84,6 +84,20 @@ class MonitoringDefinitions:
                 ("runtime.alert_delivery_failure", "count"),
             )
         )
+        if mode == "paper":
+            signals += (
+                ("paper.deployment_installed", "boolean"),
+                ("paper.deployment_disabled", "boolean"),
+                ("paper.authority_present", "boolean"),
+                ("paper.authority_valid", "boolean"),
+                ("paper.authority_expired", "boolean"),
+                ("paper.authority_revoked", "boolean"),
+                ("paper.owner_generation", "generation"),
+                ("paper.recovery_quarantined", "boolean"),
+                ("paper.reduction_accepted", "count"),
+                ("paper.reduction_rejected", "count"),
+                ("paper.reduction_unresolved", "count"),
+            )
         if mode == "venue_test":
             signals += (
                 ("execution.venue_recovery_required", "boolean"),

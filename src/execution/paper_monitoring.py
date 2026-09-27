@@ -21,8 +21,8 @@ from accounting import (
     PaperScopeReport,
 )
 from execution.account_records import AccountPaperTrace, PortfolioCommit, TaggedOrder
-from execution.accounts import AccountJournal
 from execution.monitoring import ExecutionMonitoring
+from execution.paper_account import PaperAccount
 from execution.records import OrderEvent, OrderState
 from financial_units import ExactRatio, Money
 from risk import SpotLimits
@@ -40,7 +40,7 @@ class PaperMonitoring:
 
     def account(
         self,
-        journal: AccountJournal,
+        journal: PaperAccount,
         *,
         account_id: str,
         observed_at: datetime,

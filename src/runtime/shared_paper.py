@@ -13,7 +13,7 @@ from typing import Protocol
 
 # project library imports
 from configuration import BookKey, PaperExecutionScenario
-from execution import AccountJournal, AccountQuote, PaperMarket, PortfolioCommit
+from execution import AccountControl, AccountQuote, PaperAccount, PaperMarket, PortfolioCommit
 from financial_units import Price, Quantity
 from market_data.books import BookDepth, BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord
@@ -84,7 +84,7 @@ class SharedPaperCaptureObserver:
         *,
         source: LiveBookDecisionSource,
         books: BookRegistry,
-        journal: AccountJournal,
+        journal: PaperAccount,
         runtime: SharedDecisionRuntime,
         account_id: str,
         scenario: PaperExecutionScenario,
@@ -198,7 +198,18 @@ class SharedPaperCaptureObserver:
             if delivery.inputs:
                 raise ValueError("ineligible native input cannot produce shared decisions")
             if self._source_invalidated(delivery):
-                self.journal.block(self.account_id, "public_input_invalid")
+                if self.journal.paper_owner is None:
+                    self.journal.block(self.account_id, "public_input_invalid")
+                else:
+                    self.journal.control(
+                        AccountControl(
+                            identity=f"public-input-fault:{self.source.request.identity}",
+                            account_id=self.account_id,
+                            kind="fault",
+                            at=delivery.source.available_at,
+                            reason="public_input_invalid",
+                        )
+                    )
             return
         causal = self.source.read(str(self.scenario.instrument_id), market.at)
         quote = AccountQuote(price=market.ask, at=market.at)

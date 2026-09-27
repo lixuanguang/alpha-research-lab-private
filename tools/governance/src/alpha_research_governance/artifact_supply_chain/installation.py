@@ -155,7 +155,11 @@ class LocalInstallation:
             executable = destination / "venv/bin" / self._command(receipt.runtime)
             configuration = bundle / "configuration/config.json"
             invocation = self._bound_arguments(
-                receipt.runtime, arguments, configuration, self.root / "state/accounts.sqlite3"
+                receipt.runtime,
+                arguments,
+                configuration,
+                self.root / "state/accounts.sqlite3",
+                release_identity=receipt.release,
             )
             return self._run([str(executable), *invocation], cwd=self.root)
 
@@ -427,9 +431,10 @@ class LocalInstallation:
     def _run_account_inspect(self, release_slot: Path, journal: Path) -> None:
         """Ask the candidate installed code to decode its signed config and account state."""
         config = release_slot / "bundle/configuration/config.json"
-        manifest = ReleaseManifest.model_validate_json(
-            ReleaseRegistry.read_regular(release_slot / "bundle/release.json", 4_194_304)
+        manifest_bytes = ReleaseRegistry.read_regular(
+            release_slot / "bundle/release.json", 4_194_304
         )
+        manifest = ReleaseManifest.model_validate_json(manifest_bytes)
         configuration = TypeAdapter(dict[str, object]).validate_json(
             ReleaseRegistry.read_regular(config, 1_048_576)
         )
@@ -438,17 +443,17 @@ class LocalInstallation:
             or configuration.get("schema_version") != manifest.runtime.config_schema
         ):
             raise ValueError("signed account configuration differs from release mode or schema")
-        self._run(
-            [
-                str(release_slot / "venv/bin/alpha-execute"),
-                "account",
-                "--config",
-                str(config),
-                "--journal",
-                str(journal),
-            ],
-            cwd=release_slot,
-        )
+        arguments = [
+            str(release_slot / "venv/bin/alpha-execute"),
+            "account",
+            "--config",
+            str(config),
+            "--journal",
+            str(journal),
+        ]
+        if manifest.runtime.state_schema == "account-journal-v3":
+            arguments.extend(("--release-identity", hashlib.sha256(manifest_bytes).hexdigest()))
+        self._run(arguments, cwd=release_slot)
 
     @staticmethod
     def _require_account_journal(journal: Path) -> None:
@@ -479,7 +484,10 @@ class LocalInstallation:
     ) -> None:
         """Validate a quiesced copy with candidate code before selecting it for use."""
         self._require_account_journal(journal)
-        self._account_record(journal)
+        manifest_bytes = ReleaseRegistry.read_regular(
+            release_slot / "bundle/release.json", 4_194_304
+        )
+        manifest = ReleaseManifest.model_validate_json(manifest_bytes)
         with TemporaryDirectory(dir=self.root, prefix=".account-state-check-") as temporary:
             checked = Path(temporary) / "accounts.sqlite3"
             with (
@@ -487,12 +495,34 @@ class LocalInstallation:
                 closing(sqlite3.connect(checked)) as target,
             ):
                 source.backup(target)
+            if manifest.runtime.state_schema == "account-journal-v3":
+                _, payload = self._account_record(checked)
+                self._require_paper_release_scope(
+                    payload, hashlib.sha256(manifest_bytes).hexdigest()
+                )
             self._run_account_inspect(release_slot, checked)
             if initial_without_snapshot:
                 pristine = Path(temporary) / "pristine.sqlite3"
                 self._run_account_inspect(release_slot, pristine)
                 if self._account_record(checked) != self._account_record(pristine):
                     raise ValueError("unbound account state differs from its initial state")
+
+    @staticmethod
+    def _require_paper_release_scope(payload: bytes, release_identity: str) -> None:
+        """Refuse a candidate code release absent from the durable paper deployment."""
+        state = TypeAdapter(dict[str, object]).validate_json(payload)
+        activations = TypeAdapter(list[dict[str, object]]).validate_python(
+            state.get("paper_activations", [])
+        )
+        if activations and state.get("schema_version") != "account-journal-v3":
+            raise ValueError("paper activation requires the managed account journal schema")
+        for activation in activations:
+            deployment = TypeAdapter(dict[str, object]).validate_python(
+                activation.get("deployment")
+            )
+            releases = TypeAdapter(list[str]).validate_python(deployment.get("releases"))
+            if release_identity not in releases:
+                raise ValueError("paper deployment excludes the candidate release")
 
     @staticmethod
     def _command(runtime: ReleaseRuntime) -> str:
@@ -505,6 +535,8 @@ class LocalInstallation:
         arguments: tuple[str, ...],
         configuration: Path,
         journal: Path,
+        *,
+        release_identity: str,
     ) -> list[str]:
         """Select only installed commands and bind config consumers to signed bytes."""
         if not arguments:
@@ -519,13 +551,16 @@ class LocalInstallation:
                 and Path(arguments[2]).is_absolute()
             ):
                 raise ValueError("installed account run accepts only an absolute request path")
-            return [
+            bound: list[str] = [
                 *arguments,
                 "--config",
                 str(configuration),
                 "--journal",
                 str(journal),
             ]
+            if runtime.state_schema == "account-journal-v3":
+                bound.extend(("--release-identity", release_identity))
+            return bound
         configured = (
             {"capture", "probe"} if runtime.application == "collector" else {"inspect", "admit"}
         )

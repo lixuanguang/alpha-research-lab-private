@@ -6,9 +6,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import re
 import socket
+import subprocess
 import tempfile
 import time
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -26,8 +29,10 @@ from accounting import (
     AccountSnapshot,
 )
 from applications.paper import (
+    InstalledPaperAccount,
     PaperMonitoringInput,
     PaperMonitoringResult,
+    SharedPaperResult,
     render_paper_monitoring,
     run_live_shared_paper,
 )
@@ -38,13 +43,22 @@ from configuration import (
     OpeningAccount,
     PaperExecutionScenario,
 )
+from configuration.paper_activation import (
+    PaperAuthorization,
+    PaperDeployment,
+    PaperStrategyIdentity,
+)
 from execution import (
+    AccountControl,
+    AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountPaperTrace,
     AccountQuote,
     OrderState,
+    PaperAccount,
     PaperMarket,
+    PaperReductionRequest,
     PortfolioCommit,
 )
 from financial_units import (
@@ -181,12 +195,14 @@ class LiquidityOpeningClip(FixedOpeningClip):
 class ScriptedPublicFeed:
     """Provide finite native frames through the real capture/reconstruction boundary."""
 
-    def __init__(self, frames: tuple[bytes, ...]) -> None:
-        """Bind a deterministic native source script."""
-        self.frames = iter(frames)
+    def __init__(self, frames: Callable[[], tuple[bytes, ...]]) -> None:
+        """Author native source clocks only when the public connection opens."""
+        self.factory = frames
+        self.frames: Iterator[bytes] | None = None
 
     async def open(self, timeout: float) -> FeedSocket:
         """Open the read-only scripted connection."""
+        self.frames = iter(self.factory())
         return self
 
     async def send(self, message: str) -> None:
@@ -197,9 +213,20 @@ class ScriptedPublicFeed:
     async def recv(self) -> bytes:
         """Allow the prior durable callback to finish before the next native update."""
         await asyncio.sleep(0.015)
+        if self.frames is None:
+            raise ValueError("public fixture connection is not open")
         frame = next(self.frames, None)
         if frame is None:
             raise OSError("public fixture exhausted")
+        if b'"ts":"' in frame:
+            frame, count = re.subn(
+                rb'(?<="ts":")\d+(?=")',
+                str(time.time_ns() // 1_000_000).encode(),
+                frame,
+                count=1,
+            )
+            if count != 1:
+                raise ValueError("public fixture source clock is malformed")
         return frame
 
     async def close(self) -> None:
@@ -228,17 +255,27 @@ class PublicPaperWorkload:
         adverse: str,
         reference_source: bytes,
         dedicated: bool = False,
+        prepared_config: AccountConfiguration | None = None,
+        freshness_us: int = 5_000_000,
     ) -> None:
         """Bind one venue and explicitly authored execution assumptions."""
+        if freshness_us not in (5_000_000, 30_000_000):
+            raise ValueError("reference freshness must be a supported bounded assumption")
         self.capture = config
         self.reference_source = reference_source
         self.reference_identity = hashlib.sha256(reference_source).hexdigest()
+        self.prepared_config = prepared_config
+        self.freshness_us = freshness_us
         self.live, self.no_trade = live, no_trade
         self.names = ("fixed",) if dedicated else ("fixed", "liquidity")
         self.codec = DomainCodec()
         self.currency = Currency.from_code(config.quote_currency)
         self.dimension = Dimension(instrument_id=config.instrument_id, kind=QuantityKind.BASE_UNIT)
-        self.opened_at = datetime.now(UTC) - timedelta(seconds=1)
+        self.opened_at = (
+            prepared_config.opening_at
+            if prepared_config is not None
+            else datetime.now(UTC) - timedelta(seconds=1)
+        )
         self.scenario = PaperExecutionScenario(
             venue="okx" if config.venue == "okx" else "bitfinex",
             instrument_id=config.instrument_id,
@@ -256,8 +293,9 @@ class PublicPaperWorkload:
             family="book",
             field=NumericField(name="imbalance", units="dimensionless"),
             clock="receipt",
-            max_age_us=5_000_000,
+            max_age_us=freshness_us,
         )
+        self.account_config()
 
     @property
     def identity(self) -> str:
@@ -290,7 +328,7 @@ class PublicPaperWorkload:
 
     def account_config(self) -> AccountConfiguration:
         """Keep shared firm/account/instance admission active for the reference consumers."""
-        return AccountConfiguration(
+        authored = AccountConfiguration(
             mode="paper",
             opening_at=self.opened_at,
             accounts=(OpeningAccount(account_id="paper", cash=(self.money("100000"),)),),
@@ -315,12 +353,48 @@ class PublicPaperWorkload:
                     )
                     for name in self.names
                 ),
-                max_quote_age_us=5_000_000,
+                max_quote_age_us=self.freshness_us,
                 max_state_age_us=86_400_000_000,
                 max_price_deviation_bps=500,
                 max_order_notional=self.money("9000"),
             ),
         )
+        if self.prepared_config is not None:
+            if authored != self.prepared_config:
+                raise ValueError("supplied signed account configuration differs from the workload")
+            return self.prepared_config
+        return authored
+
+    def prepare(self, output: Path) -> dict[str, object]:
+        """Retain a stable signed configuration and exact public workload identity."""
+        output.mkdir(parents=True, exist_ok=False)
+        config = self.account_config()
+        configuration = self.codec.encode_json(config)
+        bindings = self.bindings()
+        preparation: dict[str, object] = {
+            "schema_version": "public-paper-installed-preparation-v1",
+            "account_id": "paper",
+            "configuration_sha256": hashlib.sha256(configuration).hexdigest(),
+            "capture_sha256": hashlib.sha256(self.codec.encode_json(self.capture)).hexdigest(),
+            "reference_consumer_sha256": self.reference_identity,
+            "input_identity": hashlib.sha256(
+                self.codec.encode_json((self.capture, self.requirement, self.identity))
+            ).hexdigest(),
+            "scenario": self.scenario,
+            "strategies": tuple(
+                PaperStrategyIdentity(
+                    instance_id=binding.instance_id,
+                    policy_identity=binding.policy.identity,
+                    candidate_identity="public-paper-reference-v1",
+                    model_identity=binding.context.model_revision,
+                    feature_identity=self.identity,
+                )
+                for binding in bindings
+            ),
+        }
+        (output / "account-configuration.json").write_bytes(configuration)
+        (output / "workload.json").write_bytes(self.codec.encode_json(preparation))
+        return preparation
 
     def bindings(self) -> tuple[SharedStrategyBinding, ...]:
         """Select two distinct active formulas with independent durable policy state."""
@@ -379,7 +453,7 @@ class PublicPaperWorkload:
             event_at=at,
             information_start=at,
             available_at=at,
-            expires_at=at + timedelta(seconds=5),
+            expires_at=at + timedelta(microseconds=self.freshness_us),
             definition=self.identity,
             fields=self.fields,
             values=tuple(
@@ -448,69 +522,112 @@ class PublicPaperWorkload:
             )
         return tuple(frames)
 
+    def fixture_market(
+        self,
+        name: str,
+        *,
+        bid: str,
+        ask: str,
+        bid_quantity: Quantity,
+    ) -> PaperMarket:
+        """Deliver one new bounded quote from the authored public-book fixture."""
+        return PaperMarket(
+            identity=f"public-paper-{self.capture.venue}-reference-{name}",
+            at=datetime.now(UTC),
+            bid=self.price(bid),
+            ask=self.price(ask),
+            bid_quantity=bid_quantity,
+            ask_quantity=self.quantity("4"),
+        )
+
     def reconcile(
-        self, journal: AccountJournal, decisions: tuple[PortfolioCommit, ...]
+        self,
+        journal: PaperAccount,
+        decisions: tuple[PortfolioCommit, ...],
+        *,
+        cancelled_ids: tuple[str, ...] = (),
+        identity: str = "independent-model-events",
     ) -> AccountObservation:
         """Derive account and order expectations from source events before comparing postings."""
         traces = journal.paper_traces("paper")
         quantity, notional, fees = Fraction(0), Fraction(0), Fraction(0)
         expected_orders: list[OrderState] = []
-        for decision in decisions:
-            for parent in decision.net_orders:
-                original = parent.order
-                events = tuple(
-                    event
-                    for trace in traces
-                    for event in trace.physical_events
-                    if event.order_id == original.identity
+        originals = tuple(
+            parent.order for decision in decisions for parent in decision.net_orders
+        ) + tuple(
+            order
+            for result in journal.paper_reductions()
+            if result.status == "accepted"
+            for order in result.orders
+        )
+        for original in originals:
+            events = tuple(
+                event
+                for trace in traces
+                for event in trace.physical_events
+                if event.order_id == original.identity
+            )
+            filled, fee = Decimal(0), Decimal(0)
+            acknowledged = any(event.kind == "request_ack" for event in events)
+            accepted = any(event.kind == "accepted" for event in events)
+            cancel_acknowledged = any(event.kind == "cancel_ack" for event in events)
+            for event in events:
+                if event.fill is not None:
+                    filled += abs(event.fill.quantity.value)
+                    fee += event.fill.fee.value
+            status: Literal[
+                "intent", "request_ack", "accepted", "partial", "filled", "cancelled"
+            ] = (
+                "filled"
+                if filled == original.intent.quantity.value
+                else "cancelled"
+                if any(event.kind == "cancelled" for event in events)
+                else "partial"
+                if filled
+                else "accepted"
+                if accepted
+                else "request_ack"
+                if acknowledged
+                else "intent"
+            )
+            expected_orders.append(
+                replace(
+                    original,
+                    status=status,
+                    filled=self.quantity(str(filled)),
+                    paid_fee=self.money(str(fee)),
+                    request_acknowledged=acknowledged,
+                    accepted=accepted,
+                    cancel_requested=original.identity in cancelled_ids,
+                    cancel_acknowledged=cancel_acknowledged,
                 )
-                filled, fee = Decimal(0), Decimal(0)
-                acknowledged = any(event.kind == "request_ack" for event in events)
-                accepted = any(event.kind == "accepted" for event in events)
-                for event in events:
-                    if event.fill is not None:
-                        filled += abs(event.fill.quantity.value)
-                        fee += event.fill.fee.value
-                status: Literal["intent", "request_ack", "accepted", "partial", "filled"] = (
-                    "filled"
-                    if filled == original.intent.quantity.value
-                    else "partial"
-                    if filled
-                    else "accepted"
-                    if accepted
-                    else "request_ack"
-                    if acknowledged
-                    else "intent"
-                )
-                expected_orders.append(
-                    replace(
-                        original,
-                        status=status,
-                        filled=self.quantity(str(filled)),
-                        paid_fee=self.money(str(fee)),
-                        request_acknowledged=acknowledged,
-                        accepted=accepted,
-                    )
-                )
+            )
+        actual_physical = tuple(parent.order for parent in journal.net_orders()) + tuple(
+            tagged.order for tagged in journal.orders() if tagged.context is None
+        )
         assert {order.identity: order for order in expected_orders} == {
-            parent.order.identity: parent.order for parent in journal.net_orders()
+            order.identity: order for order in actual_physical
         }
         for trace in traces:
             for event in trace.physical_events:
                 fill = event.fill
                 if fill is None:
                     continue
-                expected_price = Fraction(trace.market.ask.value) + Fraction(
-                    self.scenario.adverse.value
+                buying = fill.quantity.value > 0
+                expected_reference = trace.market.ask if buying else trace.market.bid
+                expected_price = Fraction(expected_reference.value) + (
+                    Fraction(self.scenario.adverse.value)
+                    if buying
+                    else -Fraction(self.scenario.adverse.value)
                 )
                 units = (
-                    Fraction(fill.quantity.value)
+                    abs(Fraction(fill.quantity.value))
                     * expected_price
                     * Fraction(self.scenario.fee_rate)
                     / Fraction(self.currency.minor_unit)
                 )
                 expected_fee = round(units) * Fraction(self.currency.minor_unit)
-                assert fill.reference == trace.market.ask
+                assert fill.reference == expected_reference
                 assert fill.effective.value == expected_price and fill.fee.value == expected_fee
                 quantity += Fraction(fill.quantity.value)
                 notional += Fraction(fill.quantity.value) * expected_price
@@ -518,7 +635,7 @@ class PublicPaperWorkload:
         fills, _ = journal.paper_report_facts("paper")
         ledger = journal.accounts()[0].ledger
         expected = AccountObservation(
-            identity="independent-model-events",
+            identity=identity,
             at=datetime.now(UTC),
             snapshot=AccountSnapshot(
                 account_id="paper",
@@ -540,7 +657,13 @@ class PublicPaperWorkload:
         assert journal.reconcile(expected)
         return expected
 
-    async def run(self, output: Path, *, alert_socket: str) -> dict[str, object]:
+    async def run(
+        self,
+        output: Path,
+        *,
+        alert_socket: str,
+        paper_account: InstalledPaperAccount | None = None,
+    ) -> dict[str, object]:
         """Run the installed workflow, independently reconcile and replay exact retained inputs."""
         config, bindings = self.account_config(), self.bindings()
         request = CaptureRequest(
@@ -548,8 +671,15 @@ class PublicPaperWorkload:
             recording_id=str(uuid4()),
             implementation_identity=ImplementationIdentity.sha256(),
         )
-        path = output / "account.sqlite3"
-        path.parent.mkdir(parents=True, exist_ok=False)
+        path = (
+            output / "account.sqlite3"
+            if paper_account is None
+            else paper_account.target / "state/accounts.sqlite3"
+        )
+        if paper_account is None:
+            path.parent.mkdir(parents=True, exist_ok=False)
+        else:
+            output.mkdir(parents=True, exist_ok=True)
         (output / "reference-consumer.py").write_bytes(self.reference_source)
         result = await run_live_shared_paper(
             config,
@@ -561,13 +691,16 @@ class PublicPaperWorkload:
             request=request,
             journal_path=path,
             output=output / "run",
-            observations=(self.opening(),),
-            transport=None if self.live else ScriptedPublicFeed(self.frames()),
+            observations=(self.opening(),) if paper_account is None else (),
+            transport=None if self.live else ScriptedPublicFeed(self.frames),
             alert_socket=alert_socket,
+            paper_account=paper_account,
         )
         assert not result.monitoring.errors, result.monitoring
         self.verify_monitoring(output, result.monitoring)
-        journal = AccountJournal(path, config)
+        journal: PaperAccount = (
+            AccountJournal(path, config) if paper_account is None else paper_account
+        )
         fills, _ = journal.paper_report_facts("paper")
         snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
         market = result.last_market
@@ -612,24 +745,25 @@ class PublicPaperWorkload:
                 sum((scope.currencies[0].net_pnl.value for scope in report.instances), Decimal(0))
                 == expected_pnl
             )
-        before = self.codec.encode_json(
-            (journal.accounts(), journal.orders(), journal.net_orders(), journal.paper_traces())
-        )
-        observer = SharedPaperCaptureObserver(
-            source=LiveBookDecisionSource(request, self.requirement, history_capacity=1000),
-            books=BookRegistry(result.book_registry),
-            journal=journal,
-            runtime=SharedDecisionRuntime(journal, self.bindings()),
-            account_id="paper",
-            scenario=self.scenario,
-            inputs=self,
-            delivery_path=None,
-        )
-        for line in (output / "run/deliveries.jsonl").read_bytes().splitlines():
-            observer.deliver(self.codec.decode_json(line, SharedBookDelivery))
-        assert before == self.codec.encode_json(
-            (journal.accounts(), journal.orders(), journal.net_orders(), journal.paper_traces())
-        )
+        if paper_account is None:
+            before = self.codec.encode_json(
+                (journal.accounts(), journal.orders(), journal.net_orders(), journal.paper_traces())
+            )
+            observer = SharedPaperCaptureObserver(
+                source=LiveBookDecisionSource(request, self.requirement, history_capacity=1000),
+                books=BookRegistry(result.book_registry),
+                journal=journal,
+                runtime=SharedDecisionRuntime(journal, self.bindings()),
+                account_id="paper",
+                scenario=self.scenario,
+                inputs=self,
+                delivery_path=None,
+            )
+            for line in (output / "run/deliveries.jsonl").read_bytes().splitlines():
+                observer.deliver(self.codec.decode_json(line, SharedBookDelivery))
+            assert before == self.codec.encode_json(
+                (journal.accounts(), journal.orders(), journal.net_orders(), journal.paper_traces())
+            )
         (output / "report.json").write_bytes(self.codec.encode_json(report))
         (output / "traces.json").write_bytes(self.codec.encode_json(journal.paper_traces()))
         summary: dict[str, object] = {
@@ -646,22 +780,395 @@ class PublicPaperWorkload:
             "attributed_fills": len(fills),
             "active_strategies": self.names,
             "independent_reconciliation": True,
-            "restart_replay_equal": True,
+            "restart_replay_equal": paper_account is None,
             "submission_attempted": False,
             "no_trade": self.no_trade,
             "monitoring_reconciled": True,
             "monitoring_dashboards": result.monitoring.dashboards,
         }
         if (
-            not self.live
+            paper_account is None
+            and not self.live
             and not self.no_trade
             and len(self.names) == 2
             and self.scenario.adverse.value == Decimal("0.50")
         ):
+            if not isinstance(journal, AccountJournal):
+                raise AssertionError("local capture requires a local account journal")
             await self.verify_new_capture(output, config, journal)
             summary["new_capture_receipts_isolated"] = True
         (output / "summary.json").write_bytes(self.codec.encode_json(summary))
         return summary
+
+    async def run_installed(
+        self,
+        output: Path,
+        *,
+        alert_socket: str,
+        launcher: Path,
+        target: Path,
+        policy: Path,
+        release: Path,
+        upgrade_release: Path,
+        rollback_release: Path,
+        deployment_path: Path,
+        authorization_path: Path,
+    ) -> dict[str, object]:
+        """Run the same native fixture through signed account code and retained state."""
+        output = output.absolute()
+        if target.exists() or target.is_symlink() or rollback_release != release:
+            raise ValueError("signed paper requires an absent target and exact rollback release")
+        config = self.account_config()
+        deployment = self.codec.decode_json(deployment_path.read_bytes(), PaperDeployment)
+        authorization = self.codec.decode_json(authorization_path.read_bytes(), PaperAuthorization)
+        if (
+            deployment.configuration_sha256
+            != hashlib.sha256(self.codec.encode_json(config)).hexdigest()
+            or deployment.scenario != self.scenario
+            or deployment.input_identity
+            != hashlib.sha256(
+                self.codec.encode_json((self.capture, self.requirement, self.identity))
+            ).hexdigest()
+            or authorization.deployment_sha256 != deployment.identity
+            or deployment.strategies
+            != tuple(
+                PaperStrategyIdentity(
+                    instance_id=binding.instance_id,
+                    policy_identity=binding.policy.identity,
+                    candidate_identity="public-paper-reference-v1",
+                    model_identity=binding.context.model_revision,
+                    feature_identity=self.identity,
+                )
+                for binding in self.bindings()
+            )
+        ):
+            raise ValueError("signed paper deployment differs from prepared public workload")
+        output.mkdir(parents=True, exist_ok=False)
+        self._switch_release(launcher, target, policy, release, output / "install-initial.log")
+        requests = output / "installed-requests"
+        before_claim = InstalledPaperAccount(
+            config=config,
+            launcher=launcher,
+            target=target,
+            policy=policy,
+            requests=requests,
+        )
+        installed = before_claim.execute(
+            AccountExecutionRequest(action="install_paper", deployment=deployment)
+        )
+        if (
+            len(installed.paper_activations) != 1
+            or installed.paper_activations[0].deployment != deployment
+        ):
+            raise ValueError("signed runner did not retain disabled deployment")
+        granted = before_claim.execute(
+            AccountExecutionRequest(action="authorize_paper", authorization=authorization)
+        )
+        if granted.paper_activations[0].authorization != authorization:
+            raise ValueError("signed runner did not retain bounded grant")
+        stopped = before_claim.accounts()[0]
+        if stopped.phase != "stopped" or stopped.active_control_identity is None:
+            raise ValueError("paper deployment did not stop the installed account")
+        before_claim.observe(AccountQuote(price=self.price("100"), at=datetime.now(UTC)))
+        opening = replace(
+            self.opening(),
+            identity="installed-opening-reconciliation",
+            at=datetime.now(UTC),
+        )
+        if not before_claim.reconcile(opening):
+            raise ValueError("signed opening reconciliation did not match")
+        claimed = before_claim.execute(
+            AccountExecutionRequest(
+                action="claim_paper",
+                account_id="paper",
+                owner_id=f"public-paper-{self.capture.venue}-reference-worker",
+                control=AccountControl(
+                    identity=f"public-paper-{self.capture.venue}-reference-start",
+                    account_id="paper",
+                    kind="restart",
+                    at=datetime.now(UTC),
+                    expected_control_identity=stopped.active_control_identity,
+                ),
+            )
+        )
+        if claimed.claimed_owner is None:
+            raise ValueError("signed account did not issue an owner generation")
+        account = InstalledPaperAccount(
+            config=config,
+            launcher=launcher,
+            target=target,
+            policy=policy,
+            requests=requests,
+            paper_owner=claimed.claimed_owner,
+        )
+        summary = await self.run(output, alert_socket=alert_socket, paper_account=account)
+        if account.accounts()[0].phase != "stopped":
+            raise ValueError("finite signed public run did not retain its stop")
+        paper_result = self.codec.decode_json(
+            (output / "run/paper-result.json").read_bytes(), SharedPaperResult
+        )
+        cancel_at = datetime.now(UTC)
+        pending = {
+            item.order.identity for item in account.net_orders() if not item.order.is_terminal
+        }
+        if not pending:
+            raise ValueError("signed fixture did not retain cancellable physical interest")
+        cancel_control = AccountControl(
+            identity=f"public-paper-{self.capture.venue}-reference-cancel",
+            account_id="paper",
+            kind="cancel",
+            at=cancel_at,
+        )
+        cancellation = account.control(cancel_control)
+        if cancellation.status != "applied" or set(cancellation.cancel_order_ids) != pending:
+            raise ValueError("signed account did not retain exact pending cancellation")
+        assert all(
+            item.order.status == "cancel_requested" and not item.order.is_terminal
+            for item in account.net_orders()
+            if item.order.identity in pending
+        )
+        await asyncio.sleep(0.003)
+        cancel_market = self.fixture_market(
+            "cancel-book", bid="99", ask="100", bid_quantity=self.quantity("4")
+        )
+        cancelled = account.match_public_market("paper", cancel_market, self.scenario)
+        if cancelled.status != "committed" or not pending.issubset(
+            {event.order_id for event in cancelled.physical_events if event.kind == "cancelled"}
+        ):
+            raise ValueError("public quote did not confirm terminal cancellation")
+        cancelled_ids = tuple(sorted(pending))
+        for instance_id in self.names:
+            account.execute(
+                AccountExecutionRequest(
+                    action="stop_instance",
+                    instance_id=instance_id,
+                    at=datetime.now(UTC),
+                )
+            )
+        if any(not item.order.is_terminal for item in account.orders()):
+            raise ValueError("stopped strategies retained an unresolved child reservation")
+        cancel_observation = self.reconcile(
+            account,
+            paper_result.decisions,
+            cancelled_ids=cancelled_ids,
+            identity="independent-after-cancel",
+        )
+        (output / "cancellation-verification.json").write_bytes(
+            self.codec.encode_json(
+                (
+                    cancel_control,
+                    cancellation,
+                    cancel_market,
+                    cancelled,
+                    account.orders(),
+                    cancel_observation,
+                )
+            )
+        )
+
+        quote = AccountQuote(price=self.price("100"), at=datetime.now(UTC))
+        account.observe(quote)
+        connection_market = self.fixture_market(
+            "reduction-connection", bid="98.99", ask="100.01", bid_quantity=self.quantity("4")
+        )
+        connected = account.match_public_market(
+            "paper",
+            connection_market,
+            self.scenario,
+        )
+        if connected.status != "committed":
+            raise ValueError("public reduction market was not connected")
+        owned = AccountLedger(account.accounts()[0].ledger).snapshot(instance_id="fixed")
+        position = next(
+            (item for item in owned.positions if item.dimension == self.dimension), None
+        )
+        if position is None or position.value <= 0:
+            raise ValueError("signed reference instance has no attributable owned inventory")
+        before_reduction = AccountLedger(account.accounts()[0].ledger).snapshot()
+        reduction = PaperReductionRequest(
+            identity=f"public-paper-{self.capture.venue}-reference-reduction",
+            account_id="paper",
+            instance_id="fixed",
+            quantity=position,
+            quote=quote,
+            limit=self.price("98"),
+            maximum_fee=self.money("2"),
+            at=datetime.now(UTC),
+        )
+        admitted = account.execute(
+            AccountExecutionRequest(
+                action="reduce_paper", reduction=reduction, paper_owner=account.paper_owner
+            )
+        ).reduction_result
+        if admitted is None or admitted.status != "accepted" or len(admitted.orders) != 1:
+            raise ValueError("bounded per-instance reduction was not reserved")
+        if AccountLedger(account.accounts()[0].ledger).snapshot() != before_reduction:
+            raise ValueError("reduction reservation claimed an unobserved fill")
+        lot = config.instruments[0].lot
+        await asyncio.sleep(0.002)
+        reduction_market = self.fixture_market(
+            "reduction-book", bid="98.98", ask="100.02", bid_quantity=lot
+        )
+        reduced = account.match_public_market("paper", reduction_market, self.scenario)
+        if (
+            reduced.status != "committed"
+            or any(event.fill is not None for event in reduced.physical_events)
+            or not any(
+                event.kind == "cancelled" and event.order_id == admitted.orders[0].identity
+                for event in reduced.physical_events
+            )
+        ):
+            raise ValueError("finite bid size did not produce terminal zero-fill IOC")
+        reduction_observation = self.reconcile(
+            account,
+            paper_result.decisions,
+            cancelled_ids=cancelled_ids,
+            identity="independent-after-reduction",
+        )
+        (output / "reduction-verification.json").write_bytes(
+            self.codec.encode_json(
+                (
+                    quote,
+                    connection_market,
+                    connected,
+                    reduction,
+                    admitted,
+                    reduction_market,
+                    reduced,
+                    reduction_observation,
+                )
+            )
+        )
+        before = self._installed_state(account)
+        self._switch_release(
+            launcher, target, policy, upgrade_release, output / "install-upgrade.log"
+        )
+        upgraded = InstalledPaperAccount(
+            config=config, launcher=launcher, target=target, policy=policy, requests=requests
+        )
+        if self._installed_state(upgraded) != before:
+            raise ValueError("signed upgrade changed retained account economics")
+        self._switch_release(
+            launcher, target, policy, rollback_release, output / "install-rollback.log"
+        )
+        rolled_back = InstalledPaperAccount(
+            config=config, launcher=launcher, target=target, policy=policy, requests=requests
+        )
+        if self._installed_state(rolled_back) != before:
+            raise ValueError("signed rollback changed retained account economics")
+        stopped_after_rollback = rolled_back.accounts()[0]
+        if (
+            stopped_after_rollback.phase != "stopped"
+            or not stopped_after_rollback.active_control_identity
+        ):
+            raise ValueError("rollback did not retain the stopped account fence")
+        rolled_back.observe(AccountQuote(price=self.price("100"), at=datetime.now(UTC)))
+        recovery_observation = self.reconcile(
+            rolled_back,
+            paper_result.decisions,
+            cancelled_ids=cancelled_ids,
+            identity="independent-before-reclaim",
+        )
+        reclaimed = rolled_back.execute(
+            AccountExecutionRequest(
+                action="claim_paper",
+                account_id="paper",
+                owner_id=f"public-paper-{self.capture.venue}-reference-recovered-worker",
+                control=AccountControl(
+                    identity=f"public-paper-{self.capture.venue}-reference-restart",
+                    account_id="paper",
+                    kind="restart",
+                    at=datetime.now(UTC),
+                    expected_control_identity=stopped_after_rollback.active_control_identity,
+                ),
+            )
+        ).claimed_owner
+        if reclaimed is None or reclaimed.generation != claimed.claimed_owner.generation + 1:
+            raise ValueError("rolled-back release did not issue a new owner generation")
+        recovered = InstalledPaperAccount(
+            config=config,
+            launcher=launcher,
+            target=target,
+            policy=policy,
+            requests=requests,
+            paper_owner=reclaimed,
+        )
+        before_retry = self._installed_state(recovered)
+        if recovered.match_public_market("paper", reduction_market, self.scenario) != reduced:
+            raise ValueError("rolled-back owner did not replay the original reduction trace")
+        if self._installed_state(recovered) != before_retry:
+            raise ValueError("replayed public quote duplicated an economic effect")
+        (output / "recovery-verification.json").write_bytes(
+            self.codec.encode_json(
+                {
+                    "observation": recovery_observation,
+                    "new_owner": reclaimed,
+                    "retried_market": reduction_market,
+                    "retried_trace": reduced,
+                    "before_sha256": hashlib.sha256(before_retry).hexdigest(),
+                    "after_sha256": hashlib.sha256(self._installed_state(recovered)).hexdigest(),
+                }
+            )
+        )
+        summary.update(
+            {
+                "signed_execution": True,
+                "code_rollback_equal": True,
+                "cancel_pending_then_terminal": True,
+                "reduction_status": admitted.status,
+                "reduction_fill_quantity": "0",
+                "reclaimed_after_rollback": True,
+                "market_retry_equal": True,
+                "release_sha256": hashlib.sha256(
+                    (release / "release.json").read_bytes()
+                ).hexdigest(),
+                "upgrade_sha256": hashlib.sha256(
+                    (upgrade_release / "release.json").read_bytes()
+                ).hexdigest(),
+                "owner_generation": claimed.claimed_owner.generation,
+                "recovered_generation": reclaimed.generation,
+            }
+        )
+        (output / "summary.json").write_bytes(self.codec.encode_json(summary))
+        return summary
+
+    def _installed_state(self, account: InstalledPaperAccount) -> bytes:
+        """Compare full signed read projections without treating code switch as a restore."""
+        return self.codec.encode_json(
+            (
+                account.accounts(),
+                account.orders(),
+                account.net_orders(),
+                account.paper_traces("paper"),
+                account.paper_report_facts("paper"),
+                account.paper_activations(),
+                account.paper_reductions(),
+            )
+        )
+
+    @staticmethod
+    def _switch_release(
+        launcher: Path, target: Path, policy: Path, release: Path, evidence: Path
+    ) -> None:
+        """Select an authenticated execution release through the governance launcher."""
+        result = subprocess.run(
+            [
+                str(launcher),
+                "install",
+                "--release",
+                str(release),
+                "--policy",
+                str(policy),
+                "--target",
+                str(target),
+            ],
+            capture_output=True,
+            check=False,
+            timeout=180,
+        )
+        evidence.write_bytes(result.stdout + result.stderr)
+        if result.returncode != 0:
+            raise RuntimeError("signed paper release installation failed; see retained log")
 
     async def verify_new_capture(
         self, output: Path, config: AccountConfiguration, journal: AccountJournal
@@ -684,7 +1191,7 @@ class PublicPaperWorkload:
             request=request,
             journal_path=journal.path,
             output=output / "resumed",
-            transport=ScriptedPublicFeed(self.frames()),
+            transport=ScriptedPublicFeed(self.frames),
         )
         assert not resumed.monitoring.errors
         later = PaperMonitoringInput.read(output / "resumed/monitoring-input.json")
@@ -975,6 +1482,17 @@ class _Arguments(argparse.Namespace):
     adverse: str
     dedicated: bool
     replay: bool
+    prepare: bool
+    launcher: Path | None
+    target: Path | None
+    policy: Path | None
+    account_config: Path | None
+    release: Path | None
+    upgrade_release: Path | None
+    rollback_release: Path | None
+    deployment: Path | None
+    authorization: Path | None
+    freshness_us: int
 
 
 def main() -> None:
@@ -987,6 +1505,20 @@ def main() -> None:
     parser.add_argument("--adverse", default="0.50")
     parser.add_argument("--dedicated", action="store_true")
     parser.add_argument("--replay", action="store_true")
+    parser.add_argument("--prepare", action="store_true")
+    parser.add_argument("--freshness-us", type=int, default=5_000_000)
+    for option in (
+        "launcher",
+        "target",
+        "policy",
+        "account-config",
+        "release",
+        "upgrade-release",
+        "rollback-release",
+        "deployment",
+        "authorization",
+    ):
+        parser.add_argument("--" + option, type=Path)
     args = parser.parse_args(namespace=_Arguments())
     config_path, output = args.config, args.output
     if not isinstance(config_path, Path) or not isinstance(output, Path):
@@ -995,13 +1527,18 @@ def main() -> None:
     live = bool(args.live)
     config = replace(
         config,
-        duration_seconds=10,
+        duration_seconds=60 if args.freshness_us == 30_000_000 else 10,
         max_messages=20 if live else (5 if config.venue == "bitfinex" else 4),
         retries=0,
     )
     adverse = args.adverse
     if not isinstance(adverse, str):
         raise TypeError("adverse price requires an exact decimal string")
+    prepared_config = (
+        DomainCodec().decode_json(args.account_config.read_bytes(), AccountConfiguration)
+        if args.account_config is not None
+        else None
+    )
     workload = PublicPaperWorkload(
         config,
         live=live,
@@ -1009,8 +1546,16 @@ def main() -> None:
         adverse=adverse,
         dedicated=args.dedicated,
         reference_source=Path(__file__).read_bytes(),
+        prepared_config=prepared_config,
+        freshness_us=args.freshness_us,
     )
-    if args.replay:
+    if args.prepare:
+        if args.replay or args.launcher is not None:
+            raise ValueError("paper preparation cannot replay or select an installed target")
+        summary = workload.prepare(output)
+    elif args.replay:
+        if args.launcher is not None:
+            raise ValueError("signed paper code rollback is checked during the finite run")
         summary = workload.replay(output)
     else:
         with tempfile.TemporaryDirectory(prefix="paper-alert-") as temporary:
@@ -1018,7 +1563,46 @@ def main() -> None:
             with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
                 receiver.bind(address)
                 receiver.settimeout(1)
-                summary = asyncio.run(workload.run(output, alert_socket=address))
+                if args.launcher is None:
+                    summary = asyncio.run(workload.run(output, alert_socket=address))
+                else:
+                    launcher = args.launcher
+                    target, policy = args.target, args.policy
+                    release, upgrade_release = args.release, args.upgrade_release
+                    rollback_release = args.rollback_release
+                    deployment, authorization = args.deployment, args.authorization
+                    if any(
+                        path is None
+                        for path in (
+                            target,
+                            policy,
+                            release,
+                            upgrade_release,
+                            rollback_release,
+                            deployment,
+                            authorization,
+                            args.account_config,
+                        )
+                    ):
+                        raise ValueError("signed paper requires all installed release inputs")
+                    assert target is not None and policy is not None
+                    assert release is not None and upgrade_release is not None
+                    assert rollback_release is not None
+                    assert deployment is not None and authorization is not None
+                    summary = asyncio.run(
+                        workload.run_installed(
+                            output,
+                            alert_socket=address,
+                            launcher=launcher.absolute(),
+                            target=target.absolute(),
+                            policy=policy.absolute(),
+                            release=release.absolute(),
+                            upgrade_release=upgrade_release.absolute(),
+                            rollback_release=rollback_release.absolute(),
+                            deployment_path=deployment.absolute(),
+                            authorization_path=authorization.absolute(),
+                        )
+                    )
                 status = DomainCodec().decode_json(
                     (output / "run/monitoring/monitoring-status.json").read_bytes(),
                     PaperMonitoringResult,

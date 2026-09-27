@@ -10,7 +10,10 @@ from fractions import Fraction
 
 # project library imports
 from accounting import AccountLedger
-from execution.accounts import AccountJournal
+from execution.account_records import TaggedOrder
+from execution.account_reduction import PaperReductionResult
+from execution.paper_account import PaperAccount
+from execution.paper_authority import PaperActivation
 from execution.records import StepCommit
 from execution.venue_gateway import GatewayView
 from financial_units import ExactRatio
@@ -26,7 +29,7 @@ class ExecutionMonitoring:
 
     def account(
         self,
-        journal: AccountJournal,
+        journal: PaperAccount,
         *,
         observed_at: datetime,
         sample: str,
@@ -42,6 +45,11 @@ class ExecutionMonitoring:
         accounts = journal.accounts()
         tagged = journal.orders()
         parents = journal.net_orders()
+        activations = journal.paper_activations() if journal.config.mode == "paper" else ()
+        reductions = journal.paper_reductions() if journal.config.mode == "paper" else ()
+        paper_restore_quarantined = (
+            journal.paper_restore_quarantined() if journal.config.mode == "paper" else False
+        )
         events: list[MonitoringEvent] = []
         for account in accounts:
             account_id = account.ledger.account_id
@@ -195,7 +203,100 @@ class ExecutionMonitoring:
                     missing_reason="alert_store_invalid" if alert_store_invalid else None,
                 )
             )
+            if journal.config.mode == "paper":
+                activation = next(
+                    (item for item in activations if item.deployment.account_id == account_id),
+                    None,
+                )
+                events.extend(
+                    self._paper_control_events(
+                        context,
+                        sample,
+                        observed_at,
+                        activation=activation,
+                        reductions=tuple(
+                            item for item in reductions if item.request.account_id == account_id
+                        ),
+                        account_orders=tuple(
+                            item for item in tagged if item.account_id == account_id
+                        ),
+                        restore_quarantined=paper_restore_quarantined,
+                    )
+                )
         return tuple(events)
+
+    @classmethod
+    def _paper_control_events(
+        cls,
+        context: MonitoringIdentity,
+        sample: str,
+        observed_at: datetime,
+        *,
+        activation: PaperActivation | None,
+        reductions: tuple[PaperReductionResult, ...],
+        account_orders: tuple[TaggedOrder, ...],
+        restore_quarantined: bool,
+    ) -> tuple[MonitoringEvent, ...]:
+        """Project retained paper deployment, authority, ownership and reduction state."""
+        deployment_installed = activation is not None
+        deployment_disabled = False if activation is None else not activation.deployment.enabled
+        revoked_authorizations = () if activation is None else activation.revoked
+        authorization = None if activation is None else activation.authorization
+        authority_revoked = (
+            authorization is not None and authorization.identity in revoked_authorizations
+        )
+        authority_expired = authorization is not None and observed_at >= authorization.expires_at
+        authority_valid = (
+            authorization is not None
+            and authorization.identity not in revoked_authorizations
+            and authorization.valid_from <= observed_at < authorization.expires_at
+        )
+        order_states = {item.order.identity: item.order for item in account_orders}
+        accepted_order_ids = {
+            order.identity
+            for result in reductions
+            if result.status == "accepted"
+            for order in result.orders
+        }
+        return tuple(
+            cls._event(context, name, sample, observed_at, units, value)
+            for name, units, value in (
+                ("paper.deployment_installed", "boolean", int(deployment_installed)),
+                (
+                    "paper.deployment_disabled",
+                    "boolean",
+                    int(deployment_disabled),
+                ),
+                ("paper.authority_present", "boolean", int(authorization is not None)),
+                ("paper.authority_valid", "boolean", int(authority_valid)),
+                ("paper.authority_expired", "boolean", int(authority_expired)),
+                ("paper.authority_revoked", "boolean", int(authority_revoked)),
+                (
+                    "paper.owner_generation",
+                    "generation",
+                    0 if activation is None else activation.generation,
+                ),
+                ("paper.recovery_quarantined", "boolean", int(restore_quarantined)),
+                (
+                    "paper.reduction_accepted",
+                    "count",
+                    sum(result.status == "accepted" for result in reductions),
+                ),
+                (
+                    "paper.reduction_rejected",
+                    "count",
+                    sum(result.status == "rejected" for result in reductions),
+                ),
+                (
+                    "paper.reduction_unresolved",
+                    "count",
+                    sum(
+                        order_id not in order_states or not order_states[order_id].is_terminal
+                        for order_id in accepted_order_ids
+                    ),
+                ),
+            )
+        )
 
     def venue(
         self, gateway: GatewayView, *, observed_at: datetime, sample: str

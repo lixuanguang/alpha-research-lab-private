@@ -309,8 +309,10 @@ corrupt bytes, incompatible config and existing destinations fail closed.
 Restoration does not replace the current installation or rewind its journal.
 Keep compatible signed artifacts/trust separately and reconcile missing facts
 before any explicit selection and restart. An older stopped snapshot can be
-restored for recovery inspection; this local operation provides no external
-venue-generation or anti-rewind attestation.
+restored for recovery inspection; managed paper quarantines a restored journal
+before publication, so it cannot resume, claim, reduce or match from that copy.
+This local operation provides no external venue-generation or anti-rewind
+attestation.
 
 The independent execution wheel includes only these workspace, identity and
 supervision services plus bounded local telemetry. Candidate/research services
@@ -318,3 +320,24 @@ still require their owning research distribution. The
 [operating runbook](../../docs/governance/operations.md#local-paper-operations)
 and [execution command guide](../applications/execute/README.md#local-operational-commands)
 own concrete procedures and selected commands.
+
+Managed paper public-input runtimes consume the execution-owned `PaperAccount`
+protocol, implemented by a local journal or `InstalledPaperAccount`'s signed
+command adapter. The protocol does not replace accounting or independent risk.
+A managed finite capture stops at completion and records recoverable faults on
+source failure. Fresh public data, independent reconciliation and a new owner
+claim are required before a replacement worker creates exposure. Expiry or
+revocation blocks new exposure and restart, while the original current owner may
+drain existing obligations on fresh eligible data. Accepted standing orders keep
+their reservations until terminal outcomes are established. A replacement grant
+requires a stopped account and settled physical order outcomes before a new owner
+claim. The activation record retains the signed local drills and does not
+claim deployed-service recovery qualification.
+
+`AccountWorkspace.restore` now quarantines the staged restored journal before
+atomic publication. A managed snapshot remains inspectable but cannot resume
+execution because it cannot establish whether a newer journal has committed
+additional economics. Local restart and compatible signed code rollback use the
+latest retained journal; restoring a historical copy over an active state is
+unsupported. The [activation record](../../docs/roadmap/paper-activation.md)
+separates this local boundary from future deployed-service disaster recovery.

@@ -35,7 +35,7 @@ from financial_units import Dimension, Money, Price, Quantity
 from portfolio import PortfolioContext
 from risk import BudgetEngine, BudgetRequest, ExposureCommitment, SpotLimits
 from serialization import DomainCodec
-from strategies import ExposureIntent, TargetIntent
+from strategies import ExposureIntent, OrderIntent, TargetIntent
 
 if TYPE_CHECKING:
     # project library imports
@@ -57,14 +57,17 @@ class AccountAdmission:
         *,
         context: PortfolioContext | None = None,
         crossing_ids: set[str] | None = None,
+        protective: bool = False,
     ) -> StepCommit:
         """Evaluate a decision against authoritative holdings and firm commitments."""
         account = transaction.account(request.account_id)
-        if account.phase != "running":
+        if protective:
+            self._require_protective_sell(transaction, request, context, crossing_ids)
+        if account.phase != "running" and not protective:
             raise ValueError("account_operationally_blocked")
         if account.operator_block or account.fault:
             raise ValueError(account.operator_block or account.fault or "account_blocked")
-        if request.instance_id in transaction.state.stopped_instances:
+        if request.instance_id in transaction.state.stopped_instances and not protective:
             raise ValueError("instance_stopped")
         if account.reconciled_at is None:
             raise ValueError("account_not_reconciled")
@@ -172,6 +175,8 @@ class AccountAdmission:
                     )
                 )
             ).hexdigest()
+            if any(tagged.order.identity == identity for tagged in transaction.state.orders):
+                raise ValueError("order_identity_collision")
             order = OrderState(
                 identity=identity,
                 decision_identity=request.decision.identity,
@@ -200,6 +205,58 @@ class AccountAdmission:
             reason="reserved" if admitted else "target_matched",
             orders=tuple(admitted),
         )
+
+    def _require_protective_sell(
+        self,
+        transaction: _AccountTransaction,
+        request: AccountDecision,
+        context: PortfolioContext | None,
+        crossing_ids: set[str] | None,
+    ) -> None:
+        """Bound every operational bypass to uncommitted owned spot inventory."""
+        intent = request.decision.intent
+        if self.config.mode != "paper":
+            raise ValueError("protective_admission_requires_paper_mode")
+        if (
+            context is not None
+            or crossing_ids is not None
+            or type(intent) is not OrderIntent
+            or intent.side != "sell"
+            or intent.time_in_force != "ioc"
+            or intent.quantity.dimension != request.quote.price.per
+        ):
+            raise ValueError("protective_admission_requires_direct_sell")
+        owned = AccountLedger(transaction.account(request.account_id).ledger).snapshot(
+            instance_id=request.instance_id
+        )
+        holding = next(
+            (
+                position
+                for position in owned.positions
+                if position.dimension == intent.quantity.dimension
+            ),
+            Quantity(value=Decimal(0), dimension=intent.quantity.dimension),
+        )
+        attached = {
+            allocation.child_order_id
+            for parent in transaction.state.net_orders
+            if parent.account_id == request.account_id and not parent.order.is_terminal
+            for allocation in parent.allocations
+        }
+        committed = sum(
+            (
+                tagged.order.remaining.value
+                for tagged in transaction.state.orders
+                if tagged.account_id == request.account_id
+                and tagged.instance_id == request.instance_id
+                and tagged.order.intent.side == "sell"
+                and tagged.order.intent.quantity.dimension == intent.quantity.dimension
+                and (not tagged.order.is_terminal or tagged.order.identity in attached)
+            ),
+            Decimal(0),
+        )
+        if intent.quantity.value + committed > holding.value:
+            raise ValueError("reduction_exceeds_uncommitted_owned_inventory")
 
     def apply_event(
         self, transaction: _AccountTransaction, event: OrderEvent

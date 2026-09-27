@@ -14,7 +14,7 @@ import msgspec
 
 # project library imports
 from accounting import PaperAccountReport
-from execution import AccountJournal, PaperMonitoring, PortfolioCommit
+from execution import PaperAccount, PaperMonitoring, PortfolioCommit
 from financial_units import ExactRatio
 from market_data.contracts import CaptureRequest
 from runtime import SharedBookDelivery
@@ -364,7 +364,7 @@ def render_paper_monitoring(
 
 
 def retain_public_paper_monitoring(
-    journal: AccountJournal,
+    journal: PaperAccount,
     *,
     account_id: str,
     request: CaptureRequest,
@@ -400,7 +400,9 @@ def retain_public_paper_monitoring(
                 observed_at=observed_at,
                 source=request.identity,
                 venue=request.config.venue,
-                children=journal.orders(),
+                children=tuple(
+                    child for child in journal.orders() if child.account_id == account_id
+                ),
             )
         source_events, clocks = PaperSourceMonitoring.project(
             root=root,

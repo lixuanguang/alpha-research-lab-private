@@ -1,7 +1,10 @@
 """Expose the fenced, non-submitting paper order journal and portable lifecycle facts."""
 
 # project library imports
+from execution.account_commands import AccountExecutionRequest, AccountExecutionResult
 from execution.account_records import NativeFill, PhysicalAccountObservation
+from execution.account_recovery import AccountRecoveryReceipt
+from execution.account_reduction import PaperReductionRequest, PaperReductionResult
 from execution.accounts import (
     AccountControl,
     AccountControlKind,
@@ -35,6 +38,8 @@ from execution.paper import (
     PaperMatchProjection,
     PaperTouchLiquidity,
 )
+from execution.paper_account import PaperAccount
+from execution.paper_authority import PaperActivation, PaperOwner
 from execution.paper_monitoring import PaperMonitoring
 from execution.records import (
     AccountReservations,
@@ -64,6 +69,8 @@ __all__ = [
     "AccountControlKind",
     "AccountControlResult",
     "AccountDecision",
+    "AccountExecutionRequest",
+    "AccountExecutionResult",
     "AccountJournal",
     "AccountObservation",
     "AccountPaperCost",
@@ -71,6 +78,7 @@ __all__ = [
     "AccountPaperTrace",
     "AccountPhase",
     "AccountQuote",
+    "AccountRecoveryReceipt",
     "AccountReservations",
     "AccountView",
     "BitfinexSpotAdapter",
@@ -86,6 +94,8 @@ __all__ = [
     "OrderDecision",
     "OrderEvent",
     "OrderState",
+    "PaperAccount",
+    "PaperActivation",
     "PaperLiquidityState",
     "PaperMarket",
     "PaperMatchEvaluator",
@@ -93,6 +103,9 @@ __all__ = [
     "PaperMatcher",
     "PaperMonitoring",
     "PaperOrderJournal",
+    "PaperOwner",
+    "PaperReductionRequest",
+    "PaperReductionResult",
     "PaperTouchLiquidity",
     "PhysicalAccountObservation",
     "PortfolioBatch",

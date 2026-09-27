@@ -2,10 +2,12 @@
 
 Copy this consumer outside the checkout and run it with the installed governance
 interpreter. Both inputs are independently signed execution releases with the
-same account configuration and the account-journal-v2 state contract. The
-optional request is one caller-authored local ``post`` fact; without it, this
-consumer authors an identified one-unit funding transfer after its account stop.
-No step has executable venue authority.
+same account configuration and either the v2 or v3 account-journal contract.
+For v3, optional deployment and authorization files must be supplied together;
+the consumer retains their exact requests and checks their state across both
+release changes. The optional request is one caller-authored local ``post`` fact;
+without it, this consumer authors an identified one-unit funding transfer after
+its account stop. No step has executable venue authority.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 # third party library imports
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 # project library imports
 from alpha_research_governance._models import ImmutableModel
@@ -74,6 +76,9 @@ class AcceptanceArguments(argparse.Namespace):
     target: Path
     output: Path
     request: Path | None
+    deployment: Path | None
+    authorization: Path | None
+    legacy: Path | None
 
 
 class AccountProjection(BaseModel):
@@ -128,6 +133,34 @@ class ControlProjection(BaseModel):
     phase: Literal["running", "stopped", "faulted"]
 
 
+class PaperDeploymentProjection(BaseModel):
+    """Inspect the disabled account and exact compatible signed release set."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
+    account_id: str
+    configuration_sha256: Digest
+    releases: tuple[Digest, ...]
+    enabled: Literal[False]
+    state_schema: Literal["account-journal-v3"]
+    state_identity: Literal["paper-account-state-v1"]
+
+
+class PaperAuthorizationProjection(BaseModel):
+    """Identify the separately supplied bounded paper permission."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
+    identity: str
+    deployment_sha256: Digest
+
+
+class PaperActivationProjection(BaseModel):
+    """Require a retained disabled deployment and separate durable grant."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True, strict=True)
+    deployment: PaperDeploymentProjection
+    authorization: PaperAuthorizationProjection | None = None
+
+
 class AccountResultProjection(BaseModel):
     """Read the installed CLI's bounded non-submitting account result."""
 
@@ -137,6 +170,7 @@ class AccountResultProjection(BaseModel):
     control: ControlProjection | None = None
     journal_path: str | None = None
     submission_attempted: Literal[False]
+    paper_activations: tuple[PaperActivationProjection, ...] = ()
 
 
 class OpeningAccountProjection(BaseModel):
@@ -215,6 +249,10 @@ class AccountInstallationResult(ImmutableModel):
     upgrade: PhaseEvidence
     rollback: PhaseEvidence
     configuration_override_rejected: Literal[True] = True
+    paper_deployment_request_sha256: Digest | None = None
+    paper_authorization_request_sha256: Digest | None = None
+    paper_activation_preserved: Literal[True] | None = None
+    legacy_reader_rejected: Literal[True] | None = None
     submission_attempted: Literal[False] = False
 
 
@@ -301,6 +339,11 @@ class AccountInstallationAcceptance:
         self.target = arguments.target.absolute()
         self.output = arguments.output.absolute()
         self.request = None if arguments.request is None else arguments.request.absolute()
+        self.deployment = None if arguments.deployment is None else arguments.deployment.absolute()
+        self.authorization = (
+            None if arguments.authorization is None else arguments.authorization.absolute()
+        )
+        self.legacy = None if arguments.legacy is None else arguments.legacy.absolute()
 
     def run(self) -> AccountInstallationResult:
         """Retain the same account ledger and stop across upgrade and rollback."""
@@ -314,12 +357,35 @@ class AccountInstallationAcceptance:
         )
         initial = ReleaseRegistry.verify(self.initial_path, policy, now=now)
         upgrade = ReleaseRegistry.verify(self.upgrade_path, policy, now=now)
+        legacy = (
+            None if self.legacy is None else ReleaseRegistry.verify(self.legacy, policy, now=now)
+        )
         if initial.identity == upgrade.identity:
             raise ValueError("account upgrade requires a distinct signed release")
         self._require_account_runtimes(initial.manifest.runtime, upgrade.manifest.runtime)
+        if (self.deployment is None) != (self.authorization is None):
+            raise ValueError("paper deployment and authorization must be supplied together")
+        if (
+            self.deployment is not None
+            and initial.manifest.runtime.state_schema != "account-journal-v3"
+        ):
+            raise ValueError("paper activation requires two signed v3 account releases")
+        if legacy is not None and (
+            self.deployment is None
+            or legacy.manifest.runtime.application != "execution"
+            or legacy.manifest.runtime.mode != "paper"
+            or legacy.manifest.runtime.config_schema != "account-runtime-v1"
+            or legacy.manifest.runtime.state_schema != "account-journal-v2"
+        ):
+            raise ValueError("legacy rejection requires an authenticated v2 paper reader")
         configuration_bytes = initial.content("configuration/config.json")
         if configuration_bytes != upgrade.content("configuration/config.json"):
             raise ValueError("account upgrade must preserve exact signed configuration bytes")
+        if (
+            legacy is not None
+            and legacy.content("configuration/config.json") != configuration_bytes
+        ):
+            raise ValueError("legacy reader must bind the same signed account configuration")
         configuration = ConfigurationProjection.model_validate_json(configuration_bytes)
         if (
             configuration.mode != initial.manifest.runtime.mode
@@ -361,6 +427,20 @@ class AccountInstallationAcceptance:
         first_packages = InstalledEnvironmentProbe.inspect(self.target, first, first_facts)
         opening = self._phase(first, opened, first_packages, config_sha256)
 
+        activation_requests: tuple[Path, Path] | None = None
+        activation_grant_id: str | None = None
+        if self.deployment is not None and self.authorization is not None:
+            activation_requests, activation_grant_id = self._activate_paper(
+                installation, account_id, config_sha256, first.release, upgrade.identity, now=now
+            )
+            if self.legacy is not None:
+                self._reject_legacy_reader(installation, self.legacy, first, now=now)
+            stop_at = max(datetime.now(UTC), configuration.opening_at) + timedelta(seconds=1)
+            if supplied_late_bytes is not None:
+                supplied_late = LateRequestProjection.model_validate_json(supplied_late_bytes)
+                if supplied_late.posting.known_at <= stop_at:
+                    raise ValueError("caller posting must follow the paper deployment stop")
+
         stop_bytes = self._encode_request(
             {
                 "action": "control",
@@ -384,6 +464,15 @@ class AccountInstallationAcceptance:
             or stopped.accounts[0].active_control_identity != stop_identity
         ):
             raise ValueError("installed account stop did not persist")
+        if activation_grant_id is not None:
+            self._require_paper_activation(
+                stopped,
+                account_id,
+                first.release,
+                upgrade.identity,
+                config_sha256,
+                activation_grant_id,
+            )
         stopped_digest = self._state_digests()[1]
 
         late_bytes = self._late_request(
@@ -413,6 +502,15 @@ class AccountInstallationAcceptance:
             raise ValueError("account upgrade did not select a distinct signed slot")
         upgraded = self._read_account(installation, account_id, now=now)
         self._require_retained(upgraded, stop_identity, late_request.posting.identity)
+        if activation_grant_id is not None:
+            self._require_paper_activation(
+                upgraded,
+                account_id,
+                first.release,
+                upgrade.identity,
+                config_sha256,
+                activation_grant_id,
+            )
         second_packages = InstalledEnvironmentProbe.inspect(self.target, second, second_facts)
         upgrade_evidence = self._phase(
             second, upgraded, second_packages, config_sha256, opening.journal_configuration_sha256
@@ -440,6 +538,15 @@ class AccountInstallationAcceptance:
         )
         if rollback_evidence.state_payload_sha256 != retained_digest:
             raise ValueError("account rollback rewound or altered latest mutable state")
+        if activation_grant_id is not None:
+            self._require_paper_activation(
+                restored,
+                account_id,
+                first.release,
+                upgrade.identity,
+                config_sha256,
+                activation_grant_id,
+            )
 
         result = AccountInstallationResult(
             checked_at=now,
@@ -451,6 +558,18 @@ class AccountInstallationAcceptance:
             initial=opening,
             upgrade=upgrade_evidence,
             rollback=rollback_evidence,
+            paper_deployment_request_sha256=(
+                hashlib.sha256(activation_requests[0].read_bytes()).hexdigest()
+                if activation_requests is not None
+                else None
+            ),
+            paper_authorization_request_sha256=(
+                hashlib.sha256(activation_requests[1].read_bytes()).hexdigest()
+                if activation_requests is not None
+                else None
+            ),
+            paper_activation_preserved=True if activation_requests is not None else None,
+            legacy_reader_rejected=True if self.legacy is not None else None,
         )
         self.output.write_bytes(result.model_dump_json(indent=2).encode() + b"\n")
         return result
@@ -466,7 +585,8 @@ class AccountInstallationAcceptance:
             or first.config_schema != second.config_schema
             or first.config_schema != "account-runtime-v1"
             or first.state_schema != second.state_schema
-            or first.state_schema != "account-journal-v2"
+            or first.state_schema not in ("account-journal-v2", "account-journal-v3")
+            or (first.state_schema == "account-journal-v3" and first.mode != "paper")
         ):
             raise ValueError("account acceptance requires compatible signed paper releases")
 
@@ -476,6 +596,102 @@ class AccountInstallationAcceptance:
             self.output.with_name(self.output.stem + ".stop-request.json"),
             self.output.with_name(self.output.stem + ".late-request.json"),
         )
+
+    @staticmethod
+    def _reject_legacy_reader(
+        installation: LocalInstallation,
+        legacy: Path,
+        current: InstallationReceipt,
+        *,
+        now: datetime,
+    ) -> None:
+        """Prove an authenticated pre-activation reader cannot select managed state."""
+        try:
+            installation.install(legacy, now=now)
+        except ValueError as error:
+            if "current state is incompatible" not in str(error):
+                raise
+        else:
+            raise ValueError("legacy account reader accepted managed paper state")
+        if installation.current() != current:
+            raise ValueError("legacy reader rejection changed the selected release")
+
+    def _activate_paper(
+        self,
+        installation: LocalInstallation,
+        account_id: str,
+        configuration_sha256: str,
+        initial_release: str,
+        upgrade_release: str,
+        *,
+        now: datetime,
+    ) -> tuple[tuple[Path, Path], str]:
+        """Install disabled identity and a separate grant through the signed account path."""
+        if self.deployment is None or self.authorization is None:
+            raise ValueError("paper activation inputs are missing")
+        deployment_bytes = ReleaseRegistry.read_regular(self.deployment, 1_048_576)
+        authorization_bytes = ReleaseRegistry.read_regular(self.authorization, 1_048_576)
+        decoder = TypeAdapter(dict[str, object])
+        deployment_payload = decoder.validate_json(deployment_bytes)
+        authorization_payload = decoder.validate_json(authorization_bytes)
+        deployment = PaperDeploymentProjection.model_validate_json(deployment_bytes)
+        authorization = PaperAuthorizationProjection.model_validate_json(authorization_bytes)
+        if (
+            deployment.account_id != account_id
+            or deployment.configuration_sha256 != configuration_sha256
+            or not {initial_release, upgrade_release}.issubset(deployment.releases)
+        ):
+            raise ValueError("paper deployment differs from signed account release scope")
+        requests = (
+            self.output.with_name(self.output.stem + ".deployment-request.json"),
+            self.output.with_name(self.output.stem + ".authorization-request.json"),
+        )
+        if any(path.exists() or path.is_symlink() for path in requests):
+            raise ValueError("paper activation request evidence already exists")
+        requests[0].write_bytes(
+            self._encode_request({"action": "install_paper", "deployment": deployment_payload})
+        )
+        installed = self._apply(installation, requests[0], account_id, now=now)
+        if len(installed.paper_activations) != 1:
+            raise ValueError("disabled paper deployment was not retained")
+        requests[1].write_bytes(
+            self._encode_request(
+                {"action": "authorize_paper", "authorization": authorization_payload}
+            )
+        )
+        authorized = self._apply(installation, requests[1], account_id, now=now)
+        self._require_paper_activation(
+            authorized,
+            account_id,
+            initial_release,
+            upgrade_release,
+            configuration_sha256,
+            authorization.identity,
+        )
+        return requests, authorization.identity
+
+    @staticmethod
+    def _require_paper_activation(
+        result: AccountResultProjection,
+        account_id: str,
+        initial_release: str,
+        upgrade_release: str,
+        configuration_sha256: str,
+        authorization_id: str,
+    ) -> None:
+        """Require the same disabled manifest and bounded grant after every code switch."""
+        if len(result.paper_activations) != 1:
+            raise ValueError("paper activation was lost")
+        activation = result.paper_activations[0]
+        if (
+            activation.deployment.account_id != account_id
+            or activation.deployment.configuration_sha256 != configuration_sha256
+            or not {initial_release, upgrade_release}.issubset(activation.deployment.releases)
+            or activation.deployment.enabled is not False
+            or activation.authorization is None
+            or activation.authorization.identity != authorization_id
+        ):
+            raise ValueError("paper activation differs after signed code switch")
 
     @staticmethod
     def _encode_request(request: dict[str, object]) -> bytes:
@@ -629,6 +845,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
     for option in ("policy", "initial", "upgrade", "target", "output"):
         parser.add_argument("--" + option, required=True, type=Path)
     parser.add_argument("--request", type=Path)
+    parser.add_argument("--deployment", type=Path)
+    parser.add_argument("--authorization", type=Path)
+    parser.add_argument("--legacy", type=Path)
     parsed = parser.parse_args(arguments, namespace=AcceptanceArguments())
     result = AccountInstallationAcceptance(parsed).run()
     print(f"Signed account installation accepted: {result.rollback.release}", flush=True)

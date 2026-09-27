@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import asyncio
+import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -11,19 +12,25 @@ from typing import Literal
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 
 # project library imports
-from accounting import AccountSnapshot
+from accounting import AccountLedger, AccountSnapshot
 from applications.paper import run_live_shared_paper
+from applications.paper.monitoring import retain_public_paper_monitoring
 from configuration import (
     AccountConfiguration,
     BookRegistryConfiguration,
     BookSelection,
     CaptureConfig,
     OpeningAccount,
+    PaperAuthorization,
+    PaperDeployment,
     PaperExecutionScenario,
+    PaperStrategyIdentity,
 )
 from execution import (
+    AccountControl,
     AccountDecision,
     AccountJournal,
     AccountObservation,
@@ -52,6 +59,7 @@ from runtime import (
     SharedStrategyInput,
 )
 from runtime.live_paper import LiveBookDelivery
+from serialization import DomainCodec
 from strategies import ConfirmedSignal, OrderIntent
 
 
@@ -474,6 +482,81 @@ class TestSharedPublicPaper:
         with pytest.raises(ValueError, match="did not advance"):
             frozen._coordination_time(self.at)
 
+    @pytest.mark.parametrize("changed", ("model", "feature"))
+    def test_managed_workload_identity_mismatch_precedes_capture(
+        self, tmp_path: Path, changed: str
+    ) -> None:
+        """Refuse changed model or feature bindings before source access or economics."""
+        config, binding, inputs = self._config(), self._binding(), _NoDecisionInputs()
+        request, requirement = self._request(), self._requirement()
+        codec = DomainCodec()
+        deployment = PaperDeployment(
+            account_id="paper",
+            configuration_sha256=hashlib.sha256(codec.encode_json(config)).hexdigest(),
+            releases=("a" * 64,),
+            strategies=(
+                PaperStrategyIdentity(
+                    instance_id=binding.instance_id,
+                    policy_identity=binding.policy.identity,
+                    candidate_identity="reference-policy-v1",
+                    model_identity="changed-model" if changed == "model" else "rule-only",
+                    feature_identity="changed-feature" if changed == "feature" else inputs.identity,
+                ),
+            ),
+            input_identity=hashlib.sha256(
+                codec.encode_json((request.config, requirement, inputs.identity))
+            ).hexdigest(),
+            scenario=self._scenario(),
+            state_identity="paper-account-state-v1",
+        )
+        path = tmp_path / "managed.sqlite3"
+        admin = AccountJournal(path, config)
+        admin.install_paper(deployment)
+        admin.authorize_paper(
+            PaperAuthorization(
+                identity="bounded-workload",
+                deployment_sha256=deployment.identity,
+                valid_from=self.at,
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+                quantities=(self._quantity("2"),),
+                maximum_order_notional=self._money("100"),
+                maximum_orders=2,
+            )
+        )
+        assert admin.reconcile(replace(self._opening(), at=datetime.now(UTC)))
+        admin.observe(AccountQuote(price=self._price("10"), at=datetime.now(UTC)))
+        owner = admin.claim_paper(
+            "paper",
+            "reference-worker",
+            "a" * 64,
+            AccountControl(
+                identity="claim-reference",
+                account_id="paper",
+                kind="restart",
+                at=datetime.now(UTC),
+                expected_control_identity=f"paper-deployment:{deployment.identity}",
+            ),
+        )
+        before = admin.accounts()
+        with pytest.raises(ValueError, match="deployment workload bindings differ"):
+            asyncio.run(
+                run_live_shared_paper(
+                    config,
+                    account_id="paper",
+                    bindings=(binding,),
+                    scenario=self._scenario(),
+                    requirement=requirement,
+                    inputs=inputs,
+                    request=request,
+                    journal_path=path,
+                    output=tmp_path / "capture",
+                    paper_account=AccountJournal(path, config, paper_owner=owner),
+                )
+            )
+        assert admin.accounts() == before
+        assert admin.orders() == ()
+        assert not (tmp_path / "capture").exists()
+
     def test_binding_and_opening_refusals_leave_visible_account_block(self, tmp_path: Path) -> None:
         """A foreign scenario fails before binding, and a bad opening blocks the journal."""
         with pytest.raises(ValueError, match="binding differs"):
@@ -545,3 +628,113 @@ class TestSharedPublicPaper:
         assert AccountJournal(prior_path, self._config()).accounts()[0].operator_block == (
             "public_input_invalid"
         )
+
+    def test_public_monitoring_passes_only_selected_accounts_orders(self, tmp_path: Path) -> None:
+        """Ignore other accounts' orders and preserve both ledgers during monitoring."""
+        base = self._config()
+        account_ids = ("paper", "paper-other")
+        budgets = replace(
+            base.budgets,
+            firm_maximum=self._money("2000"),
+            accounts=(
+                AccountLimit(account_id="paper", maximum=self._money("1000")),
+                AccountLimit(account_id="paper-other", maximum=self._money("1000")),
+            ),
+            instances=(
+                InstanceLimit(
+                    instance_id="alpha",
+                    account_id="paper",
+                    maximum=self._money("900"),
+                    instruments=(self.dimension.instrument_id,),
+                ),
+                InstanceLimit(
+                    instance_id="beta",
+                    account_id="paper-other",
+                    maximum=self._money("900"),
+                    instruments=(self.dimension.instrument_id,),
+                ),
+            ),
+        )
+        config = replace(
+            base,
+            accounts=(
+                OpeningAccount(account_id="paper", cash=(self._money("1000"),)),
+                OpeningAccount(account_id="paper-other", cash=(self._money("1000"),)),
+            ),
+            budgets=budgets,
+        )
+        journal = AccountJournal(tmp_path / "accounts.sqlite3", config)
+        opening = self._opening()
+        for account_id in account_ids:
+            account_opening = replace(
+                opening,
+                identity=f"opening-{account_id}",
+                snapshot=replace(
+                    opening.snapshot,
+                    account_id=account_id,
+                ),
+            )
+            assert journal.reconcile(account_opening)
+
+        scenario = self._scenario()
+        journal.bind_paper_scenario("paper", scenario)
+        other_order = AccountDecision(
+            account_id="paper-other",
+            instance_id="beta",
+            decision=OrderDecision(
+                identity="other-account-order",
+                at=self.at,
+                intent=OrderIntent(
+                    side="buy",
+                    quantity=self._quantity("1"),
+                    limit=self._price("100"),
+                    time_in_force="gtc",
+                ),
+            ),
+            quote=AccountQuote(price=self._price("100"), at=self.at),
+            maximum_fee=self._money("1"),
+        )
+        journal.observe(other_order.quote)
+        admitted = journal.admit(other_order)
+        assert admitted.status == "committed", admitted.reason
+        trace = journal.match_public_market(
+            "paper",
+            PaperMarket(
+                identity="paper-market",
+                at=self.at + timedelta(seconds=1),
+                bid=self._price("99.99"),
+                ask=self._price("100"),
+                bid_quantity=self._quantity("1"),
+                ask_quantity=self._quantity("1"),
+            ),
+            scenario,
+        )
+        assert trace.account_id == "paper"
+        assert {item.account_id for item in journal.orders()} == {"paper-other"}
+        ledgers_before = {view.ledger.account_id: view.ledger for view in journal.accounts()}
+        assert set(ledgers_before) == set(account_ids)
+        assert all(
+            AccountLedger(ledger).snapshot().cash == (self._money("1000"),)
+            for ledger in ledgers_before.values()
+        )
+
+        result = retain_public_paper_monitoring(
+            journal,
+            account_id="paper",
+            request=self._request(),
+            root=tmp_path,
+            observed_at=self.at + timedelta(seconds=2),
+            report=None,
+            decisions=(),
+            prior_trace_ids=frozenset(),
+            summary={},
+            processing_ns=None,
+            delivered_count=0,
+            alert_socket=None,
+        )
+
+        assert result.errors == ()
+        assert result.dashboards
+        assert {
+            view.ledger.account_id: view.ledger for view in journal.accounts()
+        } == ledgers_before

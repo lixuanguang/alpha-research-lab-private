@@ -35,6 +35,15 @@ qualify remote production deployment, OMS state migration or venue recovery.
 The paper destination below remains required at its owning milestones; live
 qualification is deferred under the roadmap's KIV gate.
 
+Managed local paper adds disabled deployment manifests and separate bounded
+operator grants to that installer. Journal v3 owns generation fencing and checks
+inside serialized economic transactions. The public-input API can use the signed
+account-command adapter; the execution target does not import the research wheel.
+Only the latest journal resumes after reconciliation. Historical restores remain
+quarantined, and compatible rollback selects code while preserving current state.
+The [activation record](../roadmap/paper-activation.md) owns the bounded evidence;
+remote service recovery remains outside this increment.
+
 An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
 references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained
 [release workflow](../governance/workflow.md#build-a-release) owns this identity and verification contract.
@@ -72,8 +81,10 @@ implemented interfaces. MR12 extends the original local alert prerequisite with
 causal query/metric APIs and report adapters. Periodic collector observations use
 a bounded background writer; disk stalls cannot hold the watchdog control thread.
 Account/venue commands project committed state into a separate optional journal.
-This local increment does not complete integrated paper monitoring, activation,
-recovery or the final MR10 paper operating record. External private venue
+The bounded managed-paper activation/recovery increment is described in the
+[runbook](../governance/operations.md#managed-public-paper-activation-and-recovery).
+These local capabilities do not complete MR14 deployed integration or final MR10
+operational acceptance. External private venue
 qualification remains unproven and KIV.
 
 Current monitoring events correlate release, strategy, model, dataset/source/study,

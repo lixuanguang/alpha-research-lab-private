@@ -4,7 +4,8 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
-from datetime import datetime
+from collections.abc import Callable
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 # third party library imports
@@ -23,6 +24,7 @@ from execution.account_records import (
 )
 from execution.account_state import AccountStateStore, _AccountTransaction
 from execution.paper import PaperMarket, PaperMatchEvaluator
+from execution.paper_authority import PaperAuthority, PaperOwner
 from execution.records import OrderEvent, OrderState
 from financial_units import Money
 from risk import SpotLimits
@@ -39,6 +41,9 @@ class AccountPaperMatching:
         codec: DomainCodec,
         admission: AccountAdmission,
         allocation: PhysicalAllocation,
+        *,
+        owner: PaperOwner | None,
+        clock: Callable[[], datetime],
     ) -> None:
         """Reuse the account's serialized risk and attribution owners."""
         self.config = config
@@ -46,42 +51,52 @@ class AccountPaperMatching:
         self.codec = codec
         self.admission = admission
         self.allocation = allocation
+        self.owner, self.clock = owner, clock
 
     def bind(self, account_id: str, scenario: PaperExecutionScenario) -> None:
         """Pin a venue/instrument scenario before its first account order."""
+        with self.store.write() as transaction:
+            self.bind_transaction(transaction, account_id, scenario)
+
+    def bind_transaction(
+        self,
+        transaction: _AccountTransaction,
+        account_id: str,
+        scenario: PaperExecutionScenario,
+    ) -> None:
+        """Stage immutable matching assumptions together with a disabled deployment."""
         self._require_paper()
         scenario.__post_init__()
         limits = self._limits(scenario)
         if scenario.adverse.per != limits.lot.dimension:
             raise ValueError("paper adverse price instrument differs")
         PaperMatchEvaluator(scenario, lot=limits.lot, tick=limits.tick)
-        with self.store.write() as transaction:
-            transaction.account(account_id)
-            existing = self._binding(transaction, account_id, scenario)
-            if existing is not None:
-                if existing.scenario != scenario:
-                    raise ValueError("paper scenario changed after binding")
-                return
-            has_direct_orders = any(
-                item.account_id == account_id
-                and item.order.intent.quantity.dimension.instrument_id == scenario.instrument_id
-                for item in transaction.state.orders
-            )
-            has_net_orders = any(
-                item.account_id == account_id
-                and item.order.intent.quantity.dimension.instrument_id == scenario.instrument_id
-                for item in transaction.state.net_orders
-            )
-            if has_direct_orders or has_net_orders:
-                raise ValueError("paper scenario must be bound before order admission")
-            bindings: tuple[AccountPaperBinding, ...] = (
-                *transaction.state.paper_bindings,
-                AccountPaperBinding(account_id=account_id, scenario=scenario),
-            )
-            transaction.state = replace(
-                transaction.state,
-                paper_bindings=bindings,
-            )
+        transaction.account(account_id)
+        existing = self._binding(transaction, account_id, scenario)
+        if existing is not None:
+            if existing.scenario != scenario:
+                raise ValueError("paper scenario changed after binding")
+            return
+        has_direct_orders = any(
+            item.account_id == account_id
+            and item.order.intent.quantity.dimension.instrument_id == scenario.instrument_id
+            for item in transaction.state.orders
+        )
+        has_net_orders = any(
+            item.account_id == account_id
+            and item.order.intent.quantity.dimension.instrument_id == scenario.instrument_id
+            for item in transaction.state.net_orders
+        )
+        if has_direct_orders or has_net_orders:
+            raise ValueError("paper scenario must be bound before order admission")
+        bindings: tuple[AccountPaperBinding, ...] = (
+            *transaction.state.paper_bindings,
+            AccountPaperBinding(account_id=account_id, scenario=scenario),
+        )
+        transaction.state = replace(
+            transaction.state,
+            paper_bindings=bindings,
+        )
 
     def traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
         """Read exact public inputs and modeled effects in commit order."""
@@ -108,6 +123,11 @@ class AccountPaperMatching:
             raise ValueError("paper market instrument differs from scenario")
         failure: str | None = None
         with self.store.write() as transaction:
+            activation = PaperAuthority.require_owner(
+                transaction, account_id, self.owner, at=self.clock(), new_exposure=False
+            )
+            if activation is not None and activation.deployment.scenario != scenario:
+                raise ValueError("paper_scenario_incompatible")
             transaction.account(account_id)
             binding = self._binding(transaction, account_id, scenario)
             if binding is None:
@@ -130,6 +150,12 @@ class AccountPaperMatching:
                         result = saved
                         break
             else:
+                if activation is not None:
+                    now = self.clock()
+                    if market.at > now or now - market.at > timedelta(
+                        microseconds=self.config.budgets.max_quote_age_us
+                    ):
+                        raise ValueError("paper_market_stale_or_future")
                 result, failure = self._match_new(transaction, account_id, binding, market)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
