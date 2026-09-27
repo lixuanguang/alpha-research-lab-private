@@ -12,7 +12,7 @@ from typing import Literal
 # project library imports
 from market_data.acquisition import AcquisitionManifest
 from market_data.contracts import ArchiveCapture, Occurrence, SourceRequest
-from market_data.datasets.books import BookDatasetManifest, BookInput, BookPartition
+from market_data.datasets.books import BookAdmissionReport, BookDatasetManifest, BookInput
 from market_data.datasets.manifests import DatasetInput, DatasetManifest, DatasetPartition
 from market_data.datasets.readers import DatasetReaders
 from market_data.datasets.snapshots import SnapshotStore
@@ -48,7 +48,7 @@ class DatasetPublication:
         *,
         max_records: int,
         max_bytes: int,
-        report: Callable[[str, QualityReport], None] | None = None,
+        report: Callable[[str, BookAdmissionReport], None] | None = None,
     ) -> str:
         """Bind saved native inputs, admit exploratory prefixes and atomically publish them.
 
@@ -56,7 +56,7 @@ class DatasetPublication:
             directories: Completed capture/archive directories; no network access is performed.
             store: Provisioned immutable raw store retaining copied original inputs.
             destination: Provisioned directory shared with the existing snapshot store.
-            max_records: Explicit per-input raw-position prefix ceiling, at most 10,000.
+            max_records: Explicit per-input raw-position prefix ceiling, at most 1,000,000.
             max_bytes: Positive per-file raw/canonical byte bound.
             report: Optional quality sink called before each partition's publication gate.
 
@@ -66,9 +66,12 @@ class DatasetPublication:
         Raises:
             ValueError: An input is incomplete, unsupported, malformed or exceeds its bounds.
         """
-        partitions, payloads = [], []
-        for directory in directories:
-            selected = BookInput.read(directory, max_records=max_records)
+        selections = tuple(
+            BookInput.read(directory, max_records=max_records) for directory in directories
+        )
+        if len({selected.request.identity for selected in selections}) != len(selections):
+            raise ValueError("duplicate book source selection")
+        for directory, selected in zip(directories, selections, strict=True):
             if type(max_bytes) is not int or not 0 < selected.raw.size_bytes <= max_bytes:
                 raise ValueError("book raw input exceeds max_bytes")
             store.publish(
@@ -76,22 +79,13 @@ class DatasetPublication:
                 descriptor=selected.raw,
                 request=selected.request.binding,
             )
-            outcome = selected.admit(store, readers=self._readers, max_bytes=max_bytes)
-            if report is not None:
-                report(selected.request.identity, outcome)
-            canonical = outcome.require_canonical()
-            payloads.append(canonical)
-            partitions.append(BookPartition(hashlib.sha256(canonical).hexdigest(), selected))
-        manifest = BookDatasetManifest(
-            normalization_identity=self._normalization_identity,
-            partitions=tuple(partitions),
-        )
         return SnapshotStore(
             destination, store, readers=self._readers, manifest_type=BookDatasetManifest
-        ).publish(
-            manifest,
-            tuple(payloads),
+        ).publish_book_streams(
+            selections,
+            normalization_identity=self._normalization_identity,
             max_bytes=max_bytes,
+            report=report,
         )
 
     def publish(

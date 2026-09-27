@@ -6,21 +6,17 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Iterator
-from copy import deepcopy
 from datetime import UTC, datetime
 from decimal import Decimal
-from itertools import batched
 from pathlib import Path
 from typing import Literal, NamedTuple
 
 # project library imports
 from market_data.contracts import BookObservation, Level, Order
 from market_data.datasets import (
-    BookDatasetManifest,
-    BookHistory,
     BookInput,
+    BookSnapshot,
     DatasetReaders,
-    SnapshotStore,
 )
 from market_data.storage import RawStore
 from reference_data.instruments import InstrumentId
@@ -102,6 +98,38 @@ class BookQueryBatch(NamedTuple):
 class BookQueryReader:
     """Read an admitted native prefix without treating it as trades or executable liquidity."""
 
+    def __init__(self, snapshot: BookSnapshot) -> None:
+        """Bind one explicitly verified immutable snapshot for repeated bounded queries."""
+        self._snapshot = snapshot
+
+    @classmethod
+    def open(
+        cls,
+        directory: Path,
+        raw: RawStore,
+        *,
+        readers: DatasetReaders,
+        identity: str,
+        max_bytes: int,
+    ) -> BookQueryReader:
+        """Verify all native partitions once and retain a session over protected files.
+
+        Args:
+            directory: Immutable publication root, protected from external mutation.
+            raw: Retained original objects for independent native reconstruction.
+            readers: Explicit source decoders.
+            identity: Complete pinned snapshot identity.
+            max_bytes: Positive per-file admission cap.
+
+        Returns:
+            Reader whose batches decode fresh records without re-admitting raw inputs.
+        """
+        return cls(
+            BookSnapshot.read(
+                directory, raw, readers=readers, identity=identity, max_bytes=max_bytes
+            )
+        )
+
     @classmethod
     def read(
         cls,
@@ -111,87 +139,54 @@ class BookQueryReader:
         readers: DatasetReaders,
         query: BookQuery,
     ) -> tuple[BookQueryBatch, ...]:
-        """Verify a whole snapshot, select one native partition, then project known values.
+        """Verify and collect one result; use open/batches for bounded repeated reads.
 
         Args:
-            directory: Immutable publication root, protected from concurrent external mutation.
-            raw: Retained raw objects for independent reconstruction verification.
-            readers: Explicitly selected native source readers.
+            directory: Protected immutable snapshot root.
+            raw: Original objects required by complete admission.
+            readers: Explicit native source decoders.
             query: Pinned partition, instrument, fields and receipt/knowledge bounds.
 
         Returns:
-            Bounded in-memory batches; one empty evidence batch when nothing is known.
-            Memory includes verified native state and all selected rows, not just batch_size.
+            Collected batches with the original convenience API's result-sized memory cost.
 
         Raises:
-            ValueError: Admission, selected identity, units or field capabilities disagree.
-            OSError: A retained snapshot or original object is unavailable.
+            ValueError: Admission, selected identity, units or capabilities disagree.
+            OSError: Retained bytes are unavailable.
         """
         query.__post_init__()
-        manifest = SnapshotStore(
-            directory, raw, readers=readers, manifest_type=BookDatasetManifest
-        ).read(query.snapshot_id, max_bytes=query.max_bytes)
-        for partition in manifest.partitions:
-            if partition.selection.request.identity != query.request_identity:
-                continue
-            config = partition.selection.request.config
-            if config.instrument_id != query.instrument:
-                raise ValueError("book query instrument differs from pinned request")
-            capture = partition.selection.capture
-            if capture is not None and capture.universes is not None:
-                capture.universes.require(query.instrument, "research")
-            is_l3 = capture is not None and capture.config.channel in ("R0", "level3")
-            supported = ("orders",) if is_l3 else ("bids", "asks")
-            if any(column not in supported for column in query.columns):
-                raise ValueError("book fields incompatible with native L2/L3 representation")
-            with (directory / query.snapshot_id / partition.sha256).open("rb") as source:
-                payload = source.read(query.max_bytes + 1)
-            if (
-                len(payload) > query.max_bytes
-                or hashlib.sha256(payload).hexdigest() != partition.sha256
-            ):
-                raise ValueError("book canonical size or identity mismatch")
-            history = DomainCodec().decode_json(payload, BookHistory)
-            return cls._select(history, query)
-        raise ValueError("book query request absent from pinned snapshot")
-
-    @classmethod
-    def _select(cls, history: BookHistory, query: BookQuery) -> tuple[BookQueryBatch, ...]:
-        """Filter exact receipt boundaries before exposing values; preserve scoped controls."""
-        start, end, cutoff = (
-            cls._nanoseconds(value) for value in (query.start, query.end, query.known_at)
+        reader = cls.open(
+            directory, raw, readers=readers, identity=query.snapshot_id, max_bytes=query.max_bytes
         )
-        rows: list[BookMarketRow | BookObservation] = []
-        reasons = ["visible depth only; coverage and historical eligibility unproven"]
-        if history.input.archive is not None:
-            reasons.append("original book availability unknown; no decision-eligible values")
-        for row in history.observations:
-            if row.received_ns is None or row.received_ns > cutoff:
-                continue
-            if row.outcome in ("snapshot", "update") and row.status == "degraded":
-                if start <= row.received_ns < end:
-                    values: dict[BookColumn, BookValue] = {
-                        "orders": row.orders,
-                        "bids": row.bids,
-                        "asks": row.asks,
-                    }
-                    rows.append(
-                        BookMarketRow(
-                            row.position,
-                            row.epoch,
-                            row.received_ns,
-                            row.source_time,
-                            row.sequence,
-                            row.state_identity,
-                            row.status,
-                            row.reason,
-                            tuple(values[column] for column in query.columns),
-                        )
-                    )
-            elif row.received_ns <= end:
-                rows.append(row)
-        if not any(isinstance(row, BookMarketRow) for row in rows):
-            reasons.append("no selected book values; absence does not establish an empty market")
+        return tuple(reader.batches(query))
+
+    def batches(self, query: BookQuery) -> Iterator[BookQueryBatch]:
+        """Stream fresh, isolated projections with at most one selected batch in memory.
+
+        Args:
+            query: Receipt interval [start, end), inclusive knowledge cutoff, and limits.
+
+        Yields:
+            Whole messages and earlier controls; at least one evidence batch. When no
+            market values qualify, every batch explicitly records their absence.
+
+        Raises:
+            ValueError: Query bindings, byte limits or pinned canonical bytes disagree.
+        """
+        query.__post_init__()
+        if query.snapshot_id != self._snapshot.identity:
+            raise ValueError("book query differs from verified snapshot")
+        self._snapshot.require_limit(query.max_bytes)
+        selected = self._snapshot.selection(query.request_identity)
+        if selected.request.config.instrument_id != query.instrument:
+            raise ValueError("book query instrument differs from pinned request")
+        capture = selected.capture
+        if capture is not None and capture.universes is not None:
+            capture.universes.require(query.instrument, "research")
+        is_l3 = capture is not None and capture.config.channel in ("R0", "level3")
+        supported = ("orders",) if is_l3 else ("bids", "asks")
+        if any(column not in supported for column in query.columns):
+            raise ValueError("book fields incompatible with native L2/L3 representation")
         identity = hashlib.sha256(
             DomainCodec().encode_json(
                 (
@@ -207,14 +202,66 @@ class BookQueryReader:
                 )
             )
         ).hexdigest()
-        chunks: Iterator[tuple[BookMarketRow | BookObservation, ...]] = (
-            batched(rows, query.batch_size) if rows else iter(((),))
+        reasons = ["visible depth only; coverage and historical eligibility unproven"]
+        if selected.archive is not None:
+            reasons.append("original book availability unknown; no decision-eligible values")
+        chunk: list[BookMarketRow | BookObservation] = []
+        has_values = any(isinstance(row, BookMarketRow) for row in self._selected(query))
+        if not has_values:
+            reasons.append("no selected book values; absence does not establish an empty market")
+        has_batches = False
+        for row in self._selected(query):
+            if len(chunk) == query.batch_size:
+                yield BookQueryBatch(
+                    identity,
+                    query.columns,
+                    tuple(chunk),
+                    self._snapshot.selection(query.request_identity),
+                    tuple(reasons),
+                )
+                has_batches = True
+                chunk = []
+            chunk.append(row)
+        if chunk or not has_batches:
+            yield BookQueryBatch(
+                identity,
+                query.columns,
+                tuple(chunk),
+                self._snapshot.selection(query.request_identity),
+                tuple(reasons),
+            )
+
+    def _selected(self, query: BookQuery) -> Iterator[BookMarketRow | BookObservation]:
+        """Preserve source order and exact nanosecond eligibility before projection."""
+        start, end, cutoff = (
+            self._nanoseconds(value) for value in (query.start, query.end, query.known_at)
         )
-        evidence = deepcopy(history.input)
-        return tuple(
-            BookQueryBatch(identity, query.columns, deepcopy(chunk), evidence, tuple(reasons))
-            for chunk in chunks
-        )
+        if self._snapshot.selection(query.request_identity).archive is not None:
+            self._snapshot.verify_partition(query.request_identity)
+            return
+        for row in self._snapshot.observations(query.request_identity):
+            if row.received_ns is None or row.received_ns > cutoff:
+                continue
+            if row.outcome in ("snapshot", "update") and row.status == "degraded":
+                if start <= row.received_ns < end:
+                    values: dict[BookColumn, BookValue] = {
+                        "orders": row.orders,
+                        "bids": row.bids,
+                        "asks": row.asks,
+                    }
+                    yield BookMarketRow(
+                        row.position,
+                        row.epoch,
+                        row.received_ns,
+                        row.source_time,
+                        row.sequence,
+                        row.state_identity,
+                        row.status,
+                        row.reason,
+                        tuple(values[column] for column in query.columns),
+                    )
+            elif row.received_ns <= end:
+                yield row
 
     @staticmethod
     def _nanoseconds(instant: datetime) -> int:

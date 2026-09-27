@@ -1,7 +1,8 @@
 # MR15 research launch capacity
 
 Owner: quant development. Status: numeric profiles and measured diagnostic
-changes delivered; representative research acceptance pending. Profile declared
+changes delivered; representative research acceptance pending. The R1 continuation
+starts from reviewed `main` at `613bcb0` on `codex/mr15-r1-native-capacity`. Profile declared
 before qualification on 2026-09-27. Baseline: `main` at `9106a48`.
 MR15 remains open until both this profile and the
 [runtime profile](runtime-capacity.md) pass. MR16 ownership enforcement and MR17
@@ -120,7 +121,7 @@ cursor; legacy value-only checkpoints reconstruct once and check every frozen
 value. Older readers reject checkpoints carrying the new optional state fields.
 No financial arithmetic, temporal cutoff, calendar or cost model changed.
 
-## Qualification results
+## Prior diagnostic results (retained)
 
 **R1 is not accepted.** The independent numerical and recovery checks below
 passed on authored inputs. Native publication/replay is measured separately and
@@ -197,7 +198,7 @@ I/O bytes; retained logical file sizes are reported instead.
   command named a nonexistent test file and ran no tests; the corrected run
   passed 43 tests. These failed invocations are not successful qualification.
 
-The remaining R1 gaps are full-day source admission with original availability,
+At the reviewed baseline, the remaining R1 gaps were full-day source admission with original availability,
 native book throughput/memory and admission bounds, combined representative
 publication-to-study execution, three real offline Feast chunks, process-kill
 recovery, sustained resource/I/O sampling and measured retention growth.
@@ -258,7 +259,7 @@ Retained interpolated percentiles from the original profiler are not acceptance
 claims; the compact record omits tails below 1,000 samples and recomputes nearest
 ranks for larger samples.
 
-Validation on the final source:
+Validation retained for the prior delivered slice:
 
 | Check | Result |
 | --- | --- |
@@ -277,10 +278,252 @@ trading authority. Review confirmed that source changes stay within existing
 feature, study and result owners; consumer orchestration remains outside the
 libraries, and no distributed infrastructure or dependency was added.
 
-To close R1, obtain a 72-hour original-clock corpus and qualify bounded native
-publication/replay at its owning storage boundary, then run the declared combined
-path, offline chunks and loaded recovery/resource checks without changing R1's
-thresholds. The next
+The continuation below addresses bounded native publication/replay and missing
+diagnostic boundaries. To close R1, obtain a 72-hour original-clock corpus and run
+the declared combined path without changing R1's thresholds. The next
 [bounded runtime prompt](runtime-capacity.md#next-bounded-runtime-prompt-after-the-research-slice)
 preserves MR14's finite service lifetime and makes the later sustained lifecycle
 and grant qualification explicit. MR15, MR16 and MR17 remain open.
+
+
+## R1 continuation from reviewed baseline 613bcb0
+
+Status: bounded native implementation delivered; representative qualification
+blocked and **R1 remains unaccepted**. The frozen workload and all thresholds above are unchanged. The
+prior acknowledgement-loss diagnostic remains separate from the new actual
+process-interruption drill. This continuation does not qualify runtime stage 1,
+the subsequent 24-hour gate, MR16 or MR17.
+
+### Representative input prerequisite
+
+A new inventory rehashed the six retained OKX BTC-USDT/ETH-USDT archives for
+September 20–22, 2026 against their raw manifests and pinned discovery indexes.
+They contain 764,320,959 unique compressed bytes. The retained acquisition
+reconstruction stopped at one million records per archive, covering only about
+5.5–9.3 hours from each UTC midnight. These six million prefix records are
+historical source records; their original receipt/availability and sequence
+clocks remain unknown. Neither the archive download time nor the index receipt
+time can supply those missing clocks. Archive hash integrity is not full-day
+coverage or causal admission.
+
+The retained native public captures cover seconds of BTC only, with original
+local receipts. The MR02 backfill has 258 trades from a one-minute request,
+without original row receipt; its two native captures each stopped at 100
+messages after 10.294 and 3.312 seconds. The MR18 snapshot contains 27,480 BTC
+trades over one hour, with unknown original knowledge clocks. No retained
+candidate provides the required original-clock BTC/ETH history across all six
+instrument-days. Full inventory bytes and the rerunnable verifier are retained
+under `logs/research-capacity/r1-input-inventory/`, with digests in the existing
+[evidence record](research-capacity-evidence.json).
+
+The exact missing prerequisite is 72 consecutive UTC hours for both selected
+spot instruments, with at least 100,000 admitted unique native records, original
+event/receipt/availability semantics, explicit gaps/revisions, units/calendars,
+and retained raw/acquisition manifests. A suitable existing provider recording
+could meet it only after original-clock, coverage, format and access verification;
+no accessible qualifying recording was found here.
+
+The concrete own-capture route is the existing public OKX `books` adapter at
+depth 400, configured separately for BTC-USDT and ETH-USDT and supervised together.
+The [collector guide](../data/okx-market-data.md) documents the public route and
+finite commands. The current command
+`alpha-collect capture --config configs/live/okx-btc-usdt.json --output /absolute/capture-root`
+is a 20-second BTC diagnostic, not a multi-day acquisition. The current schema
+admits one instrument/config, at most 3,600 seconds, one million messages and
+one billion bytes per invocation. An ETH instrument binding and finite, gap-aware
+segment rollover/handoff must be implemented and qualified first; restarting
+one-hour captures does not prove continuity. Then an explicitly authorized,
+supervised run needs at least 72 elapsed hours (and sufficient alignment to cover
+three complete UTC days), with gaps and overloads retained. Original receipt
+cannot be recreated by processing faster or repeating records. No new capture,
+unattended collection, data purchase or provider access was launched here.
+
+### Owning implementation and validation scope
+
+Native publication now has a versioned line stream, with raw reconstruction and
+canonical verification before atomic visibility. It retains one full native
+observation at a time rather than an entire history. The new path accepts a
+finite selection of up to one million raw positions per input, still subject to
+source and byte limits; legacy in-memory `BookInput.admit` remains capped at
+10,000. This is a storage change with a measured consumer, not a cap-only fix.
+Each observation preserves exact levels/orders, state identity, source position,
+quality transitions and original clocks. It does not grant a new quality scope.
+
+`BookSnapshot.read` explicitly verifies the complete snapshot once. Repeated
+query/replay consumers share that session under the existing protected immutable
+store contract; returned records and provenance are isolated, and changed
+canonical files are refused. A session does not re-read original raw bytes on
+every query; callers must keep both stores and their ancestors protected. Streamed replay retains a lookahead and delivery batch, preserves
+legacy cursor identities for v1 inputs and uses a distinct v2 identity. Legacy
+snapshots remain readable; older readers cannot read v2. Close an unfinished
+stepping replay with `close()` to release its file stream and any tie spill;
+separately obtained batch iterators must be exhausted or closed by their caller.
+Resume using a completed cursor and independently retained consumer state.
+Live queries perform an existence prescan before delivery so every batch retains
+the legacy no-values explanation when needed; this can require two canonical
+hashes and two decoding passes. The empty archive measurements below do not
+measure that populated live-query cost.
+
+The focused proof compares every selected native observation to the existing
+raw reconstruction path and retained small baseline traces. Authored checks
+independently verify exact Decimal book levels, deletion, gap controls, receipt
+rounding, late prior-epoch snapshots, cutoff exclusion, consumer mutation
+isolation, and restart/phase equivalence. Authored workflow checks exercise
+actual offline Feast chunks, interruption and restore, but cannot replace the
+missing representative corpus. Combined native-publication-to-research R1
+execution remains pending that corpus.
+
+Rollback restores the previous implementation and preserves v2 data and failed
+attempts. Existing v1 snapshots remain usable; opening v2 after rollback requires
+the newer reader. No numerical contract, timestamp meaning, threshold, trading
+limit or holdout selection changes.
+
+
+### New native diagnostic measurements
+
+The first installed v2 diagnostic uses the exact two original archive prefixes
+from the retained baseline: 1,000 BTC records plus 1,000 ETH records. All source
+times, positions, outcomes and full-state digests match the baseline exactly.
+Canonical format and normalizer identities deliberately produce a new snapshot.
+Publication, including raw copying, independent native reconstruction, fsync and
+atomic visibility, took **7.567 s (264.3 records/s)** versus the retained
+**12.686 s (157.7 records/s)**. This improves the bottleneck but still misses
+R1's 333 records/s target at this small scale; it is not a passing attempt.
+
+Whole-snapshot admission is now explicit: **3.584 s** in this run. After that
+admission, first projections took 1.223/1.049 ms and repeated projections
+0.940/0.991 ms. These return zero market rows because the archives have unknown
+original availability. They are neither populated depth-query latency nor R1
+feature PIT retrieval evidence. The two whole-prefix replay scans took
+**1.867/1.889 s**, with 213,696,512 bytes peak parent RSS; recursive parent/child
+sampling over the complete 28.413-second diagnostic observed 286,474,240 bytes
+peak aggregate RSS and 1.015 logical CPUs. Sample count was 125 at a nominal
+0.2-second interval. Two observations supply totals/ranges, not tail percentiles.
+
+The workspace retained 248,636,014 logical bytes, including 170,453,882 raw and
+78,178,180 canonical bytes. These are measured bytes for this prefix. Disk caches
+were uncontrolled; application initialization and warm projection are identified
+separately. The process sampler records the observed process tree and can miss
+short-lived processes or peaks between samples. Darwin block-operation counts
+are recorded, but the selected platform interfaces do not provide process-level
+physical read/write byte measurements; zero counters are not zero disk I/O.
+
+The larger installed diagnostic admits **50,000 distinct source positions per
+instrument**, 100,000 total, without changing timestamps or repeating inputs.
+Publication took **189.938 s (526.5 records/s)**, meeting the 300-second and
+333-record/second numbers for this diagnostic. Peak parent RSS during publication
+was 60,555,264 bytes. This removes the measured count and publication bottleneck;
+it does not establish representative acceptance. The source windows span only
+2,109.263 BTC seconds and 1,967.227 ETH seconds on September 20. Original
+availability is still unknown and every query correctly returns zero eligible
+market rows.
+
+Cold whole-snapshot verification took **91.233 s**. That exceeds the profile's
+60-second initialization allowance and remains an integration concern; it is
+native snapshot admission, not a measurement of the still-pending representative
+feature/PIT initialization. Reusing the admitted session makes the two first
+projections 1.057/1.062 ms and two warm projections 0.896/0.918 ms. The complete
+BTC/ETH replay scans took 94.538/95.464 s. Every observation, including exact
+levels, outcomes, source positions and times, matched an independently
+reconstructed reference (84.779/90.508 s for those comparison passes).
+An independent process reopened the same immutable identity and reproduced both
+query and full replay traces exactly. Its initial re-admission took 91.548 s;
+its two replay scans took 95.108/98.604 s. The complete diagnostic, including
+reference comparison and process reopen, took 932.308 s. The 4,137 recursive
+samples observed 287,424,512 bytes peak aggregate RSS and 1.099 logical CPUs;
+parent peak RSS was 213,057,536 bytes. This diagnostic duration is not publication
+time or a representative end-to-end workflow measurement.
+
+The larger workspace retained approximately 4.080 GB logical bytes, including
+170,453,882 raw bytes. This is observed prefix growth; it is not a daily retention
+rate. Full-state canonical records still consume substantial disk, and no
+30-day raw/canonical/features/artifact forecast is qualified by this short
+prefix. The prior 7.12 GiB raw-only extrapolation remains explicitly separate.
+Neither native diagnostic overlaps a test suite, acquisition or environment
+installation; this is still a shared workstation with uncontrolled OS caches.
+
+### Final authored workflow diagnostic
+
+The final run used the independently installed root wheel and a copied consumer
+outside the checkout, after the native measurements finished. Its implementation
+identity is `c12b9bafa246d6558f70d7c633b2f0af3970610b6b61feffee7b5235a7a2f8ff`.
+The consumer records pinned authored inputs, feature/study/cost identities,
+individual durations, stage windows, SDK wire sizes and recursive process samples.
+These inputs remain authored: neither their 72-hour decision grid nor their
+successful checks supplies representative native history.
+
+| Boundary | Measured result | R1 comparison, diagnostic only |
+| --- | --- | --- |
+| Feature materialization and online generation | 8,640 rows in 28.258 s, 305.8 rows/s; SDK online generation 3.171 s included | Below 300 s, above 28.8 rows/s; one fresh-store observation |
+| Durable PIT | 8,640 warm calls, p50/p95/p99 0.264/0.428/0.556 ms; 2.746 s inside calls; maximum 23.697 ms | Below 10/50/100 ms; empirical nearest ranks from a short authored workload |
+| Actual offline Feast | Three immutable chunks, 2,880 cells each; 81.151 s total, 26.930–27.123 s/chunk; all 8,640 exact cells reconciled | Three-chunk condition exercised; each request/response below 16 MiB and each chunk below 4,096 cells |
+| Reopen | Feature store 0.525 ms; online generation 0.830 ms | Below 60 s each; one observation each, no cold percentile |
+| Costed studies | Four trials, two families, peak two active workers; two waves total 38.530 s; five handler invocations 3.581–17.453 s including acknowledgement retry | Below 600 s total and 300 s/trial; local worker threads, not distributed scaling |
+| Reports and results | Four reopened reports/results, 3.543–3.735 s each | Below 30 s each; totals/range only |
+| Actual process interruption | Child exited with SIGKILL (−9) after durable attempt start; incomplete attempt retained then marked abandoned; queue retry/recovery 17.460 s | Below 60 s; recovered result and exact accounting equal the uninterrupted control |
+| Backup and restore | 38.077 s including reopen and equality checks | Below 120 s; exact family histories/results/accounting and offline artifact bytes agree |
+| Resource observation | 224.156 s total; 829 recursive samples; peak tree RSS 5,017,485,312 bytes, parent peak 651,558,912 bytes, peak sampled CPU 4.162 logical cores | Below 8 GiB tree, 4 GiB parent and eight-core diagnostic ceilings; sampling can miss inter-sample peaks |
+| Disk growth | Workspace 428,849,998 logical bytes before final measurement JSON; backup 339,132,734 and restored tree 339,100,332 bytes | About 1.107 GB combined logical retention, below 10 GiB; separate authored roots, excludes native source and does not qualify a retention rate |
+
+The worker's owned child is actually killed; the retained acknowledgement-loss
+case remains independently labeled. The uninterrupted control is an additional
+oracle, not a fifth declared trial. Each completed trial retains two fills and
+exact net −2.40 USDT after fees and adverse slippage; centralized spot gas remains
+inapplicable. No holdout or profitability acceptance is consumed.
+
+SDK process-spawn durations are retained separately (ten calls, 3.083–6.199 ms).
+SDK operation times include interpreter/import/SDK startup; no ready-handshake
+isolates that startup from work, and no fresh-process request is called steady
+serving latency. Process-tree sampling had zero enumeration/read failures and no
+sampler error. CPU totals were 199.599 user plus 39.340 system seconds, including
+children; host-wide sampled CPU reached 87.3%, exposing competing workstation
+load. Darwin physical process I/O byte counters remain unavailable. Logical
+growth and `st_blocks * 512` are recorded separately; APFS shared extents make
+allocated-byte sums across backup/restore roots non-additive.
+The offline registry contains absolute source paths: backup checks preserve its
+exact bytes, but a relocated offline SDK query was not exercised. Restore proof
+covers family histories, exact results/accounting, feature-store reopening and
+online generation/retrieval, without claiming offline registry relocation.
+
+Earlier smoke attempts and the old-installed 4,320-decision run remain in the
+evidence record. The earlier run used a less complete child sampler and cannot
+replace this recursive measurement. The existing 8,192-close scheduled-feature
+diagnostic is reused because its owning implementation is unchanged; its tiny
+authored source still cannot qualify the required native scheduled-close path.
+
+### Acceptance still open
+
+Final continuation validation passed:
+
+| Check | Result |
+| --- | --- |
+| Integrated focused causal, numerical, boundary and recovery checks | 61 passed, 4 deselected; equal-receipt ordering/restart group also passed 8 checks |
+| Final `make check` | All five locks, Ruff, strict mypy (598 files), native stubs (1,562 modules), engineering/dependency/link governance, complete dependency audit, security and secret scan; 1,814 passed, 2 optional Feast skips, 3 performance cases deselected in 219.10 s |
+| Existing performance gate | 3 passed, 1,816 deselected in 2.61 s |
+| Explicit real Feast serving/candidate integration | 3 passed, 1 deselected in 54.71 s, covering the optional suite skips |
+| Installed artifacts | Root wheel smoke passed APIs/resources, historical snapshot and OKX book CLI; independently installed collector performed both native capacity runs, and installed root performed the full authored workflow |
+| Evidence and documentation | Original R1 profile and all prior evidence values preserved; source/lock hashes, changed Markdown file targets and `git diff --check` verified |
+
+The first final gate stopped on the stale root lock admission digest after
+declaring already admitted `psutil==7.2.2` as a direct development dependency.
+The two generated development-edge entries add no external version, artifact or
+runtime requirement. The owning admission pin and rationale were updated, and
+the complete gate passed on retry. Earlier catalog-v2 dispatch, initial tie-fixture
+setup and Ruff failures remain in the evidence with their passing corrections.
+The final root smoke wheel differs from the measured root wheel only in the
+packaged `market_data/README.md` and wheel RECORD; installed production bytes
+and metadata are identical. Unchanged scheduler and MR14 runtime evidence is
+reused only within its original scope. Exact commands and artifact/log digests
+are retained in the [existing evidence record](research-capacity-evidence.json).
+
+R1 needs the original-clock corpus described above, the combined native-to-study
+workflow on that corpus, representative scheduled-close and populated query
+measurements, resolution of cold initialization cost, and a full retention
+forecast grounded in representative growth. The unchanged 512 GiB free-space
+runtime prerequisite is also unmet: the larger native attempt started with
+424,159,051,776 bytes free. Runtime stage 1 and the later 24-hour gate, MR16 and
+MR17 remain pending. The next independent runtime task is the existing
+[bounded stage-1 prompt](runtime-capacity.md#next-bounded-runtime-prompt-after-the-research-slice);
+its finite result must not be promoted to 24-hour acceptance. Live trading
+remains KIV pending untouched OOS and forward-paper profitability after all
+transaction costs, slippage and applicable gas.

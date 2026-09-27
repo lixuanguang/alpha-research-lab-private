@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -16,7 +17,7 @@ from unittest.mock import patch
 
 # third party library imports
 import pytest
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from configuration import CaptureConfig, OKXHistoryConfig, UniverseSelection
@@ -27,6 +28,8 @@ from market_data.datasets import (
     BookDatasetManifest,
     BookHistory,
     BookInput,
+    BookPartition,
+    BookSnapshot,
     DatasetPublication,
     SnapshotStore,
 )
@@ -100,9 +103,11 @@ class TestBookDatasets:
         return root
 
     @staticmethod
-    def _archive(root: Path) -> Path:
-        """Create two exact L2 archive rows with absent sequence and original receipt clocks."""
+    def _archive(root: Path, *, records: int = 2) -> Path:
+        """Create distinct exact L2 rows with absent sequence and original receipt clocks."""
         config = OKXHistoryConfig.read(_ROOT / "configs/history/okx-btc-usdt.json")
+        if records > config.max_records:
+            config = replace(config, max_records=records)
         url = (
             "https://static.okx.com/cdn/okx/match/orderbook/pro/L2/400lv/daily/"
             f"{config.day:%Y%m%d}/{config.filename}"
@@ -140,10 +145,16 @@ class TestBookDatasets:
         )
         store = OKXArchiveStore(root)
         store.start(request, index)
-        rows = (
-            b'{"instId":"BTC-USDT","action":"snapshot","bids":[["100","2","1"]],"asks":[]}\n'
-            b'{"instId":"BTC-USDT","action":"update","bids":[["100","0","0"]],"asks":[]}\n'
-        )
+        rows = b'{"instId":"BTC-USDT","action":"snapshot","bids":[["100","2","1"]],"asks":[]}\n'
+        if records == 2:
+            rows += b'{"instId":"BTC-USDT","action":"update","bids":[["100","0","0"]],"asks":[]}\n'
+        else:
+            rows += b"".join(
+                b'{"instId":"BTC-USDT","action":"update","bids":[["100","'
+                + str(index).encode()
+                + b'","1"]],"asks":[]}\n'
+                for index in range(1, records)
+            )
         with tarfile.open(root / "download.part", "w:gz") as archive:
             member = tarfile.TarInfo(config.filename.removesuffix(".tar.gz") + ".data")
             member.size = len(rows)
@@ -155,10 +166,16 @@ class TestBookDatasets:
     def _observations(
         root: Path, manifest: BookDatasetManifest, index: int = 0
     ) -> tuple[BookObservation, ...]:
-        """Decode only the typed canonical history after the snapshot has verified."""
-        return _CODEC.decode_json(
-            (root / manifest.identity / manifest.partitions[index].sha256).read_bytes(), BookHistory
-        ).observations
+        """Stream the admitted canonical history after the snapshot has verified."""
+        snapshot = BookSnapshot.read(
+            root,
+            RawStore(root.parent / "raw"),
+            readers=SourceAdapters(),
+            identity=manifest.identity,
+            max_bytes=_LIMIT,
+        )
+        request_identity = manifest.partitions[index].selection.request.identity
+        return tuple(snapshot.observations(request_identity))
 
     def test_publication_reopen_identity_and_distinct_source_clocks(self, tmp_path: Path) -> None:
         """Publish both source modes without inventing archive availability or order IDs."""
@@ -245,6 +262,112 @@ class TestBookDatasets:
                 readers=SourceAdapters(),
                 manifest_type=BookDatasetManifest,
             ).read(identity, max_bytes=_LIMIT)
+
+    def test_stream_publication_exceeds_legacy_prefix_without_retaining_history(
+        self, tmp_path: Path
+    ) -> None:
+        """Admit 10,001 distinct raw rows and reconstruct exact final state from v2 lines."""
+        archive = self._archive(tmp_path / "archive", records=10_001)
+        raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
+        raw.mkdir()
+        snapshots.mkdir()
+        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
+            (archive,), RawStore(raw), snapshots, max_records=10_001, max_bytes=16_000_000
+        )
+        snapshot = BookSnapshot.read(
+            snapshots,
+            RawStore(raw),
+            readers=SourceAdapters(),
+            identity=identity,
+            max_bytes=16_000_000,
+        )
+        selected = BookInput.read(archive, max_records=10_001)
+        assert snapshot.schema_version == "book-dataset-v2"
+        assert snapshot.selection(selected.request.identity).raw == selected.raw
+        count = 0
+        last: BookObservation | None = None
+        for row in snapshot.observations(selected.request.identity):
+            count += 1
+            last = row
+        assert count == 10_001 and last is not None
+        assert last.position == 10_000
+        assert last.bids[0][1].size == Decimal("10000")
+        assert last.received_ns is None and last.epoch is None
+        with pytest.raises(ValueError, match="legacy book envelope"):
+            selected.admit(RawStore(raw), readers=SourceAdapters(), max_bytes=16_000_000)
+        with pytest.raises(ValueError, match="bounded prefix"):
+            BookInput.read(archive, max_records=1_000_001)
+
+    def test_snapshot_session_isolates_evidence_and_refuses_replaced_file(
+        self, tmp_path: Path
+    ) -> None:
+        """An admitted session cannot leak mutable evidence or skip a replaced partition."""
+        archive = self._archive(tmp_path / "archive")
+        raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
+        raw.mkdir()
+        snapshots.mkdir()
+        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
+            (archive,), RawStore(raw), snapshots, max_records=2, max_bytes=_LIMIT
+        )
+        session = BookSnapshot.read(
+            snapshots,
+            RawStore(raw),
+            readers=SourceAdapters(),
+            identity=identity,
+            max_bytes=_LIMIT,
+        )
+        request_identity = BookInput.read(archive, max_records=2).request.identity
+        assert session.admission_report(request_identity).record_count == 2
+        selected = session.selection(request_identity)
+        force_setattr(selected, "max_records", 1)
+        assert session.selection(request_identity).max_records == 2
+        partition = session.partition(request_identity)
+        path = snapshots / identity / partition.sha256
+        replacement = tmp_path / "replacement"
+        shutil.copyfile(path, replacement)
+        os.replace(replacement, path)
+        with pytest.raises(ValueError, match="changed after admission"):
+            session.verify_partition(request_identity)
+        with pytest.raises(ValueError, match="changed after admission"):
+            next(session.observations(request_identity))
+
+    def test_legacy_snapshot_remains_readable_with_exact_bytes(self, tmp_path: Path) -> None:
+        """The new reader preserves old v1 envelopes and their canonical digest."""
+        archive = self._archive(tmp_path / "archive")
+        raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
+        raw.mkdir()
+        snapshots.mkdir()
+        selected = BookInput.read(archive, max_records=2)
+        RawStore(raw).publish(
+            archive / selected.raw.sha256,
+            descriptor=selected.raw,
+            request=selected.request.binding,
+        )
+        payload = selected.admit(RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT)
+        canonical = payload.require_canonical()
+        manifest = BookDatasetManifest(
+            normalization_identity="a" * 64,
+            partitions=(BookPartition(hashlib.sha256(canonical).hexdigest(), selected),),
+        )
+        identity = SnapshotStore(
+            snapshots,
+            RawStore(raw),
+            readers=SourceAdapters(),
+            manifest_type=BookDatasetManifest,
+        ).publish(manifest, (canonical,), max_bytes=_LIMIT)
+        session = BookSnapshot.read(
+            snapshots,
+            RawStore(raw),
+            readers=SourceAdapters(),
+            identity=identity,
+            max_bytes=_LIMIT,
+        )
+        assert session.schema_version == "book-dataset-v1"
+        assert session.legacy_canonical(selected.request.identity) == canonical
+        assert (
+            tuple(session.observations(selected.request.identity))
+            == _CODEC.decode_json(canonical, BookHistory).observations
+        )
 
     @pytest.mark.integration
     def test_installed_book_consumer(self, tmp_path: Path) -> None:

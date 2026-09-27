@@ -13,7 +13,13 @@ from tempfile import TemporaryDirectory
 from typing import ClassVar, cast, overload
 
 # project library imports
-from market_data.datasets.books import BookDatasetManifest, BookPartition
+from market_data.datasets.books import (
+    BookAdmissionReport,
+    BookDatasetManifest,
+    BookInput,
+    BookPartition,
+    BookStream,
+)
 from market_data.datasets.manifests import DatasetManifest, DatasetPartition
 from market_data.datasets.public_trades import PublicTradeManifest, PublicTradePartition
 from market_data.datasets.readers import DatasetReaders
@@ -116,6 +122,68 @@ class SnapshotStore[
         self.read(identity, max_bytes=max_bytes)
         self._sync_directory(self._root)
         return identity
+
+    def publish_book_streams(
+        self,
+        selections: tuple[BookInput, ...],
+        *,
+        normalization_identity: str,
+        max_bytes: int,
+        report: Callable[[str, BookAdmissionReport], None] | None = None,
+    ) -> str:
+        """Stage bounded native histories, verify raw equivalence, then publish atomically.
+
+        Args:
+            selections: Ordered distinct native requests with original raw objects retained.
+            normalization_identity: Installed normalizer identity for the manifest.
+            max_bytes: Positive per-file raw and canonical limit.
+            report: Synchronous stream admission result before the publication gate.
+
+        Returns:
+            Explicit durable v2 dataset identity.
+        """
+        if self._manifest_type is not BookDatasetManifest:
+            raise ValueError("book stream publication requires the book snapshot type")
+        if type(max_bytes) is not int or max_bytes <= 0 or not selections:
+            raise ValueError("book stream publication requires selections and positive max_bytes")
+        if len({selection.request.identity for selection in selections}) != len(selections):
+            raise ValueError("duplicate book source selection")
+        with TemporaryDirectory(dir=self._root, prefix=".staging-") as temporary:
+            staging = Path(temporary)
+            partitions: list[BookPartition] = []
+            for index, selection in enumerate(selections):
+                staged = staging / f".book-{index}"
+                with staged.open("xb") as output:
+                    outcome = BookStream.write(
+                        selection, self._raw, self._readers, output, max_bytes=max_bytes
+                    )
+                    if report is not None:
+                        report(selection.request.identity, outcome)
+                    digest = outcome.require_digest()
+                    output.flush()
+                    os.fchmod(output.fileno(), 0o444)
+                    os.fsync(output.fileno())
+                staged.rename(staging / digest)
+                partitions.append(BookPartition(digest, selection))
+            manifest = BookDatasetManifest(
+                schema_version="book-dataset-v2",
+                normalization_identity=normalization_identity,
+                partitions=tuple(partitions),
+            )
+            identity = manifest.identity
+            self._write(staging / "manifest.json", self._codec.encode_json(manifest), max_bytes)
+            # Reproduce the saved bytes from raw input before they can become visible.
+            self._read(staging, identity, max_bytes)
+            self._sync_directory(staging)
+            destination = self._root / identity
+            try:
+                os.rename(staging, destination)
+            except OSError as error:
+                if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                    raise
+                self.read(identity, max_bytes=max_bytes)
+            self._sync_directory(self._root)
+            return identity
 
     def read(
         self,

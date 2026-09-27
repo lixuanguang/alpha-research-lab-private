@@ -19,7 +19,7 @@ import market_data
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.books import BookDepth, BookProjection, CaptureReplay
 from market_data.contracts import BookObservation, CaptureRequest
-from market_data.datasets import BookHistory, BookInput, DatasetPublication
+from market_data.datasets import BookHistory, BookInput, BookSnapshot, DatasetPublication
 from market_data.replay import BookReplay, ReplayCursor, ReplayPhase
 from market_data.storage import CaptureJournal, RawStore
 from runtime import ImplementationIdentity
@@ -181,6 +181,14 @@ def inspect(source: Path, output: Path) -> dict[str, object]:
     ).require_canonical()
     history = _CODEC.decode_json(payload, BookHistory)
     assert all(row.position == index for index, row in enumerate(history.observations))
+    snapshot = BookSnapshot.read(
+        snapshots,
+        RawStore(raw),
+        readers=SourceAdapters(),
+        identity=identity,
+        max_bytes=_LIMIT,
+    )
+    assert tuple(snapshot.observations(selected.request.identity)) == history.observations
     terminal = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
         microseconds=(max(row.received_ns or 0 for row in history.observations) + 999) // 1000 + 1
     )
@@ -214,14 +222,13 @@ def inspect(source: Path, output: Path) -> dict[str, object]:
     for checkpoint in checkpoints:
         restored = _CODEC.decode_json(_CODEC.encode_json(checkpoint), Checkpoint)
         view = BookView(restored.state)
-        replay = BookReplay(
-            payload,
-            snapshot_identity=identity,
+        replay = BookReplay.from_snapshot(
+            snapshot,
+            request_identity=selected.request.identity,
             batch_size=7,
             cursor=restored.cursor,
             terminal=terminal,
             config_identity=selected.request.identity,
-            max_bytes=_LIMIT,
         )
         while replay.step(terminal, view.consume):
             pass
@@ -292,9 +299,12 @@ def main() -> None:
         if checkpoint.cursor.position is not None:
             assert view.state.boundary is not None
             assert view.state.boundary.position == checkpoint.cursor.position[-1]
-        replay = BookReplay(
-            payload,
-            snapshot_identity=checkpoint.snapshot_identity,
+        replay = BookReplay.read(
+            output / "snapshots",
+            RawStore(output / "raw"),
+            readers=SourceAdapters(),
+            identity=checkpoint.snapshot_identity,
+            request_identity=history.input.request.identity,
             terminal=checkpoint.terminal,
             config_identity=history.input.request.identity,
             max_bytes=_LIMIT,

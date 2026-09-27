@@ -72,7 +72,7 @@ class SnapshotCatalog:
             fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
             version = codec.decode_json(fields.get("schema_version", b"null"), str)
             manifest: DatasetManifest | BookDatasetManifest | PublicTradeManifest
-            if version == "book-dataset-v1":
+            if version in ("book-dataset-v1", "book-dataset-v2"):
                 manifest = codec.decode_json(payload, BookDatasetManifest)
             elif version == "public-trades-v1":
                 manifest = codec.decode_json(payload, PublicTradeManifest)
