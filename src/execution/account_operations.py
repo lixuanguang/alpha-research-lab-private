@@ -147,15 +147,7 @@ class AccountOperations:
             )
         ):
             raise ValueError("account_recovery_requires_fresh_reconciliation")
-        if any(
-            self._unresolved_order(tagged.order, physical=tagged.context is None)
-            for tagged in transaction.state.orders
-            if tagged.account_id == request.account_id
-        ) or any(
-            self._unresolved_order(parent.order, physical=True)
-            for parent in transaction.state.net_orders
-            if parent.account_id == request.account_id
-        ):
+        if self.has_unresolved_orders(transaction, request.account_id):
             raise ValueError("account_recovery_has_unresolved_order_outcome")
         for owner in self.admission.config.budgets.instances:
             if owner.account_id != request.account_id:
@@ -178,6 +170,19 @@ class AccountOperations:
                 ):
                     raise ValueError("account_recovery_requires_fresh_quote")
         self.admission.require_reissue_safe(transaction, request.account_id, request.at)
+
+    @classmethod
+    def has_unresolved_orders(cls, transaction: _AccountTransaction, account_id: str) -> bool:
+        """Identify physical outcomes that must settle before replacing their owner."""
+        return any(
+            cls._unresolved_order(tagged.order, physical=tagged.context is None)
+            for tagged in transaction.state.orders
+            if tagged.account_id == account_id
+        ) or any(
+            cls._unresolved_order(parent.order, physical=True)
+            for parent in transaction.state.net_orders
+            if parent.account_id == account_id
+        )
 
     @staticmethod
     def _unresolved_order(order: OrderState, *, physical: bool) -> bool:

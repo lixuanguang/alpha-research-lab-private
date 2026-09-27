@@ -35,6 +35,8 @@ from execution.account_records import (
     PortfolioResidual,
     TaggedOrder,
 )
+from execution.account_reduction import PaperReductionResult
+from execution.paper_authority import PaperActivation
 from execution.records import OrderEvent, OrderState, StepCommit
 from serialization import DomainCodec, WireRecord
 
@@ -131,11 +133,16 @@ class _FirmState(WireRecord, frozen=True):
     physical_reconciliations: tuple[_PhysicalReconciliation, ...] = ()
     paper_bindings: tuple[AccountPaperBinding, ...] = ()
     paper_traces: tuple[AccountPaperTrace, ...] = ()
-    schema_version: Literal["account-journal-v2"] = "account-journal-v2"
+    paper_activations: tuple[PaperActivation, ...] = ()
+    paper_reductions: tuple[PaperReductionResult, ...] = ()
+    paper_restore_quarantine: bool = False
+    schema_version: Literal["account-journal-v2", "account-journal-v3"] = "account-journal-v2"
 
     def __post_init__(self) -> None:
         """Reject future or corrupted account-journal state versions."""
-        if self.schema_version != "account-journal-v2":
+        if self.schema_version not in ("account-journal-v2", "account-journal-v3") or (
+            bool(self.paper_activations) != (self.schema_version == "account-journal-v3")
+        ):
             raise ValueError("unsupported account journal state schema")
 
 

@@ -1,6 +1,7 @@
 """Expose configured candidate paper/shadow composition without executable authority."""
 
 # project library imports
+from applications.paper.installed import InstalledPaperAccount
 from applications.paper.monitoring import (
     PaperMonitoringInput,
     PaperMonitoringResult,
@@ -17,6 +18,7 @@ from applications.paper.workflow import (
 )
 
 __all__ = [
+    "InstalledPaperAccount",
     "LivePaperRunResult",
     "PaperMonitoringInput",
     "PaperMonitoringResult",

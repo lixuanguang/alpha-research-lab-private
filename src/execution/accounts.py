@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
@@ -17,7 +17,12 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountLedger, AccountPosting, AccountSnapshot, AccountState, Fill
-from configuration import AccountConfiguration, PaperExecutionScenario
+from configuration import (
+    AccountConfiguration,
+    PaperAuthorization,
+    PaperDeployment,
+    PaperExecutionScenario,
+)
 from execution.account_admission import AccountAdmission
 from execution.account_allocation import PhysicalAllocation
 from execution.account_operations import AccountOperations
@@ -46,6 +51,11 @@ from execution.account_records import PortfolioCommit as PortfolioCommit
 from execution.account_records import PortfolioDecision as PortfolioDecision
 from execution.account_records import PortfolioResidual as PortfolioResidual
 from execution.account_records import TaggedOrder as TaggedOrder
+from execution.account_reduction import (
+    AccountReduction,
+    PaperReductionRequest,
+    PaperReductionResult,
+)
 from execution.account_state import (
     AccountStateStore,
     _AccountTransaction,
@@ -53,6 +63,7 @@ from execution.account_state import (
     _SavedNativeFill,
 )
 from execution.paper import PaperMarket
+from execution.paper_authority import PaperActivation, PaperAuthority, PaperOwner
 from execution.records import OrderEvent, OrderState, StepCommit
 from financial_units import DecimalGrid, Money, Quantity
 from portfolio import ProRataAllocator
@@ -68,10 +79,18 @@ class AccountJournal:
     service has no executable transport; a venue submitter's fencing is MR11.
     """
 
-    def __init__(self, path: Path, config: AccountConfiguration) -> None:
+    def __init__(
+        self,
+        path: Path,
+        config: AccountConfiguration,
+        *,
+        paper_owner: PaperOwner | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         """Create or reopen a journal pinned to exact configuration bytes."""
         config.__post_init__()
         self.path, self.config = path, config
+        self.paper_owner, self._clock = paper_owner, clock
         self._codec = DomainCodec()
         self._store = AccountStateStore(path, config, self._codec)
         self._admission = AccountAdmission(config, self._codec)
@@ -79,8 +98,220 @@ class AccountJournal:
         self._allocation = PhysicalAllocation(config, self._codec, self._admission)
         self._portfolio = PortfolioCoordinator(config, self._codec, self._admission)
         self._paper = AccountPaperMatching(
-            config, self._store, self._codec, self._admission, self._allocation
+            config,
+            self._store,
+            self._codec,
+            self._admission,
+            self._allocation,
+            owner=paper_owner,
+            clock=self._now,
         )
+
+    def _now(self) -> datetime:
+        """Read current UTC at every economic boundary, independently of event time."""
+        at = datetime.now(UTC) if self._clock is None else self._clock()
+        PaperDeployment._require_utc(at, field_name="paper operation")
+        return at
+
+    def _require_current_input(
+        self, transaction: _AccountTransaction, request: AccountDecision
+    ) -> None:
+        """Reject stale/future operational data even when historical event clocks agree."""
+        if PaperAuthority.find(transaction, request.account_id) is None:
+            return
+        now = self._now()
+        if (
+            request.decision.at > now
+            or request.quote.at > now
+            or now - request.quote.at > timedelta(microseconds=self.config.budgets.max_quote_age_us)
+        ):
+            raise ValueError("paper_input_stale_or_future")
+
+    def paper_restore_quarantined(self) -> bool:
+        """Expose whether this workspace is a historical recovery copy."""
+        return self._store.read().paper_restore_quarantine
+
+    def paper_activations(self) -> tuple[PaperActivation, ...]:
+        """Inspect deployment and durable authority without granting a worker lease."""
+        return self._store.read().paper_activations
+
+    def install_paper(self, deployment: PaperDeployment) -> None:
+        """Pin disabled paper identity and stop exposure before any explicit grant.
+
+        Existing economic facts are preserved. A different manifest cannot replace
+        a bound account, including during code rollback; use its declared compatible
+        release set and exact state/configuration bindings.
+        """
+        deployment.__post_init__()
+        deployment.require_configuration(self.config)
+        with self._store.write() as transaction:
+            if transaction.state.paper_restore_quarantine:
+                raise ValueError("paper_restore_requires_current_retained_journal")
+            existing = PaperAuthority.find(transaction, deployment.account_id)
+            if existing is not None:
+                if existing.deployment != deployment:
+                    raise ValueError("paper_deployment_incompatible")
+                return
+            self._paper.bind_transaction(transaction, deployment.account_id, deployment.scenario)
+            now = self._now()
+            result = self._operations.apply(
+                transaction,
+                AccountControl(
+                    identity=f"paper-deployment:{deployment.identity}",
+                    account_id=deployment.account_id,
+                    kind="stop",
+                    at=now,
+                    reason="disabled_paper_deployment",
+                ),
+            )
+            if result.status != "applied":
+                raise ValueError(result.reason or "paper deployment stop failed")
+            PaperAuthority.save(
+                transaction,
+                PaperActivation(
+                    deployment=deployment,
+                    changed_at=now,
+                ),
+            )
+
+    def authorize_paper(self, authorization: PaperAuthorization) -> None:
+        """Retain an explicit grant without starting a worker or clearing a stop."""
+        authorization.__post_init__()
+        with self._store.write() as transaction:
+            activation = next(
+                (
+                    item
+                    for item in transaction.state.paper_activations
+                    if item.deployment.identity == authorization.deployment_sha256
+                ),
+                None,
+            )
+            if activation is None:
+                raise ValueError("paper_deployment_absent_or_mismatched")
+            if authorization.identity in activation.revoked:
+                raise ValueError("paper_authorization_revoked")
+            if activation.authorization == authorization:
+                return
+            if any(item.identity == authorization.identity for item in activation.authorizations):
+                raise ValueError("paper_authorization_identity_reused")
+            if (
+                activation.authorization is not None
+                and transaction.account(activation.deployment.account_id).phase == "running"
+            ):
+                raise ValueError("paper_reauthorization_requires_stop")
+            if activation.authorization is not None and self._operations.has_unresolved_orders(
+                transaction, activation.deployment.account_id
+            ):
+                raise ValueError("paper_reauthorization_requires_settled_order_outcomes")
+            if (
+                any(
+                    quantity.dimension != activation.deployment.scenario.adverse.per
+                    for quantity in authorization.quantities
+                )
+                or authorization.maximum_order_notional.currency
+                != activation.deployment.scenario.adverse.currency
+            ):
+                raise ValueError("paper_authorization_instrument_or_currency_differs")
+            history: tuple[PaperAuthorization, ...] = (*activation.authorizations, authorization)
+            candidate = replace(
+                activation,
+                authorization=authorization,
+                authorizations=history,
+                owner=None,
+                changed_at=self._now(),
+            )
+            candidate.require_authority(self._now())
+            PaperAuthority.save(transaction, candidate)
+
+    def revoke_paper(self, account_id: str, authorization_id: str, at: datetime) -> None:
+        """Revoke new exposure durably while preserving cancellations and reductions."""
+        PaperDeployment._require_utc(at, field_name="paper revocation")
+        with self._store.write() as transaction:
+            activation = PaperAuthority.find(transaction, account_id)
+            if (
+                activation is None
+                or activation.authorization is None
+                or activation.authorization.identity != authorization_id
+            ):
+                raise ValueError("paper_authorization_absent_or_mismatched")
+            if authorization_id in activation.revoked:
+                return
+            if at < activation.changed_at or at > self._now():
+                raise ValueError("paper_revocation_clock_invalid")
+            revoked: tuple[str, ...] = (*activation.revoked, authorization_id)
+            PaperAuthority.save(
+                transaction,
+                replace(
+                    activation,
+                    revoked=revoked,
+                    changed_at=at,
+                ),
+            )
+
+    def claim_paper(
+        self,
+        account_id: str,
+        owner_id: str,
+        release_identity: str,
+        control: AccountControl,
+    ) -> PaperOwner:
+        """Reconcile/restart and issue one durable replacement generation atomically."""
+        control.__post_init__()
+        with self._store.write() as transaction:
+            now = self._now()
+            if control.at > now or now - control.at > timedelta(
+                microseconds=self.config.budgets.max_quote_age_us
+            ):
+                raise ValueError("paper_recovery_clock_stale_or_future")
+            return PaperAuthority.claim(
+                transaction,
+                account_id=account_id,
+                owner_id=owner_id,
+                release_identity=release_identity,
+                control=control,
+                operations=self._operations,
+                now=self._now(),
+            )
+
+    def reduce_paper(self, request: PaperReductionRequest) -> PaperReductionResult:
+        """Request bounded attributable reduction; matching alone can report a fill."""
+        request.__post_init__()
+        with self._store.write() as transaction:
+            if transaction.state.paper_restore_quarantine:
+                raise ValueError("paper_restore_requires_current_retained_journal")
+            if self.paper_owner is not None:
+                activation = PaperAuthority.require_owner(
+                    transaction,
+                    request.account_id,
+                    self.paper_owner,
+                    at=self._now(),
+                    new_exposure=False,
+                )
+                if activation is not None and request.instance_id not in {
+                    item.instance_id for item in activation.deployment.strategies
+                }:
+                    raise ValueError("paper_authorization_scope_differs")
+            if PaperAuthority.find(transaction, request.account_id) is not None:
+                now = self._now()
+                if request.at > now or now - request.at > timedelta(
+                    microseconds=self.config.budgets.max_quote_age_us
+                ):
+                    raise ValueError("paper_reduction_stale_or_future")
+            return AccountReduction(self._admission).apply(transaction, request)
+
+    def paper_reductions(self) -> tuple[PaperReductionResult, ...]:
+        """Read immutable reduction requests/results without claiming completion."""
+        return self._store.read().paper_reductions
+
+    def quarantine_paper_restore(self) -> None:
+        """Keep restored managed snapshots inspectable but never automatically resumable.
+
+        The supported recovery boundary resumes the latest retained journal. A
+        historical workspace copy cannot independently establish that no later
+        fills occurred, so it cannot issue an owner or accept economic mutations.
+        """
+        with self._store.write() as transaction:
+            transaction.state = replace(transaction.state, paper_restore_quarantine=True)
 
     def accounts(self) -> tuple[AccountView, ...]:
         """Read account state, reconciliation cutoff and independent block reasons."""
@@ -207,6 +438,10 @@ class AccountJournal:
         if type(reason) is not str or not reason.strip():
             raise ValueError("block requires a visible reason")
         with self._store.write() as transaction:
+            if self.paper_owner is not None:
+                PaperAuthority.require_owner(
+                    transaction, account_id, self.paper_owner, at=self._now(), new_exposure=False
+                )
             transaction.save_account(
                 replace(transaction.account(account_id), operator_block=reason)
             )
@@ -231,18 +466,41 @@ class AccountJournal:
         """Apply an identified local startup, stop, fault, restart or cancel."""
         request.__post_init__()
         with self._store.write() as transaction:
+            if self.paper_owner is not None:
+                PaperAuthority.require_owner(
+                    transaction,
+                    request.account_id,
+                    self.paper_owner,
+                    at=self._now(),
+                    new_exposure=False,
+                )
+            if (
+                request.kind in ("startup", "restart")
+                and PaperAuthority.find(transaction, request.account_id) is not None
+            ):
+                raise ValueError("managed_paper_restart_requires_owner_claim")
             return self._operations.apply(transaction, request)
 
     def observe(self, quote: AccountQuote) -> None:
         """Persist a monotonic actual valuation fact without admitting an order."""
         quote.__post_init__()
         with self._store.write() as transaction:
+            if self.paper_owner is not None:
+                PaperAuthority.require_owner(
+                    transaction,
+                    self.paper_owner.account_id,
+                    self.paper_owner,
+                    at=self._now(),
+                    new_exposure=False,
+                )
             self._admission.observe_quote(transaction, quote)
 
     def admit(self, request: AccountDecision) -> StepCommit:
         """Atomically reserve child legs and checkpoint the resulting decision."""
         request.__post_init__()
         with self._store.write() as transaction:
+            PaperAuthority.require_decision(transaction, request, self.paper_owner, now=self._now())
+            self._require_current_input(transaction, request)
             for saved in transaction.state.decisions:
                 if (saved.request.instance_id, saved.request.decision.identity) == (
                     request.instance_id,
@@ -254,6 +512,7 @@ class AccountJournal:
             before = transaction.state
             try:
                 result = self._admission.admit(transaction, request)
+                PaperAuthority.require_limits(transaction, request.account_id)
             except ValueError as error:
                 result = StepCommit(status="rejected", reason=str(error), orders=())
             if result.status == "rejected":
@@ -269,7 +528,31 @@ class AccountJournal:
         """Admit gross risk, cross by policy, and create physical orders atomically."""
         batch.__post_init__()
         with self._store.write() as transaction:
-            return self._portfolio.coordinate(transaction, batch)
+            for item in batch.decisions:
+                PaperAuthority.require_decision(
+                    transaction, item.request, self.paper_owner, now=self._now()
+                )
+                activation = PaperAuthority.find(transaction, item.request.account_id)
+                if activation is not None and (
+                    item.context.authority_scope != "paper"
+                    or item.context.venue != activation.deployment.scenario.venue
+                    or not any(
+                        strategy.instance_id == item.request.instance_id
+                        and strategy.model_identity == item.context.model_revision
+                        for strategy in activation.deployment.strategies
+                    )
+                ):
+                    raise ValueError("paper_deployment_context_differs")
+                self._require_current_input(transaction, item.request)
+            before = transaction.state
+            result = self._portfolio.coordinate(transaction, batch)
+            try:
+                for account_id in {item.request.account_id for item in batch.decisions}:
+                    PaperAuthority.require_limits(transaction, account_id)
+            except ValueError:
+                transaction.state = before
+                raise
+            return result
 
     def apply_net_event(self, event: OrderEvent) -> NetOrder:
         """Apply one physical fact and all attributable strategy effects atomically."""
@@ -277,6 +560,22 @@ class AccountJournal:
             raise ValueError("venue fills require apply_native_fill")
         event.__post_init__()
         with self._store.write() as transaction:
+            if transaction.state.paper_activations:
+                PaperAuthority.require_owner(
+                    transaction,
+                    transaction.net_order(event.order_id).account_id,
+                    self.paper_owner,
+                    at=self._now(),
+                    new_exposure=False,
+                )
+            if (
+                transaction.state.paper_activations
+                and PaperAuthority.find(
+                    transaction, transaction.net_order(event.order_id).account_id
+                )
+                is not None
+            ):
+                raise ValueError("managed_paper_events_require_public_matching")
             result, failure = self._allocation.apply_event(transaction, event)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
@@ -288,6 +587,23 @@ class AccountJournal:
         """Revise one physical fill fee and its child postings in one transaction."""
         correction.__post_init__()
         with self._store.write() as transaction:
+            source = next(
+                (
+                    saved.event
+                    for saved in transaction.state.net_events
+                    if saved.event.fill is not None
+                    and saved.event.fill.identity == correction.physical_fill_id
+                ),
+                None,
+            )
+            if source is not None:
+                PaperAuthority.require_owner(
+                    transaction,
+                    transaction.net_order(source.order_id).account_id,
+                    self.paper_owner,
+                    at=self._now(),
+                    new_exposure=False,
+                )
             return self._allocation.correct_fee(transaction, correction)
 
     def stop_instance(self, instance_id: str, at: datetime) -> tuple[NetOrder, ...]:
@@ -295,6 +611,19 @@ class AccountJournal:
         self._admission.require_instance(instance_id)
         self._admission.require_utc(at, field_name="strategy stop")
         with self._store.write() as transaction:
+            if self.paper_owner is not None:
+                account_id = next(
+                    item.account_id
+                    for item in self.config.budgets.instances
+                    if item.instance_id == instance_id
+                )
+                activation = PaperAuthority.require_owner(
+                    transaction, account_id, self.paper_owner, at=self._now(), new_exposure=False
+                )
+                if activation is not None and instance_id not in {
+                    item.instance_id for item in activation.deployment.strategies
+                }:
+                    raise ValueError("paper_authorization_scope_differs")
             return self._portfolio.stop_instance(transaction, instance_id, at)
 
     def restart_instance(self, instance_id: str, at: datetime) -> None:
@@ -302,12 +631,27 @@ class AccountJournal:
         self._admission.require_instance(instance_id)
         self._admission.require_utc(at, field_name="strategy restart")
         with self._store.write() as transaction:
+            account_id = next(
+                item.account_id
+                for item in self.config.budgets.instances
+                if item.instance_id == instance_id
+            )
+            activation = PaperAuthority.require_owner(
+                transaction, account_id, self.paper_owner, at=self._now(), new_exposure=True
+            )
+            if activation is not None and instance_id not in {
+                item.instance_id for item in activation.deployment.strategies
+            }:
+                raise ValueError("paper_authorization_scope_differs")
             self._portfolio.restart_instance(transaction, instance_id, at)
 
     def reissue_pending(self, account_id: str, at: datetime) -> tuple[NetOrder, ...]:
         """Create physical orders for unaffected residuals after observation."""
         self._admission.require_utc(at, field_name="physical reissue")
         with self._store.write() as transaction:
+            PaperAuthority.require_owner(
+                transaction, account_id, self.paper_owner, at=self._now(), new_exposure=True
+            )
             return self._portfolio.reissue_pending(transaction, account_id, at)
 
     def apply_event(self, event: OrderEvent) -> OrderState:
@@ -316,6 +660,20 @@ class AccountJournal:
             raise ValueError("venue fills require apply_native_fill")
         event.__post_init__()
         with self._store.write() as transaction:
+            if transaction.state.paper_activations:
+                PaperAuthority.require_owner(
+                    transaction,
+                    transaction.order(event.order_id).account_id,
+                    self.paper_owner,
+                    at=self._now(),
+                    new_exposure=False,
+                )
+            if (
+                transaction.state.paper_activations
+                and PaperAuthority.find(transaction, transaction.order(event.order_id).account_id)
+                is not None
+            ):
+                raise ValueError("managed_paper_events_require_public_matching")
             result, failure = self._admission.apply_event(transaction, event)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
@@ -329,6 +687,15 @@ class AccountJournal:
         if self.config.mode == "shadow" and posting.kind in ("fill", "correction"):
             raise ValueError("shadow mode cannot post modeled fill or correction")
         with self._store.write() as transaction:
+            PaperAuthority.require_owner(
+                transaction,
+                posting.account_id,
+                self.paper_owner,
+                at=self._now(),
+                new_exposure=False,
+            )
+            if PaperAuthority.find(transaction, posting.account_id) is not None:
+                raise ValueError("managed_paper_postings_require_public_matching")
             snapshot, failure = self._admission.post(transaction, posting)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
@@ -338,6 +705,14 @@ class AccountJournal:
         """Compare all account and open-order facts while preserving operator stops."""
         observation.__post_init__()
         with self._store.write() as transaction:
+            if self.paper_owner is not None:
+                PaperAuthority.require_owner(
+                    transaction,
+                    observation.snapshot.account_id,
+                    self.paper_owner,
+                    at=self._now(),
+                    new_exposure=False,
+                )
             return self._admission.reconcile(transaction, observation, self._allocation)
 
     def apply_native_fill(self, request: NativeFill) -> OrderState | NetOrder:

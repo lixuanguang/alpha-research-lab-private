@@ -137,7 +137,9 @@ The [trusted installation runbook](../../../docs/governance/operations.md#truste
 owns build/sign/install/rollback. [MR06's acceptance record](../../../docs/roadmap/README.md#mr06-delivery-and-acceptance)
 tracks installed proof. MR07 owns supervised runtime and durable OMS; MR08 owns
 atomic account reservations/reconciliation; MR11 owns OKX and Bitfinex private
-execution conformance; MR13 owns separate activation and operational recovery.
+execution conformance. The bounded managed-paper activation and local recovery
+contract is documented in this guide's managed requests section; it does not
+qualify venue execution or deployed-service disaster recovery.
 
 ## Shared account command
 
@@ -247,9 +249,9 @@ the client identity to retry an uncertain send.
 The independent execution wheel now includes the same pinned WebSocket library
 already selected for collection; it still excludes research/training dependencies.
 The existing signed-release runner does not admit the new venue config/state
-schema yet. Thus these are installed development/test entrypoints; trusted venue
-deployment/rollback remains a required MR06/MR13 integration slice, not something
-to bypass by invoking an installed environment directly.
+schema. Thus these remain installed development/test entrypoints; trusted venue
+deployment and rollback are a separate integration and qualification gate, not
+something to bypass by invoking an installed environment directly.
 
 The [venue execution owner](../../execution/README.md#test-venue-execution) explains
 history bounds, native fees, fencing and recovery. The
@@ -278,8 +280,10 @@ is `control.status=rejected`; callers must check it even after a zero CLI exit.
 Stop/fault block new exposure without cancelling orders. `cancel` records local
 requests for outstanding physical orders and returns their IDs; no request or
 acknowledgement releases a reservation. Selective instance stop remains the
-separate MR09 operation. Position reduction and venue dispatch are MR13/MR11
-work; no stop or cancel action claims flattening.
+separate MR09 operation. Managed paper reduction is a bounded reservation
+documented in the managed requests section; physical venue reduction and venue
+dispatch remain separate venue operations. No stop or cancel action claims
+flattening.
 
 A protective control can supply `alert_socket`, an absolute local Unix datagram
 endpoint of at most 100 bytes. The control commits before delivery. The adjacent
@@ -304,3 +308,34 @@ owns startup, incident, restoration and signed rollback procedures. The
 [operational consumer](../../../tests/integration/consumers/runtime/account_operations.py)
 retains concrete JSON requests for both spot fixture labels and uses these same
 installed commands. It is quant-development software evidence, not a venue test.
+
+## Managed paper activation requests
+
+The signed v3 target uses execution `paper`, `account-runtime-v1` configuration
+and `account-journal-v3` state. `AccountExecutionRequest` and
+`AccountExecutionResult` are execution-owned public wire APIs. The existing
+`alpha-execute account` command accepts these additional actions:
+
+| Action | Typed request fields | Result meaning |
+| --- | --- | --- |
+| `install_paper` | `deployment` | Disabled deployment and durable stop; no permission |
+| `authorize_paper` | `authorization` | Explicit bounded grant; still stopped |
+| `claim_paper` | `account_id`, `owner_id`, `control` (`restart`) | Fresh reconciliation and a new fenced `claimed_owner` |
+| `revoke_paper` | `account_id`, `authorization_id`, `at` | New exposure/restart forbidden; protective actions retained |
+| `paper_market` | `account_id`, `scenario`, `market`, `paper_owner` | Exact modeled events from finite eligible public liquidity |
+| `reduce_paper` | `reduction`, optional `paper_owner` | Accepted reservation or rejection; never a liquidation claim |
+| `inspect` | optional `account_id`, `query_instance`, `query_batch` | Deployment/grants, quarantine, traces, reductions, checkpoint or prior batch |
+
+Existing `control/stop` and `control/cancel` remain distinct. Admission,
+coordination, matching and economic mutation requests carry `paper_owner`.
+Operator protection can omit an owner; a supplied replaced owner is rejected.
+Independent quote/reconciliation requests do not grant authority. Installation
+alone cannot admit orders, and managed restart must use `claim_paper`.
+
+Use the governance launcher for all installed operations; its verified release
+digest is injected internally and cannot be overridden in forwarded arguments.
+Requests and recovery paths must be absolute. The raw command's release option
+is an internal launcher interface, not proof that a caller verified a release.
+See the [activation record](../../../docs/roadmap/paper-activation.md) for the
+commands and evidence retained so far, artifact identities and remaining
+operating limits; it does not claim operational qualification before drills.

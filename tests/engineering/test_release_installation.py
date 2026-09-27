@@ -44,7 +44,8 @@ from applications.execute.accounts import (
     AccountExecutionRequest,
     AccountExecutionResult,
 )
-from configuration import AccountConfiguration, OpeningAccount
+from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
+from configuration.paper_activation import PaperDeployment, PaperStrategyIdentity
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
@@ -79,7 +80,7 @@ class InstallationScenario:
             ssh_keygen_sha256="0" * 64,
             builders=(builder,),
             config_schemas=("config-v1", "account-runtime-v1"),
-            state_schemas=("state-v1", "state-v2", "account-journal-v2"),
+            state_schemas=("state-v1", "state-v2", "account-journal-v2", "account-journal-v3"),
         )
         self.installation = LocalInstallation(root / "target", self.policy)
         self.candidates: dict[str, VerifiedRelease] = {}
@@ -243,9 +244,17 @@ class AccountInstalledApplication:
         request = (
             Path(arguments[arguments.index("--request") + 1]) if "--request" in arguments else None
         )
+        release_identity = (
+            arguments[arguments.index("--release-identity") + 1]
+            if "--release-identity" in arguments
+            else None
+        )
         return DomainCodec().encode_json(
             AccountExecutionApplication().run(
-                config_path=config, journal_path=journal, request_path=request
+                config_path=config,
+                journal_path=journal,
+                request_path=request,
+                release_identity=release_identity,
             )
         )
 
@@ -465,6 +474,133 @@ class TestLocalInstallation:
                 with pytest.raises(FileNotFoundError):
                     scenario.installation.run(("account",), now=_NOW)
                 assert not journal.exists()
+
+    def test_signed_v3_account_binds_release_identity_and_refuses_v2_code(
+        self, tmp_path: Path
+    ) -> None:
+        """Carry the verified installed digest into v3 without reopening older readers."""
+        scenario = InstallationScenario(tmp_path)
+        config = DomainCodec().encode_json(self._account_configuration(_NOW))
+        current = scenario.candidate(
+            "paper-activation-account",
+            config=config,
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v3",
+            initial_state=False,
+        )
+        legacy = scenario.candidate(
+            "legacy-account",
+            config=config,
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v2",
+            initial_state=False,
+        )
+        compatible = scenario.candidate(
+            "compatible-account",
+            config=config,
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v3",
+            initial_state=False,
+        )
+        unlisted = scenario.candidate(
+            "unlisted-account",
+            config=config,
+            application="execution",
+            mode="paper",
+            config_schema="account-runtime-v1",
+            state_schema="account-journal-v3",
+            initial_state=False,
+        )
+        application = AccountInstalledApplication()
+        with scenario.isolated_installation(inspect_application=True):
+            with patch.object(LocalInstallation, "_run", side_effect=application.run):
+                receipt = scenario.installation.install(current, now=_NOW)
+                scenario.installation.run(("account",), now=_NOW)
+                assert application.calls[-1][-2:] == ["--release-identity", receipt.release]
+                with closing(
+                    sqlite3.connect(scenario.installation.root / "state/accounts.sqlite3")
+                ) as connection:
+                    state = cast(
+                        tuple[object, ...] | None,
+                        connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+                    )
+                assert state is not None and type(state[0]) is bytes
+                signed_config = self._account_configuration(_NOW)
+                limit = signed_config.instruments[0]
+                deployment = PaperDeployment(
+                    account_id="shared",
+                    configuration_sha256=hashlib.sha256(config).hexdigest(),
+                    releases=(receipt.release, scenario.candidates[compatible.name].identity),
+                    strategies=(
+                        PaperStrategyIdentity(
+                            instance_id="alpha",
+                            policy_identity="test-policy",
+                            candidate_identity="test-candidate",
+                            model_identity="no-model",
+                            feature_identity="test-feature",
+                        ),
+                    ),
+                    input_identity="test-input",
+                    scenario=PaperExecutionScenario(
+                        venue="okx",
+                        instrument_id=limit.maximum.dimension.instrument_id,
+                        entry_delay_us=0,
+                        cancel_delay_us=0,
+                        adverse=Price(
+                            value=Decimal("0"),
+                            currency=limit.tick.currency,
+                            per=limit.maximum.dimension,
+                        ),
+                        fee_rate=Decimal("0"),
+                        take_fraction=Decimal("1"),
+                        gas_inapplicable_reason="off-chain spot simulation",
+                    ),
+                    state_identity="paper-account-state-v1",
+                )
+                request = tmp_path / "paper-deployment.json"
+                request.write_bytes(
+                    DomainCodec().encode_json(
+                        AccountExecutionRequest(action="install_paper", deployment=deployment)
+                    )
+                )
+                activated = DomainCodec().decode_json(
+                    scenario.installation.run(("account", "--request", str(request)), now=_NOW),
+                    AccountExecutionResult,
+                )
+                assert activated.paper_activations[0].deployment == deployment
+                with closing(
+                    sqlite3.connect(scenario.installation.root / "state/accounts.sqlite3")
+                ) as connection:
+                    promoted = cast(
+                        tuple[object, ...] | None,
+                        connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+                    )
+                assert promoted is not None and type(promoted[0]) is bytes
+                assert b'"schema_version":"account-journal-v3"' in promoted[0]
+                with pytest.raises(ValueError, match="absolute request path"):
+                    scenario.installation.run(
+                        ("account", "--release-identity", legacy.name), now=_NOW
+                    )
+                with pytest.raises(ValueError, match="excludes the candidate release"):
+                    scenario.installation.install(unlisted, now=_NOW)
+                with pytest.raises(ValueError, match="current state is incompatible"):
+                    scenario.installation.install(legacy, now=_NOW)
+                assert scenario.installation.current() == receipt
+                upgraded = scenario.installation.install(compatible, now=_NOW)
+                assert upgraded.release == scenario.candidates[compatible.name].identity
+                assert scenario.installation.install(current, now=_NOW).release == receipt.release
+                assert (
+                    LocalInstallation._account_record(
+                        scenario.installation.root / "state/accounts.sqlite3"
+                    )[1]
+                    == promoted[0]
+                )
 
     def test_account_rollback_rejects_unknown_actual_journal_schema(self, tmp_path: Path) -> None:
         """A manifest schema label cannot make an unreadable account ledger compatible."""

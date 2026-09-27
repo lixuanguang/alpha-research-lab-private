@@ -172,10 +172,11 @@ state rebuilds from the beginning of the recording; exact old account/decision
 retries preserve newer state. A new capture uses a new recording and waits for
 fresh synchronization. Known invalid input blocks admission without releasing
 unresolved exposure. Completion neither cancels orders nor liquidates holdings.
-This is a bounded local invocation. MR13 activation/recovery, MR14 deployed
-multi-instance scheduling, MR15 capacity, and remote monitoring remain separate
-outcomes. The [public-paper monitoring record](../../../docs/roadmap/paper-monitoring.md)
-owns its acceptance commands, results and remaining qualification limits.
+This is a bounded local invocation. Managed signed activation and local recovery
+are documented below; MR14 deployed multi-instance scheduling, MR15 capacity,
+and remote monitoring remain separate outcomes. The
+[public-paper monitoring record](../../../docs/roadmap/paper-monitoring.md) owns
+its acceptance commands, results and remaining qualification limits.
 
 The [installed acceptance consumer](../../../tests/integration/consumers/runtime/public_paper.py)
 adds independently calculated balances and order cumulatives, reconciliation,
@@ -224,6 +225,47 @@ All modes are local and non-executable. Native input supports declared OKX/Bitfi
 spot books; other named sources use `run_paper` and must satisfy the candidate's
 admitted signatures. Shared-account coordination accepts normalized facts or
 automatically matched public books. Private venue qualification remains KIV
-outside paper acceptance; MR13 activation/recovery and full MR14 deployed
-multi-instance operation remain separate outcomes under the
+outside paper acceptance. The bounded signed managed-paper activation and local
+recovery interface is described below; its operational evidence and remaining
+qualification limits are tracked in the
+[activation record](../../../docs/roadmap/paper-activation.md). Full MR14 deployed
+multi-instance operation remains a separate outcome under the
 [live-trading reconsideration record](../../../docs/roadmap/README.md#live-trading-kiv-and-reconsideration).
+
+## Signed account consumer
+
+`InstalledPaperAccount` implements the execution-owned `PaperAccount` contract.
+Pass it as `paper_account=` to `run_live_shared_paper` to route every account
+operation through `alpha-governance-artifacts run --target ... --policy ... --
+account --request ...`. The launcher fixes signed configuration, current release
+and journal paths. The client retains exact request/result bytes and never
+retries a failed or uncertain command automatically.
+
+The deployment input digest is SHA-256 of
+`DomainCodec().encode_json((capture_config, requirement, inputs.identity))`.
+The API checks that digest, the execution scenario, policy/instance/model/feature
+selection, paper authority context, account configuration and claimed owner
+before starting the bounded feed. Policy
+and feature adapters must include all candidate/model parameters in their
+identities, as required by their existing contracts. Economic boundaries repeat
+current authority and generation checks. Finite completion records an operational
+stop; recovery needs new reconciliation and an explicit owner claim. Expiry or
+revocation blocks new exposure and restart, while the original current owner may
+drain existing obligations on fresh eligible data. Accepted standing orders keep
+their reservations until terminal outcomes are established. A replacement grant
+requires a stopped account and settled physical order outcomes before a new owner
+claim.
+
+The collector/input and policy producer is a client of the installed account
+service. The execution target contains only its independently admitted execution
+and contracts packages; it neither installs nor imports the research wheel. The
+existing direct `journal_path` form remains a development/reference workflow and
+is not an installed activation path. A developer environment or input producer
+has no authority to override the signed target's risk, release or deployment.
+
+The maintained [public-paper consumer](../../../tests/integration/consumers/runtime/public_paper.py)
+and [signed installation consumer](../../../tests/integration/consumers/deployment/account_installation.py)
+exercise this interface. A process timeout has an uncertain outcome: inspect
+retained journal facts and exact request identity before recovery. Monitoring
+failure is diagnostic and must never cause a committed matching/admission request
+to be rerun.

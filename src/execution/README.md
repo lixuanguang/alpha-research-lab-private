@@ -114,8 +114,9 @@ balances cannot clear unknown orders, an unposted failed fill, or underfunded
 pending reservations. Failed observations are retained. `block(account_id,
 reason)` persists a separate operator stop which successful reconciliation never
 clears. It blocks new exposure; cancellation and accounting remain available.
-Block, cancel and reduce-position are distinct; broader resume/activation and
-operational commands remain MR10/MR13.
+Block, cancel and reduce-position are distinct. Managed paper activation and
+local recovery use the separate signed v3 contract documented below; this shared
+account API does not grant live venue authority or submission.
 
 This is an atomic local command service with no venue transport, credential
 resolver or submission. Concurrent calls serialize at SQLite; the separately
@@ -328,8 +329,9 @@ the shared `.venue-accounts.sqlite3` identity bindings and `.venue.lock`. Keep t
 whole workspace together. Nonces and conservative request intervals survive
 restart; HTTP requests never hide submit retries or follow redirects. Private
 receipt bytes can contain sensitive account data and belong outside Git. A restored
-workspace requires fresh physical reconciliation; remote anti-rewind and deployed
-rollback qualification remain MR13 work.
+venue workspace requires fresh physical reconciliation. Remote venue anti-rewind
+and deployed rollback qualification remain open; managed paper's local restore
+quarantine is described below.
 
 Recovery is deliberately bounded by source history retention, pagination and
 configured resource limits. An empty unavailable historical window is not proof of
@@ -365,11 +367,75 @@ to operate when their own state and the aggregate firm valuation remain valid.
 The controls trust the local operator/source boundary; they are not a credential
 or live-capital authorization mechanism.
 
-The persisted state now declares `account-journal-v2`. Journals without an
-explicit version remain readable and acquire v2 on their next write. Unknown
+Unactivated local account journals declare `account-journal-v2`; managed paper
+installation promotes the journal to v3 as described below. V2 journals without
+an explicit version remain readable and acquire v2 on their next write. Unknown
 versions fail. Older artifacts that cannot decode operational state are not
 compatible rollback targets. `AccountJournal.verify(path, config)` performs
 read-only integrity/config/schema validation and sees committed WAL state;
 `storage="snapshot"` additionally requires no SQLite sidecars and leaves a
 standalone snapshot unchanged. The [workspace recovery owner](../runtime/README.md#account-workspace-recovery)
 uses these checks under backup locks and before restore publication.
+
+## Bounded paper deployment authority
+
+`PaperDeployment` and `PaperAuthorization` are separate versioned configuration
+records. The deployment is always disabled. It pins the exact account configuration,
+instance/policy/candidate/model/feature identities, input binding, execution
+scenario, compatible signed release digests and `paper-account-state-v1` state ABI.
+`AccountJournal.install_paper` atomically binds matching assumptions, records a
+stop and promotes the journal to `account-journal-v3`; it creates no orders.
+An incompatible deployment cannot replace that identity. Pre-activation v2 state
+is supported for a fresh installation; in-place signed v2-to-v3 migration is not
+an admitted installation operation.
+
+The separate grant names that deployment digest, instruments, maximum admitted
+buy quantities, per-order notional, order count and a half-open UTC validity
+interval. Quantities and order count are cumulative across the deployment,
+including canceled, pending and uncertain orders; reductions and replacement
+grants do not replenish those limits. Existing independent account/instance risk
+and funded reservations still apply. Production submission authority is rejected
+by both records. The trusted local operator submits these explicit records; there
+is no additional authorization signer or hostile same-user isolation claim.
+
+`authorize_paper` records a grant without clearing the stop. `claim_paper` checks
+current wall time and compatible release, then uses the existing fresh independent
+reconciliation/quote and restart checks before incrementing the durable owner
+generation. The returned `PaperOwner` is supplied when reopening the journal.
+Admission and matching recheck its generation inside the economic transaction;
+new exposure also rechecks expiry/revocation and current input freshness. Older
+workers cannot post effects after a replacement claim. Repeated source identities
+retain the original economics and finite liquidity cursor.
+
+Expiry/revocation prevents new exposure and restart, but the original current
+owner may continue processing existing obligations, including model matching,
+on fresh eligible data. Accepted standing orders retain their reservations until
+terminal outcomes are established. Operator stop, cancel and bounded reduction
+remain available independently of an exposure grant. A replacement grant can be
+recorded only after the account is stopped and all existing physical order
+outcomes are settled. Prior grant identities remain retained, and an explicit
+fresh owner claim is required before a replacement worker creates exposure.
+Revoked IDs cannot be reused. The existing raw v2 account APIs remain local
+engineering interfaces, outside the signed managed activation contract.
+
+`control/stop` is the reversible block-new-exposure action. `control/cancel`
+records cancellation requests, preserving reservations until the matching model
+provides terminal outcomes. `reduce_paper(PaperReductionRequest)` reserves an
+explicit IOC sell with a minimum price and fee bound. It checks attributable
+inventory minus every outstanding sell commitment, fresh eligible market and
+independent reconciliation, uncertainty and existing risk. It cannot sell another
+strategy's position. Accepted means reserved, never filled or liquidated. A later
+eligible public quote produces ordinary model events: partial fills and unavailable
+liquidity remain visible; no fill is fabricated. Economic faults, unknown outcomes,
+stale/disconnected input and insufficient inventory return explicit rejection
+reasons. The legacy permanent `block` is an independent protective fault, distinct
+from the reversible operational stop.
+
+Historical workspace restores are quarantined before publication. They remain
+inspectable but cannot install/claim managed authority, reduce or match; a snapshot
+cannot prove no later fills occurred. Supported local recovery uses the latest
+retained journal after reconciliation and, for managed paper, an explicit new owner
+claim. Signed compatible code rollback keeps that journal, including its grants,
+controls, orders, costs, checkpoints and reservations.
+Loss of that latest evidence requires a separate recovery decision and is not
+silently repaired from a historical snapshot.

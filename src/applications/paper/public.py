@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -25,7 +26,7 @@ from configuration import (
     BookSelection,
     PaperExecutionScenario,
 )
-from execution import AccountJournal, AccountObservation, PaperMarket
+from execution import AccountControl, AccountJournal, AccountObservation, PaperAccount, PaperMarket
 from market_data.adapters.sources import BookAdapters
 from market_data.adapters.transport import VenueSubscriptions, VenueTransport
 from market_data.books import BookRegistry
@@ -68,6 +69,7 @@ async def run_live_shared_paper(
     history_capacity: int = 1000,
     transport: CaptureTransport | None = None,
     alert_socket: str | None = None,
+    paper_account: PaperAccount | None = None,
 ) -> SharedPublicPaperResult:
     """Run selected policies over a finite native feed without private access.
 
@@ -115,7 +117,46 @@ async def run_live_shared_paper(
             history_capacity=history_capacity,
         )
     )
-    journal = AccountJournal(journal_path, config)
+    journal: PaperAccount = (
+        AccountJournal(journal_path, config) if paper_account is None else paper_account
+    )
+    if paper_account is not None:
+        if journal.config != config or journal.paper_owner is None:
+            raise ValueError("public paper requires a configured claimed owner")
+        activation = next(
+            (
+                item
+                for item in journal.paper_activations()
+                if item.deployment.account_id == account_id
+            ),
+            None,
+        )
+        if activation is None or activation.owner != journal.paper_owner:
+            raise ValueError("public paper owner is absent or stale")
+        activation.require_authority(datetime.now(UTC))
+        deployment = activation.deployment
+        if (
+            deployment.scenario != scenario
+            or deployment.input_identity
+            != hashlib.sha256(
+                DomainCodec().encode_json((request.config, requirement, inputs.identity))
+            ).hexdigest()
+            or {
+                (item.instance_id, item.policy_identity, item.model_identity, item.feature_identity)
+                for item in deployment.strategies
+            }
+            != {
+                (
+                    item.instance_id,
+                    item.policy.identity,
+                    item.context.model_revision,
+                    inputs.identity,
+                )
+                for item in bindings
+            }
+            or any(item.context.authority_scope != "paper" for item in bindings)
+        ):
+            raise ValueError("public paper deployment workload bindings differ")
     initial_traces = frozenset(trace.input_sha256 for trace in journal.paper_traces(account_id))
     runtime = SharedDecisionRuntime(journal, bindings)
     observer = SharedPaperCaptureObserver(
@@ -225,7 +266,18 @@ async def run_live_shared_paper(
                 (item for item in journal.accounts() if item.ledger.account_id == account_id), None
             )
             if account is None or account.operator_block is None:
-                journal.block(account_id, "public_paper_failure")
+                if paper_account is None:
+                    journal.block(account_id, "public_paper_failure")
+                else:
+                    journal.control(
+                        AccountControl(
+                            identity=f"public-paper-fault:{request.identity}",
+                            account_id=account_id,
+                            kind="fault",
+                            at=datetime.now(UTC),
+                            reason="public_paper_failure",
+                        )
+                    )
         except BaseException as block_error:
             error.add_note(f"paper account block also failed: {type(block_error).__name__}")
         if owns_output:
@@ -247,6 +299,18 @@ async def run_live_shared_paper(
             if monitoring.errors:
                 error.add_note(f"monitoring errors: {monitoring.errors}")
         raise
+    if paper_account is not None:
+        stopped = journal.control(
+            AccountControl(
+                identity=f"public-paper-stop:{request.identity}",
+                account_id=account_id,
+                kind="stop",
+                at=datetime.now(UTC),
+                reason="finite_public_paper_completed",
+            )
+        )
+        if stopped.status != "applied":
+            raise ValueError("public paper completion stop was rejected")
     monitoring = retain_public_paper_monitoring(
         journal,
         account_id=account_id,

@@ -34,6 +34,7 @@ class ExecuteArguments(argparse.Namespace):
     output: Path
     alerts: Path | None
     telemetry: Path | None
+    release_identity: str | None
 
 
 def main() -> None:
@@ -60,6 +61,7 @@ def main() -> None:
     account_parser.add_argument("--journal", type=Path, required=True)
     account_parser.add_argument("--request", type=Path)
     account_parser.add_argument("--telemetry", type=Path)
+    account_parser.add_argument("--release-identity")
     venue_parser = actions.add_parser("venue")
     venue_parser.add_argument("--config", type=Path, required=True)
     venue_parser.add_argument("--journal", type=Path, required=True)
@@ -113,6 +115,7 @@ def main() -> None:
                 journal_path=arguments.journal,
                 request_path=arguments.request,
                 telemetry_path=arguments.telemetry,
+                release_identity=arguments.release_identity,
             )
         elif arguments.action == "paper":
             result = PaperExecutionApplication().run(

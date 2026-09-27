@@ -7,220 +7,35 @@ import hashlib
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 from uuid import uuid4
 
 # third party library imports
 from msgspec.structs import replace
 
 # project library imports
-from accounting import AccountPosting
-from configuration import AccountConfiguration
+from configuration import (
+    AccountConfiguration,
+)
 from execution import (
-    AccountControl,
     AccountControlResult,
-    AccountDecision,
     AccountJournal,
-    AccountObservation,
-    AccountQuote,
-    AccountView,
+    AccountPaperTrace,
     ExecutionMonitoring,
-    NetFeeCorrection,
-    NetOrder,
-    OrderEvent,
     OrderState,
-    PortfolioBatch,
+    PaperOwner,
+    PaperReductionResult,
     PortfolioCommit,
-    PortfolioResidual,
     StepCommit,
-    TaggedOrder,
+)
+from execution import (
+    AccountExecutionRequest as AccountExecutionRequest,
+)
+from execution import (
+    AccountExecutionResult as AccountExecutionResult,
 )
 from runtime import AccountRecoveryReceipt, AccountWorkspace, InstalledIdentity
-from serialization import DomainCodec, WireRecord
-from telemetry import OperationalAlerts, OperationAlert, TelemetryStore
-
-
-class AccountExecutionRequest(WireRecord, frozen=True):
-    """Select exactly one durable account operation without executable authority."""
-
-    action: Literal[
-        "inspect",
-        "admit",
-        "event",
-        "post",
-        "reconcile",
-        "block",
-        "quote",
-        "coordinate",
-        "net_event",
-        "stop_instance",
-        "restart_instance",
-        "reissue_pending",
-        "net_cost",
-        "control",
-        "backup",
-        "restore",
-    ]
-    decision: AccountDecision | None = None
-    event: OrderEvent | None = None
-    posting: AccountPosting | None = None
-    observation: AccountObservation | None = None
-    quote: AccountQuote | None = None
-    batch: PortfolioBatch | None = None
-    net_event: OrderEvent | None = None
-    net_cost: NetFeeCorrection | None = None
-    instance_id: str | None = None
-    at: datetime | None = None
-    account_id: str | None = None
-    reason: str | None = None
-    control: AccountControl | None = None
-    alert_socket: str | None = None
-    backup_root: str | None = None
-    restore_root: str | None = None
-    manifest_sha256: str | None = None
-
-    def __post_init__(self) -> None:
-        """Reject missing, extra and ambiguous operation payloads."""
-        fields = {
-            "admit": self.decision,
-            "event": self.event,
-            "post": self.posting,
-            "reconcile": self.observation,
-            "quote": self.quote,
-            "coordinate": self.batch,
-            "net_event": self.net_event,
-            "net_cost": self.net_cost,
-            "control": self.control,
-        }
-        if self.action not in (
-            *fields,
-            "inspect",
-            "block",
-            "stop_instance",
-            "restart_instance",
-            "reissue_pending",
-            "backup",
-            "restore",
-        ):
-            raise ValueError("invalid account action")
-        for action, payload in fields.items():
-            if (action == self.action) != (payload is not None):
-                raise ValueError("account action has missing or extraneous payload")
-            if payload is not None:
-                payload.__post_init__()
-        if self.action == "block":
-            if not self.account_id or not self.reason:
-                raise ValueError("account block requires account and reason")
-        elif self.action == "reissue_pending":
-            if not self.account_id or self.at is None or self.reason is not None:
-                raise ValueError("residual reissue requires account and UTC time")
-            self._require_utc(self.at, field_name="residual reissue")
-        elif self.account_id is not None or self.reason is not None:
-            raise ValueError("account control fields require a block action")
-        if self.action in ("stop_instance", "restart_instance"):
-            if not self.instance_id or self.at is None:
-                raise ValueError("instance control requires identity and UTC time")
-            self._require_utc(self.at, field_name="instance control")
-        elif self.instance_id is not None or (
-            self.at is not None and self.action != "reissue_pending"
-        ):
-            raise ValueError("instance control fields require a stop or restart action")
-        if self.alert_socket is not None:
-            if self.control is None or self.control.kind not in ("stop", "fault"):
-                raise ValueError("alerts require an explicit protective control")
-            OperationAlert(
-                identity=self.control.identity,
-                control_sha256=hashlib.sha256(DomainCodec().encode_json(self.control)).hexdigest(),
-                address=self.alert_socket,
-                status="pending",
-            )
-        if self.action in ("backup", "restore"):
-            if self.backup_root is None or not Path(self.backup_root).is_absolute():
-                raise ValueError("account backup requires an absolute backup root")
-            if self.action == "restore":
-                if (
-                    self.restore_root is None
-                    or not Path(self.restore_root).is_absolute()
-                    or self.manifest_sha256 is None
-                    or len(self.manifest_sha256) != 64
-                    or any(char not in "0123456789abcdef" for char in self.manifest_sha256)
-                ):
-                    raise ValueError("account restore requires destination and manifest identity")
-            elif self.restore_root is not None or self.manifest_sha256 is not None:
-                raise ValueError("backup cannot supply restore fields")
-        elif any(
-            value is not None
-            for value in (self.backup_root, self.restore_root, self.manifest_sha256)
-        ):
-            raise ValueError("recovery fields require backup or restore action")
-
-
-class AccountExecutionResult(WireRecord, frozen=True):
-    """Return current exact accounts, tagged orders and the operation outcome."""
-
-    accounts: tuple[AccountView, ...]
-    orders: tuple[TaggedOrder, ...]
-    net_orders: tuple[NetOrder, ...] = ()
-    portfolio: PortfolioCommit | None = None
-    residuals: tuple[PortfolioResidual, ...] = ()
-    stopped_instances: tuple[str, ...] = ()
-    failed_net_events: tuple[OrderEvent, ...] = ()
-    failed_events: tuple[OrderEvent, ...] = ()
-    failed_postings: tuple[AccountPosting, ...] = ()
-    admission: StepCommit | None = None
-    order: OrderState | None = None
-    reconciled: bool | None = None
-    submission_attempted: bool = False
-    control: AccountControlResult | None = None
-    controls: tuple[AccountControlResult, ...] = ()
-    alerts: tuple[OperationAlert, ...] = ()
-    alert_error: str | None = None
-    telemetry_error: str | None = None
-    recovery: AccountRecoveryReceipt | None = None
-    journal_path: str | None = None
-
-    def __post_init__(self) -> None:
-        """Keep result authority closed and validate its retained financial records."""
-        if self.submission_attempted is not False:
-            raise ValueError("account application cannot submit")
-        for account in self.accounts:
-            account.__post_init__()
-        for order in self.orders:
-            order.__post_init__()
-        for parent in self.net_orders:
-            parent.__post_init__()
-        if self.portfolio is not None:
-            self.portfolio.__post_init__()
-        for residual in self.residuals:
-            residual.__post_init__()
-        if type(self.stopped_instances) is not tuple or any(
-            type(instance) is not str or not instance for instance in self.stopped_instances
-        ):
-            raise ValueError("stopped instances must be immutable identities")
-        for event in self.failed_net_events:
-            event.__post_init__()
-        for event in self.failed_events:
-            event.__post_init__()
-        for posting in self.failed_postings:
-            posting.__post_init__()
-        if self.admission is not None:
-            self.admission.__post_init__()
-        if self.order is not None:
-            self.order.__post_init__()
-        if self.reconciled is not None and type(self.reconciled) is not bool:
-            raise ValueError("reconciliation result must be Boolean")
-        if self.control is not None:
-            self.control.__post_init__()
-        for control in self.controls:
-            control.__post_init__()
-        for alert in self.alerts:
-            alert.__post_init__()
-        if self.alert_error not in (None, "alert_persistence_failed", "alert_store_invalid"):
-            raise ValueError("invalid alert persistence outcome")
-        if self.telemetry_error is not None and (
-            type(self.telemetry_error) is not str or not self.telemetry_error.isidentifier()
-        ):
-            raise ValueError("invalid telemetry persistence outcome")
+from serialization import DomainCodec
+from telemetry import OperationalAlerts, TelemetryStore
 
 
 class AccountExecutionApplication:
@@ -233,8 +48,14 @@ class AccountExecutionApplication:
         journal_path: Path,
         request_path: Path | None = None,
         telemetry_path: Path | None = None,
+        release_identity: str | None = None,
     ) -> AccountExecutionResult:
         """Validate configuration/request bytes before any persistent operation."""
+        if release_identity is not None and (
+            len(release_identity) != 64
+            or any(character not in "0123456789abcdef" for character in release_identity)
+        ):
+            raise ValueError("invalid installed release identity")
         codec = DomainCodec()
         config = codec.decode_json(self._read(config_path), AccountConfiguration)
         if config.mode == "venue_test":
@@ -245,6 +66,53 @@ class AccountExecutionApplication:
             else codec.decode_json(self._read(request_path), AccountExecutionRequest)
         )
         request.__post_init__()
+        if (
+            request.action
+            in (
+                "install_paper",
+                "authorize_paper",
+                "revoke_paper",
+                "claim_paper",
+                "bind_paper_scenario",
+                "paper_market",
+                "reduce_paper",
+            )
+            and release_identity is None
+        ):
+            raise ValueError("paper activation requires an installed release identity")
+        if request.deployment is not None and release_identity not in request.deployment.releases:
+            raise ValueError("paper deployment excludes the installed release")
+        if (
+            request.paper_owner is not None
+            and request.paper_owner.release_identity != release_identity
+        ):
+            raise ValueError("paper owner differs from the installed release")
+        if (
+            release_identity is not None
+            and request.action
+            in (
+                "admit",
+                "coordinate",
+                "paper_market",
+                "post",
+                "event",
+                "net_event",
+                "net_cost",
+                "restart_instance",
+                "reissue_pending",
+            )
+            and (request.paper_owner is None)
+        ):
+            raise ValueError("installed paper admission requires a claimed owner")
+        if (
+            release_identity is not None
+            and request.action == "control"
+            and request.control is not None
+            and request.control.kind in ("startup", "restart")
+        ):
+            raise ValueError(
+                "installed paper restart requires deployment authority and owner claim"
+            )
         recovery: AccountRecoveryReceipt | None = None
         if request.action in ("backup", "restore"):
             workspace = AccountWorkspace(
@@ -265,7 +133,7 @@ class AccountExecutionApplication:
                 journal_path = (
                     Path(request.restore_root) / journal_path.parent.name / journal_path.name
                 )
-        journal = AccountJournal(journal_path, config)
+        journal = AccountJournal(journal_path, config, paper_owner=request.paper_owner)
         alert_store = OperationalAlerts(journal_path.with_suffix(".alerts.sqlite3"))
         control: AccountControlResult | None = None
         alert_error: str | None = None
@@ -273,7 +141,52 @@ class AccountExecutionApplication:
         order: OrderState | None = None
         reconciled: bool | None = None
         portfolio: PortfolioCommit | None = None
-        if request.decision is not None:
+        matched_market: AccountPaperTrace | None = None
+        reduction_result: PaperReductionResult | None = None
+        claimed_owner: PaperOwner | None = None
+        if request.deployment is not None:
+            journal.install_paper(request.deployment)
+        elif request.authorization is not None:
+            if not any(
+                activation.deployment.identity == request.authorization.deployment_sha256
+                and release_identity in activation.deployment.releases
+                for activation in journal.paper_activations()
+            ):
+                raise ValueError("paper authorization excludes the installed release")
+            journal.authorize_paper(request.authorization)
+        elif request.action == "revoke_paper":
+            if request.account_id is None or request.authorization_id is None or request.at is None:
+                raise ValueError("paper revocation is incomplete")
+            journal.revoke_paper(request.account_id, request.authorization_id, request.at)
+        elif request.action == "claim_paper":
+            if (
+                request.account_id is None
+                or request.owner_id is None
+                or request.control is None
+                or release_identity is None
+            ):
+                raise ValueError("paper owner claim is incomplete")
+            claimed_owner = journal.claim_paper(
+                request.account_id, request.owner_id, release_identity, request.control
+            )
+        elif request.action == "bind_paper_scenario":
+            if request.account_id is None or request.scenario is None:
+                raise ValueError("paper scenario binding is incomplete")
+            journal.bind_paper_scenario(request.account_id, request.scenario)
+        elif request.market is not None:
+            if request.account_id is None or request.scenario is None:
+                raise ValueError("paper market request is incomplete")
+            matched_market = journal.match_public_market(
+                request.account_id, request.market, request.scenario
+            )
+        elif request.reduction is not None:
+            if not any(
+                item.deployment.account_id == request.reduction.account_id
+                for item in journal.paper_activations()
+            ):
+                raise ValueError("installed paper reduction requires a deployment")
+            reduction_result = journal.reduce_paper(request.reduction)
+        elif request.decision is not None:
             admission = journal.admit(request.decision)
         elif request.event is not None:
             order = journal.apply_event(request.event)
@@ -322,6 +235,20 @@ class AccountExecutionApplication:
         except OSError, sqlite3.Error, ValueError:
             alerts = ()
             alert_error = "alert_store_invalid"
+        selected_accounts = (
+            tuple(
+                account for account in config.accounts if account.account_id == request.account_id
+            )
+            if request.action == "inspect" and request.account_id is not None
+            else config.accounts
+        )
+        if not selected_accounts:
+            raise ValueError("unknown account")
+        report_facts = (
+            tuple(journal.paper_report_facts(account.account_id) for account in selected_accounts)
+            if request.action == "inspect"
+            else ()
+        )
         result = AccountExecutionResult(
             accounts=journal.accounts(),
             orders=journal.orders(),
@@ -345,6 +272,33 @@ class AccountExecutionApplication:
             alert_error=alert_error,
             recovery=recovery,
             journal_path=str(journal_path),
+            paper_activations=journal.paper_activations(),
+            paper_restore_quarantined=journal.paper_restore_quarantined(),
+            paper_traces=(
+                journal.paper_traces(request.account_id) if request.action == "inspect" else ()
+            ),
+            paper_reductions=tuple(
+                item
+                for item in journal.paper_reductions()
+                if any(
+                    item.request.account_id == account.account_id for account in selected_accounts
+                )
+            ),
+            paper_fills=tuple(fill for fills, _ in report_facts for fill in fills),
+            paper_costs=tuple(cost for _, costs in report_facts for cost in costs),
+            checkpoint=(
+                journal.checkpoint(request.query_instance)
+                if request.query_instance is not None
+                else None
+            ),
+            saved_batch=(
+                journal.portfolio_batch(request.query_batch)
+                if request.query_batch is not None
+                else None
+            ),
+            matched_market=matched_market,
+            reduction_result=reduction_result,
+            claimed_owner=claimed_owner,
         )
         if telemetry_path is not None:
             operation_account_id = (

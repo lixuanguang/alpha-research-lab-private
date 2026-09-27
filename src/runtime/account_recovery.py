@@ -10,34 +10,9 @@ from typing import Literal
 # project library imports
 from configuration import AccountConfiguration
 from execution import AccountJournal, AccountView
+from execution import AccountRecoveryReceipt as AccountRecoveryReceipt
 from runtime.workspace import WorkspaceBackup, WorkspaceManifest
-from serialization import DomainCodec, WireRecord
-
-
-class AccountRecoveryReceipt(WireRecord, frozen=True):
-    """Identify a verified snapshot without granting permission to resume it."""
-
-    manifest_sha256: str
-    configuration_sha256: str
-    journal_relative_path: str
-    accounts: tuple[AccountView, ...]
-
-    def __post_init__(self) -> None:
-        """Require content identities and explicit stopped account observations."""
-        for digest in (self.manifest_sha256, self.configuration_sha256):
-            if (
-                type(digest) is not str
-                or len(digest) != 64
-                or any(char not in "0123456789abcdef" for char in digest)
-            ):
-                raise ValueError("account recovery receipt requires SHA-256 identities")
-        path = Path(self.journal_relative_path)
-        if path.is_absolute() or len(path.parts) != 2 or ".." in path.parts or not self.accounts:
-            raise ValueError("invalid account recovery receipt")
-        for account in self.accounts:
-            account.__post_init__()
-            if account.phase == "running":
-                raise ValueError("account recovery receipt cannot authorize running accounts")
+from serialization import DomainCodec
 
 
 class AccountWorkspace:
@@ -106,7 +81,9 @@ class AccountWorkspace:
         The caller selects the immutable manifest digest. The account owner
         checks staged SQLite state before publication; a mismatched configuration,
         unsupported schema or running account never becomes a usable restore.
-        Resume needs a fresh independent reconciliation and explicit restart.
+        The staged copy is quarantined from managed paper activation. Managed
+        resumption uses the latest retained journal, fresh reconciliation and
+        an explicit owner claim, never this historical snapshot.
         """
         receipt = self.verify(backup_root)
         if receipt.manifest_sha256 != expected_manifest_sha256:
@@ -123,6 +100,8 @@ class AccountWorkspace:
     def _validate_restored(self, root: Path) -> None:
         """Admit the staged database through its owner before publication."""
         _StoppedAccounts(self.config, self._journal(root), storage="snapshot").validate()
+        AccountJournal(self._journal(root), self.config).quarantine_paper_restore()
+        _StoppedAccounts(self.config, self._journal(root)).validate()
 
     def _require_component(self, manifest: WorkspaceManifest) -> None:
         """Keep this recovery operation scoped to the selected account component."""

@@ -3,7 +3,7 @@
 This runbook owns the implemented local installation and paper account recovery
 lifecycle and the requirements for later deployed strategies/services. The
 public-paper workflow now emits a finite final monitoring view; continuous
-operating monitoring, acceptance and activation remain open. The
+operating monitoring and final deployed acceptance remain open. The
 [paper-monitoring record](../roadmap/paper-monitoring.md) owns its integration
 evidence and limits. Physical venue stop/cancel and other live operations are
 [KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration).
@@ -125,9 +125,8 @@ and is outside the qualified installation workflow.
 Rollback verifies the prior release again and selects its code/configuration;
 it preserves the latest mutable state. Only exact application, mode and state
 schema compatibility is accepted. There is no automatic schema migration,
-restoration over an active store or rewind of an order/fill ledger. MR07/MR10/MR13
-must add their owned state readers and reconciliation before any such state is
-resumed. MR04's workspace backup/restore still owns data, feature and job-store
+restoration over an active store or rewind of an order/fill ledger. Managed paper uses its owned state reader, current grant and reconciliation
+before resumption; incompatible schema migration is not automatic. MR04's workspace backup/restore still owns data, feature and job-store
 restoration. Preserve registry bytes, public trust history, manifests, locks,
 audit output and known-compatible rollback releases for the operating lifetime.
 Back them up with the selected local workspace; never delete the sole retained
@@ -142,7 +141,11 @@ facts. OKX/Bitfinex labels do not certify private venue behavior. The
 owns exact request fields; the [account journal](../../src/execution/README.md#account-operational-recovery)
 owns phase, uncertainty and reconciliation semantics.
 
-For a signed shared-account installation, select execution `paper` or `shadow`,
+The following v2 commands retain the earlier normalized-fact engineering drills.
+For managed public-paper deployment, use the [v3 procedure below](#managed-public-paper-activation-and-recovery)
+with explicit deployment, authorization and owner claim.
+
+For that v2 shared-account installation, select execution `paper` or `shadow`,
 `config_schema=account-runtime-v1`, `state_schema=account-journal-v2`, and admit
 both schemas in the independently provisioned installation policy. The initial
 empty state creates a journal from signed configuration under the installation
@@ -177,7 +180,8 @@ uv run --frozen alpha-governance-artifacts run \
 3. **Cancel:** separately send `control/cancel`. It records requests and returns
    the physical order IDs. Supply subsequent identified order facts through
    `event`/`net_event`; a cancellation acknowledgement is not a terminal outcome.
-   Position reduction is not implemented by these actions and remains MR13.
+   These actions never imply liquidation. Managed v3 paper reduction uses the
+   separate `reduce_paper` request described below.
 4. **Recover:** replay missing identified fills, fees, transfers and order facts,
    then supply a complete fresh account observation and current marks. A matching
    observation cannot clear unresolved sends, cancels, contradictions or legacy
@@ -231,6 +235,139 @@ deployment failover or production readiness. Private venue qualification remains
 KIV outside paper acceptance. The
 [MR10 record](../roadmap/README.md#mr10-delivery-and-acceptance)
 retains the remaining integrated acceptance boundary.
+
+## Managed public-paper activation and recovery
+
+Use a fresh signed execution `paper` target with `config_schema=account-runtime-v1`
+and `state_schema=account-journal-v3`. The independently provisioned policy must
+admit both schemas. The execution/contracts wheel closure remains independent
+of the collector and research distributions. The signed launcher supplies its
+verified release digest and fixes configuration/state paths; installation grants
+no exposure authority. Existing v2 commands remain engineering/legacy interfaces,
+not a substitute for this managed operating entry point.
+
+The [account command guide](../../src/applications/execute/README.md#managed-paper-activation-requests)
+owns exact typed request fields. Each operation is one retained JSON request:
+
+```sh
+uv run --frozen alpha-governance-artifacts run \
+  --target /absolute/paper-target --policy /protected/paper-policy.json -- account
+uv run --frozen alpha-governance-artifacts run \
+  --target /absolute/paper-target --policy /protected/paper-policy.json -- \
+  account --request /absolute/operator-requests/operation.json
+```
+
+1. Install a compatible signed release, then submit `install_paper` with the
+   disabled `PaperDeployment`. Inspect its immutable identity, stopped phase,
+   absent authorization and owner, compatible releases and explicit state ABI.
+2. Submit `authorize_paper` with an independently authored `PaperAuthorization`:
+   exact deployment digest, instruments, cumulative simulated buy quantity/order
+   count, maximum order notional and UTC start/expiry. The trusted local operator
+   is the authorization channel; this is not a production credential or a
+   separately signed approval system. Configuration is never a grant.
+3. Supply a fresh independently sourced quote and complete reconciliation after
+   the deployment stop. Submit `claim_paper` with a `restart` control naming that
+   stop and a unique worker identity. Keep the returned generation token. A
+   missing, expired, revoked, mismatched or stale token prevents new exposure.
+4. Supply the claimed `InstalledPaperAccount` to `run_live_shared_paper` for the
+   bounded OKX/Bitfinex input workload. Input/feature/policy bindings must match
+   the deployment. The account owner rechecks actual time, freshness, generation,
+   authorization, funding and risk at economic boundaries. Finite completion
+   records an operational stop. Diagnostic failure does not retry execution.
+5. To **block new exposure**, send `control/stop`. To **request cancellation**,
+   separately send `control/cancel`. Requested/acknowledged cancellation retains
+   commitments until the paper matcher produces its terminal outcome. Expiry
+   and revocation also leave existing obligations and reservations intact.
+6. To **request position reduction**, send `reduce_paper` with instance, quantity,
+   a fresh observed quote, explicit sell limit and maximum fee. Accepted means
+   an IOC sell reservation. Only subsequent eligible public liquidity can create
+   fills. Stale/disconnected input, unknown outcomes, unreconciled state or
+   insufficient owned inventory produce explicit refusal; partial/unfilled
+   quantities are reported without claiming liquidation. Other strategies'
+   inventory is never used to satisfy the request.
+7. After failure, inspect retained facts and complete independent reconciliation.
+   If physical order outcomes remain unresolved, use the retained current owner
+   to drain existing obligations against fresh public data before replacement;
+   expiry/revocation does not permit new orders but preserves this processing.
+   Refresh quotes and explicitly claim a replacement generation while authority
+   is valid. A new bounded grant may replace an expired/revoked one only while
+   stopped and physical outcomes are settled; accepted standing orders retain
+   their reservations. Prior IDs remain recorded and cumulative limits do not reset. Old
+   workers and caller-invented lifecycle/fill events cannot commit managed effects.
+8. For rollback, stop the workload and select a listed compatible signed release
+   with the existing `rollback` command. Installation verifies the candidate
+   reader against a consistent copy before switching code. It preserves the
+   latest journal. Reconcile and claim through the selected release before
+   resuming; old owner tokens bind the previous release/generation.
+
+Workspace backup still requires all selected accounts to be explicitly stopped.
+Restore verifies bytes into an absent destination and marks that staged copy
+quarantined before publication. Historical copies are available for inspection,
+not automatic managed activation; even a freshly matching local observation
+cannot prove no later economics occurred. The supported local recovery boundary
+is the latest retained journal plus its compatible signed code. Direct journal
+replacement, loss of the latest journal, host-volume disaster recovery and
+schema migration are not silently repaired or qualified by a backup.
+
+The existing reference consumer can emit a stable account configuration and
+workload identities for a local fixture drill:
+
+```sh
+uv run --frozen --no-editable python \
+  tests/integration/consumers/runtime/public_paper.py \
+  --config configs/live/okx-btc-usdt.json \
+  --output /absolute/new-preparation --prepare --freshness-us 30000000
+```
+
+Build the two admitted releases against that exact account configuration, author
+the deployment/grant using the returned identities, then use the same consumer's
+`--launcher`, `--target`, `--policy`, `--account-config`, `--release`,
+`--upgrade-release`, `--rollback-release`, `--deployment` and `--authorization`
+options. All operating paths are absolute; target/output must be absent.
+Use the same explicit `--freshness-us 30000000` selection when running this
+signed reference fixture. It budgets the local signed-command round trips;
+the ordinary fixture default remains 5 seconds. Freshness is an authored,
+signed configuration/input assumption and must match throughout the workload.
+The [MR13 record](../roadmap/paper-activation.md) retains concrete commands,
+artifact identities, independently expected economics and qualification limits.
+These fixture controls and public reference policies are engineering workloads,
+not empirical strategy or profitability evidence.
+
+For the reference account named `paper`, create separate stop and cancel requests
+from the repository root using the public wire API:
+
+```sh
+uv run --frozen python - <<'PY'
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
+from execution import AccountControl, AccountExecutionRequest
+from serialization import DomainCodec
+
+root = Path("logs/paper-operator").resolve()
+root.mkdir(parents=True, exist_ok=True)
+for kind in ("stop", "cancel"):
+    request = AccountExecutionRequest(
+        action="control",
+        control=AccountControl(
+            identity=f"operator-{kind}-{uuid4().hex}", account_id="paper",
+            kind=kind, at=datetime.now(UTC), reason="explicit operator request",
+        ),
+    )
+    path = root / f"{kind}.json"
+    path.write_bytes(DomainCodec().encode_json(request))
+    print(path)
+PY
+```
+
+Pass one returned absolute path to the signed `account --request` command above.
+Inspect `control.status`, targeted order IDs and later order state. A successful
+cancel request still needs the retained current worker and fresh eligible market
+input to obtain terminal cancellation. For reduction, author
+`PaperReductionRequest` with the inspected instance's owned quantity and current
+quote/price/fee bounds, then submit `AccountExecutionRequest(action="reduce_paper",
+reduction=request)`. The retained reference drill contains concrete examples and
+their independent expected balances; do not reuse stale quote timestamps.
 
 ## Security controls
 
@@ -294,7 +431,8 @@ can reopen configured telemetry without changing operating state. Socket status
 means local datagram acceptance; it does not establish receiver processing or
 human acknowledgement. Inspect pending/failed attempts and telemetry loss
 separately from hard controls. Deployed routing and external venue/source-clock
-qualification remain unqualified. MR13 activation/recovery, MR14 deployed
+qualification remain unqualified. The bounded activation/recovery evidence is
+tracked in the [MR13 record](../roadmap/paper-activation.md); MR14 deployed
 multi-instance operation and MR15 capacity remain separate work. Additional
 operators and staffing-dependent approval/review programs follow actual
 organizational need and remain separate from technical completion.
