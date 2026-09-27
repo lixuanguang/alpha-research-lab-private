@@ -464,6 +464,25 @@ class PortfolioCoordinator:
             and child.order.identity not in assigned
             and child.instance_id not in transaction.state.stopped_instances
         ]
+        pending_ids = {child.order.identity for child in pending}
+        replaced_parents = {
+            parent.order.identity
+            for parent in transaction.state.net_orders
+            if parent.account_id == account_id
+            and parent.order.is_terminal
+            and any(allocation.child_order_id in pending_ids for allocation in parent.allocations)
+        }
+        if replaced_parents:
+            # Coordination also reaches this method. It must not bypass the
+            # explicit reissue command's reconciliation requirement after a stop.
+            outcome_at = max(
+                saved.event.at
+                for saved in transaction.state.net_events
+                if saved.event.order_id in replaced_parents
+            )
+            reconciled_at = transaction.account(account_id).reconciled_at
+            if reconciled_at is None or reconciled_at < outcome_at:
+                raise ValueError("reissue_requires_current_reconciliation")
         parents: list[NetOrder] = []
         residuals: list[PortfolioResidual] = []
         while pending:

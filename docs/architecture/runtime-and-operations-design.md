@@ -16,7 +16,7 @@ contracts below are retained for reconsideration, outside QR onboarding.
 The platform has three possible lanes with one shared semantic waist:
 
 1. **Batch/research — CURRENT, bounded local scope.** Saved datasets, features, model studies, simulation and reports run with reproducible inputs. Distributed execution and measured parallel scaling remain planned.
-2. **Ordinary event-driven — CURRENT local paper/shadow increments; integrated paper deployment PLANNED.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. A separate local shared-account workflow reuses per-instance decision sessions and coordinates attributable child and physical orders over normalized events. Integrated paper operating qualification remains open; private venue reconciliation is KIV.
+2. **Ordinary event-driven — CURRENT bounded trusted-local paper/shadow service qualification.** MR07 connects native ingestion, candidate callbacks, dedicated-account risk/OMS and exact paper accounting with durable restart. A separate local shared-account workflow reuses per-instance decision sessions and coordinates attributable child and physical orders over normalized events. MR14 composes signed account services with source and policy processes and qualifies their finite 1–120 second local failure and restoration envelope. General deployment and MR15 throughput remain open; private venue reconciliation is KIV.
 3. **Latency-sensitive — OPTIONAL PLANNED.** A native component or dedicated host is added only after a measured latency, jitter, or vendor ABI need. It consumes compatible schemas and remains behind independent risk and kill controls.
 
 Lanes may use different artifacts, process models, stores, and release cadences. A deployment is placement of an
@@ -44,6 +44,39 @@ quarantined, and compatible rollback selects code while preserving current state
 The [activation record](../roadmap/paper-activation.md) owns the bounded evidence;
 remote service recovery remains outside this increment.
 
+MR14 adds a bounded local composition over those owners. One signed execution
+service serializes each account's existing journal commands; one supervisor owns
+the selected native-source processes and isolated policy processes. Only the
+supervisor schedules and commits a decision cohort, in source-name then
+instance-name order. Policy processes receive typed decision inputs and previous
+state, with no account client. A missing policy response stops that cohort's new
+decision commit and fences affected scheduling. A lost account-command response
+has an uncertain economic outcome and is never retried automatically. A durable
+owner generation fences replacements; a local account/socket scheduling fence
+rejects duplicate producers. This is a trusted
+single-user topology, not hostile-process isolation or distributed consensus.
+
+The supervised native-source definition also binds an explicit selected-book
+paper cadence, `market_interval_us`. It defaults to 3,000,000 microseconds and
+must be positive and no greater than source freshness or capture idle time; the
+complete deployment and input identities include it. Every native record is
+retained and validated in order. The first eligible market, then eligible markets
+at least one interval after the last selected market, can match outstanding paper
+orders and evaluate active policies. Intermediate eligible books advance the freshest
+monitoring mark without modeled fills or policy checkpoints; invalid source
+input still faults promptly. The retained `SharedBookDelivery.market_effects=false`
+marks skipped economics for exact replay, while legacy envelopes omitting that
+optional field preserve the earlier per-book behavior. This is a declared paper
+market model rather than native-feed downsampling or MR15 throughput evidence.
+
+The immutable deployment can bind multiple explicit source/scenario identities
+per account. A versioned active selection can enable an already provisioned
+instance after a controlled restart. Its predecessor hash, source definitions,
+policies, exact account configuration and journal remain compatible or launch
+fails. New definitions outside the signed envelope need separately qualified
+installation compatibility. The [service guide](../../src/applications/paper/README.md#supervised-local-deployments)
+owns commands; the [MR14 record](../roadmap/multi-instance-paper.md) owns qualification.
+
 An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
 references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained
 [release workflow](../governance/workflow.md#build-a-release) owns this identity and verification contract.
@@ -70,10 +103,11 @@ when state or schema changed.
 
 ## Monitoring, recovery, and operational evidence
 
-**Current local increment:** MR10 connects durable account stop/fault/restart and
-cancel requests, retained local alert outcomes, quiesced account backup/restore,
-and signed account installation/rollback. Dedicated live-paper failures persist
-a decision block before releasing their fence. The
+**Current bounded local qualification:** MR10 connects durable account
+stop/fault/restart and cancel requests, retained local alert outcomes, quiesced
+account backup/restore, signed account installation/rollback and the MR14
+supervised paper/shadow service drills. Dedicated live-paper failures persist a
+decision block before releasing their fence. The
 [runbook](../governance/operations.md#local-paper-operations) and
 [runtime guide](../../src/runtime/README.md#account-workspace-recovery) own the
 implemented interfaces. MR12 extends the original local alert prerequisite with
@@ -83,9 +117,12 @@ a bounded background writer; disk stalls cannot hold the watchdog control thread
 Account/venue commands project committed state into a separate optional journal.
 The bounded managed-paper activation/recovery increment is described in the
 [runbook](../governance/operations.md#managed-public-paper-activation-and-recovery).
-These local capabilities do not complete MR14 deployed integration or final MR10
-operational acceptance. External private venue
-qualification remains unproven and KIV.
+The [MR14 record](../roadmap/multi-instance-paper.md) and joint ignored
+`logs/mr10/multi-instance-paper.json` complete bounded trusted-local MR10/MR14
+operating acceptance, reusing historical MR10 backup/restore and MR13 signed
+rollback proofs by explicit impact analysis. This scope does not qualify general
+remote service deployment, sustained MR15 capacity or cross-journal atomic limits.
+External private venue qualification remains unproven and KIV.
 
 Current monitoring events correlate release, strategy, model, dataset/source/study,
 account, instrument, venue, order, fill, state epoch and incident through fixed
@@ -176,7 +213,8 @@ Set research and operating budgets at the start of their delivery paths. Include
 offline retrieval and online feature materialization/serving alongside queries,
 ingestion and execution. Record throughput, p50/p95/p99 latency, memory/disk,
 concurrency, hardware/cache conditions and recovery targets. Research capacity
-can be accepted at G2; final runtime capacity and all services remain MR15 work.
+can be accepted at G2; final runtime and service capacity qualification remains
+MR15 work. MR14's bounded service failure drills do not establish that capacity.
 
 Useful triggers include a dataset build that misses research cadence, concurrent readers that contend on local storage,
 replay throughput that blocks iteration, recovery time beyond the operating target, or measured native latency/jitter

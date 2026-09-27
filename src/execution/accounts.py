@@ -25,6 +25,7 @@ from configuration import (
 )
 from execution.account_admission import AccountAdmission
 from execution.account_allocation import PhysicalAllocation
+from execution.account_commands import AccountExecutionRequest, AccountExecutionResult
 from execution.account_operations import AccountOperations
 from execution.account_paper import AccountPaperMatching
 from execution.account_portfolio import PortfolioCoordinator
@@ -152,7 +153,8 @@ class AccountJournal:
                 if existing.deployment != deployment:
                     raise ValueError("paper_deployment_incompatible")
                 return
-            self._paper.bind_transaction(transaction, deployment.account_id, deployment.scenario)
+            for scenario in deployment.scenarios:
+                self._paper.bind_transaction(transaction, deployment.account_id, scenario)
             now = self._now()
             result = self._operations.apply(
                 transaction,
@@ -203,15 +205,7 @@ class AccountJournal:
                 transaction, activation.deployment.account_id
             ):
                 raise ValueError("paper_reauthorization_requires_settled_order_outcomes")
-            if (
-                any(
-                    quantity.dimension != activation.deployment.scenario.adverse.per
-                    for quantity in authorization.quantities
-                )
-                or authorization.maximum_order_notional.currency
-                != activation.deployment.scenario.adverse.currency
-            ):
-                raise ValueError("paper_authorization_instrument_or_currency_differs")
+            activation.deployment.require_authorization(authorization)
             history: tuple[PaperAuthorization, ...] = (*activation.authorizations, authorization)
             candidate = replace(
                 activation,
@@ -279,25 +273,25 @@ class AccountJournal:
         with self._store.write() as transaction:
             if transaction.state.paper_restore_quarantine:
                 raise ValueError("paper_restore_requires_current_retained_journal")
+            now = self._now()
             if self.paper_owner is not None:
                 activation = PaperAuthority.require_owner(
                     transaction,
                     request.account_id,
                     self.paper_owner,
-                    at=self._now(),
+                    at=now,
                     new_exposure=False,
                 )
                 if activation is not None and request.instance_id not in {
                     item.instance_id for item in activation.deployment.strategies
                 }:
                     raise ValueError("paper_authorization_scope_differs")
-            if PaperAuthority.find(transaction, request.account_id) is not None:
-                now = self._now()
-                if request.at > now or now - request.at > timedelta(
-                    microseconds=self.config.budgets.max_quote_age_us
-                ):
-                    raise ValueError("paper_reduction_stale_or_future")
-            return AccountReduction(self._admission).apply(transaction, request)
+            admission_at = (
+                now if PaperAuthority.find(transaction, request.account_id) is not None else None
+            )
+            return AccountReduction(self._admission).apply(
+                transaction, request, admission_at=admission_at
+            )
 
     def paper_reductions(self) -> tuple[PaperReductionResult, ...]:
         """Read immutable reduction requests/results without claiming completion."""
@@ -316,6 +310,175 @@ class AccountJournal:
     def accounts(self) -> tuple[AccountView, ...]:
         """Read account state, reconciliation cutoff and independent block reasons."""
         return self._store.read().accounts
+
+    def result_snapshot(self, request: AccountExecutionRequest) -> AccountExecutionResult:
+        """Project a typed response, reading state only for requested inspection fields."""
+        request.__post_init__()
+        if request.projection == "operation":
+            return AccountExecutionResult(accounts=(), orders=())
+        state = self._store.read()
+        selected_accounts = (
+            tuple(
+                account
+                for account in state.accounts
+                if account.ledger.account_id == request.account_id
+            )
+            if request.action == "inspect" and request.account_id is not None
+            else state.accounts
+        )
+        if not selected_accounts:
+            raise ValueError("unknown account")
+        selected_ids = {account.ledger.account_id for account in selected_accounts}
+        if request.projection == "accounts":
+            return AccountExecutionResult(accounts=state.accounts, orders=())
+        if request.projection == "orders":
+            return AccountExecutionResult(accounts=(), orders=state.orders)
+        if request.projection == "net_orders":
+            return AccountExecutionResult(accounts=(), orders=(), net_orders=state.net_orders)
+        if request.projection == "checkpoint":
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                checkpoint=next(
+                    (
+                        saved.request.checkpoint
+                        for saved in reversed(state.decisions)
+                        if saved.request.instance_id == request.query_instance
+                    ),
+                    None,
+                ),
+            )
+        if request.projection == "saved_batch":
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                saved_batch=next(
+                    (
+                        saved.batch
+                        for saved in state.portfolio_batches
+                        if saved.batch.identity == request.query_batch
+                    ),
+                    None,
+                ),
+            )
+        if request.projection == "paper_activations":
+            return AccountExecutionResult(
+                accounts=(), orders=(), paper_activations=state.paper_activations
+            )
+        if request.projection == "quarantine":
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                paper_restore_quarantined=state.paper_restore_quarantine,
+            )
+        if request.projection == "traces":
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                paper_traces=tuple(
+                    trace
+                    for trace in state.paper_traces
+                    if request.account_id is None or trace.account_id == request.account_id
+                ),
+            )
+        if request.projection == "facts":
+            report_facts = tuple(
+                self._paper.report_facts(account.ledger.account_id, state=state)
+                for account in selected_accounts
+            )
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                paper_fills=tuple(fill for fills, _ in report_facts for fill in fills),
+                paper_costs=tuple(cost for _, costs in report_facts for cost in costs),
+            )
+        active_children = {
+            child.order.identity for child in state.orders if not child.order.is_terminal
+        }
+        if request.projection == "residuals":
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                residuals=tuple(
+                    residual
+                    for residual in state.residuals
+                    if residual.child_order_id in active_children
+                ),
+            )
+        if request.projection == "reductions":
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                paper_reductions=tuple(
+                    item
+                    for item in state.paper_reductions
+                    if item.request.account_id in selected_ids
+                ),
+            )
+        report_facts = (
+            tuple(
+                self._paper.report_facts(account.ledger.account_id, state=state)
+                for account in selected_accounts
+            )
+            if request.action == "inspect"
+            else ()
+        )
+        return AccountExecutionResult(
+            accounts=state.accounts,
+            orders=state.orders,
+            net_orders=state.net_orders,
+            residuals=tuple(
+                residual
+                for residual in state.residuals
+                if residual.child_order_id in active_children
+            ),
+            stopped_instances=state.stopped_instances,
+            failed_net_events=state.failed_net_events,
+            failed_events=state.failed_events,
+            failed_postings=state.failed_postings,
+            controls=state.account_controls,
+            journal_path=str(self.path),
+            paper_activations=state.paper_activations,
+            paper_restore_quarantined=state.paper_restore_quarantine,
+            paper_traces=(
+                tuple(
+                    trace
+                    for trace in state.paper_traces
+                    if request.account_id is None or trace.account_id == request.account_id
+                )
+                if request.action == "inspect"
+                else ()
+            ),
+            paper_reductions=tuple(
+                item for item in state.paper_reductions if item.request.account_id in selected_ids
+            ),
+            paper_fills=tuple(fill for fills, _ in report_facts for fill in fills),
+            paper_costs=tuple(cost for _, costs in report_facts for cost in costs),
+            checkpoint=(
+                next(
+                    (
+                        saved.request.checkpoint
+                        for saved in reversed(state.decisions)
+                        if saved.request.instance_id == request.query_instance
+                    ),
+                    None,
+                )
+                if request.query_instance is not None
+                else None
+            ),
+            saved_batch=(
+                next(
+                    (
+                        saved.batch
+                        for saved in state.portfolio_batches
+                        if saved.batch.identity == request.query_batch
+                    ),
+                    None,
+                )
+                if request.query_batch is not None
+                else None
+            ),
+        )
 
     @staticmethod
     def verify(
@@ -527,6 +690,8 @@ class AccountJournal:
     def coordinate(self, batch: PortfolioBatch) -> PortfolioCommit:
         """Admit gross risk, cross by policy, and create physical orders atomically."""
         batch.__post_init__()
+        if self.config.mode == "shadow" and batch.crossing == "internal_at_quote":
+            raise ValueError("shadow mode cannot internally match orders")
         with self._store.write() as transaction:
             for item in batch.decisions:
                 PaperAuthority.require_decision(
@@ -534,8 +699,9 @@ class AccountJournal:
                 )
                 activation = PaperAuthority.find(transaction, item.request.account_id)
                 if activation is not None and (
-                    item.context.authority_scope != "paper"
-                    or item.context.venue != activation.deployment.scenario.venue
+                    item.context.authority_scope != activation.deployment.submission_authority
+                    or item.context.venue
+                    != activation.deployment.scope_for(item.request.instance_id).scenario.venue
                     or not any(
                         strategy.instance_id == item.request.instance_id
                         and strategy.model_identity == item.context.model_revision
@@ -561,27 +727,55 @@ class AccountJournal:
         event.__post_init__()
         with self._store.write() as transaction:
             if transaction.state.paper_activations:
-                PaperAuthority.require_owner(
+                parent = transaction.net_order(event.order_id)
+                now = self._now()
+                activation = PaperAuthority.require_owner(
                     transaction,
-                    transaction.net_order(event.order_id).account_id,
+                    parent.account_id,
                     self.paper_owner,
-                    at=self._now(),
+                    at=now,
                     new_exposure=False,
                 )
-            if (
-                transaction.state.paper_activations
-                and PaperAuthority.find(
-                    transaction, transaction.net_order(event.order_id).account_id
-                )
-                is not None
-            ):
-                raise ValueError("managed_paper_events_require_public_matching")
+                if activation is not None and not self._allow_shadow_unsent_rejection(
+                    transaction, parent, event, activation, now
+                ):
+                    raise ValueError("managed_paper_events_require_public_matching")
             result, failure = self._allocation.apply_event(transaction, event)
         if failure is not None:
             raise ValueError(f"account blocked: {failure}")
         if result is None:
             raise AssertionError("physical event completed without a result")
         return result
+
+    def _allow_shadow_unsent_rejection(
+        self,
+        transaction: _AccountTransaction,
+        parent: NetOrder,
+        event: OrderEvent,
+        activation: PaperActivation,
+        now: datetime,
+    ) -> bool:
+        """Settle only unsent shadow reservations after an explicit account stop."""
+        order = parent.order
+        if (
+            self.config.mode != "shadow"
+            or activation.deployment.submission_authority != "shadow"
+            or event.kind != "rejected"
+            or event.fill is not None
+            or event.at > now
+            or order.accepted
+            or order.request_acknowledged
+            or order.cancel_acknowledged
+            or order.filled.value != 0
+            or order.paid_fee.value != 0
+        ):
+            return False
+        if order.status == "rejected":
+            return any(saved.event == event for saved in transaction.state.net_events)
+        return transaction.account(parent.account_id).phase in (
+            "stopped",
+            "faulted",
+        ) and order.status in ("intent", "cancel_requested")
 
     def correct_net_fee(self, correction: NetFeeCorrection) -> NetOrder:
         """Revise one physical fill fee and its child postings in one transaction."""

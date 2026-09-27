@@ -439,3 +439,26 @@ claim. Signed compatible code rollback keeps that journal, including its grants,
 controls, orders, costs, checkpoints and reservations.
 Loss of that latest evidence requires a separate recovery decision and is not
 silently repaired from a historical snapshot.
+
+## Multiple input scopes and admission freshness
+
+`PaperDeployment.additional_sources` optionally overrides the primary input and
+scenario for a named instance. `scope_for(instance_id)` resolves its exact route;
+`scenarios` exposes distinct bound scenarios. Unsupported instances, conflicting
+mechanics for one instrument, venue substitutions and currency changes reject.
+Absent overrides retain the original MR13 wire bytes and deployment hash.
+Managed shadow deployments use explicit shadow authority and cannot create paper
+fills or internal crosses. Installation binds every selected scenario before orders.
+
+Protective reduction samples current UTC inside the journal transaction. Quote,
+book and independent-state ages are measured at that admission instant; future
+inputs and account ordering still use the request's causal cutoff. An original
+identified result remains retryable after its timestamps age or exposure authority
+expires. Changed content under that identity rejects. A new reduction cannot use
+a nine-second-old request to admit an eighteen-second-old input under a ten-second
+freshness limit.
+
+After shared-parent cancellation, automatic coordination and the explicit residual
+reissue command both require reconciliation covering the terminal physical outcome.
+A new strategy decision cannot bypass this recovery gate. Existing residuals remain
+reserved and attributable while that gate is closed.

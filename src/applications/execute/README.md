@@ -339,3 +339,114 @@ is an internal launcher interface, not proof that a caller verified a release.
 See the [activation record](../../../docs/roadmap/paper-activation.md) for the
 commands and evidence retained so far, artifact identities and remaining
 operating limits; it does not claim operational qualification before drills.
+
+### Shadow unsent-intent settlement
+
+A managed shadow account never runs paper matching or posts modeled fills. A
+supervised shadow policy can nevertheless leave a physical parent in local
+`intent` or `cancel_requested` state with a reservation. To settle that
+no-submission fact, explicitly stop the account, selectively stop every affected
+instance, and inspect the parent and children. Through the current signed owner,
+send an ordinary `AccountExecutionRequest(action="net_event", net_event=...,
+paper_owner=...)` with an `OrderEvent(kind="rejected")` for each verified unsent
+parent. The journal accepts this only for a managed shadow deployment whose
+parent was never acknowledged or accepted and has zero fill and fee. It requires
+the account to be stopped or faulted, a current owner token and a nonfuture event
+clock. The transition releases the reservation while preserving ledger economics
+and policy checkpoints. It records a local no-submission fact, not a venue event.
+
+For example, save the exact current `PaperOwner` returned by the claim as
+`/absolute/current-owner.json`; take the physical parent ID from a fresh
+inspection. This writes one typed request for the signed launcher:
+
+```sh
+python - <<'PY'
+from datetime import UTC, datetime
+from pathlib import Path
+from execution import AccountExecutionRequest, OrderEvent, PaperOwner
+from serialization import DomainCodec
+
+codec = DomainCodec()
+owner = codec.decode_json(Path('/absolute/current-owner.json').read_bytes(), PaperOwner)
+event = OrderEvent(
+    identity='shadow-unsent-rejection-001',
+    order_id='PHYSICAL_PARENT_ID_FROM_INSPECTION',
+    at=datetime.now(UTC),
+    kind='rejected',
+)
+request = AccountExecutionRequest(action='net_event', net_event=event, paper_owner=owner)
+Path('/absolute/requests/shadow-unsent-rejection.json').write_bytes(codec.encode_json(request))
+PY
+alpha-governance-artifacts run --target /absolute/target --policy /protected/policy.json -- \
+  account --request /absolute/requests/shadow-unsent-rejection.json
+```
+
+Keep the same event identity and bytes for an exact saved retry; a replaced
+owner cannot apply a new event, although the current successor may reopen the
+saved result after restart. New rejection while running, an acknowledged,
+accepted, unknown or filled parent, other manual lifecycle events, and every
+managed paper-mode `net_event` remain blocked. Verify zero new economics and an
+empty physical-open-order set, then independently reconcile the complete account
+with empty open orders before claiming a fresh owner and explicitly restarting
+services and instances. The claim and every instance restart advance the account
+control clock. Reconcile a fresh complete observation before each subsequent
+instance restart; the supervisor's restart control can carry that observation.
+Retain the original journal and checkpoints throughout.
+The [MR14 record](../../../docs/roadmap/multi-instance-paper.md) owns the installed
+qualification and its precise local operating limits.
+
+## Bounded account-owner service
+
+`serve_paper` is an `AccountExecutionRequest` with `service_socket` (absolute local
+Unix socket), `service_seconds` (1–120) and the exact `paper_owner` returned by an
+explicit claim. Run this request through the signed launcher:
+
+```sh
+alpha-governance-artifacts run --target /absolute/target --policy /protected/policy.json -- \
+  account --request /absolute/requests/serve.json
+```
+
+The service keeps the installation fence, fixes configuration/journal/release, and
+serializes the existing typed requests. `SocketPaperAccount` retains requests and
+responses. Owner-generation checks remain inside economic transactions. Service
+startup does not claim, renew or widen authority. Its heartbeat file beside the
+socket exposes actual process PID, liveness and request progress separately.
+The existing launcher bounds commands to 180 seconds; services are deliberately
+limited to 120 seconds and require explicit recovery between invocations.
+
+Account requests default to a complete response. Internal `PaperAccount` helpers
+select a typed `projection` for their requested read or operation receipt, so a
+checkpoint lookup does not transfer unrelated order and accounting history.
+Explicit operator inspection remains complete. The service reuses its opened
+journal handle after checking the exact configuration, path and owner; each
+query and economic transaction still reads current SQLite state. Neither response
+projection nor handle reuse changes admission checks. The store may reuse a fully
+validated immutable decode only when freshly read configuration and payload bytes
+match exactly. Changed payloads are decoded and validated before use; committed
+writes never populate that cache from an unchecked in-memory value.
+
+`shutdown_paper` requires the same owner and a separate `control` of kind `stop`.
+It stops new exposure and ends the service; it does not cancel or liquidate.
+Selective instance controls, cancellation, reduction and independent reconciliation
+use their existing requests over the socket while it operates. Monitoring and
+alert failures never cause an economic request to be retried.
+
+The full installed research distribution also supplies `alpha-execute deployment`
+and `deployment-control`, documented in the
+[paper application guide](../paper/README.md#supervised-local-deployments).
+The independently signed execution target remains free of research/source packages;
+only the account service runs inside that target.
+
+In that supervised paper composition, each `PaperServiceSource` declares
+`market_interval_us` (default 3,000,000), a positive selected-book economic
+cadence no greater than its `freshness_us` or capture idle time. The exact
+`PaperServiceConfiguration.identity` and `ServiceBookInputs.identity` both pin
+this value. Native records remain retained and validated
+in order; the first eligible book and subsequent books at least one interval
+after the last selected book cause `paper_market` matching and active strategy
+evaluation. Intermediate eligible books update the monitoring mark without
+matching orders, posting paper fills or advancing strategy checkpoints. Source
+invalidation still faults immediately. Retained `SharedBookDelivery` records
+mark skipped economics with `market_effects=false` for exact replay; legacy
+records that omit the field preserve per-book behavior. This models selected
+paper opportunities and does not qualify feed throughput or MR15 capacity.

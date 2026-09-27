@@ -7,6 +7,9 @@ import hashlib
 from datetime import datetime
 from typing import Literal
 
+# third party library imports
+import msgspec
+
 # project library imports
 from configuration.accounts import AccountConfiguration
 from configuration.paper import PaperExecutionScenario
@@ -36,6 +39,27 @@ class PaperStrategyIdentity(WireRecord, frozen=True):
                 raise ValueError("paper strategy identity is incomplete")
 
 
+class PaperSourceBinding(WireRecord, frozen=True):
+    """Bind one strategy instance to its public input and paper mechanics."""
+
+    instance_id: str
+    input_identity: str
+    scenario: PaperExecutionScenario
+
+    def __post_init__(self) -> None:
+        """Require an identified source and a complete spot scenario."""
+        if (
+            type(self.instance_id) is not str
+            or not self.instance_id.strip()
+            or type(self.input_identity) is not str
+            or not self.input_identity.strip()
+        ):
+            raise ValueError("paper source binding requires instance and input identities")
+        if type(self.scenario) is not PaperExecutionScenario:
+            raise TypeError("paper source binding requires an execution scenario")
+        self.scenario.__post_init__()
+
+
 class PaperDeployment(WireRecord, frozen=True):
     """Describe compatible installed code and state without granting permission to trade.
 
@@ -52,15 +76,16 @@ class PaperDeployment(WireRecord, frozen=True):
     scenario: PaperExecutionScenario
     state_identity: str
     enabled: bool = False
-    submission_authority: Literal["paper"] = "paper"
+    submission_authority: Literal["paper", "shadow"] = "paper"
     state_schema: Literal["account-journal-v3"] = "account-journal-v3"
     schema_version: Literal["paper-deployment-v1"] = "paper-deployment-v1"
+    additional_sources: tuple[PaperSourceBinding, ...] | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Reject production flags, missing bindings and incompatible state readers."""
         if (
             self.enabled is not False
-            or self.submission_authority != "paper"
+            or self.submission_authority not in ("paper", "shadow")
             or self.state_schema != "account-journal-v3"
             or self.schema_version != "paper-deployment-v1"
             or type(self.account_id) is not str
@@ -86,6 +111,65 @@ class PaperDeployment(WireRecord, frozen=True):
         if type(self.scenario) is not PaperExecutionScenario:
             raise TypeError("paper deployment requires an execution scenario")
         self.scenario.__post_init__()
+        if self.additional_sources is not msgspec.UNSET:
+            if type(self.additional_sources) is not tuple:
+                raise TypeError("paper deployment requires source bindings")
+            if not self.additional_sources:
+                raise ValueError("paper deployment omits empty source overrides")
+            selected = {item.instance_id for item in self.strategies[1:]}
+            seen: set[str] = set()
+            for source in self.additional_sources:
+                if type(source) is not PaperSourceBinding:
+                    raise TypeError("paper deployment requires source bindings")
+                source.__post_init__()
+                if source.instance_id not in selected or source.instance_id in seen:
+                    raise ValueError("paper deployment source instance differs")
+                if (source.input_identity, source.scenario) == (self.input_identity, self.scenario):
+                    raise ValueError("paper deployment source override is redundant")
+                seen.add(source.instance_id)
+        by_instrument: dict[object, tuple[str, PaperExecutionScenario]] = {}
+        for source in self.source_bindings:
+            instrument_id = source.scenario.instrument_id
+            prior = by_instrument.get(instrument_id)
+            if prior is not None and prior != (source.input_identity, source.scenario):
+                raise ValueError("paper deployment instrument source differs")
+            by_instrument[instrument_id] = (source.input_identity, source.scenario)
+
+    @property
+    def source_bindings(self) -> tuple[PaperSourceBinding, ...]:
+        """Resolve each strategy's exact source, retaining legacy shared scope."""
+        extras = () if self.additional_sources is msgspec.UNSET else self.additional_sources
+        overrides = {item.instance_id: item for item in extras}
+        return tuple(
+            overrides.get(
+                strategy.instance_id,
+                PaperSourceBinding(
+                    instance_id=strategy.instance_id,
+                    input_identity=self.input_identity,
+                    scenario=self.scenario,
+                ),
+            )
+            for strategy in self.strategies
+        )
+
+    @property
+    def scenarios(self) -> tuple[PaperExecutionScenario, ...]:
+        """Expose each distinct instrument scenario in signed strategy order."""
+        scenarios: list[PaperExecutionScenario] = []
+        for source in self.source_bindings:
+            if source.scenario.instrument_id not in {
+                scenario.instrument_id for scenario in scenarios
+            }:
+                scenarios.append(source.scenario)
+        return tuple(scenarios)
+
+    def scope_for(self, instance_id: str) -> PaperSourceBinding:
+        """Resolve one installed strategy's signed instrument and input scope."""
+        self.__post_init__()
+        for source in self.source_bindings:
+            if source.instance_id == instance_id:
+                return source
+        raise ValueError("paper deployment instance differs")
 
     @property
     def identity(self) -> str:
@@ -96,19 +180,34 @@ class PaperDeployment(WireRecord, frozen=True):
     def require_configuration(self, config: AccountConfiguration) -> None:
         """Check exact configuration and owned spot instruments before installing state."""
         if (
-            config.mode != "paper"
+            config.mode != self.submission_authority
             or self.configuration_sha256
             != hashlib.sha256(DomainCodec().encode_json(config)).hexdigest()
+            or self.account_id not in {account.account_id for account in config.accounts}
         ):
             raise ValueError("paper deployment configuration differs")
         for strategy in self.strategies:
+            scenario = self.scope_for(strategy.instance_id).scenario
             if not any(
                 owner.instance_id == strategy.instance_id
                 and owner.account_id == self.account_id
-                and self.scenario.instrument_id in owner.instruments
+                and scenario.instrument_id in owner.instruments
                 for owner in config.budgets.instances
             ):
                 raise ValueError("paper deployment instance or instrument differs")
+
+    def require_authorization(self, authorization: PaperAuthorization) -> None:
+        """Require a grant bounded to every signed instrument and quote currency."""
+        if (
+            authorization.submission_authority != self.submission_authority
+            or {quantity.dimension for quantity in authorization.quantities}
+            != {scenario.adverse.per for scenario in self.scenarios}
+            or any(
+                scenario.adverse.currency != authorization.maximum_order_notional.currency
+                for scenario in self.scenarios
+            )
+        ):
+            raise ValueError("paper_authorization_instrument_or_currency_differs")
 
     @staticmethod
     def require_digest(value: str) -> None:
@@ -136,7 +235,7 @@ class PaperAuthorization(WireRecord, frozen=True):
     quantities: tuple[Quantity, ...]
     maximum_order_notional: Money
     maximum_orders: int
-    submission_authority: Literal["paper"] = "paper"
+    submission_authority: Literal["paper", "shadow"] = "paper"
     schema_version: Literal["paper-authorization-v1"] = "paper-authorization-v1"
 
     def __post_init__(self) -> None:
@@ -147,7 +246,7 @@ class PaperAuthorization(WireRecord, frozen=True):
         if (
             type(self.identity) is not str
             or not self.identity
-            or self.submission_authority != "paper"
+            or self.submission_authority not in ("paper", "shadow")
             or self.schema_version != "paper-authorization-v1"
             or self.expires_at <= self.valid_from
             or type(self.quantities) is not tuple

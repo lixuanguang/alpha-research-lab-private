@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -14,7 +15,14 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountLedger, AccountSnapshot
-from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
+from configuration import (
+    AccountConfiguration,
+    OpeningAccount,
+    PaperAuthorization,
+    PaperDeployment,
+    PaperExecutionScenario,
+    PaperStrategyIdentity,
+)
 from execution import (
     AccountControl,
     AccountDecision,
@@ -32,7 +40,20 @@ from execution import (
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
+from serialization import DomainCodec
 from strategies import OrderIntent
+
+
+class _PaperClock:
+    """Advance actual admission time independently of reduction request time."""
+
+    def __init__(self, at: datetime) -> None:
+        """Start the local UTC clock."""
+        self.at = at
+
+    def __call__(self) -> datetime:
+        """Return the time sampled inside each economic transaction."""
+        return self.at
 
 
 class TestAccountReduction:
@@ -231,6 +252,135 @@ class TestAccountReduction:
             )
         )
         return journal
+
+    @classmethod
+    def _managed_funded(cls, path: Path) -> tuple[AccountJournal, _PaperClock]:
+        """Claim a managed owner after reconciling five attributable units."""
+        cls._funded(path)
+        config = cls._config()
+        clock = _PaperClock(cls._at(10))
+        admin = AccountJournal(path, config, clock=clock)
+        deployment = PaperDeployment(
+            account_id="shared",
+            configuration_sha256=hashlib.sha256(DomainCodec().encode_json(config)).hexdigest(),
+            releases=("a" * 64,),
+            strategies=(
+                PaperStrategyIdentity(
+                    instance_id="alpha",
+                    policy_identity="policy-alpha-v1",
+                    candidate_identity="candidate-alpha-v1",
+                    model_identity="no-model-v1",
+                    feature_identity="feature-alpha-v1",
+                ),
+            ),
+            input_identity="public-okx-book-v1",
+            scenario=cls._scenario(),
+            state_identity="paper-account-state-v1",
+        )
+        admin.install_paper(deployment)
+        clock.at = cls._at(11)
+        admin.authorize_paper(
+            PaperAuthorization(
+                identity="bounded-reduction-session",
+                deployment_sha256=deployment.identity,
+                valid_from=cls._at(11),
+                expires_at=cls._at(30),
+                quantities=(cls._quantity("5"),),
+                maximum_order_notional=cls._money("100"),
+                maximum_orders=5,
+            )
+        )
+        snapshot = AccountLedger(admin.accounts()[0].ledger).snapshot()
+        assert admin.reconcile(
+            AccountObservation(
+                identity="after-managed-install",
+                at=cls._at(12),
+                snapshot=snapshot,
+                open_orders=(),
+            )
+        )
+        admin.observe(AccountQuote(price=cls._price("10"), at=cls._at(12)))
+        clock.at = cls._at(13)
+        owner = admin.claim_paper(
+            "shared",
+            "reduction-worker",
+            "a" * 64,
+            AccountControl(
+                identity="claim-reduction-worker",
+                account_id="shared",
+                kind="restart",
+                at=cls._at(13),
+                expected_control_identity=f"paper-deployment:{deployment.identity}",
+            ),
+        )
+        worker = AccountJournal(path, config, paper_owner=owner, clock=clock)
+        assert worker.reconcile(
+            AccountObservation(
+                identity="after-managed-claim",
+                at=cls._at(13),
+                snapshot=snapshot,
+                open_orders=(),
+            )
+        )
+        return worker, clock
+
+    @pytest.mark.parametrize(
+        ("quote_second", "market_second", "request_second", "admission_second", "reason"),
+        (
+            (14, 14, 23, 32, "stale_quote"),
+            (23, 14, 23, 32, "stale_paper_market"),
+            (64, 64, 65, 74, "stale_state"),
+        ),
+    )
+    def test_managed_reduction_freshness_uses_serialized_admission_time(
+        self,
+        tmp_path: Path,
+        quote_second: int,
+        market_second: int,
+        request_second: int,
+        admission_second: int,
+        reason: str,
+    ) -> None:
+        """A recent request cannot carry old quote, book or account state into an order."""
+        worker, clock = self._managed_funded(tmp_path / "managed-freshness.sqlite3")
+        clock.at = self._at(market_second)
+        worker.match_public_market(
+            "shared", self._market("freshness-book", clock.at), self._scenario()
+        )
+        clock.at = self._at(quote_second)
+        quote = AccountQuote(price=self._price("10"), at=clock.at)
+        worker.observe(quote)
+        before_orders = worker.orders()
+        before_ledger = worker.accounts()[0].ledger
+        request = self._request("freshness-reduction", self._at(request_second), quote)
+        clock.at = self._at(admission_second)
+        result = worker.reduce_paper(request)
+        assert (result.status, result.reason, result.orders) == ("rejected", reason, ())
+        assert worker.orders() == before_orders
+        assert worker.accounts()[0].ledger == before_ledger
+        assert worker.paper_reductions() == (result,)
+
+    def test_managed_reduction_retry_replays_after_input_and_grant_expiry(
+        self, tmp_path: Path
+    ) -> None:
+        """The current owner can retrieve one original reservation without a second order."""
+        worker, clock = self._managed_funded(tmp_path / "managed-retry.sqlite3")
+        clock.at = self._at(14)
+        worker.match_public_market(
+            "shared", self._market("reduction-book", clock.at), self._scenario()
+        )
+        quote = AccountQuote(price=self._price("10"), at=clock.at)
+        worker.observe(quote)
+        request = self._request("durable-reduction", clock.at, quote)
+        result = worker.reduce_paper(request)
+        assert result.status == "accepted"
+        before_orders = worker.orders()
+        clock.at = self._at(35)
+        assert worker.reduce_paper(request) == result
+        assert worker.orders() == before_orders
+        assert worker.paper_reductions() == (result,)
+        with pytest.raises(ValueError, match="different content"):
+            worker.reduce_paper(replace(request, quantity=self._quantity("2")))
 
     @pytest.mark.parametrize("kind", ("stop", "fault"))
     def test_controlled_reduction_is_request_until_finite_market_fill(

@@ -72,13 +72,9 @@ class ReleaseRuntime(ImmutableModel):
             raise ValueError("application and operating mode are incompatible")
         account_configuration = self.config_schema == "account-runtime-v1"
         account_state = self.state_schema in ("account-journal-v2", "account-journal-v3")
-        if (
-            account_configuration != account_state
-            or (
-                account_configuration
-                and (self.application != "execution" or self.mode not in ("paper", "shadow"))
-            )
-            or (self.state_schema == "account-journal-v3" and self.mode != "paper")
+        if account_configuration != account_state or (
+            account_configuration
+            and (self.application != "execution" or self.mode not in ("paper", "shadow"))
         ):
             raise ValueError("account configuration, state and mode are incompatible")
         return self

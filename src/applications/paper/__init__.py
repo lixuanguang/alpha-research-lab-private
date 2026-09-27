@@ -1,7 +1,7 @@
 """Expose configured candidate paper/shadow composition without executable authority."""
 
 # project library imports
-from applications.paper.installed import InstalledPaperAccount
+from applications.paper.installed import InstalledPaperAccount, SocketPaperAccount
 from applications.paper.monitoring import (
     PaperMonitoringInput,
     PaperMonitoringResult,
@@ -27,6 +27,7 @@ __all__ = [
     "SharedPaperDecision",
     "SharedPaperResult",
     "SharedPublicPaperResult",
+    "SocketPaperAccount",
     "render_paper_monitoring",
     "run_live_paper",
     "run_live_shared_paper",

@@ -69,10 +69,12 @@ class PaperActivation(WireRecord, frozen=True):
             historical.__post_init__()
             if historical.deployment_sha256 != self.deployment.identity:
                 raise ValueError("paper authorization history deployment differs")
+            self.deployment.require_authorization(historical)
         if self.authorization is not None:
             self.authorization.__post_init__()
             if self.authorization.deployment_sha256 != self.deployment.identity:
                 raise ValueError("paper authorization deployment differs")
+            self.deployment.require_authorization(self.authorization)
         if self.owner is not None:
             self.owner.__post_init__()
             if (
@@ -175,10 +177,13 @@ class PaperAuthority:
         if activation is None:
             return
         activation.require_authority(request.decision.at)
+        try:
+            source = activation.deployment.scope_for(request.instance_id)
+        except ValueError as error:
+            raise ValueError("paper_authorization_scope_differs") from error
         if (
-            request.instance_id
-            not in {item.instance_id for item in activation.deployment.strategies}
-            or request.quote.price.per.instrument_id != activation.deployment.scenario.instrument_id
+            request.quote.price.per != source.scenario.adverse.per
+            or request.quote.price.currency != source.scenario.adverse.currency
         ):
             raise ValueError("paper_authorization_scope_differs")
 

@@ -35,12 +35,23 @@ class ExecuteArguments(argparse.Namespace):
     alerts: Path | None
     telemetry: Path | None
     release_identity: str | None
+    owners: Path
+    root: Path
+    socket: Path
 
 
 def main() -> None:
     """Run one installed admission, local account or test-venue operation."""
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
+    services_parser = actions.add_parser("deployment")
+    services_parser.add_argument("--config", type=Path, required=True)
+    services_parser.add_argument("--owners", type=Path, required=True)
+    services_parser.add_argument("--root", type=Path, required=True)
+    services_parser.add_argument("--socket", type=Path, required=True)
+    service_control = actions.add_parser("deployment-control")
+    service_control.add_argument("--socket", type=Path, required=True)
+    service_control.add_argument("--request", type=Path, required=True)
     monitor_parser = actions.add_parser("monitor")
     monitor_parser.add_argument("--config", type=Path, required=True)
     monitor_parser.add_argument("--journal", type=Path, required=True)
@@ -89,7 +100,26 @@ def main() -> None:
     arguments = parser.parse_args(namespace=ExecuteArguments())
     try:
         result: object
-        if arguments.action == "monitor":
+        if arguments.action == "deployment":
+            # project library imports
+            from applications.execute.services import PaperServiceOwners, run_paper_services
+            from configuration import PaperServiceConfiguration
+
+            codec = DomainCodec()
+            selected = codec.decode_json(arguments.config.read_bytes(), PaperServiceConfiguration)
+            owners = codec.decode_json(arguments.owners.read_bytes(), PaperServiceOwners).owners
+            result = run_paper_services(
+                selected, owners, root=arguments.root, control_socket=arguments.socket
+            )
+        elif arguments.action == "deployment-control":
+            # project library imports
+            from applications.execute.services import control_paper_services
+
+            if arguments.request is None:
+                raise ValueError("deployment control requires a typed request")
+            print(control_paper_services(arguments.socket, arguments.request).decode(), flush=True)
+            return
+        elif arguments.action == "monitor":
             snapshot = MonitoringApplication().run(
                 config_path=arguments.config,
                 journal_path=arguments.journal,

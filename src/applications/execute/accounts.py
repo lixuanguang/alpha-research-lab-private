@@ -13,6 +13,7 @@ from uuid import uuid4
 from msgspec.structs import replace
 
 # project library imports
+from applications.execute.account_service import AccountOwnerService
 from configuration import (
     AccountConfiguration,
 )
@@ -49,6 +50,7 @@ class AccountExecutionApplication:
         request_path: Path | None = None,
         telemetry_path: Path | None = None,
         release_identity: str | None = None,
+        opened_journal: AccountJournal | None = None,
     ) -> AccountExecutionResult:
         """Validate configuration/request bytes before any persistent operation."""
         if release_identity is not None and (
@@ -66,6 +68,16 @@ class AccountExecutionApplication:
             else codec.decode_json(self._read(request_path), AccountExecutionRequest)
         )
         request.__post_init__()
+        if opened_journal is not None and (
+            opened_journal.path != journal_path
+            or opened_journal.config != config
+            or request.action in ("backup", "restore", "serve_paper")
+            or (
+                opened_journal.paper_owner != request.paper_owner
+                and not (request.action == "inspect" and request.paper_owner is None)
+            )
+        ):
+            raise ValueError("opened account journal differs from the validated request")
         if (
             request.action
             in (
@@ -76,6 +88,7 @@ class AccountExecutionApplication:
                 "bind_paper_scenario",
                 "paper_market",
                 "reduce_paper",
+                "serve_paper",
             )
             and release_identity is None
         ):
@@ -113,6 +126,27 @@ class AccountExecutionApplication:
             raise ValueError(
                 "installed paper restart requires deployment authority and owner claim"
             )
+        if request.action == "serve_paper":
+            if (
+                request.paper_owner is None
+                or request.service_socket is None
+                or request.service_seconds is None
+                or release_identity is None
+            ):
+                raise ValueError("paper service startup is incomplete")
+            return AccountOwnerService(
+                application=self,
+                config=config,
+                config_path=config_path,
+                journal_path=journal_path,
+                telemetry_path=telemetry_path,
+                release_identity=release_identity,
+                paper_owner=request.paper_owner,
+                socket_path=Path(request.service_socket),
+                duration_seconds=request.service_seconds,
+            ).serve()
+        if request.action == "shutdown_paper":
+            raise ValueError("paper service shutdown requires its active socket")
         recovery: AccountRecoveryReceipt | None = None
         if request.action in ("backup", "restore"):
             workspace = AccountWorkspace(
@@ -133,7 +167,11 @@ class AccountExecutionApplication:
                 journal_path = (
                     Path(request.restore_root) / journal_path.parent.name / journal_path.name
                 )
-        journal = AccountJournal(journal_path, config, paper_owner=request.paper_owner)
+        journal = (
+            AccountJournal(journal_path, config, paper_owner=request.paper_owner)
+            if opened_journal is None
+            else opened_journal
+        )
         alert_store = OperationalAlerts(journal_path.with_suffix(".alerts.sqlite3"))
         control: AccountControlResult | None = None
         alert_error: str | None = None
@@ -235,67 +273,16 @@ class AccountExecutionApplication:
         except OSError, sqlite3.Error, ValueError:
             alerts = ()
             alert_error = "alert_store_invalid"
-        selected_accounts = (
-            tuple(
-                account for account in config.accounts if account.account_id == request.account_id
-            )
-            if request.action == "inspect" and request.account_id is not None
-            else config.accounts
-        )
-        if not selected_accounts:
-            raise ValueError("unknown account")
-        report_facts = (
-            tuple(journal.paper_report_facts(account.account_id) for account in selected_accounts)
-            if request.action == "inspect"
-            else ()
-        )
-        result = AccountExecutionResult(
-            accounts=journal.accounts(),
-            orders=journal.orders(),
-            net_orders=journal.net_orders(),
+        result = replace(
+            journal.result_snapshot(request),
             portfolio=portfolio,
-            residuals=tuple(
-                residual
-                for account in journal.accounts()
-                for residual in journal.portfolio_residuals(account.ledger.account_id)
-            ),
-            stopped_instances=journal.stopped_instances(),
-            failed_net_events=journal.failed_net_events(),
-            failed_events=journal.failed_events(),
-            failed_postings=journal.failed_postings(),
             admission=admission,
             order=order,
             reconciled=reconciled,
             control=control,
-            controls=journal.controls(),
             alerts=alerts,
             alert_error=alert_error,
             recovery=recovery,
-            journal_path=str(journal_path),
-            paper_activations=journal.paper_activations(),
-            paper_restore_quarantined=journal.paper_restore_quarantined(),
-            paper_traces=(
-                journal.paper_traces(request.account_id) if request.action == "inspect" else ()
-            ),
-            paper_reductions=tuple(
-                item
-                for item in journal.paper_reductions()
-                if any(
-                    item.request.account_id == account.account_id for account in selected_accounts
-                )
-            ),
-            paper_fills=tuple(fill for fills, _ in report_facts for fill in fills),
-            paper_costs=tuple(cost for _, costs in report_facts for cost in costs),
-            checkpoint=(
-                journal.checkpoint(request.query_instance)
-                if request.query_instance is not None
-                else None
-            ),
-            saved_batch=(
-                journal.portfolio_batch(request.query_batch)
-                if request.query_batch is not None
-                else None
-            ),
             matched_market=matched_market,
             reduction_result=reduction_result,
             claimed_owner=claimed_owner,
@@ -310,8 +297,9 @@ class AccountExecutionApplication:
                 if request.control is not None
                 else request.account_id
             )
+            alert_controls = journal.controls() if request.projection != "full" else result.controls
             alert_accounts = {
-                saved.request.identity: saved.request.account_id for saved in result.controls
+                saved.request.identity: saved.request.account_id for saved in alert_controls
             }
             alert_failures: dict[str, int] = {}
             for alert in alerts:

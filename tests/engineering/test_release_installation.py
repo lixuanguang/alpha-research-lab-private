@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 from pydantic import TypeAdapter
 
 # project library imports
@@ -475,17 +476,18 @@ class TestLocalInstallation:
                     scenario.installation.run(("account",), now=_NOW)
                 assert not journal.exists()
 
+    @pytest.mark.parametrize("mode", ("paper", "shadow"))
     def test_signed_v3_account_binds_release_identity_and_refuses_v2_code(
-        self, tmp_path: Path
+        self, tmp_path: Path, mode: Literal["paper", "shadow"]
     ) -> None:
         """Carry the verified installed digest into v3 without reopening older readers."""
         scenario = InstallationScenario(tmp_path)
-        config = DomainCodec().encode_json(self._account_configuration(_NOW))
+        config = DomainCodec().encode_json(replace(self._account_configuration(_NOW), mode=mode))
         current = scenario.candidate(
             "paper-activation-account",
             config=config,
             application="execution",
-            mode="paper",
+            mode=mode,
             config_schema="account-runtime-v1",
             state_schema="account-journal-v3",
             initial_state=False,
@@ -494,7 +496,7 @@ class TestLocalInstallation:
             "legacy-account",
             config=config,
             application="execution",
-            mode="paper",
+            mode=mode,
             config_schema="account-runtime-v1",
             state_schema="account-journal-v2",
             initial_state=False,
@@ -503,7 +505,7 @@ class TestLocalInstallation:
             "compatible-account",
             config=config,
             application="execution",
-            mode="paper",
+            mode=mode,
             config_schema="account-runtime-v1",
             state_schema="account-journal-v3",
             initial_state=False,
@@ -512,7 +514,7 @@ class TestLocalInstallation:
             "unlisted-account",
             config=config,
             application="execution",
-            mode="paper",
+            mode=mode,
             config_schema="account-runtime-v1",
             state_schema="account-journal-v3",
             initial_state=False,
@@ -531,7 +533,7 @@ class TestLocalInstallation:
                         connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
                     )
                 assert state is not None and type(state[0]) is bytes
-                signed_config = self._account_configuration(_NOW)
+                signed_config = replace(self._account_configuration(_NOW), mode=mode)
                 limit = signed_config.instruments[0]
                 deployment = PaperDeployment(
                     account_id="shared",
@@ -562,6 +564,7 @@ class TestLocalInstallation:
                         gas_inapplicable_reason="off-chain spot simulation",
                     ),
                     state_identity="paper-account-state-v1",
+                    submission_authority=mode,
                 )
                 request = tmp_path / "paper-deployment.json"
                 request.write_bytes(

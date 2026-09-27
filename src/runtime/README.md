@@ -188,7 +188,8 @@ stale-checkpoint preflight failures leave continuation unchanged. Retrying an
 older accepted or rejected batch cannot rewind a newer checkpoint. The account
 journal owns selective instance stop/restart
 and retains reservations on shared physical orders until their terminal outcome
-is established. The broader installed multi-instance deployment remains MR14.
+is established. The supervised service composition below uses this same boundary;
+the [MR14 record](../../docs/roadmap/multi-instance-paper.md) owns its qualification.
 
 ## Paper candidate supervision
 
@@ -201,6 +202,20 @@ cutoff. Policy state and retries remain journal-owned. Native invalidation block
 new independent admission while preserving pending exposure. See the
 [automatic paper application](../applications/paper/README.md#automatic-public-input-accounts)
 for retention, last-bid cost reports and explicit recovery boundaries.
+
+For supervised services, `PaperServiceSource.market_interval_us` selects the
+economic cadence. The first eligible, two-sided native book is selected; later
+books cause paper matching and active strategy evaluation only when their actual
+delivery clock is at least that interval after the last selected book. Every
+native record is still retained, reconstructed and validated in source order.
+An intermediate eligible book updates the freshest monitoring mark, but creates
+no modeled fill or strategy checkpoint; invalid source input faults immediately.
+The interval is positive, defaults to 3,000,000 microseconds and cannot exceed
+either source freshness or capture idle time. The exact source configuration and
+`SharedBookInputs` identity both bind it. `SharedBookDelivery.market_effects=false`
+retains an unselected book for exact replay; old envelopes with that optional
+field omitted retain their prior per-book economic behavior. This is a selected-
+book paper model, not a measured feed or throughput capacity claim.
 
 When `PaperConfiguration.execution` selects a versioned scenario, the dedicated
 journal pins its bytes and atomically commits each quote, modeled events and
@@ -270,8 +285,9 @@ The generic candidate source/feature interfaces retain named multi-source inputs
 The live convenience application currently binds one book source and one
 dedicated account/instance. `run_live_shared_paper` additionally connects the
 existing shared decision/account runtime to the native adapters and automatic
-paper matching for one selected account/instrument. Its per-book decision cohort
-does not replace MR14 deployment-wide scheduling. Authenticated private adapters
+paper matching for one selected account/instrument. Its default per-book decision
+cohort remains available; supervised services use the explicit selected-book
+cadence above. Authenticated private adapters
 retain scripted software evidence and KIV qualification; production deployment,
 alert routing and capacity remain separately owned. Paper matching is an explicit
 model, not observed venue fills.
@@ -341,3 +357,29 @@ additional economics. Local restart and compatible signed code rollback use the
 latest retained journal; restoring a historical copy over an active state is
 unsupported. The [activation record](../../docs/roadmap/paper-activation.md)
 separates this local boundary from future deployed-service disaster recovery.
+
+## Supervised policy processes
+
+`ProcessDecisionPolicy` implements the existing decision-policy protocol while
+running `decide(context, state)` in a spawned process. The parent retains the
+original `SharedDecisionRuntime` cohort and checkpoint transaction. Policy
+processes receive only causal contexts and portable state; they have no account
+client or ability to transfer another instance's ownership. A two-second response
+budget bounds a stalled policy, and the parent fences it before selective controls.
+Process heartbeat remains distinct from decision completion.
+
+The [paper service application](../applications/paper/README.md#supervised-local-deployments)
+owns source and instance selection, process lifetime and operator controls. It
+reuses `ProcessSupervisor.heartbeat`, `HealthMetrics`, `HealthPolicy`, native book
+adapters and the existing book registry. Each source delivers persisted native
+records in order; the supervisor visits ready sources in name order and coordinates
+each account's selected cohort. Separate source processes do not share a global
+mutable active instrument. A replacement source starts unsynchronized.
+
+`SocketPaperAccount` implements the same `PaperAccount` contract through the signed
+account-owner service. It does not retry an uncertain response. A local scheduler
+fence is scoped to each account socket, in addition to the signed installation
+fence and durable journal generation. Every supervisor relaunch requires a fresh
+reconciled owner generation, even when a different output root is supplied.
+These services remain bounded local processes; the
+[MR14 record](../../docs/roadmap/multi-instance-paper.md) owns qualification and limits.
