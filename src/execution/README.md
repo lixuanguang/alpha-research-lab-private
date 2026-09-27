@@ -32,10 +32,6 @@ facts and their then-current account balances after a runtime callback cursor.
 A mismatch in the caller's independently
 observed paper account snapshot is saved as `account_break` and rejects new risk
 until a matching reconciliation; cancellation and lifecycle events remain usable.
-`claim_market` binds each modeled quote identity to its exact payload in a
-fenced transaction before the matcher writes any acknowledgement or fill.
-`markets()` replays these claims in insertion order, including a quote interrupted
-before its candidate market step; a changed retry under the same identity fails.
 
 This bounded journal uses the existing single-instrument, cash-funded spot
 ledger and nonnegative fee contract. Shared-account atomic budgets, transfers, rebates and correction posting use
@@ -122,14 +118,67 @@ Block, cancel and reduce-position are distinct; broader resume/activation and
 operational commands remain MR10/MR13.
 
 This is an atomic local command service with no venue transport, credential
-resolver or submission. Concurrent calls serialize at SQLite; an executing
-venue owner's fence and physical reconciliation remain MR11. State is pinned
+resolver or submission. Concurrent calls serialize at SQLite; the separately
+described test-venue gateway owns its executing fence and physical reconciliation.
+State is pinned
 to exact configuration bytes and uses the `account-runtime-v1` and
 `account-postings-v1` contracts. The initial store retains one complete firm
 state document and histories per transaction. It establishes correctness for
 the reference workload, not MR15 throughput, bounded retention or deployment
 readiness. Retain the journal with its configuration and compatible artifact;
 never edit accounting history to make a rollback appear compatible.
+
+## Public-input paper matching
+
+`PaperExecutionScenario` pins the venue and instrument, entry and cancellation
+delays, adverse price movement, fee rate, fraction of displayed touch size taken,
+and an explicit reason gas is inapplicable to this off-chain spot model. The
+selected `SpotLimits` lot and tick still govern quantities and prices. Entry and
+cancel eligibility are evaluated at the first later received public quote; the
+model invents no intervening exchange event or response clock. A quote can fill
+only an older order. The modeled fill retains both observed touch reference and
+adverse effective price, with exact quote-currency fee rounding. A limit or fee
+reservation that cannot cover those economics cannot silently become a fill.
+
+`PaperMatchEvaluator` is the shared deterministic projection for the dedicated
+and account journals. The account journal supplies physical orders in decision
+time and identity order; the dedicated journal uses its admission order. Each
+path consumes finite displayed liquidity across those orders. Repeated observations
+at the same touch price increase the available peak only when displayed size
+increases; they do not replenish already consumed size. A changed touch price
+starts a new modeled segment. This no-impact top-of-book rule assumes neither
+queue priority nor venue execution fidelity.
+
+For a dedicated account, `PaperOrderJournal.match_scenario_market(epoch=...,
+market=..., scenario=...)` pins the scenario and source quote, then commits all
+projected lifecycle and fill effects with the liquidity cursor in one fenced
+transaction. The older `PaperMatcher.match` remains available for its existing
+dedicated-journal replay contract. Neither method submits an order.
+
+For one or several strategies on a shared account,
+`AccountJournal.bind_paper_scenario(account_id, scenario)` pins the exact profile
+before orders for that account and instrument. `match_public_market(account_id,
+market, scenario)` applies projected facts to direct physical orders and to
+portfolio net parents inside one `BEGIN IMMEDIATE` firm transaction. Net parent
+fills then use the existing exact child quantity and fee allocation; displayed
+liquidity is consumed once per physical parent, not once per strategy child.
+Identical input retries return the original result across restart. A changed
+market identity or regressed availability is rejected. A modeled event that
+fails the account lifecycle or economic checks leaves that quote's partial
+effects unapplied and retains a failed trace, rejected fact and account fault.
+Unknown outcomes remain reserved; cancellation is terminal only after its
+modeled confirmation.
+
+`paper_traces(account_id)` exposes each exact market, scenario, input digest,
+physical events, attributed child fills and durable liquidity cursor, including
+no-fill markets. `paper_report_facts(account_id)` exposes strategy-owned fills and
+their current effective fee links; a corrected-to-zero fee has an explicit zero
+link. Reconciliation still requires a complete independently supplied
+`AccountObservation` with physical cash, positions, costs, posting identities and
+cumulative physical open orders. A journal report or its own modeled trace is
+not an independent account observation. Supported live-public-input composition
+and its operating limits are documented by the
+[paper application](../applications/paper/README.md).
 
 ## Portfolio coordination and recovery
 

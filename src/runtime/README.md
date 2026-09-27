@@ -192,6 +192,23 @@ is established. The broader installed multi-instance deployment remains MR14.
 
 ## Paper candidate supervision
 
+`SharedPaperCaptureObserver` connects the shared decision runtime above to native
+public books through `LiveBookDecisionSource` and `BookRegistry`. It persists
+`SharedBookDelivery` envelopes before account effects and matches older orders
+before coordinating new inputs. `SharedBookInputs` is the pure feature/model
+binding; each vector must retain the exact native input identity and delivery
+cutoff. Policy state and retries remain journal-owned. Native invalidation blocks
+new independent admission while preserving pending exposure. See the
+[automatic paper application](../applications/paper/README.md#automatic-public-input-accounts)
+for retention, last-bid cost reports and explicit recovery boundaries.
+
+When `PaperConfiguration.execution` selects a versioned scenario, the dedicated
+journal pins its bytes and atomically commits each quote, modeled events and
+same-touch liquidity debt. Entry and cancel delays use later eligible received
+quotes; effective prices include adverse movement within the order limit, with
+half-even quote fees. This top-of-book model has no exchange response clock or
+queue position. Existing scenario-less fixtures preserve their original binding.
+
 Owner: `runtime`; application composition belongs to
 [`applications.paper`](../applications/paper/README.md), order state and modeled
 fills to [`execution`](../execution/README.md). `PaperConfiguration` pins the mode,
@@ -251,12 +268,13 @@ timer identities uses the same source, feature, policy, matcher and OMS classes.
 The initial native binding covers OKX `books` L2 and Bitfinex `R0` L3 spot input.
 The generic candidate source/feature interfaces retain named multi-source inputs.
 The live convenience application currently binds one book source and one
-dedicated account/instance. `SharedDecisionRuntime` supplies a separate local
-multi-instance decision path over a shared account journal; it consumes explicit
-normalized account and order events and does not add a venue adapter or automatic
-matching. Private execution/account adapters, production deployment, alert
-routing and capacity qualification remain later work; paper matching is an
-explicit model, not venue fill evidence.
+dedicated account/instance. `run_live_shared_paper` additionally connects the
+existing shared decision/account runtime to the native adapters and automatic
+paper matching for one selected account/instrument. Its per-book decision cohort
+does not replace MR14 deployment-wide scheduling. Authenticated private adapters
+retain scripted software evidence and KIV qualification; production deployment,
+alert routing and capacity remain separately owned. Paper matching is an explicit
+model, not observed venue fills.
 
 MR10 adds `PaperCandidateRuntime.fault` and explicit `resume`. Live capture and
 scheduler failures persist a block before releasing the owner fence, including

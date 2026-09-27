@@ -33,7 +33,7 @@ from configuration.execution import (
     ExecutionMode,
     ExecutionRequest,
 )
-from configuration.paper import PaperConfiguration
+from configuration.paper import PaperConfiguration, PaperExecutionScenario
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
 from configuration.venue_execution import (
     VenueAuthorization,
@@ -73,6 +73,7 @@ __all__ = [
     "OKXHistoryConfig",
     "OpeningAccount",
     "PaperConfiguration",
+    "PaperExecutionScenario",
     "PublicDataJob",
     "ResolvedManifest",
     "Universe",

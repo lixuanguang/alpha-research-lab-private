@@ -4,12 +4,13 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 
 # project library imports
 from accounting import Fill
+from configuration import PaperExecutionScenario
 from execution.journal import PaperOrderJournal
 from execution.records import EventKind, OrderEvent, OrderState
 from financial_units import DecimalGrid, Money, Price, Quantity, Rounding
@@ -20,7 +21,7 @@ class PaperMarket(WireRecord, frozen=True):
     """Carry an eligible received quote with independently bounded displayed liquidity.
 
     ``at`` is effective availability, not a fabricated exchange timestamp. One
-    snapshot grants at most its displayed quantity per side to this dedicated
+    snapshot grants at most its displayed quantity per side to the selected
     account. This no-impact scenario models neither queue priority nor other
     participants' reactions and cannot establish venue fill fidelity.
     """
@@ -52,23 +53,400 @@ class PaperMarket(WireRecord, frozen=True):
             raise ValueError("invalid paper market quote")
 
 
+class PaperTouchLiquidity(WireRecord, frozen=True):
+    """Retain a conservative no-impact debt at one observed touch price."""
+
+    price: Price
+    displayed_peak: Quantity
+    consumed: Quantity
+
+    def __post_init__(self) -> None:
+        """Keep cumulative modeled taking within the displayed peak's units."""
+        self.price.model_copy()
+        self.displayed_peak.model_copy()
+        self.consumed.model_copy()
+        if (
+            self.price.per != self.displayed_peak.dimension
+            or self.displayed_peak.dimension != self.consumed.dimension
+            or self.displayed_peak.value < 0
+            or not 0 <= self.consumed.value <= self.displayed_peak.value
+        ):
+            raise ValueError("invalid paper touch liquidity")
+
+
+class PaperLiquidityState(WireRecord, frozen=True):
+    """Pin both touch debts and the last fully applied market identity."""
+
+    bid: PaperTouchLiquidity
+    ask: PaperTouchLiquidity
+    scenario_identity: str
+    last_market_identity: str
+    last_market_at: datetime
+
+    def __post_init__(self) -> None:
+        """Require a complete same-instrument pair of finite touch overlays."""
+        self.bid.__post_init__()
+        self.ask.__post_init__()
+        self._require_utc(self.last_market_at, field_name="last paper market")
+        if (
+            type(self.last_market_identity) is not str
+            or not self.last_market_identity
+            or type(self.scenario_identity) is not str
+            or len(self.scenario_identity) != 64
+            or self.bid.price.per != self.ask.price.per
+            or self.bid.price.currency != self.ask.price.currency
+        ):
+            raise ValueError("invalid paper liquidity state")
+
+
+class PaperMatchProjection(WireRecord, frozen=True):
+    """Return complete deterministic paper facts and successor liquidity debt."""
+
+    events: tuple[OrderEvent, ...]
+    liquidity: PaperLiquidityState
+
+    def __post_init__(self) -> None:
+        """Keep the pure projection suitable for one journal transaction."""
+        if type(self.events) is not tuple:
+            raise TypeError("paper match events must be immutable")
+        for event in self.events:
+            event.__post_init__()
+        self.liquidity.__post_init__()
+
+
+class PaperMatchEvaluator:
+    """Project one authored spot scenario without mutating either account journal.
+
+    Entry and cancel delays select the first subsequently delivered quote at or
+    after their respective modeled eligibility times. A quote's availability is
+    the local knowledge clock; this model does not invent an exchange or response
+    clock. Repeated equal-price updates cannot replenish previously consumed
+    displayed size. A different touch price starts a new conservative segment.
+    """
+
+    def __init__(self, scenario: PaperExecutionScenario, *, lot: Quantity, tick: Price) -> None:
+        """Bind one complete cost, delay and quantity-grid scenario."""
+        scenario.__post_init__()
+        lot.model_copy()
+        tick.model_copy()
+        if (
+            lot.value <= 0
+            or tick.value <= 0
+            or lot.dimension.instrument_id != scenario.instrument_id
+            or tick.per != lot.dimension
+            or tick.currency != scenario.adverse.currency
+            or (Fraction(scenario.adverse.value) / Fraction(tick.value)).denominator != 1
+        ):
+            raise ValueError("paper matcher scenario and lot differ")
+        self.scenario, self.lot, self.tick = scenario, lot, tick
+        self._codec = DomainCodec()
+
+    def project(
+        self,
+        market: PaperMarket,
+        *,
+        account_id: str,
+        orders: tuple[OrderState, ...],
+        prior_events: tuple[OrderEvent, ...],
+        liquidity: PaperLiquidityState | None = None,
+    ) -> PaperMatchProjection:
+        """Price each eligible physical order once in stable admission order.
+
+        ``prior_events`` includes an interrupted quote's already posted facts.
+        The returned successor belongs in the same transaction as its events;
+        callers must claim exact quote bytes before publishing either effect.
+        """
+        market.__post_init__()
+        if (
+            type(account_id) is not str
+            or not account_id
+            or market.bid.per != self.lot.dimension
+            or market.bid.currency != self.scenario.adverse.currency
+            or not self._on_tick(market.bid)
+            or not self._on_tick(market.ask)
+            or type(orders) is not tuple
+            or type(prior_events) is not tuple
+        ):
+            raise ValueError("paper market, account or scenario differs")
+        for order in orders:
+            order.__post_init__()
+            if (
+                order.intent.quantity.dimension != self.lot.dimension
+                or not self._on_tick(order.intent.limit)
+                or (Fraction(order.intent.quantity.value) / Fraction(self.lot.value)).denominator
+                != 1
+            ):
+                raise ValueError("paper physical order differs from the selected spot grid")
+        if len({order.identity for order in orders}) != len(orders):
+            raise ValueError("paper physical orders repeat an identity")
+        for event in prior_events:
+            event.__post_init__()
+        if liquidity is not None:
+            liquidity.__post_init__()
+            if liquidity.bid.price.per != self.lot.dimension:
+                raise ValueError("paper liquidity belongs to another instrument")
+            if liquidity.scenario_identity != self.scenario.identity:
+                raise ValueError("paper liquidity belongs to another execution scenario")
+            if market.at < liquidity.last_market_at:
+                raise ValueError("paper market availability regressed")
+            if liquidity.last_market_identity == market.identity:
+                return PaperMatchProjection(events=(), liquidity=liquidity)
+        bid = self._touch(
+            market.bid, market.bid_quantity, None if liquidity is None else liquidity.bid
+        )
+        ask = self._touch(
+            market.ask, market.ask_quantity, None if liquidity is None else liquidity.ask
+        )
+        existing_ids = {event.identity for event in prior_events}
+        prior_buy, prior_sell = Fraction(0), Fraction(0)
+        for order in orders:
+            fill_id = self._identity(account_id, market, order, "fill")
+            previous = next((event for event in prior_events if event.identity == fill_id), None)
+            if previous is None or previous.fill is None:
+                continue
+            size = abs(Fraction(previous.fill.quantity.value))
+            if order.intent.side == "buy":
+                prior_buy += size
+            else:
+                prior_sell += size
+        remaining = {
+            "buy": min(
+                Fraction(market.ask_quantity.value) * Fraction(self.scenario.take_fraction),
+                max(
+                    Fraction(0),
+                    Fraction(ask.displayed_peak.value) * Fraction(self.scenario.take_fraction)
+                    - Fraction(ask.consumed.value)
+                    - prior_buy,
+                ),
+            ),
+            "sell": min(
+                Fraction(market.bid_quantity.value) * Fraction(self.scenario.take_fraction),
+                max(
+                    Fraction(0),
+                    Fraction(bid.displayed_peak.value) * Fraction(self.scenario.take_fraction)
+                    - Fraction(bid.consumed.value)
+                    - prior_sell,
+                ),
+            ),
+        }
+        new_buy, new_sell = Fraction(0), Fraction(0)
+        projected: list[OrderEvent] = []
+        for order in orders:
+            if order.is_terminal or order.status == "unknown" or market.at <= order.decision_at:
+                continue
+            cancellation = self._cancel_time(order, prior_events)
+            if cancellation is not None and market.at >= cancellation + timedelta(
+                microseconds=self.scenario.cancel_delay_us
+            ):
+                self._append(projected, existing_ids, account_id, market, order, "cancelled")
+                continue
+            if market.at < order.decision_at + timedelta(microseconds=self.scenario.entry_delay_us):
+                continue
+            touch = market.ask if order.intent.side == "buy" else market.bid
+            crosses = (
+                touch.value <= order.intent.limit.value
+                if order.intent.side == "buy"
+                else touch.value >= order.intent.limit.value
+            )
+            if not order.accepted:
+                self._append(projected, existing_ids, account_id, market, order, "request_ack")
+                if order.intent.time_in_force == "post-only" and crosses:
+                    self._append(projected, existing_ids, account_id, market, order, "rejected")
+                    continue
+                self._append(projected, existing_ids, account_id, market, order, "accepted")
+            effective = (
+                touch + self.scenario.adverse
+                if order.intent.side == "buy"
+                else touch - self.scenario.adverse
+            )
+            filled_this_order = Fraction(0)
+            within_limit = (
+                effective.value <= order.intent.limit.value
+                if order.intent.side == "buy"
+                else effective.value >= order.intent.limit.value
+            )
+            fill_id = self._identity(account_id, market, order, "fill")
+            if crosses and within_limit and effective.value > 0 and fill_id not in existing_ids:
+                size = min(Fraction(order.remaining.value), remaining[order.intent.side])
+                size = (size // Fraction(self.lot.value)) * Fraction(self.lot.value)
+                if size:
+                    quantity = Quantity(
+                        value=DecimalGrid.exact_decimal(
+                            size if order.intent.side == "buy" else -size
+                        ),
+                        dimension=self.lot.dimension,
+                    )
+                    fee = Money(
+                        value=DecimalGrid.round_fraction(
+                            size * Fraction(effective.value) * Fraction(self.scenario.fee_rate),
+                            touch.currency.minor_unit,
+                            Rounding.HALF_EVEN,
+                        ),
+                        currency=touch.currency,
+                    )
+                    projected.append(
+                        OrderEvent(
+                            identity=fill_id,
+                            order_id=order.identity,
+                            at=market.at,
+                            kind="fill",
+                            fill=Fill(
+                                identity=fill_id,
+                                decision_at=order.decision_at,
+                                filled_at=market.at,
+                                quantity=quantity,
+                                reference=touch,
+                                effective=effective,
+                                fee=fee,
+                            ),
+                        )
+                    )
+                    existing_ids.add(fill_id)
+                    remaining[order.intent.side] -= size
+                    filled_this_order = size
+                    if order.intent.side == "buy":
+                        new_buy += size
+                    else:
+                        new_sell += size
+            if order.intent.time_in_force == "ioc" and (
+                Fraction(order.remaining.value) > filled_this_order
+            ):
+                self._append(projected, existing_ids, account_id, market, order, "cancelled")
+        successor = PaperLiquidityState(
+            bid=PaperTouchLiquidity(
+                price=bid.price,
+                displayed_peak=bid.displayed_peak,
+                consumed=Quantity(
+                    value=DecimalGrid.exact_decimal(
+                        Fraction(bid.consumed.value) + prior_sell + new_sell
+                    ),
+                    dimension=self.lot.dimension,
+                ),
+            ),
+            ask=PaperTouchLiquidity(
+                price=ask.price,
+                displayed_peak=ask.displayed_peak,
+                consumed=Quantity(
+                    value=DecimalGrid.exact_decimal(
+                        Fraction(ask.consumed.value) + prior_buy + new_buy
+                    ),
+                    dimension=self.lot.dimension,
+                ),
+            ),
+            scenario_identity=self.scenario.identity,
+            last_market_identity=market.identity,
+            last_market_at=market.at,
+        )
+        return PaperMatchProjection(events=tuple(projected), liquidity=successor)
+
+    @staticmethod
+    def _touch(
+        price: Price, quantity: Quantity, previous: PaperTouchLiquidity | None
+    ) -> PaperTouchLiquidity:
+        """Keep displayed capacity conservative until the touch price disappears."""
+        if previous is None or previous.price != price:
+            return PaperTouchLiquidity(
+                price=price,
+                displayed_peak=quantity,
+                consumed=Quantity(value=Decimal(0), dimension=quantity.dimension),
+            )
+        return PaperTouchLiquidity(
+            price=price,
+            displayed_peak=Quantity(
+                value=max(previous.displayed_peak.value, quantity.value),
+                dimension=quantity.dimension,
+            ),
+            consumed=previous.consumed,
+        )
+
+    def _on_tick(self, price: Price) -> bool:
+        """Refuse an authored or native quote outside the admitted price grid."""
+        return (
+            price.currency == self.tick.currency
+            and price.per == self.tick.per
+            and (Fraction(price.value) / Fraction(self.tick.value)).denominator == 1
+        )
+
+    @staticmethod
+    def _cancel_time(order: OrderState, prior_events: tuple[OrderEvent, ...]) -> datetime | None:
+        """Find the original request clock without inferring success from an acknowledgement."""
+        if not order.cancel_requested:
+            return None
+        requests = tuple(
+            event.at
+            for event in prior_events
+            if event.order_id == order.identity and event.kind == "cancel_requested"
+        )
+        if not requests:
+            raise ValueError("paper cancellation lacks its original request fact")
+        return max(requests)
+
+    def _append(
+        self,
+        projected: list[OrderEvent],
+        existing_ids: set[str],
+        account_id: str,
+        market: PaperMarket,
+        order: OrderState,
+        kind: EventKind,
+    ) -> None:
+        """Append a deterministic lifecycle fact once under its account and scenario."""
+        identity = self._identity(account_id, market, order, kind)
+        if identity in existing_ids:
+            return
+        projected.append(
+            OrderEvent(identity=identity, order_id=order.identity, at=market.at, kind=kind)
+        )
+        existing_ids.add(identity)
+
+    def _identity(self, account_id: str, market: PaperMarket, order: OrderState, kind: str) -> str:
+        """Bind one effect to account, authored scenario, market and physical order."""
+        return hashlib.sha256(
+            self._codec.encode_json(
+                (
+                    "paper-match-v2",
+                    account_id,
+                    self.scenario.identity,
+                    market.identity,
+                    order.identity,
+                    kind,
+                )
+            )
+        ).hexdigest()
+
+
 class PaperMatcher:
     """Generate identified paper facts without constructing a venue transport.
 
     Marketable GTC/IOC orders take displayed liquidity at the observed touch.
     Post-only orders reject if marketable at their first later quote; resting
-    orders fill only when a subsequent touch crosses their limit. Cancellation
-    completes at the next received quote. These conservative declared rules are
+    orders fill only when a subsequent touch crosses their limit. Legacy fixture
+    cancellation completes at the next received quote; a selected versioned
+    scenario applies its explicit delay. These conservative declared rules are
     deterministic software assumptions, not inferred exchange mechanics.
     """
 
-    def __init__(self, journal: PaperOrderJournal, *, fee_rate: Decimal, lot: Quantity) -> None:
+    def __init__(
+        self,
+        journal: PaperOrderJournal,
+        *,
+        fee_rate: Decimal,
+        lot: Quantity,
+        scenario: PaperExecutionScenario | None = None,
+    ) -> None:
         """Bind exact fee rounding and lot size to an already fenced journal."""
         DecimalGrid.require_decimal(fee_rate)
         lot.model_copy()
         if not Decimal(0) <= fee_rate < Decimal(1) or lot.value <= 0:
             raise ValueError("invalid paper matching costs or lot")
-        self._journal, self._fee_rate, self._lot = journal, fee_rate, lot
+        if scenario is not None:
+            scenario.__post_init__()
+            if (
+                scenario.fee_rate != fee_rate
+                or scenario.instrument_id != lot.dimension.instrument_id
+            ):
+                raise ValueError("paper matcher and authored scenario differ")
+        self._journal, self._fee_rate, self._lot, self._scenario = journal, fee_rate, lot, scenario
 
     def match(self, market: PaperMarket, *, epoch: int) -> None:
         """Apply a quote once per order, recovering a partly committed quote after restart.
@@ -80,6 +458,9 @@ class PaperMatcher:
         market.__post_init__()
         if market.bid.per != self._lot.dimension:
             raise ValueError("paper market belongs to another instrument")
+        if self._scenario is not None:
+            self._journal.match_scenario_market(epoch=epoch, market=market, scenario=self._scenario)
+            return
         self._journal.claim_market(
             epoch=epoch,
             identity=market.identity,

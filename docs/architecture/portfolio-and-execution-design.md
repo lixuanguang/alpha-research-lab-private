@@ -112,8 +112,10 @@ the qualified scope and remaining limits. Quant development supplies the determi
 reference policy; QR later supplies economic allocation choices within limits.
 This local paper/software proof does not establish OKX or Bitfinex private-stream,
 order, fill or account conformance; that authenticated qualification is KIV.
-MR11 now requires separate public-input simulated paper execution and account
-evidence for each venue under the revised roadmap.
+MR11 now retains separate installed public-input paper execution and account
+evidence for each venue, with two active reference policies sharing one account.
+The [delivery record](../roadmap/paper-integration.md) distinguishes deterministic
+economic/recovery proofs from bounded observed public-source runs.
 
 Initial strategies are trusted founder-authored code. Logical separation,
 immutable limits, per-instance state and final risk enforcement outside strategy
@@ -146,7 +148,13 @@ supported operations, separate authority and recovery limits.
 delivers lifecycle, timer, market, order and account callbacks to the same
 candidate components used by replay. Public native feed collection connects
 through a post-persistence observer and retains actual local availability.
-Paper matching uses finite displayed touch liquidity and exact fees; shadow mode
+Paper matching uses finite displayed touch liquidity and exact fees; explicit
+`PaperExecutionScenario` profiles add causal entry/cancellation delays, adverse
+prices, take fractions and gas inapplicability. The pure evaluator serves both
+journal transaction owners. `run_live_shared_paper` connects the native public
+source and book registry to existing shared decisions, independent risk, matching,
+attribution and retained cost/net-P&L reports. Last-eligible-bid marks are explicit;
+slippage already included in execution prices is not deducted twice. Shadow mode
 never matches. Both modes suppress executable submission. A contradictory fill
 after confirmed cancellation durably blocks the account pending later correction
 support rather than rewriting terminal state. The

@@ -17,16 +17,20 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountLedger, AccountPosting, AccountSnapshot, AccountState, Fill
-from configuration import AccountConfiguration
+from configuration import AccountConfiguration, PaperExecutionScenario
 from execution.account_admission import AccountAdmission
 from execution.account_allocation import PhysicalAllocation
 from execution.account_operations import AccountOperations
+from execution.account_paper import AccountPaperMatching
 from execution.account_portfolio import PortfolioCoordinator
 from execution.account_records import AccountControl as AccountControl
 from execution.account_records import AccountControlKind as AccountControlKind
 from execution.account_records import AccountControlResult as AccountControlResult
 from execution.account_records import AccountDecision as AccountDecision
 from execution.account_records import AccountObservation as AccountObservation
+from execution.account_records import AccountPaperCost as AccountPaperCost
+from execution.account_records import AccountPaperFill as AccountPaperFill
+from execution.account_records import AccountPaperTrace as AccountPaperTrace
 from execution.account_records import AccountPhase as AccountPhase
 from execution.account_records import AccountQuote as AccountQuote
 from execution.account_records import AccountView as AccountView
@@ -48,6 +52,7 @@ from execution.account_state import (
     _SavedDecision,
     _SavedNativeFill,
 )
+from execution.paper import PaperMarket
 from execution.records import OrderEvent, OrderState, StepCommit
 from financial_units import DecimalGrid, Money, Quantity
 from portfolio import ProRataAllocator
@@ -73,6 +78,9 @@ class AccountJournal:
         self._operations = AccountOperations(self._admission)
         self._allocation = PhysicalAllocation(config, self._codec, self._admission)
         self._portfolio = PortfolioCoordinator(config, self._codec, self._admission)
+        self._paper = AccountPaperMatching(
+            config, self._store, self._codec, self._admission, self._allocation
+        )
 
     def accounts(self) -> tuple[AccountView, ...]:
         """Read account state, reconciliation cutoff and independent block reasons."""
@@ -158,6 +166,26 @@ class AccountJournal:
                 if parent.account_id == account_id and not parent.order.is_terminal
             ),
         )
+
+    def bind_paper_scenario(self, account_id: str, scenario: PaperExecutionScenario) -> None:
+        """Pin one declared venue/instrument profile before paper order admission."""
+        self._paper.bind(account_id, scenario)
+
+    def match_public_market(
+        self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
+    ) -> AccountPaperTrace:
+        """Atomically match one public quote through direct or net account orders."""
+        return self._paper.match(account_id, market, scenario)
+
+    def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
+        """Read exact public inputs, scenarios and attributable modeled effects."""
+        return self._paper.traces(account_id)
+
+    def paper_report_facts(
+        self, account_id: str
+    ) -> tuple[tuple[AccountPaperFill, ...], tuple[AccountPaperCost, ...]]:
+        """Read modeled strategy fills and effective correction-aware cost links."""
+        return self._paper.report_facts(account_id)
 
     def failed_events(self) -> tuple[OrderEvent, ...]:
         """Expose retained contradictory order facts for correction and diagnosis."""

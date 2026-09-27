@@ -64,6 +64,10 @@ class PaperCaptureObserver:
             or selected.quantity_unit != runtime.config.maximum.dimension.kind
             or selected.instrument.instrument_id != runtime.config.maximum.dimension.instrument_id
             or selected.instrument.quote_currency != runtime.config.tick.currency.code
+            or (
+                runtime.config.execution is not None
+                and runtime.config.execution.venue != request.config.venue
+            )
         ):
             raise ValueError("paper quote registry differs from selected native venue and units")
         self._codec = DomainCodec()

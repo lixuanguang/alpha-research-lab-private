@@ -5,11 +5,55 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
 # project library imports
 from financial_units import DecimalGrid, Money, Price, Quantity, QuantityKind
+from reference_data.instruments import InstrumentId
 from serialization import DomainCodec, WireRecord
+
+
+class PaperExecutionScenario(WireRecord, frozen=True):
+    """Declare authored spot paper economics without implying venue execution fidelity."""
+
+    venue: Literal["okx", "bitfinex"]
+    instrument_id: InstrumentId
+    entry_delay_us: int
+    cancel_delay_us: int
+    adverse: Price
+    fee_rate: Decimal
+    take_fraction: Decimal
+    gas_inapplicable_reason: str
+    schema_version: Literal["paper-execution-v1"] = "paper-execution-v1"
+
+    def __post_init__(self) -> None:
+        """Require exact supported off-chain costs and bounded modeled delays."""
+        self.adverse.model_copy()
+        DecimalGrid.require_decimal(self.fee_rate)
+        DecimalGrid.require_decimal(self.take_fraction)
+        if (
+            self.schema_version != "paper-execution-v1"
+            or self.venue not in ("okx", "bitfinex")
+            or type(self.instrument_id) is not InstrumentId
+            or self.adverse.per.instrument_id != self.instrument_id
+            or self.adverse.value < 0
+            or not Decimal(0) <= self.fee_rate < Decimal(1)
+            or not Decimal(0) < self.take_fraction <= Decimal(1)
+            or type(self.entry_delay_us) is not int
+            or type(self.cancel_delay_us) is not int
+            or not 0 <= self.entry_delay_us <= 86_400_000_000
+            or not 0 <= self.cancel_delay_us <= 86_400_000_000
+            or type(self.gas_inapplicable_reason) is not str
+            or not self.gas_inapplicable_reason.strip()
+        ):
+            raise ValueError("invalid paper execution scenario")
+
+    @property
+    def identity(self) -> str:
+        """Pin every non-secret authored cost and delay to retained paper state."""
+        self.__post_init__()
+        return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()
 
 
 class PaperConfiguration(WireRecord, frozen=True):
@@ -30,6 +74,7 @@ class PaperConfiguration(WireRecord, frozen=True):
     maximum_fee: Money
     fee_rate: Decimal
     market_max_age_us: int
+    execution: PaperExecutionScenario | None = None
     schema_version: Literal["paper-runtime-v1"] = "paper-runtime-v1"
 
     def __post_init__(self) -> None:
@@ -60,9 +105,38 @@ class PaperConfiguration(WireRecord, frozen=True):
             or not 0 < self.market_max_age_us <= 86_400_000_000
         ):
             raise ValueError("invalid paper economics or freshness")
+        if self.execution is not None:
+            self.execution.__post_init__()
+            if (
+                self.execution.instrument_id != self.maximum.dimension.instrument_id
+                or self.execution.adverse.per != self.maximum.dimension
+                or self.execution.adverse.currency != self.tick.currency
+                or self.execution.fee_rate != self.fee_rate
+                or (Fraction(self.execution.adverse.value) / Fraction(self.tick.value)).denominator
+                != 1
+            ):
+                raise ValueError("paper execution scenario has incompatible units")
 
     @property
     def identity(self) -> str:
         """Bind the full non-secret resolved operating scenario to durable state."""
         self.__post_init__()
-        return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()
+        if self.execution is None:
+            # Preserve the original dedicated journal identity for existing
+            # configurations whose wire record predates the optional scenario.
+            legacy: dict[str, object] = {
+                "account": self.account,
+                "mode": self.mode,
+                "initial_cash": self.initial_cash,
+                "maximum": self.maximum,
+                "lot": self.lot,
+                "tick": self.tick,
+                "maximum_fee": self.maximum_fee,
+                "fee_rate": self.fee_rate,
+                "market_max_age_us": self.market_max_age_us,
+                "schema_version": self.schema_version,
+            }
+            payload = DomainCodec().encode_json(legacy)
+        else:
+            payload = DomainCodec().encode_json(self)
+        return hashlib.sha256(payload).hexdigest()

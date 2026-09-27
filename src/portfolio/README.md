@@ -34,6 +34,16 @@ also remains reserved for a completed child while its shared parent can still
 receive costs. Corrections use the original per-fill reservation weights and
 append attributed cost revisions without changing original execution facts.
 
+In the [public-input paper path](../execution/README.md#public-input-paper-matching),
+the matcher consumes one finite displayed quote allowance per physical net
+parent. `AccountJournal` then applies that parent's modeled lifecycle fact and
+the existing child quantity, cash and fee attribution in the same SQLite
+transaction. Each strategy retains its own order and posting identities; a
+market quote does not create a second allowance for each child. A later cost
+revision changes effective fee attribution without rewriting the original
+physical or child fill. Complete independent account reconciliation still
+compares the physical parent cumulative and attributed totals.
+
 The public methods reject repeated identities, mismatched vector lengths,
 negative values and totals beyond the supplied capacity. The exact-grid and
 magnitude contract is owned by [financial units](../../docs/architecture/financial-units.md).

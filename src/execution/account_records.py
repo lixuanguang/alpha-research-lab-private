@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 from datetime import datetime
 from fractions import Fraction
 from typing import Literal
 
 # project library imports
-from accounting import AccountSnapshot, AccountState
-from execution.records import OrderDecision, OrderState
+from accounting import AccountSnapshot, AccountState, Fill
+from configuration import PaperExecutionScenario
+from execution.paper import PaperLiquidityState, PaperMarket
+from execution.records import OrderDecision, OrderEvent, OrderState
 from financial_units import Currency, Dimension, Money, Price, Quantity
 from portfolio import PortfolioContext
-from serialization import WireRecord
+from serialization import DomainCodec, WireRecord
 
 
 class AccountQuote(WireRecord, frozen=True):
@@ -29,6 +32,146 @@ class AccountQuote(WireRecord, frozen=True):
         self._require_utc(self.at, field_name="quote availability")
         if self.price.value <= 0:
             raise ValueError("account quote must be positive")
+
+
+class AccountPaperBinding(WireRecord, frozen=True):
+    """Pin one venue and instrument matching scenario before account decisions."""
+
+    account_id: str
+    scenario: PaperExecutionScenario
+    liquidity: PaperLiquidityState | None = None
+
+    def __post_init__(self) -> None:
+        """Require an identified account and validated immutable scenario."""
+        if type(self.account_id) is not str or not self.account_id:
+            raise ValueError("paper scenario requires an account")
+        if type(self.scenario) is not PaperExecutionScenario:
+            raise TypeError("paper binding requires PaperExecutionScenario")
+        self.scenario.__post_init__()
+        if self.liquidity is not None:
+            if type(self.liquidity) is not PaperLiquidityState:
+                raise TypeError("paper binding requires PaperLiquidityState")
+            self.liquidity.__post_init__()
+            if (
+                self.liquidity.bid.price.per != self.scenario.adverse.per
+                or self.liquidity.bid.price.currency != self.scenario.adverse.currency
+                or self.liquidity.scenario_identity != self.scenario.identity
+            ):
+                raise ValueError("paper liquidity differs from bound scenario")
+
+
+class AccountPaperTrace(WireRecord, frozen=True):
+    """Retain exact public input, assumptions and attributed matching effects."""
+
+    account_id: str
+    market: PaperMarket
+    scenario: PaperExecutionScenario
+    input_sha256: str
+    physical_events: tuple[OrderEvent, ...]
+    child_fill_events: tuple[OrderEvent, ...]
+    liquidity: PaperLiquidityState | None
+    status: Literal["committed", "failed"] = "committed"
+    reason: str = "matched"
+    rejected_event: OrderEvent | None = None
+
+    def __post_init__(self) -> None:
+        """Keep a source quote and its effects attributable after restart."""
+        if type(self.account_id) is not str or not self.account_id:
+            raise ValueError("paper trace requires an account")
+        if (
+            type(self.market) is not PaperMarket
+            or type(self.scenario) is not PaperExecutionScenario
+        ):
+            raise TypeError("paper trace requires market and scenario")
+        self.market.__post_init__()
+        self.scenario.__post_init__()
+        if (
+            type(self.input_sha256) is not str
+            or self.input_sha256
+            != hashlib.sha256(
+                DomainCodec().encode_json((self.account_id, self.market, self.scenario))
+            ).hexdigest()
+            or type(self.physical_events) is not tuple
+            or type(self.child_fill_events) is not tuple
+            or self.status not in ("committed", "failed")
+            or type(self.reason) is not str
+            or not self.reason
+        ):
+            raise ValueError("invalid paper trace")
+        if self.liquidity is not None:
+            if type(self.liquidity) is not PaperLiquidityState:
+                raise TypeError("paper trace requires PaperLiquidityState")
+            self.liquidity.__post_init__()
+            if self.liquidity.scenario_identity != self.scenario.identity:
+                raise ValueError("paper trace liquidity scenario differs")
+        if self.status == "committed" and (
+            self.liquidity is None
+            or self.liquidity.last_market_identity != self.market.identity
+            or self.liquidity.last_market_at != self.market.at
+        ):
+            raise ValueError("committed paper trace lacks its liquidity cursor")
+        for event in (*self.physical_events, *self.child_fill_events):
+            if type(event) is not OrderEvent:
+                raise TypeError("paper trace requires OrderEvent")
+            event.__post_init__()
+            if event.at != self.market.at:
+                raise ValueError("paper event availability differs from source market")
+        if any(event.fill is None for event in self.child_fill_events):
+            raise ValueError("paper trace child events require fills")
+        if self.status == "failed" and (self.physical_events or self.child_fill_events):
+            raise ValueError("failed paper trace cannot claim committed economics")
+        if (self.status == "failed") != (self.rejected_event is not None):
+            raise ValueError("paper failure trace requires its rejected event")
+        if self.rejected_event is not None:
+            if type(self.rejected_event) is not OrderEvent:
+                raise TypeError("paper rejection requires OrderEvent")
+            self.rejected_event.__post_init__()
+            if self.rejected_event.at != self.market.at:
+                raise ValueError("paper rejection availability differs from source market")
+
+
+class AccountPaperFill(WireRecord, frozen=True):
+    """Expose a modeled fill under its final strategy and order owner."""
+
+    instance_id: str
+    order_id: str
+    fill: Fill
+
+    def __post_init__(self) -> None:
+        """Keep source fill economics paired with an attributable owner."""
+        if (
+            type(self.instance_id) is not str
+            or not self.instance_id
+            or type(self.order_id) is not str
+            or not self.order_id
+            or type(self.fill) is not Fill
+        ):
+            raise ValueError("invalid attributed paper fill")
+        self.fill.__post_init__()
+
+
+class AccountPaperCost(WireRecord, frozen=True):
+    """Link a current exact fee to its modeled child or physical source fill."""
+
+    posting_id: str | None
+    source_fill_id: str
+    amount: Money
+
+    def __post_init__(self) -> None:
+        """Represent zero costs explicitly and retain an effective posting link."""
+        if (
+            (
+                self.posting_id is not None
+                and (type(self.posting_id) is not str or not self.posting_id)
+            )
+            or type(self.source_fill_id) is not str
+            or not self.source_fill_id
+            or type(self.amount) is not Money
+        ):
+            raise ValueError("invalid paper cost link")
+        self.amount.model_copy()
+        if self.posting_id is None and self.amount.value != 0:
+            raise ValueError("unposted paper cost must be zero")
 
 
 class AccountDecision(WireRecord, frozen=True):

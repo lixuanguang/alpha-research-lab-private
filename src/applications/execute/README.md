@@ -99,6 +99,16 @@ distinct durable events. See the [paper journal](../../execution/README.md) for
 reservations, fencing and known reconciliation limits. Physical venue account
 reconciliation and venue adapters remain separate work.
 
+The optional `PaperConfiguration.execution` scenario preserves legacy fixture
+requests. Integrated native-paper runs select its explicit venue/instrument,
+entry/cancel delays, adverse price, fee rate, take fraction and off-chain gas
+reason. Tick/lot rules come from the existing spot limits. A changed scenario or
+quote identity cannot reopen prior matched state. The same evaluator serves
+`AccountJournal` direct and shared net orders. Native source orchestration and
+policy loading use the [paper application](../paper/README.md#automatic-public-input-accounts)
+in the research wheel; the portable execution command continues to accept
+explicit market requests without importing the public collector or research stack.
+
 A trusted installation supplies its signed configuration automatically:
 
 ```sh

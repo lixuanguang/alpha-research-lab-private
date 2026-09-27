@@ -37,6 +37,17 @@ budgets. The caller must also preserve a risk block after an account break or
 unresolved external outcome. This pure decision does not qualify physical
 venue positions, private streams, FX, production deployment or live orders.
 
+In [public-input paper matching](../execution/README.md#public-input-paper-matching),
+the strategy first passes this independent firm/account/instance admission and
+reserves its maximum fee and pending exposure. The matcher has no authority to
+increase a limit or release an unknown order. Its finite quote and cost scenario
+select modeled outcomes only for previously reserved physical orders; a fill
+above the reserved fee fails closed and retains an account fault. A touch whose
+adverse effective price exceeds the order limit produces no modeled fill.
+An acknowledged or delayed cancel remains exposed until confirmed terminal.
+These assumptions and simulated fills establish software behavior, not exchange
+execution probability or new risk authority.
+
 Focused validation:
 
 ```sh
