@@ -6,19 +6,20 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime, timedelta
+from itertools import pairwise
 from typing import ClassVar, Literal
 
 # project library imports
 from financial_units import ExactRatio, Price, QuantityKind
 from market_data.query import InputBinding, PointEvent, QueryReader
-from market_data.replay import Replay, ReplayPhase
+from market_data.replay import Replay, ReplayCursor, ReplayPhase
 from research.features.completed import CompletedReturn
-from research.observations import Observation, Observations
+from research.observations import Observation, Observations, ObservationState
 from serialization import DomainCodec, WireRecord
 
 
 class ScheduledFeatureSpec(WireRecord, frozen=True):
-    """Bind one saved-input batch feature instance, units and bounded close schedule."""
+    """Bind one saved-input feature instance, units and bounded close schedule."""
 
     instance: str
     binding: InputBinding
@@ -57,7 +58,7 @@ class ScheduledFeatureSpec(WireRecord, frozen=True):
         if (
             not timedelta(0)
             < self.end - self.start
-            <= timedelta(seconds=self.cadence_seconds * 1024)
+            <= timedelta(seconds=self.cadence_seconds * 8193)
         ):
             raise ValueError("scheduled feature requires a bounded positive sample")
 
@@ -90,12 +91,14 @@ class ScheduledFeatureValue(WireRecord, frozen=True):
 
 
 class ScheduledFeatureCheckpoint(WireRecord, frozen=True):
-    """Bind complete frozen decisions to their definition and immutable input bytes."""
+    """Bind frozen decisions and an optional resumable cursor to immutable input bytes."""
 
     definition: ScheduledFeatureSpec
     input_identity: str
     values: tuple[ScheduledFeatureValue, ...]
     values_sha256: str
+    cursor: ReplayCursor | None = None
+    observation_state: ObservationState | None = None
     schema_version: Literal["scheduled-feature-state-v1"] = "scheduled-feature-state-v1"
 
     def __post_init__(self) -> None:
@@ -136,6 +139,33 @@ class ScheduledFeatureCheckpoint(WireRecord, frozen=True):
             if value.value != formula.evaluate(previous, current):
                 raise ValueError("scheduled checkpoint return differs from frozen endpoints")
             previous = current
+        if (self.cursor is None) != (self.observation_state is None):
+            raise ValueError("scheduled checkpoint cursor and observation state must be paired")
+        if self.cursor is not None and self.observation_state is not None:
+            cursor, state = self.cursor, self.observation_state
+            cursor.__post_init__()
+            state.__post_init__()
+            last_point = self.values[-1].observation.point if self.values else None
+            if (
+                not self.values
+                or cursor.clock != self.values[-1].observation.closed_at
+                or state.completed != (self.values[-1].observation,)
+                or (state.next_order > 0 and cursor.position is None)
+                or (last_point is not None and last_point.order >= state.next_order)
+                or any(
+                    point.event_at < cursor.clock
+                    or point.known_at > cursor.clock
+                    or point.price.currency != definition.tick.currency
+                    or point.price.per != definition.tick.per
+                    for point in state.points
+                )
+                or any(left.order >= right.order for left, right in pairwise(state.points))
+                or any(
+                    event_at < cursor.clock or known_at > cursor.clock
+                    for event_at, known_at in state.gaps
+                )
+            ):
+                raise ValueError("scheduled checkpoint cursor or compact observation state differs")
 
 
 class _BatchClose:
@@ -189,11 +219,7 @@ class _BatchClose:
 
 
 class ScheduledFeatures:
-    """Run a bounded saved-input batch path with frozen closes and explicit restart state.
-
-    Every invocation reconstructs admitted information through the requested cutoff.
-    This is a batch reference, not an incremental engine or a live feed adapter.
-    """
+    """Advance one causal saved-input replay while freezing each completed close."""
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
 
@@ -223,6 +249,10 @@ class ScheduledFeatures:
             raise ValueError("scheduled features require a positive batch size")
         self._reader, self._batch_size = reader, batch_size
         self._values: tuple[ScheduledFeatureValue, ...] = ()
+        self._cursor: ReplayCursor | None = None
+        self._observation_state: ObservationState | None = None
+        self._replay: Replay | None = None
+        self._observations: Observations | None = None
         if checkpoint is not None:
             checkpoint = self._codec.decode_json(
                 self._codec.encode_json(checkpoint), ScheduledFeatureCheckpoint
@@ -233,10 +263,12 @@ class ScheduledFeatures:
             ):
                 raise ValueError("scheduled checkpoint definition or source changed")
             self._values = checkpoint.values
+            self._cursor = checkpoint.cursor
+            self._observation_state = checkpoint.observation_state
 
     @property
     def checkpoint(self) -> ScheduledFeatureCheckpoint:
-        """Capture complete frozen state after the last successful batch decision.
+        """Capture complete frozen state after the last successful decision.
 
         Returns:
             Versioned, digest-checked state suitable for DomainCodec serialization.
@@ -246,6 +278,8 @@ class ScheduledFeatures:
             input_identity=self._reader.identity,
             values=self._values,
             values_sha256=hashlib.sha256(self._codec.encode_json(self._values)).hexdigest(),
+            cursor=self._cursor,
+            observation_state=self._observation_state,
         )
 
     def evaluate(self, decision_at: datetime) -> ScheduledFeatureValue:
@@ -269,18 +303,120 @@ class ScheduledFeatures:
             or decision_at >= definition.end
         ):
             raise ValueError("scheduled feature decision must be the next close before sample end")
-        current, has_current_gap = _BatchClose(
-            self._reader, definition, decision_at, self._batch_size
-        ).read()
-        previous = self._values[-1].observation if self._values else None
+        prior_values, prior_cursor, prior_state = (
+            self._values,
+            self._cursor,
+            self._observation_state,
+        )
+        try:
+            if self._replay is None:
+                self._open_replay()
+            previous = self._values[-1].observation if self._values else None
+            value, state = self._advance(decision_at, previous)
+            if self._replay is None:
+                raise RuntimeError("scheduled replay disappeared before commit")
+            cursor = self._replay.cursor
+            if cursor is None:
+                raise RuntimeError("scheduled replay did not complete the decision clock")
+            self._values = (*self._values, value)
+            self._cursor, self._observation_state = cursor, state
+            return value
+        except Exception, KeyboardInterrupt:
+            # Replay callbacks can fail after partial admission. Reopen from the
+            # last committed cursor and compact observation state on retry.
+            self._values = prior_values
+            self._cursor, self._observation_state = prior_cursor, prior_state
+            self._replay = None
+            self._observations = None
+            raise
+
+    def _open_replay(self) -> None:
+        """Read the pinned history once and restore a committed cursor if present."""
+        definition = self.definition
+        replay = Replay(
+            self._reader,
+            (definition.binding[2],),
+            start=definition.start,
+            end=definition.end,
+            terminal=definition.end,
+            config_identity=definition.identity,
+            batch_size=self._batch_size,
+            cursor=self._cursor,
+        )
+        observations = Observations(
+            definition.binding,
+            replay.evidence,
+            tick=definition.tick,
+            cadence=timedelta(seconds=definition.cadence_seconds),
+            max_age=timedelta(seconds=definition.max_age_seconds),
+            state=self._observation_state,
+        )
+        if any(item.request.instrument.product != "spot" for item in observations.evidence):
+            raise ValueError("scheduled completed features support spot inputs only")
+        if any(
+            item.request.instrument.quote_currency != definition.tick.currency
+            for item in observations.evidence
+        ):
+            raise ValueError("scheduled feature quote currency differs from admitted source")
+        self._replay, self._observations = replay, observations
+        if self._values and self._cursor is None:
+            self._restore_legacy_checkpoint()
+
+    def _restore_legacy_checkpoint(self) -> None:
+        """Reconstruct old value-only checkpoints once without changing their frozen trace."""
+        previous: Observation | None = None
+        state: ObservationState | None = None
+        for expected in self._values:
+            actual, state = self._advance(expected.observation.closed_at, previous)
+            if actual != expected:
+                raise ValueError("saved source differs from frozen scheduled checkpoint")
+            previous = actual.observation
+        if self._replay is None or state is None:
+            raise RuntimeError("scheduled replay disappeared during checkpoint recovery")
+        self._cursor, self._observation_state = self._replay.cursor, state
+
+    def _advance(
+        self, decision_at: datetime, previous: Observation | None
+    ) -> tuple[ScheduledFeatureValue, ObservationState]:
+        """Admit all equal-clock sources, freeze one window and retain only useful state."""
+        replay, observations = self._replay, self._observations
+        if replay is None or observations is None:
+            raise RuntimeError("scheduled replay is unavailable")
+        cursor = replay.cursor
+        while cursor is None or cursor.clock < decision_at:
+            cursor = replay.step(decision_at, self._consume)
+            if cursor is None:
+                raise RuntimeError("scheduled replay ended before its decision clock")
+        current = observations.close(decision_at)
+        has_current_gap = any(known == decision_at for _, known in observations.state.gaps)
         value = ScheduledFeatureValue(
             observation=current,
-            value=CompletedReturn(definition.cadence_seconds).evaluate(previous, current),
+            value=CompletedReturn(self.definition.cadence_seconds).evaluate(previous, current),
             has_current_gap=has_current_gap,
         )
-        # Commit only after complete admission and calculation; exceptions retain prior state.
-        self._values = (*self._values, value)
-        return value
+        state = observations.state
+        compact = ObservationState(
+            points=tuple(point for point in state.points if point.event_at >= decision_at),
+            gaps=tuple(gap for gap in state.gaps if gap[0] >= decision_at),
+            completed=(current,),
+            next_order=state.next_order,
+        )
+        self._observations = Observations(
+            self.definition.binding,
+            observations.evidence,
+            tick=self.definition.tick,
+            cadence=timedelta(seconds=self.definition.cadence_seconds),
+            max_age=timedelta(seconds=self.definition.max_age_seconds),
+            state=compact,
+        )
+        return value, compact
+
+    def _consume(self, phase: ReplayPhase, instant: datetime, item: PointEvent | None) -> None:
+        """Admit actual source phases without changing already frozen closes."""
+        if phase == "source" and item is not None:
+            if self._observations is None:
+                raise RuntimeError("scheduled observations are unavailable")
+            self._observations.admit(item, instant)
 
 
 class ScheduledFeatureParity(WireRecord, frozen=True):

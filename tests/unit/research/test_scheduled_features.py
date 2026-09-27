@@ -10,6 +10,7 @@ from fractions import Fraction
 from unittest.mock import patch
 
 # third party library imports
+import msgspec
 import pytest
 from msgspec.structs import force_setattr, replace
 from test_features import TestPriceDiagnostics as _Prices
@@ -18,18 +19,22 @@ from test_features import TestPriceDiagnostics as _Prices
 from financial_units import Currency, Dimension, ExactRatio, Price, QuantityKind
 from market_data.contracts import Occurrence
 from market_data.query import QueryReader
+from market_data.replay import Replay
 from market_data.validation import Correction, TradeRevision
 from research.features import (
     CompletedReturn,
     ScheduledFeatureCheckpoint,
     ScheduledFeatures,
     ScheduledFeatureSpec,
+    ScheduledFeatureValue,
 )
+from research.features.scheduled import _BatchClose
+from research.observations import Observations
 from serialization import DomainCodec
 
 
 class TestScheduledFeatures:
-    """Exercise batch admission, frozen corrections, restart and independent instance state."""
+    """Exercise causal admission, frozen corrections, restart and independent state."""
 
     @staticmethod
     def _definition(instrument: int = 0) -> ScheduledFeatureSpec:
@@ -92,6 +97,115 @@ class TestScheduledFeatures:
             other = ScheduledFeatures(reader, replace(definition, instance="independent"))
             assert other.checkpoint.values == ()
 
+    def test_one_replay_matches_independent_batch_closes(self) -> None:
+        """Advance once through history while retaining exact per-cutoff batch values."""
+        definition, reader = self._definition(), self._reader(correction_at=20)
+        scheduled = ScheduledFeatures(reader, definition, batch_size=1)
+        closes = tuple(definition.start + timedelta(seconds=second) for second in (10, 20, 30))
+        with patch("research.features.scheduled.Replay", wraps=Replay) as replay_factory:
+            actual = tuple(scheduled.evaluate(at) for at in closes)
+        assert replay_factory.call_count == 1
+        expected: list[ScheduledFeatureValue] = []
+        previous = None
+        for at in closes:
+            observation, has_current_gap = _BatchClose(reader, definition, at, 1).read()
+            expected.append(
+                ScheduledFeatureValue(
+                    observation=observation,
+                    value=CompletedReturn(definition.cadence_seconds).evaluate(
+                        previous, observation
+                    ),
+                    has_current_gap=has_current_gap,
+                )
+            )
+            previous = observation
+        assert actual == tuple(expected)
+        assert actual[1].value == ExactRatio(numerator="89897", denominator="10003")
+        state = scheduled.checkpoint.observation_state
+        assert state is not None and state.completed == (actual[-1].observation,)
+        assert all(point.event_at >= closes[-1] for point in state.points)
+        assert all(event_at >= closes[-1] for event_at, _ in state.gaps)
+
+    def test_value_only_checkpoint_restores_and_new_schedule_bound(self) -> None:
+        """Recover old state once and admit up to 8,192 scheduled closes."""
+        definition, reader = self._definition(), self._reader()
+        running = ScheduledFeatures(reader, definition)
+        for second in (10, 20):
+            running.evaluate(definition.start + timedelta(seconds=second))
+        old_payload = msgspec.json.decode(
+            DomainCodec().encode_json(running.checkpoint), type=dict[str, msgspec.Raw]
+        )
+        old_payload.pop("cursor")
+        old_payload.pop("observation_state")
+        old_state = DomainCodec().decode_json(
+            msgspec.json.encode(old_payload), ScheduledFeatureCheckpoint
+        )
+        assert old_state.cursor is None and old_state.observation_state is None
+        restored = ScheduledFeatures(reader, definition, checkpoint=old_state, batch_size=1)
+        third = definition.start + timedelta(seconds=30)
+        assert restored.evaluate(third) == running.evaluate(third)
+        assert restored.checkpoint == running.checkpoint
+        replace(
+            definition,
+            end=definition.start + timedelta(seconds=definition.cadence_seconds * 8193),
+        )
+        with pytest.raises(ValueError, match="bounded positive sample"):
+            replace(
+                definition,
+                end=definition.start + timedelta(seconds=definition.cadence_seconds * 8194),
+            )
+
+    def test_resumed_state_rejects_future_knowledge_wrong_units_and_order(self) -> None:
+        """Refuse compact state that cannot have been admitted by its completed cursor."""
+        definition, reader = self._definition(), self._reader()
+        running = ScheduledFeatures(reader, definition)
+        running.evaluate(definition.start + timedelta(seconds=10))
+        checkpoint = running.checkpoint
+        cursor, state = checkpoint.cursor, checkpoint.observation_state
+        point = checkpoint.values[-1].observation.point
+        assert cursor is not None and state is not None and point is not None
+        future_event = replace(point, event_at=cursor.clock + timedelta(seconds=1))
+        with pytest.raises(ValueError, match="compact observation state"):
+            replace(
+                checkpoint,
+                observation_state=replace(
+                    state,
+                    points=(replace(future_event, known_at=cursor.clock + timedelta(seconds=1)),),
+                ),
+            )
+        for bad_price in (
+            future_event.price.model_copy(update={"currency": Currency.from_code("USD")}),
+            future_event.price.model_copy(update={"per": self._definition(1).tick.per}),
+        ):
+            with pytest.raises(ValueError, match="compact observation state"):
+                replace(
+                    checkpoint,
+                    observation_state=replace(
+                        state,
+                        points=(replace(future_event, price=bad_price),),
+                    ),
+                )
+        with pytest.raises(ValueError, match="compact observation state"):
+            replace(
+                checkpoint,
+                observation_state=replace(
+                    state,
+                    gaps=((cursor.clock, cursor.clock + timedelta(seconds=1)),),
+                ),
+            )
+        with pytest.raises(ValueError, match="compact observation state"):
+            replace(
+                checkpoint,
+                observation_state=replace(
+                    state,
+                    points=(
+                        replace(future_event, trade_id=2, order=1),
+                        replace(future_event, trade_id=3, order=0),
+                    ),
+                    next_order=2,
+                ),
+            )
+
     def test_equal_clock_correction_is_available_but_later_revision_is_not(self) -> None:
         """Admit inclusive knowledge at the close while preserving the half-open event window."""
         definition = self._definition()
@@ -150,10 +264,19 @@ class TestScheduledFeatures:
         for second in (10, 30, 40):
             with pytest.raises(ValueError, match="next close"):
                 batch.evaluate(definition.start + timedelta(seconds=second))
+        cold = ScheduledFeatures(reader, definition)
         with patch.object(QueryReader, "batches", side_effect=ValueError("source failure")):
+            with pytest.raises(ValueError, match="source failure"):
+                cold.evaluate(definition.start + timedelta(seconds=10))
+        assert cold.checkpoint.values == () and cold.checkpoint.cursor is None
+        assert cold.evaluate(definition.start + timedelta(seconds=10)) == before.values[0]
+        with patch.object(Observations, "close", side_effect=ValueError("source failure")):
             with pytest.raises(ValueError, match="source failure"):
                 batch.evaluate(definition.start + timedelta(seconds=20))
         assert before == batch.checkpoint
+        assert batch.evaluate(definition.start + timedelta(seconds=20)).value == ExactRatio(
+            numerator="1", denominator="10003"
+        )
         for changed in (
             replace(definition, instance="other"),
             replace(definition, max_age_seconds=4),

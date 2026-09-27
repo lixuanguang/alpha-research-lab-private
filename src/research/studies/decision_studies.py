@@ -18,7 +18,7 @@ from simulation import IntentSimulationSpec
 
 
 class StudyFold(WireRecord, frozen=True):
-    """Freeze schedules and earlier-only fitting policy before any input is read.
+    """Freeze each schedule at 8,192 decisions and the earlier-only fitting policy.
 
     The configured split has no sample records. The application derives those
     records from actual feature/outcome bytes and retains the resolved split.
@@ -39,8 +39,10 @@ class StudyFold(WireRecord, frozen=True):
         if type(self.name) is not str or not self.name or self.split.samples:
             raise ValueError("fold requires a name and an unresolved sample inventory")
         for schedule in (self.training_decisions, self.decisions):
-            if type(schedule) is not tuple or len(schedule) > 1024:
-                raise ValueError("study schedule must be an immutable bounded tuple")
+            if type(schedule) is not tuple or len(schedule) > 8192:
+                raise ValueError(
+                    "study schedule must be an immutable tuple of at most 8192 decisions"
+                )
             for at in schedule:
                 self._require_utc(at, field_name="decision")
             if any(a >= b for a, b in pairwise(schedule)):

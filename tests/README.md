@@ -104,6 +104,16 @@ data, experiment and simulation regressions.
 
 ## Explicit service and saved-source checks
 
+The [authored capacity consumer](integration/consumers/research/capacity_workload.py)
+measures multi-day feature grids, concurrent local study workers, exact costed
+trials and backup/restore through a real isolated Feast worker. The
+[native archive capacity consumer](integration/consumers/research/archive_capacity.py)
+measures bounded original-book publication and independent reopening, preserving
+unknown historical availability. Both are explicit installed diagnostics, not
+discovered tests or representative launch acceptance. Their commands, pinned
+inputs, measured limits and remaining gaps live in the
+[capacity record](../docs/roadmap/research-capacity.md).
+
 The installed feature consumer exercises the copied feature/label boundary and
 fresh-process model recovery with an unavailable publication transport. Factor,
 model-lifecycle and window-diagnostic assertions run as discovered domain tests

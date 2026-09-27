@@ -1,0 +1,1346 @@
+{
+  "schema": "research-capacity-evidence-v1",
+  "date": "2026-09-27",
+  "baseline": "9106a48",
+  "research_acceptance": false,
+  "runtime_acceptance": false,
+  "bounds_baseline": {
+    "captured_at": "2026-09-27T12:06:52.562058+00:00",
+    "cases": [
+      {
+        "case": "study_fold_decisions_4320",
+        "error_type": "ValueError",
+        "message": "study schedule must be an immutable bounded tuple",
+        "status": "rejected"
+      },
+      {
+        "case": "report_benchmark_4320",
+        "error_type": "ValueError",
+        "message": "unsupported report policy",
+        "status": "rejected"
+      },
+      {
+        "case": "feature_study_result_rows_8640",
+        "error_type": "ValueError",
+        "message": "feature-study result must contain 1 to 1024 rows",
+        "status": "rejected"
+      },
+      {
+        "case": "feature_study_grid_rows_8640",
+        "error_type": "ValueError",
+        "message": "feature study exceeds 1024 decision/instrument rows",
+        "status": "rejected"
+      }
+    ],
+    "purpose": "Pre-edit construction baseline for bounded study/report capacity changes.",
+    "source_sha256": {
+      "src/research/exploration/feature_study.py": "11071c74dc6b96d119566b29847b9300a182e4d3774a0fc68b832e829167d4aa",
+      "src/research/results/feature_study.py": "aaca96cad6c213b8c5cb89b24a85eef322afd33da824a08b0c23287f60203b3b",
+      "src/research/studies/decision_studies.py": "d7f3a72f9faeafb5b249b47627bd3a2126f1fb0e2ce0411eaf931b40c19a6adf",
+      "src/research/studies/reports.py": "15d1bcc10019ae3c8fd62dde5a7d1ca2221e7a385a7cae7dab725a2f2dcaf988"
+    }
+  },
+  "scheduled_profiles": [
+    {
+      "scope": "synthetic-admitted-diagnostic; not MR15 acceptance",
+      "implementation": "pre-optimization scheduled batch reread",
+      "count": 128,
+      "source_rows": 3,
+      "source_identity": "c0d1039c6e7fecd4bab9a9ad9192ec4d5288a588639c94f4ecb9f0c3e4e2b420",
+      "definition_identity": "2919d3191018b2223f87d7356a016478ee0706f65fc02ffebe24ed7a32af76c4",
+      "cadence_seconds": 10,
+      "duration_ms": 8833.193292,
+      "peak_rss_bytes": 164462592,
+      "input_blocks_delta": 0,
+      "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+      "python": "3.14.7 (main, Aug 25 2026, 13:50:14) [Clang 22.1.3 ]",
+      "attempt": "scheduled-baseline",
+      "nearest_rank_ms_all_calls_including_startup": null
+    },
+    {
+      "scope": "synthetic-admitted-diagnostic; not MR15 acceptance",
+      "implementation": "pre-optimization scheduled batch reread",
+      "count": 32,
+      "source_rows": 3,
+      "source_identity": "c0d1039c6e7fecd4bab9a9ad9192ec4d5288a588639c94f4ecb9f0c3e4e2b420",
+      "definition_identity": "0063613c28d09cdc5126104ccc402a8832a85c749030661e60e36cc5996bd6fd",
+      "cadence_seconds": 10,
+      "duration_ms": 2232.3925,
+      "peak_rss_bytes": 163840000,
+      "input_blocks_delta": 0,
+      "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+      "python": "3.14.7 (main, Aug 25 2026, 13:50:14) [Clang 22.1.3 ]",
+      "attempt": "scheduled-baseline",
+      "nearest_rank_ms_all_calls_including_startup": null
+    },
+    {
+      "scope": "synthetic-admitted-diagnostic; not MR15 acceptance",
+      "implementation": "single causal replay with compact observation state",
+      "count": 128,
+      "source_rows": 3,
+      "source_identity": "c0d1039c6e7fecd4bab9a9ad9192ec4d5288a588639c94f4ecb9f0c3e4e2b420",
+      "definition_identity": "2919d3191018b2223f87d7356a016478ee0706f65fc02ffebe24ed7a32af76c4",
+      "cadence_seconds": 10,
+      "duration_ms": 103.32675,
+      "peak_rss_bytes": 141639680,
+      "input_blocks_delta": 0,
+      "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+      "python": "3.14.7 (main, Aug 25 2026, 13:50:14) [Clang 22.1.3 ]",
+      "attempt": "scheduled-after",
+      "nearest_rank_ms_all_calls_including_startup": null
+    },
+    {
+      "scope": "synthetic-admitted-diagnostic; not MR15 acceptance",
+      "implementation": "single causal replay with compact observation state",
+      "count": 32,
+      "source_rows": 3,
+      "source_identity": "c0d1039c6e7fecd4bab9a9ad9192ec4d5288a588639c94f4ecb9f0c3e4e2b420",
+      "definition_identity": "0063613c28d09cdc5126104ccc402a8832a85c749030661e60e36cc5996bd6fd",
+      "cadence_seconds": 10,
+      "duration_ms": 81.568,
+      "peak_rss_bytes": 140967936,
+      "input_blocks_delta": 0,
+      "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+      "python": "3.14.7 (main, Aug 25 2026, 13:50:14) [Clang 22.1.3 ]",
+      "attempt": "scheduled-after",
+      "nearest_rank_ms_all_calls_including_startup": null
+    },
+    {
+      "scope": "synthetic-admitted-diagnostic; not MR15 acceptance",
+      "implementation": "single causal replay with compact observation state",
+      "count": 8192,
+      "source_rows": 3,
+      "source_identity": "c0d1039c6e7fecd4bab9a9ad9192ec4d5288a588639c94f4ecb9f0c3e4e2b420",
+      "definition_identity": "211144b1b51eb491759196a972b8b7bb0214bf16fa69d2752537b32f8c7d5d79",
+      "cadence_seconds": 10,
+      "duration_ms": 2127.407584,
+      "peak_rss_bytes": 142065664,
+      "input_blocks_delta": 0,
+      "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+      "python": "3.14.7 (main, Aug 25 2026, 13:50:14) [Clang 22.1.3 ]",
+      "attempt": "scheduled-after",
+      "nearest_rank_ms_all_calls_including_startup": {
+        "50": 0.2425,
+        "95": 0.328417,
+        "99": 0.413
+      }
+    }
+  ],
+  "synthetic_final": {
+    "cache": "fresh application/store; OS page cache uncontrolled; PIT queries warm",
+    "child_peak_rss_bytes": 206848000,
+    "consumer_sha256": "84cdabbea61654fc592f6ea25a38a589d8d556829cc9733275cda08c27860d32",
+    "cpu_system_seconds": 11.112841999999999,
+    "cpu_user_seconds": 100.56380200000001,
+    "disk_bytes": 341505716,
+    "elapsed_seconds": 113.21557395800482,
+    "implementation": "1eb9368ebf76697f2acb8b36f90890b351b132e2ec6b062f766c9a20722a050b",
+    "os_block_io": "unavailable as byte measurements on Darwin",
+    "reason": "",
+    "representative_acceptance": false,
+    "scope": "synthetic-diagnostic",
+    "self_peak_rss_bytes": 481918976,
+    "stages": {
+      "backup-restore-equivalence": {
+        "count": 1,
+        "max_seconds": 34.25016145792324,
+        "min_seconds": 34.25016145792324,
+        "percentiles_seconds": null,
+        "total_seconds": 34.25016145792324
+      },
+      "feature-materialization-with-feast": {
+        "count": 1,
+        "max_seconds": 26.147676417022012,
+        "min_seconds": 26.147676417022012,
+        "percentiles_seconds": null,
+        "total_seconds": 26.147676417022012
+      },
+      "feature-reopen": {
+        "count": 1,
+        "max_seconds": 0.0007172080222517252,
+        "min_seconds": 0.0007172080222517252,
+        "percentiles_seconds": null,
+        "total_seconds": 0.0007172080222517252
+      },
+      "injected-ack-loss": {
+        "count": 1,
+        "max_seconds": 16.49139604193624,
+        "min_seconds": 16.49139604193624,
+        "percentiles_seconds": null,
+        "total_seconds": 16.49139604193624
+      },
+      "pit-retrieval": {
+        "count": 8640,
+        "max_seconds": 0.0013426670338958502,
+        "min_seconds": 0.00021012499928474426,
+        "percentiles_seconds": {
+          "50": 0.00025233300402760506,
+          "95": 0.0004027499817311764,
+          "99": 0.000521667068824172
+        },
+        "total_seconds": 2.326501548755914
+      },
+      "report-and-result-reopen": {
+        "count": 4,
+        "max_seconds": 3.3652485839556903,
+        "min_seconds": 2.9387523750774562,
+        "percentiles_seconds": null,
+        "total_seconds": 12.911854709964246
+      },
+      "study-worker": {
+        "count": 5,
+        "max_seconds": 16.524645166937262,
+        "min_seconds": 3.360132750007324,
+        "percentiles_seconds": null,
+        "total_seconds": 69.1501219588099
+      },
+      "two-worker-wave": {
+        "count": 2,
+        "max_seconds": 19.922071250039153,
+        "min_seconds": 16.415207542013377,
+        "percentiles_seconds": null,
+        "total_seconds": 36.33727879205253
+      }
+    },
+    "status": "complete"
+  },
+  "synthetic_observation_windows": {
+    "backup-restore-equivalence": {
+      "first_start_seconds": 78.94576429203153,
+      "last_end_seconds": 113.19592574995477
+    },
+    "feature-materialization-with-feast": {
+      "first_start_seconds": 0.06863408302888274,
+      "last_end_seconds": 26.216310500050895
+    },
+    "feature-reopen": {
+      "first_start_seconds": 29.08759554196149,
+      "last_end_seconds": 29.088312749983743
+    },
+    "injected-ack-loss": {
+      "first_start_seconds": 46.099383375025354,
+      "last_end_seconds": 62.590779416961595
+    },
+    "pit-retrieval": {
+      "first_start_seconds": 26.216488042031415,
+      "last_end_seconds": 29.087538999971002
+    },
+    "report-and-result-reopen": {
+      "first_start_seconds": 65.99782895797398,
+      "last_end_seconds": 78.93436866695993
+    },
+    "study-worker": {
+      "first_start_seconds": 29.446871625026688,
+      "last_end_seconds": 65.98093033302575
+    },
+    "two-worker-wave": {
+      "first_start_seconds": 29.43868725001812,
+      "last_end_seconds": 65.99072329199407
+    }
+  },
+  "native_prefix": {
+    "acceptance": "not_R1_or_full_72_hour_coverage",
+    "bounds_refusal_at_20000": "book admission requires one native input and a bounded prefix",
+    "cache_condition": "first application call versus repeated call; OS page cache uncontrolled",
+    "command": [
+      "tests/integration/consumers/research/archive_capacity.py",
+      "--archives",
+      "data/okx/research-capacity/d2bd2f51-400e-4c23-843f-f317f0ff3457",
+      "data/okx/research-capacity/4cd1d9c9-e809-4a49-aa9b-82940f6f328c",
+      "--output",
+      "logs/research-capacity/native-okx-btc-eth-sep20-1000",
+      "--max-records",
+      "1000",
+      "--max-bytes",
+      "1000000000"
+    ],
+    "consumer_sha256": "f209f7101e1d2c1821dcbf9417adebe8a3399064d3b700c45ba4b6fe288e9643",
+    "executable": "/private/tmp/mr14-research-v11/bin/python",
+    "final_output_disk_bytes": 248636046,
+    "installed_market_data": "/private/tmp/mr14-research-v11/lib/python3.14/site-packages/market_data/__init__.py",
+    "max_bytes": 1000000000,
+    "max_records": 1000,
+    "normalization_identity": "c5646380163e5d379070ceebb3e7966b3b7f11ed9782b343d46e4f7dd9471e1e",
+    "quality": [
+      {
+        "canonical_bytes": 39787971,
+        "canonical_sha256": "89eb7d78c586dfda3f94041fe067f14f92be3cd1ba2ed092c17148ba894aa9db",
+        "duplicate_count": 0,
+        "gap_count": 0,
+        "invalid_count": 0,
+        "reasons": [
+          "visible depth only; coverage and historical eligibility unproven",
+          "source continuity and original availability unknown"
+        ],
+        "request_identity": "6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8",
+        "scope": "exploratory_degraded"
+      },
+      {
+        "canonical_bytes": 38390241,
+        "canonical_sha256": "5202f3dad8983c6afca800c8685effad9a6a0f2d357a482689cf730a18b6d073",
+        "duplicate_count": 0,
+        "gap_count": 0,
+        "invalid_count": 0,
+        "reasons": [
+          "visible depth only; coverage and historical eligibility unproven",
+          "source continuity and original availability unknown"
+        ],
+        "request_identity": "7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da",
+        "scope": "exploratory_degraded"
+      }
+    ],
+    "queries": [
+      {
+        "availability": "unknown_original_receipts",
+        "batches": 1,
+        "market_rows": 0,
+        "query_identity": "ae8dabe27a25ff23d261157d70637e59dcd15c025f8affadb874f8dc91aa4435",
+        "reasons": [
+          "no selected book values; absence does not establish an empty market",
+          "original book availability unknown; no decision-eligible values",
+          "visible depth only; coverage and historical eligibility unproven"
+        ],
+        "request_identity": "6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8"
+      },
+      {
+        "availability": "unknown_original_receipts",
+        "batches": 1,
+        "market_rows": 0,
+        "query_identity": "3cd231ddb9032d1fbe2d91f0fe2390643e30dad0990a0ecd0a228140af5d173a",
+        "reasons": [
+          "no selected book values; absence does not establish an empty market",
+          "original book availability unknown; no decision-eligible values",
+          "visible depth only; coverage and historical eligibility unproven"
+        ],
+        "request_identity": "7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da"
+      }
+    ],
+    "replays": [
+      {
+        "first_source_ms": "1789862400001",
+        "last_source_ms": "1789862425361",
+        "request_identity": "6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8",
+        "rows": 1000,
+        "scheduled_rows": 0,
+        "snapshots": 1,
+        "trace_sha256": "de610af8acb3a3ae67a5d94f0288e124f2797a54e899237fb89ff6faf42a0a3d",
+        "updates": 999
+      },
+      {
+        "first_source_ms": "1789862400001",
+        "last_source_ms": "1789862421541",
+        "request_identity": "7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da",
+        "rows": 1000,
+        "scheduled_rows": 0,
+        "snapshots": 1,
+        "trace_sha256": "5ce23b0a637dd3870403006eeda11f9c43b3b43a28a87c9b9bef30158666c27d",
+        "updates": 999
+      }
+    ],
+    "scope": "representative_saved_source_diagnostic_only",
+    "snapshot_identity": "2ef2abab1226ee710f110f84fc94badb813f69c03d8c3e67951d7fda8083eac0",
+    "sources": [
+      {
+        "day": "2026-09-20",
+        "depth": 400,
+        "directory": "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/okx/research-capacity/d2bd2f51-400e-4c23-843f-f317f0ff3457",
+        "implementation_identity": "81c4584db810ef3090b10150849296efe508c52763497f26fe1efea6c32ceba7",
+        "original_receipt_clocks": "unknown",
+        "raw_sha256": "e81420d7b2d29aa5ee2f1cb670fdf0e47be14eddf8ce5ef040047024f27c3d37",
+        "raw_size_bytes": 72480096,
+        "request_identity": "6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8",
+        "selected_max_records": 1000,
+        "symbol": "BTC-USDT"
+      },
+      {
+        "day": "2026-09-20",
+        "depth": 400,
+        "directory": "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/okx/research-capacity/4cd1d9c9-e809-4a49-aa9b-82940f6f328c",
+        "implementation_identity": "81c4584db810ef3090b10150849296efe508c52763497f26fe1efea6c32ceba7",
+        "original_receipt_clocks": "unknown",
+        "raw_sha256": "d5d530e6ce635d0e92ba4cd6d280b0aa2f64e918f09e2822018ed061846e1ea3",
+        "raw_size_bytes": 97973786,
+        "request_identity": "7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da",
+        "selected_max_records": 1000,
+        "symbol": "ETH-USDT"
+      }
+    ],
+    "stages": [
+      {
+        "cpu_seconds": 12.518985,
+        "operation": "publish_and_internal_verification",
+        "output_disk_bytes": 248636046,
+        "peak_rss_bytes": 513343488,
+        "wall_seconds": 12.685813041
+      },
+      {
+        "cpu_seconds": 5.983269,
+        "operation": "query_application_cold:6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8",
+        "output_disk_bytes": 248636046,
+        "peak_rss_bytes": 953319424,
+        "wall_seconds": 6.00186375
+      },
+      {
+        "cpu_seconds": 5.819477,
+        "operation": "query_application_warm:6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8",
+        "output_disk_bytes": 248636046,
+        "peak_rss_bytes": 953319424,
+        "wall_seconds": 5.840309375
+      },
+      {
+        "cpu_seconds": 12.000107,
+        "operation": "replay_application_warm:6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8",
+        "output_disk_bytes": 248636046,
+        "peak_rss_bytes": 1283751936,
+        "wall_seconds": 12.047644417
+      },
+      {
+        "cpu_seconds": 6.137875,
+        "operation": "query_application_cold:7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da",
+        "output_disk_bytes": 248636046,
+        "peak_rss_bytes": 1372585984,
+        "wall_seconds": 6.19167475
+      },
+      {
+        "cpu_seconds": 6.137925,
+        "operation": "query_application_warm:7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da",
+        "output_disk_bytes": 248636046,
+        "peak_rss_bytes": 1567637504,
+        "wall_seconds": 6.17328
+      },
+      {
+        "cpu_seconds": 12.07837,
+        "operation": "replay_application_warm:7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da",
+        "output_disk_bytes": 248636046,
+        "peak_rss_bytes": 1567637504,
+        "wall_seconds": 12.130592417
+      }
+    ]
+  },
+  "archives": [
+    {
+      "directory": "data/okx/research-capacity/d2bd2f51-400e-4c23-843f-f317f0ff3457",
+      "request": {
+        "config": {
+          "base_currency": "BTC",
+          "day": "2026-09-20",
+          "duration_seconds": 300,
+          "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+          "max_bytes": 300000000,
+          "max_expanded_bytes": 2000000000,
+          "max_line_bytes": 1000000,
+          "max_records": 1000000,
+          "quote_currency": "USDT",
+          "retries": 1,
+          "symbol": "BTC-USDT",
+          "timeout_seconds": 30
+        },
+        "implementation_identity": "81c4584db810ef3090b10150849296efe508c52763497f26fe1efea6c32ceba7",
+        "index_received": "2026-09-27T12:04:06.733053Z",
+        "index_sha256": "cd6e2f0ff2df1208d72387d8ecad6c957b505153a2210e1d7f7a690c937a9ad6",
+        "url": "https://static.okx.com/cdn/okx/match/orderbook/pro/L2/400lv/daily/20260920/BTC-USDT-L2orderbook-400lv-2026-09-20.tar.gz"
+      },
+      "summary": {
+        "archive_directory": "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/okx/research-capacity/d2bd2f51-400e-4c23-843f-f317f0ff3457",
+        "book_identity": "161936fd28f99d04dc942a470bb98d0dc7e5f3a56fb43cb123eda3ba8dcc2f2a",
+        "continuity": "unproven_no_source_sequences",
+        "depth": 400,
+        "download_attempts": 1,
+        "download_received": "2026-09-27T12:04:09.295292+00:00",
+        "entire_archive_replayed": false,
+        "expanded_bytes": 518717440,
+        "first_source_ms": "1789862400001",
+        "gaps": null,
+        "index_identity": "cd6e2f0ff2df1208d72387d8ecad6c957b505153a2210e1d7f7a690c937a9ad6",
+        "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+        "last_source_ms": "1789895708474",
+        "levels": 800,
+        "mode": "historical",
+        "orders": null,
+        "record_receipt_time": null,
+        "records": 1000000,
+        "representation": "L2",
+        "request_identity": "6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8",
+        "saved_bytes": 72480096,
+        "saved_input_identity": "e81420d7b2d29aa5ee2f1cb670fdf0e47be14eddf8ce5ef040047024f27c3d37",
+        "snapshots": 38,
+        "source_sequence": null,
+        "state_available": true,
+        "stop_reason": "record_limit",
+        "symbol": "BTC-USDT",
+        "trace_identity": "7d9a29b73d488a0c9eb6ffef270ac2757e31d7fa11e34aff0341c052a86b1c24",
+        "updates": 999962,
+        "venue": "okx"
+      }
+    },
+    {
+      "directory": "data/okx/research-capacity/29345f35-92fc-4cc7-84b3-b51a5908aba5",
+      "request": {
+        "config": {
+          "base_currency": "BTC",
+          "day": "2026-09-21",
+          "duration_seconds": 300,
+          "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+          "max_bytes": 300000000,
+          "max_expanded_bytes": 2000000000,
+          "max_line_bytes": 1000000,
+          "max_records": 1000000,
+          "quote_currency": "USDT",
+          "retries": 1,
+          "symbol": "BTC-USDT",
+          "timeout_seconds": 30
+        },
+        "implementation_identity": "81c4584db810ef3090b10150849296efe508c52763497f26fe1efea6c32ceba7",
+        "index_received": "2026-09-27T12:41:15.330937Z",
+        "index_sha256": "ce7c53edbc50ccc9054f4fd2c70cc82926ffaf78d5e512edd75d94f1db5f1a24",
+        "url": "https://static.okx.com/cdn/okx/match/orderbook/pro/L2/400lv/daily/20260921/BTC-USDT-L2orderbook-400lv-2026-09-21.tar.gz"
+      },
+      "summary": {
+        "archive_directory": "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/okx/research-capacity/29345f35-92fc-4cc7-84b3-b51a5908aba5",
+        "book_identity": "efa8b670010f5bfc12064e643e137133434b69b8ddbe03a021f931f6c9dda6cd",
+        "continuity": "unproven_no_source_sequences",
+        "depth": 400,
+        "download_attempts": 1,
+        "download_received": "2026-09-27T12:41:19.217616+00:00",
+        "entire_archive_replayed": false,
+        "expanded_bytes": 1012727808,
+        "first_source_ms": "1789948800001",
+        "gaps": null,
+        "index_identity": "ce7c53edbc50ccc9054f4fd2c70cc82926ffaf78d5e512edd75d94f1db5f1a24",
+        "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+        "last_source_ms": "1789973242203",
+        "levels": 800,
+        "mode": "historical",
+        "orders": null,
+        "record_receipt_time": null,
+        "records": 1000000,
+        "representation": "L2",
+        "request_identity": "c58dad1d4742c784933996a8ffaac74c41a41ec6de2b2927de69a9d06c272b28",
+        "saved_bytes": 155786110,
+        "saved_input_identity": "dd2c708eab9535e51b91b8d324d7fef7f8531ff591aa0fe111077673aeab4f39",
+        "snapshots": 28,
+        "source_sequence": null,
+        "state_available": true,
+        "stop_reason": "record_limit",
+        "symbol": "BTC-USDT",
+        "trace_identity": "4a06b922adced2eb7678ef27b0a494bbaf1982571f66bc2349218d3b091c2696",
+        "updates": 999972,
+        "venue": "okx"
+      }
+    },
+    {
+      "directory": "data/okx/research-capacity/46931e29-7462-4bba-a806-312a58c57fe3",
+      "request": {
+        "config": {
+          "base_currency": "BTC",
+          "day": "2026-09-22",
+          "duration_seconds": 300,
+          "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+          "max_bytes": 300000000,
+          "max_expanded_bytes": 2000000000,
+          "max_line_bytes": 1000000,
+          "max_records": 1000000,
+          "quote_currency": "USDT",
+          "retries": 1,
+          "symbol": "BTC-USDT",
+          "timeout_seconds": 30
+        },
+        "implementation_identity": "81c4584db810ef3090b10150849296efe508c52763497f26fe1efea6c32ceba7",
+        "index_received": "2026-09-27T12:43:41.259704Z",
+        "index_sha256": "7169d2c3fce57020a812bc4d2c7826cc306bc151ac038e8723919823f0fd6248",
+        "url": "https://static.okx.com/cdn/okx/match/orderbook/pro/L2/400lv/daily/20260922/BTC-USDT-L2orderbook-400lv-2026-09-22.tar.gz"
+      },
+      "summary": {
+        "archive_directory": "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/okx/research-capacity/46931e29-7462-4bba-a806-312a58c57fe3",
+        "book_identity": "82f83c0ed85495f128480f4137599f4460def28f61e67134551acc835fa53578",
+        "continuity": "unproven_no_source_sequences",
+        "depth": 400,
+        "download_attempts": 1,
+        "download_received": "2026-09-27T12:43:44.861604+00:00",
+        "entire_archive_replayed": false,
+        "expanded_bytes": 865927168,
+        "first_source_ms": "1790035200005",
+        "gaps": null,
+        "index_identity": "7169d2c3fce57020a812bc4d2c7826cc306bc151ac038e8723919823f0fd6248",
+        "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+        "last_source_ms": "1790055158364",
+        "levels": 800,
+        "mode": "historical",
+        "orders": null,
+        "record_receipt_time": null,
+        "records": 1000000,
+        "representation": "L2",
+        "request_identity": "f88900ee55d6882036cfa21d573db84aa636e161a375dd00fbe2380b3e7fd6eb",
+        "saved_bytes": 128455024,
+        "saved_input_identity": "09ef7a16550fe04f0e288695a43a26baa7bce4a4b170d5d327414335701a832a",
+        "snapshots": 23,
+        "source_sequence": null,
+        "state_available": true,
+        "stop_reason": "record_limit",
+        "symbol": "BTC-USDT",
+        "trace_identity": "21c68b618adbf07cdd34292b7a46a9b2c3ecc4bd73b7250b79eaa58c7b9e4446",
+        "updates": 999977,
+        "venue": "okx"
+      }
+    },
+    {
+      "directory": "data/okx/research-capacity/4cd1d9c9-e809-4a49-aa9b-82940f6f328c",
+      "request": {
+        "config": {
+          "base_currency": "ETH",
+          "day": "2026-09-20",
+          "duration_seconds": 300,
+          "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+          "max_bytes": 300000000,
+          "max_expanded_bytes": 2000000000,
+          "max_line_bytes": 1000000,
+          "max_records": 1000000,
+          "quote_currency": "USDT",
+          "retries": 1,
+          "symbol": "ETH-USDT",
+          "timeout_seconds": 30
+        },
+        "implementation_identity": "81c4584db810ef3090b10150849296efe508c52763497f26fe1efea6c32ceba7",
+        "index_received": "2026-09-27T12:46:01.748528Z",
+        "index_sha256": "ba48977e6cf39962f1346dafca54a9cde3183677531e64874db6536dd579ba2a",
+        "url": "https://static.okx.com/cdn/okx/match/orderbook/pro/L2/400lv/daily/20260920/ETH-USDT-L2orderbook-400lv-2026-09-20.tar.gz"
+      },
+      "summary": {
+        "archive_directory": "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/okx/research-capacity/4cd1d9c9-e809-4a49-aa9b-82940f6f328c",
+        "book_identity": "c0921b38efc7aa68676539853f2f5ef4737e82bee5377bebcaa75d2c374409ea",
+        "continuity": "unproven_no_source_sequences",
+        "depth": 400,
+        "download_attempts": 1,
+        "download_received": "2026-09-27T12:46:04.509841+00:00",
+        "entire_archive_replayed": false,
+        "expanded_bytes": 640876544,
+        "first_source_ms": "1789862400001",
+        "gaps": null,
+        "index_identity": "ba48977e6cf39962f1346dafca54a9cde3183677531e64874db6536dd579ba2a",
+        "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+        "last_source_ms": "1789892746979",
+        "levels": 800,
+        "mode": "historical",
+        "orders": null,
+        "record_receipt_time": null,
+        "records": 1000000,
+        "representation": "L2",
+        "request_identity": "7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da",
+        "saved_bytes": 97973786,
+        "saved_input_identity": "d5d530e6ce635d0e92ba4cd6d280b0aa2f64e918f09e2822018ed061846e1ea3",
+        "snapshots": 34,
+        "source_sequence": null,
+        "state_available": true,
+        "stop_reason": "record_limit",
+        "symbol": "ETH-USDT",
+        "trace_identity": "85f8a5d2cbb7ba8d22df41d4b51a60bed0f8b1fb3d2c04862a8c7ed245136dff",
+        "updates": 999966,
+        "venue": "okx"
+      }
+    },
+    {
+      "directory": "data/okx/research-capacity/b0b4e31b-015a-45b8-8859-1ad2a3e93191",
+      "request": {
+        "config": {
+          "base_currency": "ETH",
+          "day": "2026-09-21",
+          "duration_seconds": 300,
+          "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+          "max_bytes": 300000000,
+          "max_expanded_bytes": 2000000000,
+          "max_line_bytes": 1000000,
+          "max_records": 1000000,
+          "quote_currency": "USDT",
+          "retries": 1,
+          "symbol": "ETH-USDT",
+          "timeout_seconds": 30
+        },
+        "implementation_identity": "81c4584db810ef3090b10150849296efe508c52763497f26fe1efea6c32ceba7",
+        "index_received": "2026-09-27T12:48:31.100090Z",
+        "index_sha256": "b7d97ec8c70f1bc8eb2d7de2486bc10dbf25a65f8c45cd1ed432e8e71f793e36",
+        "url": "https://static.okx.com/cdn/okx/match/orderbook/pro/L2/400lv/daily/20260921/ETH-USDT-L2orderbook-400lv-2026-09-21.tar.gz"
+      },
+      "summary": {
+        "archive_directory": "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/okx/research-capacity/b0b4e31b-015a-45b8-8859-1ad2a3e93191",
+        "book_identity": "dbf5b887c425299a26476bd2290ff1bac975f900f131c02a28e14312bc0713bc",
+        "continuity": "unproven_no_source_sequences",
+        "depth": 400,
+        "download_attempts": 1,
+        "download_received": "2026-09-27T12:48:35.994910+00:00",
+        "entire_archive_replayed": false,
+        "expanded_bytes": 1131675648,
+        "first_source_ms": "1789948800003",
+        "gaps": null,
+        "index_identity": "b7d97ec8c70f1bc8eb2d7de2486bc10dbf25a65f8c45cd1ed432e8e71f793e36",
+        "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+        "last_source_ms": "1789969757952",
+        "levels": 800,
+        "mode": "historical",
+        "orders": null,
+        "record_receipt_time": null,
+        "records": 1000000,
+        "representation": "L2",
+        "request_identity": "cdeb4523ec7b980834056571985971a60096211e4f5aece39912ac6319b26e1a",
+        "saved_bytes": 183966982,
+        "saved_input_identity": "cc4d013c9519ade2fcba7fc4a8b1f74394a66e49b1c0c76e54e979d5d03dc6a5",
+        "snapshots": 24,
+        "source_sequence": null,
+        "state_available": true,
+        "stop_reason": "record_limit",
+        "symbol": "ETH-USDT",
+        "trace_identity": "f505e1de795fa9c1e4c6515cab4805fb9f946e8aed29655d7b7023ad83d73856",
+        "updates": 999976,
+        "venue": "okx"
+      }
+    },
+    {
+      "directory": "data/okx/research-capacity/5d6f7b0b-c14a-425f-aacc-b999acccbb99",
+      "request": {
+        "config": {
+          "base_currency": "ETH",
+          "day": "2026-09-22",
+          "duration_seconds": 300,
+          "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+          "max_bytes": 300000000,
+          "max_expanded_bytes": 2000000000,
+          "max_line_bytes": 1000000,
+          "max_records": 1000000,
+          "quote_currency": "USDT",
+          "retries": 1,
+          "symbol": "ETH-USDT",
+          "timeout_seconds": 30
+        },
+        "implementation_identity": "81c4584db810ef3090b10150849296efe508c52763497f26fe1efea6c32ceba7",
+        "index_received": "2026-09-27T12:51:11.008592Z",
+        "index_sha256": "376130e966e6427e288e8f871b29fe59891be452471acdb4e7e86a45ba07a6b8",
+        "url": "https://static.okx.com/cdn/okx/match/orderbook/pro/L2/400lv/daily/20260922/ETH-USDT-L2orderbook-400lv-2026-09-22.tar.gz"
+      },
+      "summary": {
+        "archive_directory": "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/okx/research-capacity/5d6f7b0b-c14a-425f-aacc-b999acccbb99",
+        "book_identity": "765d40faf6ed908960a38747743980691ad80788f9e494269c3b1b38da53d6d3",
+        "continuity": "unproven_no_source_sequences",
+        "depth": 400,
+        "download_attempts": 1,
+        "download_received": "2026-09-27T12:51:16.204072+00:00",
+        "entire_archive_replayed": false,
+        "expanded_bytes": 802291712,
+        "first_source_ms": "1790035200009",
+        "gaps": null,
+        "index_identity": "376130e966e6427e288e8f871b29fe59891be452471acdb4e7e86a45ba07a6b8",
+        "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
+        "last_source_ms": "1790055566072",
+        "levels": 800,
+        "mode": "historical",
+        "orders": null,
+        "record_receipt_time": null,
+        "records": 1000000,
+        "representation": "L2",
+        "request_identity": "0ab45b760f62b4b979056b86a1ed8cdc2aa555903e5f4b765c244867b4c8e20b",
+        "saved_bytes": 125658961,
+        "saved_input_identity": "c699845732c74c2a0d2d03623a16b83e68156a14bb151c2da61498630bb38760",
+        "snapshots": 23,
+        "source_sequence": null,
+        "state_available": true,
+        "stop_reason": "record_limit",
+        "symbol": "ETH-USDT",
+        "trace_identity": "451058e0d72c91e841ccd962220440723e2779851a757c75466db14d27387fa3",
+        "updates": 999977,
+        "venue": "okx"
+      }
+    }
+  ],
+  "raw_evidence": [
+    {
+      "path": "logs/research-capacity/bounds-baseline.json",
+      "sha256": "262c1bc85e69c8f13341de7925671891c359d08d2186085bcde1a3659d22ac9c",
+      "bytes": 1370
+    },
+    {
+      "path": "logs/research-capacity/diagnostic-4320-final/measurement.json",
+      "sha256": "2421bf5349a0bd40fea54e59ef3a67f0cafbebc164f9ece38927e082ac948926",
+      "bytes": 1980
+    },
+    {
+      "path": "logs/research-capacity/diagnostic-4320-final/samples.jsonl",
+      "sha256": "0124bb38ff870dc01bf89d6ebcda723590e08c2ee15bba7c74a2838cb49f348f",
+      "bytes": 883784
+    },
+    {
+      "path": "logs/research-capacity/diagnostic-4320-first/samples.jsonl",
+      "sha256": "038941619b60adec0beba2fc8a8ef60bfdd4f9a0fc7be4a4d0dfc9cddd873d19",
+      "bytes": 885092
+    },
+    {
+      "path": "logs/research-capacity/diagnostic-4320-first.log",
+      "sha256": "e06fe032d478a113ee4dc2c39f31030ddbe7422caedc646f823e0612286c72f5",
+      "bytes": 1064
+    },
+    {
+      "path": "logs/research-capacity/native-okx-btc-eth-sep20-1000/summary.json",
+      "sha256": "a9dd517a1ef09afc807456457a2aee6554fd94d51c45b7153be71a50b0b4a812",
+      "bytes": 6054
+    },
+    {
+      "path": "logs/research-capacity/native-okx-btc-eth-sep20-1000/reopen.json",
+      "sha256": "e38cb24ba15901b1b351c2b5fca072d3ac22489f1cdc01797bb2a6442ca9dd96",
+      "bytes": 2753
+    },
+    {
+      "path": "logs/research-capacity/native-okx-btc-eth-sep20-1000/reopen-process.json",
+      "sha256": "a6c98c765596257989a33b495dbdc844f14662a966071e00f819825d43b23cae",
+      "bytes": 40
+    },
+    {
+      "path": "logs/research-capacity/native-eth-sep20-1000-a3/reopen-profile.pstats",
+      "sha256": "f07df92718a409d5505f2510d54a5e625ffa3e0a318485ec72a4dafa5f79c06f",
+      "bytes": 463661
+    },
+    {
+      "path": "logs/research-capacity/native-eth-sep20-1000-a3/reopen-profile-summary.txt",
+      "sha256": "010c681486188e2287a4f8443068925e164136e07153dc94acab91cbb0ebfb9b",
+      "bytes": 8352
+    },
+    {
+      "path": "logs/research-capacity/acquisition/attempts.jsonl",
+      "sha256": "2e174d558d2d648762f2954760e8a643fb7a7e9114f9e2a85d3b96c53ef68bc8",
+      "bytes": 5428
+    },
+    {
+      "path": "logs/research-capacity/scheduled-baseline/128-closes.json",
+      "sha256": "cb0eb84b2993373c6a1c0514f8b1e869c610a804998c2df868120a36bacd4425",
+      "bytes": 2575
+    },
+    {
+      "path": "logs/research-capacity/scheduled-baseline/128-closes.pstats",
+      "sha256": "0ae767d2be3ea44227935ab2786afc41570484877c6807721a96eb64992ff320",
+      "bytes": 37171
+    },
+    {
+      "path": "logs/research-capacity/scheduled-baseline/32-closes.json",
+      "sha256": "17f2c2f086b17ccd88976faaaa26015a1d98ec95ae2d142a7453bd3e384202df",
+      "bytes": 1193
+    },
+    {
+      "path": "logs/research-capacity/scheduled-baseline/32-closes.pstats",
+      "sha256": "4f75c861d3a3dff93c22d261f6c67b8c04cd5b4e743d89e129ac90d90d57a4bb",
+      "bytes": 49305
+    },
+    {
+      "path": "logs/research-capacity/scheduled-baseline/profile_scheduled.py",
+      "sha256": "b4fe6a202a90767dbf3fcabba3714cab3c59f7bb3081588090901c1781e857bc",
+      "bytes": 2896
+    },
+    {
+      "path": "logs/research-capacity/scheduled-after/128-closes.json",
+      "sha256": "77c5ed0d5ef071e03ca7cd881de5bb3b04b23ae984ccfabf08783668ac6c4009",
+      "bytes": 2498
+    },
+    {
+      "path": "logs/research-capacity/scheduled-after/128-closes.pstats",
+      "sha256": "b5463312bfe478327f4f6b0e03609683d73d4d38d50075ca88c6c85dbd35b549",
+      "bytes": 37404
+    },
+    {
+      "path": "logs/research-capacity/scheduled-after/32-closes.json",
+      "sha256": "bd9e49d608ad9de1c7e51f9a2ac82b9e178a23e2399d8b34b5770701d0535e78",
+      "bytes": 1160
+    },
+    {
+      "path": "logs/research-capacity/scheduled-after/32-closes.pstats",
+      "sha256": "a02905b319c202841b16ee4532629ec4d7665309882eb5c167183ea90e34c4cf",
+      "bytes": 49538
+    },
+    {
+      "path": "logs/research-capacity/scheduled-after/8192-closes.json",
+      "sha256": "1db9d2f4b9da1f874e12581e44e4f5308fc62fb0bf771753d63b4f3f3dbf0a31",
+      "bytes": 112769
+    },
+    {
+      "path": "logs/research-capacity/scheduled-after/8192-closes.pstats",
+      "sha256": "b81af5a51343858751ae312c9bd182ba20da50e844d9d8615de5b68d540f39c1",
+      "bytes": 49456
+    },
+    {
+      "path": "logs/research-capacity/scheduled-after/profile_scheduled.py",
+      "sha256": "292f3ae618c6f7e603a5a9bcba71879842a3159b391470b92e5b7d389b3533f7",
+      "bytes": 2905
+    },
+    {
+      "path": "data/okx/research-capacity/29345f35-92fc-4cc7-84b3-b51a5908aba5/summary.json",
+      "sha256": "718127d6059a2184637ef13e8d82a8bf13d47b5143192696dc54ace924eb9f1d",
+      "bytes": 1190
+    },
+    {
+      "path": "data/okx/research-capacity/29345f35-92fc-4cc7-84b3-b51a5908aba5/request.json",
+      "sha256": "c58dad1d4742c784933996a8ffaac74c41a41ec6de2b2927de69a9d06c272b28",
+      "bytes": 659
+    },
+    {
+      "path": "data/okx/research-capacity/29345f35-92fc-4cc7-84b3-b51a5908aba5/manifest.json",
+      "sha256": "4647401e14b2167a086726beba2fc7730293274193973687d47c94dfcd154cd0",
+      "bytes": 396
+    },
+    {
+      "path": "data/okx/research-capacity/29345f35-92fc-4cc7-84b3-b51a5908aba5/index.json",
+      "sha256": "ce7c53edbc50ccc9054f4fd2c70cc82926ffaf78d5e512edd75d94f1db5f1a24",
+      "bytes": 511
+    },
+    {
+      "path": "data/okx/research-capacity/46931e29-7462-4bba-a806-312a58c57fe3/summary.json",
+      "sha256": "4d2b0e01ac09bd09fc2a612ba815d0e8923cf30f5c98a99378effedfd323c5ca",
+      "bytes": 1189
+    },
+    {
+      "path": "data/okx/research-capacity/46931e29-7462-4bba-a806-312a58c57fe3/request.json",
+      "sha256": "f88900ee55d6882036cfa21d573db84aa636e161a375dd00fbe2380b3e7fd6eb",
+      "bytes": 659
+    },
+    {
+      "path": "data/okx/research-capacity/46931e29-7462-4bba-a806-312a58c57fe3/manifest.json",
+      "sha256": "86b634e968ee56797c88c54f9d471b2bac3877ca9974328fd86594d506fd4379",
+      "bytes": 396
+    },
+    {
+      "path": "data/okx/research-capacity/46931e29-7462-4bba-a806-312a58c57fe3/index.json",
+      "sha256": "7169d2c3fce57020a812bc4d2c7826cc306bc151ac038e8723919823f0fd6248",
+      "bytes": 508
+    },
+    {
+      "path": "data/okx/research-capacity/4cd1d9c9-e809-4a49-aa9b-82940f6f328c/summary.json",
+      "sha256": "2ca8d548729cb4cda7235007520c78ab52585d72845577eccab629f047f15b1f",
+      "bytes": 1188
+    },
+    {
+      "path": "data/okx/research-capacity/4cd1d9c9-e809-4a49-aa9b-82940f6f328c/request.json",
+      "sha256": "7c46aefd7610336325dd1677912754033728b73dfb669110b2ee0624d2b6e3da",
+      "bytes": 659
+    },
+    {
+      "path": "data/okx/research-capacity/4cd1d9c9-e809-4a49-aa9b-82940f6f328c/manifest.json",
+      "sha256": "5e9ef26725d1b29f414500a4fe76e1e17b0f48b77a9ed41f1472ac272ec9215c",
+      "bytes": 395
+    },
+    {
+      "path": "data/okx/research-capacity/4cd1d9c9-e809-4a49-aa9b-82940f6f328c/index.json",
+      "sha256": "ba48977e6cf39962f1346dafca54a9cde3183677531e64874db6536dd579ba2a",
+      "bytes": 508
+    },
+    {
+      "path": "data/okx/research-capacity/5d6f7b0b-c14a-425f-aacc-b999acccbb99/summary.json",
+      "sha256": "c846a99b9ac47e591bc7cd6ec33612f02290de5a05b0fdac0827cdcd9aa5cf89",
+      "bytes": 1189
+    },
+    {
+      "path": "data/okx/research-capacity/5d6f7b0b-c14a-425f-aacc-b999acccbb99/request.json",
+      "sha256": "0ab45b760f62b4b979056b86a1ed8cdc2aa555903e5f4b765c244867b4c8e20b",
+      "bytes": 659
+    },
+    {
+      "path": "data/okx/research-capacity/5d6f7b0b-c14a-425f-aacc-b999acccbb99/manifest.json",
+      "sha256": "355aa54ae1f77be013c875a65b742400b2f952b704d76c283d1741153473ec2e",
+      "bytes": 396
+    },
+    {
+      "path": "data/okx/research-capacity/5d6f7b0b-c14a-425f-aacc-b999acccbb99/index.json",
+      "sha256": "376130e966e6427e288e8f871b29fe59891be452471acdb4e7e86a45ba07a6b8",
+      "bytes": 511
+    },
+    {
+      "path": "data/okx/research-capacity/b0b4e31b-015a-45b8-8859-1ad2a3e93191/summary.json",
+      "sha256": "dadc4ca2fec4c5b13ac6d2e788afba500d9baf6692f1a860a596051d21e3a053",
+      "bytes": 1190
+    },
+    {
+      "path": "data/okx/research-capacity/b0b4e31b-015a-45b8-8859-1ad2a3e93191/request.json",
+      "sha256": "cdeb4523ec7b980834056571985971a60096211e4f5aece39912ac6319b26e1a",
+      "bytes": 659
+    },
+    {
+      "path": "data/okx/research-capacity/b0b4e31b-015a-45b8-8859-1ad2a3e93191/manifest.json",
+      "sha256": "b0096fd413f883aa172582f6d61ae4901b6e206a4461eed4aedc6dfa848cea40",
+      "bytes": 396
+    },
+    {
+      "path": "data/okx/research-capacity/b0b4e31b-015a-45b8-8859-1ad2a3e93191/index.json",
+      "sha256": "b7d97ec8c70f1bc8eb2d7de2486bc10dbf25a65f8c45cd1ed432e8e71f793e36",
+      "bytes": 511
+    },
+    {
+      "path": "data/okx/research-capacity/d2bd2f51-400e-4c23-843f-f317f0ff3457/summary.json",
+      "sha256": "b41c181303f73fa094c388828e6ee215c228ab20e759d6301f71c8364046594b",
+      "bytes": 1188
+    },
+    {
+      "path": "data/okx/research-capacity/d2bd2f51-400e-4c23-843f-f317f0ff3457/request.json",
+      "sha256": "6fd14180744d3e14d64fc6edab850eaf3209d0b1c10bd78bdaf3d7e0a84cd5a8",
+      "bytes": 659
+    },
+    {
+      "path": "data/okx/research-capacity/d2bd2f51-400e-4c23-843f-f317f0ff3457/manifest.json",
+      "sha256": "d17bc54e15559bc3b388fa67d29bc9fd43ba202f421346f8d284d59a2b1a6720",
+      "bytes": 395
+    },
+    {
+      "path": "data/okx/research-capacity/d2bd2f51-400e-4c23-843f-f317f0ff3457/index.json",
+      "sha256": "cd6e2f0ff2df1208d72387d8ecad6c957b505153a2210e1d7f7a690c937a9ad6",
+      "bytes": 508
+    },
+    {
+      "path": "logs/research-capacity/scheduled-final/128-closes-final/measurement.json",
+      "sha256": "a898d288f9a0e239526a6f05396212949cd2eb9998acd756a570c92a57d61a23",
+      "bytes": 1898
+    },
+    {
+      "path": "logs/research-capacity/scheduled-final/128-closes-final/samples.jsonl",
+      "sha256": "2a26299102d7c8363c0fa2ab3f5a987c9bc9f83ca445716c398fc50184c8cc5f",
+      "bytes": 7718
+    },
+    {
+      "path": "logs/research-capacity/scheduled-final/8192-closes-final/measurement.json",
+      "sha256": "85a95dd90ce583f1588ef8ded2a609dca11d53981e467b549ffb16c0b3ebe517",
+      "bytes": 1955
+    },
+    {
+      "path": "logs/research-capacity/scheduled-final/8192-closes-final/samples.jsonl",
+      "sha256": "8292ffdb58f0b7ae98f4e1fa4e5e5767fa636ccce1aba8a260a4a46b736fae21",
+      "bytes": 499645
+    },
+    {
+      "path": "logs/research-capacity/scheduled-final/128-installed/measurement.json",
+      "sha256": "446f653e77108cac14e24bf1f86437e20944b2a1a47e3359cfa2be36056e48c7",
+      "bytes": 1920
+    },
+    {
+      "path": "logs/research-capacity/scheduled-final/128-installed/samples.jsonl",
+      "sha256": "ac0706bceb3214e8703f63279fb2df30b891d58d4d41f2f9edc3dc70c8719a42",
+      "bytes": 7717
+    },
+    {
+      "path": "logs/research-capacity/scheduled-final/8192-installed/measurement.json",
+      "sha256": "c0ea31cef30d1ab639e133af8ea9cdc2814f2afeb7108db399e61d1c1c80326a",
+      "bytes": 1947
+    },
+    {
+      "path": "logs/research-capacity/scheduled-final/8192-installed/samples.jsonl",
+      "sha256": "da110d267a5300c1bd1a02c840377cd76f9af0e821ae98f662430526ab0e7a66",
+      "bytes": 499764
+    },
+    {
+      "path": "logs/research-capacity/focused-invalid-path.log",
+      "sha256": "f6f3a2b49e5df2b197c5a64dc4e991909dc7ffa6c9b90f8c5778cb42a04ba50f",
+      "bytes": 228
+    },
+    {
+      "path": "logs/research-capacity/focused-final.log",
+      "sha256": "f74dbbdc4e2d5e03b52ced32a5463e55513e0c1f7ae4eae4f83245b84e70a5a9",
+      "bytes": 100
+    },
+    {
+      "path": "logs/research-capacity/performance-final.log",
+      "sha256": "2841ee61ce1f99a07a92d7a2ba1d4f37fb997d6bc8bf91f59f0a2da9352f9bb7",
+      "bytes": 170
+    },
+    {
+      "path": "logs/research-capacity/feast-integration-final.log",
+      "sha256": "1535152f33a2daa4c59a55e9d2dc2858cfc2efcc9073826f984988b705f663ee",
+      "bytes": 113
+    },
+    {
+      "path": "logs/research-capacity/diagnostic-4320-verified/measurement.json",
+      "sha256": "69b03df07f44b7c3bb91436772a57e279a04ba4381b6badf8af5722a02678a40",
+      "bytes": 1999
+    },
+    {
+      "path": "logs/research-capacity/diagnostic-4320-verified/samples.jsonl",
+      "sha256": "92686603ff6d75081fcc02937eb0bb6a08093b463575bcc3cec3519688fe88f9",
+      "bytes": 883913
+    },
+    {
+      "path": "logs/research-capacity/diagnostic-4320-installed/measurement.json",
+      "sha256": "13a4574206a391306c9b5c418b792ebfb6fd94325e2ec78fa9cacb1cf113c32d",
+      "bytes": 2005
+    },
+    {
+      "path": "logs/research-capacity/diagnostic-4320-installed/samples.jsonl",
+      "sha256": "b05e82412e37ec467aef11fc6070a03a13054dc6077ddeffc236ad084d117a0d",
+      "bytes": 884269
+    },
+    {
+      "path": "logs/research-capacity/make-check-final.log",
+      "sha256": "8d270cc03c17b85ca4bb9b1b62642efd12f3322963d6ad906145af568eb42c23",
+      "bytes": 10714
+    }
+  ],
+  "workspace_logical_bytes": {
+    "diagnostic-4320-installed": 341507721,
+    "diagnostic-4320-installed-backup": 337159081,
+    "diagnostic-4320-installed-restored": 337128786
+  },
+  "environment": {
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "python": "3.14.7 (main, Aug 25 2026, 13:50:14) [Clang 22.1.3 ]",
+    "core_interpreter": "/private/tmp/research-capacity-final/bin/python",
+    "core_packages": {
+      "numpy": "2.4.6",
+      "pandas": "3.0.5",
+      "pyarrow": "absent from core environment",
+      "msgspec": "0.21.1",
+      "clearml": "2.1.12",
+      "feast": "absent from core environment"
+    },
+    "worker_packages": {
+      "feast": "0.66.0",
+      "pandas": "2.3.3",
+      "numpy": "2.5.3",
+      "pyarrow": "25.0.1"
+    }
+  },
+  "source_and_lock_sha256": {
+    "uv.lock": "c63e5a4dc2b85800dbd179dd2ce4c48e6c50ab41ae4fff13d20c9da8fa3647f6",
+    "pyproject.toml": "39a4f1c852d7c706a2db73c94c53bcbd0b5730255965c4b6341110da73876251",
+    "configs/development/research-worker/uv.lock": "e226f5ec3a3532c15edac64828cb042398c7a2c06de1a74818336f68f79968bb",
+    "configs/development/research-worker/pyproject.toml": "6368548662f25bdb6677436e19d1c9b8db0befb1ff8cef23934473ad14b10301",
+    "tests/integration/consumers/research/capacity_workload.py": "84cdabbea61654fc592f6ea25a38a589d8d556829cc9733275cda08c27860d32",
+    "tests/integration/consumers/research/archive_capacity.py": "af89550ccf6560e34381c447a2befb2b16ec18a19d94b987e3586a7b15e161b6",
+    "src/research/features/scheduled.py": "841a823c20a8d46edf16770e18d14430cd4b434cea736312b21d1a3d836492dd",
+    "src/research/studies/decision_studies.py": "2670f807ba9605b6926488383e687a97192110183c67558bb91ab67e09d94fd1",
+    "src/research/studies/reports.py": "43ee0f85df0da460a70ef6386ec1a38416bd7b568678228f806f4681258649f0",
+    "src/research/exploration/feature_study.py": "50a6409bc6e0ce848738d6e43682ea65f5d7910aeab0c6469918497f21daaa99",
+    "src/research/results/feature_study.py": "22c6ce7a200fb2f1ba5d95f01b3e332c8964e55c3f0d1ea37f4905fdd0ccdda8",
+    "tests/integration/consumers/research/scheduled_capacity.py": "7198af32871f4de7a6259f88905c61d748adc3cede827902ef2a27416ddcfcce"
+  },
+  "physical_allocation_kib_observed": {
+    "native_source": 1494016,
+    "synthetic_workspace": 168184,
+    "backup": 329584,
+    "restore": 329552
+  },
+  "scheduled_installed_final": [
+    {
+      "admitted_query_history_rows": 3,
+      "attempted_close": 128,
+      "authored_correction_count": 1,
+      "authored_native_occurrences": 4,
+      "cache_condition": "fresh process and reader; OS page cache uncontrolled",
+      "cadence_seconds": 10,
+      "canonical_sha256": "e6d007df71da6f7cf9b813166910acb0364b668b1c725c50c0cbe10d3b1c9c2d",
+      "catalog_sha256": "524ff37b95e5d07657a4cabff49579cbb3f11c5e0de905c36e86bf38e814332a",
+      "completed_closes": 128,
+      "config_identity": "c5a960a859f5d610b6e545d805fc5338e0ccbacdb67af31d4b48b8bfc14d2a5a",
+      "consumer_sha256": "7198af32871f4de7a6259f88905c61d748adc3cede827902ef2a27416ddcfcce",
+      "count": 128,
+      "cpu_system_seconds": 0.01909899999999999,
+      "cpu_user_seconds": 0.07384399999999999,
+      "elapsed_total_seconds": 0.094147083,
+      "eligibility_sha256": "805010ed176f759785de3a0f441b56411edf6ba11d527a85269f28cbd467a27a",
+      "expected_query_history_rows": 3,
+      "implementation_sha256": "1eb9368ebf76697f2acb8b36f90890b351b132e2ec6b062f766c9a20722a050b",
+      "input_blocks_delta": 0,
+      "job_config_sha256": "cbbda41513b34530118982194372a1ea09e22d1800a37e7c654a6b3872b0b3ab",
+      "output_blocks_delta": 0,
+      "peak_rss_bytes": 53297152,
+      "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+      "profiler_active": false,
+      "python": "3.14.7 (main, Aug 25 2026, 13:50:14) [Clang 22.1.3 ]",
+      "quality_scope": "exploratory_degraded",
+      "query_reader_identity": "b5548bfc93fb3b19a400ff8f1f02fd6e0acb7473c975cf479a77780d10164ded",
+      "reason": "",
+      "representative_acceptance": false,
+      "scheduled_interval_end": "2024-06-01T00:21:30Z",
+      "scope": "three-query-row synthetic diagnostic; not representative acceptance",
+      "source_interval_end": "2024-06-01T00:01:00Z",
+      "source_request_identity": "005baf8108798adb3a80450eed2a4cef9554a0e26115d0e3c89b259a514187f8",
+      "status": "complete",
+      "values_sha256": "7c6bd86f7f7e87cf88d6076270626203d8d0ef69a27fd3705cf58f75a864ecec",
+      "warm_close_count": 127,
+      "warm_close_max_seconds": 0.003615458,
+      "warm_close_min_seconds": 5.8041e-05,
+      "warm_close_total_seconds": 0.013029879,
+      "warm_nearest_rank_seconds": null
+    },
+    {
+      "admitted_query_history_rows": 3,
+      "attempted_close": 8192,
+      "authored_correction_count": 1,
+      "authored_native_occurrences": 4,
+      "cache_condition": "fresh process and reader; OS page cache uncontrolled",
+      "cadence_seconds": 10,
+      "canonical_sha256": "e6d007df71da6f7cf9b813166910acb0364b668b1c725c50c0cbe10d3b1c9c2d",
+      "catalog_sha256": "524ff37b95e5d07657a4cabff49579cbb3f11c5e0de905c36e86bf38e814332a",
+      "completed_closes": 8192,
+      "config_identity": "c8bcdd3fd1ab371e0bc97ecdba4c285682d1420416ecc05cdc0814fb7f67c010",
+      "consumer_sha256": "7198af32871f4de7a6259f88905c61d748adc3cede827902ef2a27416ddcfcce",
+      "count": 8192,
+      "cpu_system_seconds": 0.442835,
+      "cpu_user_seconds": 0.895028,
+      "elapsed_total_seconds": 1.374732,
+      "eligibility_sha256": "805010ed176f759785de3a0f441b56411edf6ba11d527a85269f28cbd467a27a",
+      "expected_query_history_rows": 3,
+      "implementation_sha256": "1eb9368ebf76697f2acb8b36f90890b351b132e2ec6b062f766c9a20722a050b",
+      "input_blocks_delta": 0,
+      "job_config_sha256": "cbbda41513b34530118982194372a1ea09e22d1800a37e7c654a6b3872b0b3ab",
+      "output_blocks_delta": 0,
+      "peak_rss_bytes": 57769984,
+      "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+      "profiler_active": false,
+      "python": "3.14.7 (main, Aug 25 2026, 13:50:14) [Clang 22.1.3 ]",
+      "quality_scope": "exploratory_degraded",
+      "query_reader_identity": "b5548bfc93fb3b19a400ff8f1f02fd6e0acb7473c975cf479a77780d10164ded",
+      "reason": "",
+      "representative_acceptance": false,
+      "scheduled_interval_end": "2024-06-01T22:45:30Z",
+      "scope": "three-query-row synthetic diagnostic; not representative acceptance",
+      "source_interval_end": "2024-06-01T00:01:00Z",
+      "source_request_identity": "005baf8108798adb3a80450eed2a4cef9554a0e26115d0e3c89b259a514187f8",
+      "status": "complete",
+      "values_sha256": "420c56f8c6776ad69a1c5667f1d1f5c86286d826a885f642e096a2c1d434f59f",
+      "warm_close_count": 8191,
+      "warm_close_max_seconds": 0.004028292,
+      "warm_close_min_seconds": 5.9875e-05,
+      "warm_close_total_seconds": 0.722087592,
+      "warm_nearest_rank_seconds": {
+        "50": 8.4417e-05,
+        "95": 0.000118416,
+        "99": 0.000185667
+      }
+    }
+  ],
+  "scheduled_input_paths": [
+    "configs/data-jobs/fixture-inspection.json",
+    "configs/reference/binance-spot.json",
+    "tests/fixtures/eligibility/membership-corrections.json"
+  ],
+  "baseline_scheduled_source_sha256": "bb57d14e1f5ef45321d6e09f6555ad4891b7bf4fca80e76a5abbe4889f04f683",
+  "synthetic_prior_completed": {
+    "cache": "fresh application/store; OS page cache uncontrolled; PIT queries warm",
+    "child_peak_rss_bytes": 208240640,
+    "consumer_sha256": "9e9ddc33fb934dfa38dbca982728dfa53c9260da2ef2c87e7f307486bd45d695",
+    "cpu_system_seconds": 11.256408,
+    "cpu_user_seconds": 102.721802,
+    "disk_bytes": 341502741,
+    "elapsed_seconds": 114.5005001249956,
+    "implementation": "1eb9368ebf76697f2acb8b36f90890b351b132e2ec6b062f766c9a20722a050b",
+    "os_block_io": "unavailable as byte measurements on Darwin",
+    "reason": "",
+    "representative_acceptance": false,
+    "scope": "synthetic-diagnostic",
+    "self_peak_rss_bytes": 560988160,
+    "stages": {
+      "backup-restore-equivalence": {
+        "count": 1,
+        "max_seconds": 34.4304237079341,
+        "min_seconds": 34.4304237079341,
+        "percentiles_seconds": null,
+        "total_seconds": 34.4304237079341
+      },
+      "feature-materialization-with-feast": {
+        "count": 1,
+        "max_seconds": 27.181907666032203,
+        "min_seconds": 27.181907666032203,
+        "percentiles_seconds": null,
+        "total_seconds": 27.181907666032203
+      },
+      "feature-reopen": {
+        "count": 1,
+        "max_seconds": 0.0005717920139431953,
+        "min_seconds": 0.0005717920139431953,
+        "percentiles_seconds": null,
+        "total_seconds": 0.0005717920139431953
+      },
+      "injected-ack-loss": {
+        "count": 1,
+        "max_seconds": 16.28323537495453,
+        "min_seconds": 16.28323537495453,
+        "percentiles_seconds": null,
+        "total_seconds": 16.28323537495453
+      },
+      "pit-retrieval": {
+        "count": 8640,
+        "max_seconds": 0.003501957980915904,
+        "min_seconds": 0.00019583303947001696,
+        "percentiles_seconds": {
+          "50": 0.00026833300944417715,
+          "95": 0.00044708303175866604,
+          "99": 0.0005888750310987234
+        },
+        "total_seconds": 2.5157655075890943
+      },
+      "report-and-result-reopen": {
+        "count": 4,
+        "max_seconds": 3.37672612501774,
+        "min_seconds": 2.9589901249855757,
+        "percentiles_seconds": null,
+        "total_seconds": 13.02847954200115
+      },
+      "study-worker": {
+        "count": 5,
+        "max_seconds": 16.34321312501561,
+        "min_seconds": 3.288213500054553,
+        "percentiles_seconds": null,
+        "total_seconds": 68.52844954200555
+      },
+      "two-worker-wave": {
+        "count": 2,
+        "max_seconds": 19.62287079100497,
+        "min_seconds": 16.35974166705273,
+        "percentiles_seconds": null,
+        "total_seconds": 35.9826124580577
+      }
+    },
+    "status": "complete"
+  },
+  "synthetic_final_command": {
+    "cwd": "/private/tmp",
+    "argv": [
+      "/private/tmp/research-capacity-final/bin/python",
+      "-I",
+      "/private/tmp/research-capacity-consumers/capacity_workload.py",
+      "--output",
+      "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/logs/research-capacity/diagnostic-4320-installed",
+      "--worker-python",
+      "/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/configs/development/research-worker/.venv/bin/python",
+      "--decisions",
+      "4320"
+    ]
+  },
+  "native_evidence_reuse": "Publication/query/replay implementations are unchanged; native measurements used the retained installed baseline. The final consumer only moves implementation verification from its constructor to main, before all timed operations.",
+  "physical_allocation_attempt": "diagnostic-4320-installed",
+  "validation_commands": {
+    "focused": "UV_PROJECT_ENVIRONMENT=/private/tmp/research-capacity-check TMPDIR=/private/tmp uv run --frozen --no-editable pytest -q tests/unit/research/test_scheduled_features.py tests/unit/simulation/test_scheduled_parity.py tests/unit/research/test_capacity_bounds.py tests/unit/research/test_features.py tests/unit/research/test_decision_contracts.py tests/unit/research/test_study_reports.py",
+    "performance": "UV_PROJECT_ENVIRONMENT=/private/tmp/research-capacity-check TMPDIR=/private/tmp make performance-test",
+    "real_feast": "ALPHA_FEAST_WORKER_PYTHON='<repository>/configs/development/research-worker/.venv/bin/python' UV_PROJECT_ENVIRONMENT=/private/tmp/research-capacity-check TMPDIR=/private/tmp uv run --frozen --no-editable pytest -q -m integration tests/unit/research/test_feast_serving.py tests/integration/test_candidate_workflow.py",
+    "repository": "UV_PROJECT_ENVIRONMENT=/private/tmp/research-capacity-check TMPDIR=/private/tmp make check"
+  },
+  "validation_results": {
+    "focused": {
+      "passed": 43,
+      "seconds": 13.95
+    },
+    "performance": {
+      "passed": 3,
+      "deselected": 1809,
+      "seconds": 4.24
+    },
+    "real_feast": {
+      "passed": 3,
+      "deselected": 1,
+      "seconds": 58.04
+    },
+    "repository": {
+      "status": "passed",
+      "pytest_passed": 1807,
+      "pytest_skipped": 2,
+      "pytest_deselected": 3,
+      "pytest_seconds": 242.75,
+      "skip_reason": "two optional real Feast checks; passed separately with explicit worker",
+      "wheel_smoke": "passed"
+    }
+  },
+  "verified_wheel": {
+    "path": "/private/tmp/alpha-research-wheel-smoke-if43an7s/wheels/alpha_research_lab-0.1.0-py3-none-any.whl",
+    "sha256": "0653f7f291415855a43be5ff172b48c7d555c5da9173a5668c61d35bebe3192a",
+    "bytes": 1019984
+  },
+  "working_branch": "codex/mr15-research-capacity",
+  "source_baseline": "9106a48ea5df2d1d930a60952916d662a02d0fcc"
+}

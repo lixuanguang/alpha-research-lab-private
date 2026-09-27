@@ -33,7 +33,10 @@ class BenchmarkPeriod(WireRecord, frozen=True):
 
 
 class ReportPolicy(WireRecord, frozen=True):
-    """Declare reporting assumptions without implicit downloads or date alignment."""
+    """Declare aligned reporting assumptions and up to 8,192 supplied benchmark periods.
+
+    No data is downloaded or dates aligned implicitly.
+    """
 
     benchmark_name: str
     benchmark: tuple[BenchmarkPeriod, ...]
@@ -58,10 +61,10 @@ class ReportPolicy(WireRecord, frozen=True):
             or self.cadence_seconds <= 0
             or type(self.periods_per_year) is not int
             or not 1 <= self.periods_per_year <= 31_622_400
-            or type(self.benchmark) is not tuple
-            or not 1 <= len(self.benchmark) <= 1024
         ):
             raise ValueError("unsupported report policy")
+        if type(self.benchmark) is not tuple or not 1 <= len(self.benchmark) <= 8192:
+            raise ValueError("report benchmark must be an immutable tuple of 1 to 8192 periods")
         if type(self.annual_risk_free) is not ExactRatio:
             raise TypeError("risk-free assumption requires an exact ratio")
         self.annual_risk_free.__post_init__()

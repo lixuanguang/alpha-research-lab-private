@@ -53,6 +53,8 @@ class TestScheduledParity(ReplayInputs):
                 parity.batch,
                 values=short,
                 values_sha256=hashlib.sha256(CODEC.encode_json(short)).hexdigest(),
+                cursor=None,
+                observation_state=None,
             ),
         )
         assert not rejected.is_equal

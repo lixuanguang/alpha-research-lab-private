@@ -19,7 +19,7 @@ class FeatureStudyResult(WireRecord, frozen=True, kw_only=True):
     The producer, model admission boundary and reporting adapters share this
     closed ``feature-study-result-v1`` schema.  Model-specific checks remain at
     the model boundary; this class only owns the common wire shape and
-    feature/label/sample invariants.
+    feature/label/sample invariants. One to 16,384 aligned feature rows may be retained.
     """
 
     schema_version: Literal["feature-study-result-v1"]
@@ -50,8 +50,8 @@ class FeatureStudyResult(WireRecord, frozen=True, kw_only=True):
         feature_ids = self._validate_features()
         label_ids = self._validate_labels()
         sample_ids = self._validate_samples()
-        if not 1 <= len(feature_ids) <= 1024:
-            raise ValueError("feature-study result must contain 1 to 1024 rows")
+        if not 1 <= len(feature_ids) <= 16_384:
+            raise ValueError("feature-study result must contain 1 to 16384 rows")
         if set(label_ids) - set(feature_ids) or set(sample_ids) != set(feature_ids):
             raise ValueError("feature, label and sample row identities are not aligned")
         if self.label_definition is None and label_ids:
