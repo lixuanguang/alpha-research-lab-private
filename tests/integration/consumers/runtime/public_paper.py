@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import socket
+import tempfile
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -22,13 +24,13 @@ from msgspec.structs import replace
 from accounting import (
     AccountLedger,
     AccountSnapshot,
-    AttributedPaperFill,
-    PaperAccountReporter,
-    PaperCostEvidence,
-    PaperGasPolicy,
-    PaperPositionMark,
 )
-from applications.paper import run_live_shared_paper
+from applications.paper import (
+    PaperMonitoringInput,
+    PaperMonitoringResult,
+    render_paper_monitoring,
+    run_live_shared_paper,
+)
 from configuration import (
     AccountConfiguration,
     BookRegistryConfiguration,
@@ -39,6 +41,7 @@ from configuration import (
 from execution import (
     AccountJournal,
     AccountObservation,
+    AccountPaperTrace,
     AccountQuote,
     OrderState,
     PaperMarket,
@@ -75,6 +78,7 @@ from runtime import (
 )
 from serialization import DomainCodec
 from strategies import DecisionContext, DecisionTransition, OrderIntent
+from telemetry import DashboardSnapshot, MonitoringQuery, TelemetryStore
 
 
 class FixedOpeningClip:
@@ -536,7 +540,7 @@ class PublicPaperWorkload:
         assert journal.reconcile(expected)
         return expected
 
-    async def run(self, output: Path) -> dict[str, object]:
+    async def run(self, output: Path, *, alert_socket: str) -> dict[str, object]:
         """Run the installed workflow, independently reconcile and replay exact retained inputs."""
         config, bindings = self.account_config(), self.bindings()
         request = CaptureRequest(
@@ -559,9 +563,12 @@ class PublicPaperWorkload:
             output=output / "run",
             observations=(self.opening(),),
             transport=None if self.live else ScriptedPublicFeed(self.frames()),
+            alert_socket=alert_socket,
         )
+        assert not result.monitoring.errors, result.monitoring
+        self.verify_monitoring(output, result.monitoring)
         journal = AccountJournal(path, config)
-        fills, costs = journal.paper_report_facts("paper")
+        fills, _ = journal.paper_report_facts("paper")
         snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
         market = result.last_market
         if market is None:
@@ -592,38 +599,7 @@ class PublicPaperWorkload:
                 assert item.fill.fee == self.money(str(expected_fee / len(self.names)))
         expected = self.reconcile(journal, result.paper.decisions)
         (output / "reconciliation.json").write_bytes(self.codec.encode_json(expected))
-        cutoff = datetime.now(UTC)
-        report = PaperAccountReporter().build(
-            journal.accounts()[0].ledger,
-            cutoff=cutoff,
-            max_mark_age=timedelta(seconds=5),
-            marks=()
-            if not snapshot.positions
-            else (
-                PaperPositionMark(
-                    identity=market.identity, available_at=market.at, price=market.bid
-                ),
-            ),
-            fills=tuple(
-                AttributedPaperFill(
-                    instance_id=item.instance_id, order_id=item.order_id, fill=item.fill
-                )
-                for item in fills
-            ),
-            costs=tuple(
-                PaperCostEvidence(
-                    source_fill_id=item.source_fill_id,
-                    posting_id=item.posting_id,
-                    amount=item.amount,
-                )
-                for item in costs
-            ),
-            gas_policy=PaperGasPolicy(
-                scenario_id=self.scenario.identity,
-                applicable=False,
-                reason=self.scenario.gas_inapplicable_reason,
-            ),
-        )
+        report = result.report
         # Fixed fixture economics are independent of the production accounting/report path.
         if not self.live:
             expected_pnl = (
@@ -673,9 +649,189 @@ class PublicPaperWorkload:
             "restart_replay_equal": True,
             "submission_attempted": False,
             "no_trade": self.no_trade,
+            "monitoring_reconciled": True,
+            "monitoring_dashboards": result.monitoring.dashboards,
         }
+        if (
+            not self.live
+            and not self.no_trade
+            and len(self.names) == 2
+            and self.scenario.adverse.value == Decimal("0.50")
+        ):
+            await self.verify_new_capture(output, config, journal)
+            summary["new_capture_receipts_isolated"] = True
         (output / "summary.json").write_bytes(self.codec.encode_json(summary))
         return summary
+
+    async def verify_new_capture(
+        self, output: Path, config: AccountConfiguration, journal: AccountJournal
+    ) -> None:
+        """A new capture keeps old lifecycle receipt/source bytes and cumulative economics."""
+        original = (output / "run/monitoring-input.json").read_bytes()
+        prior = PaperMonitoringInput.read(output / "run/monitoring-input.json")
+        request = CaptureRequest(
+            config=self.capture,
+            recording_id=str(uuid4()),
+            implementation_identity=ImplementationIdentity.sha256(),
+        )
+        resumed = await run_live_shared_paper(
+            config,
+            account_id="paper",
+            bindings=self.bindings(),
+            scenario=self.scenario,
+            requirement=self.requirement,
+            inputs=self,
+            request=request,
+            journal_path=journal.path,
+            output=output / "resumed",
+            transport=ScriptedPublicFeed(self.frames()),
+        )
+        assert not resumed.monitoring.errors
+        later = PaperMonitoringInput.read(output / "resumed/monitoring-input.json")
+        old_samples = {
+            event.sample for event in prior.events if event.name.startswith("execution.event.")
+        }
+        assert old_samples
+        assert not old_samples.intersection(
+            event.sample for event in later.events if event.name.startswith("execution.event.")
+        )
+        assert all(event.context.source == request.identity for event in later.events)
+        assert original == (output / "run/monitoring-input.json").read_bytes()
+        original_net = next(
+            event.value
+            for event in prior.events
+            if event.context.scope == "account:paper"
+            and event.name == f"paper.net_pnl.{self.currency.code}"
+        )
+        new_net = next(
+            event.value
+            for event in later.events
+            if event.context.scope == "account:paper"
+            and event.name == f"paper.net_pnl.{self.currency.code}"
+        )
+        assert original_net == new_net
+
+    def verify_monitoring(self, output: Path, status: PaperMonitoringResult) -> None:
+        """Reconcile retained dashboard values to independent source-event economics."""
+        saved = PaperMonitoringInput.read(output / "run/monitoring-input.json")
+        views = tuple(
+            DashboardSnapshot.read(output / "run/monitoring" / name) for name in status.dashboards
+        )
+        results = {
+            (view.query.scope, result.spec.name): result
+            for view in views
+            for result in view.results
+        }
+        account_scope = "account:paper"
+        traces = msgspec.json.decode(
+            (output / "run/execution-traces.json").read_bytes(),
+            type=tuple[AccountPaperTrace, ...],
+            dec_hook=self.codec.decode_domain,
+        )
+        fills = tuple(
+            event.fill
+            for trace in traces
+            for event in trace.physical_events
+            if event.fill is not None
+        )
+        quantity = sum((Fraction(fill.quantity.value) for fill in fills), Fraction(0))
+        notional = sum(
+            (Fraction(fill.quantity.value) * Fraction(fill.effective.value) for fill in fills),
+            Fraction(0),
+        )
+        fees = sum((Fraction(fill.fee.value) for fill in fills), Fraction(0))
+        slip = sum(
+            (
+                Fraction(fill.quantity.value)
+                * (Fraction(fill.effective.value) - Fraction(fill.reference.value))
+                for fill in fills
+            ),
+            Fraction(0),
+        )
+        mark = traces[-1].market.bid.value
+        cash = Fraction(100000) - notional - fees
+        net = cash + quantity * Fraction(mark) - 100000
+        expected = {
+            f"account.cash.{self.currency.code}": cash,
+            f"paper.fees.{self.currency.code}": fees,
+            f"paper.slippage.{self.currency.code}": slip,
+            f"paper.net_pnl.{self.currency.code}": net,
+            f"paper.gross_pnl.{self.currency.code}": net + fees + slip,
+            f"account.position.{self.dimension.instrument_id}": quantity,
+        }
+        for name, amount in expected.items():
+            result = results[(account_scope, name)]
+            assert result.status == "ok" and result.value == ExactRatio.from_fraction(amount), (
+                name,
+                result,
+                amount,
+            )
+            assert result.spec.aggregation == "last"
+        for name in (
+            f"paper.fees.{self.currency.code}",
+            f"paper.net_pnl.{self.currency.code}",
+            f"paper.slippage.{self.currency.code}",
+        ):
+            owned = tuple(
+                results[(f"account:paper:strategy:{instance}", name)].value
+                for instance in self.names
+            )
+            assert all(value is not None for value in owned)
+            assert (
+                sum(
+                    (
+                        Fraction(int(value.numerator), int(value.denominator))
+                        for value in owned
+                        if value is not None
+                    ),
+                    Fraction(0),
+                )
+                == expected[name]
+            )
+        assert results[(account_scope, "paper.gas_applicable")].value == ExactRatio.from_fraction(
+            Fraction(0)
+        )
+        drift = results[(account_scope, "data.source_clock_drift_seconds")]
+        assert drift.status == "missing" and all(
+            point.missing_reason == "not_measured" for point in drift.points
+        )
+        delay = results[(account_scope, "runtime.processing_seconds")]
+        assert delay.status == "ok" and delay.value is not None
+        first_receipt = min(event.recorded_at for event in saved.events)
+        start = min(event.at for event in saved.events) - timedelta(microseconds=1)
+        if first_receipt > start:
+            prior = first_receipt - timedelta(microseconds=1)
+            assert (
+                TelemetryStore(output / "run/monitor.sqlite3").query(
+                    MonitoringQuery(
+                        scope=account_scope, mode="paper", start=start, end=prior, as_of=prior
+                    )
+                )
+                == ()
+            )
+        assert saved.source_clocks
+        assert any(clock.source_time is not None for clock in saved.source_clocks) == (
+            self.capture.venue == "okx"
+        )
+        (output / "monitoring-reconciliation.json").write_bytes(
+            self.codec.encode_json(
+                {
+                    "schema_version": "paper-dashboard-reconciliation-v1",
+                    "venue": self.capture.venue,
+                    "expected": {
+                        name: ExactRatio.from_fraction(amount) for name, amount in expected.items()
+                    },
+                    "dashboard_identities": tuple(view.identity for view in views),
+                    "input_sha256": hashlib.sha256(
+                        (output / "run/monitoring-input.json").read_bytes()
+                    ).hexdigest(),
+                    "economic_authority": (
+                        "committed physical source events; independent rational arithmetic"
+                    ),
+                    "exact": True,
+                }
+            )
+        )
 
     def replay(self, output: Path) -> dict[str, object]:
         """Reopen retained inputs in this fresh process and prove journal idempotence."""
@@ -772,9 +928,31 @@ class PublicPaperWorkload:
         if before != after:
             raise ValueError("fresh-process public replay changed retained account state")
         digests = {name: hashlib.sha256(value).hexdigest() for name, value in before.items()}
+        original_status = self.codec.decode_json(
+            (output / "run/monitoring/monitoring-status.json").read_bytes(), PaperMonitoringResult
+        )
+        configured_socket = next(
+            rule.address
+            for name in original_status.dashboards
+            for rule in DashboardSnapshot.read(output / "run/monitoring" / name).config.alerts
+        )
+        recovered = render_paper_monitoring(
+            output / "run/monitoring-input.json",
+            journal_path=output / "run/monitor.sqlite3",
+            output=output / "monitoring-reopened",
+            alert_socket=configured_socket,
+        )
+        assert not recovered.errors and recovered.inserted == 0, recovered
+        assert recovered.dashboards == original_status.dashboards
+        for name in recovered.dashboards:
+            assert DashboardSnapshot.read(
+                output / "run/monitoring" / name
+            ) == DashboardSnapshot.read(output / "monitoring-reopened" / name)
         verification: dict[str, object] = {
             "schema_version": "public-paper-replay-v1",
             "equal": True,
+            "monitoring_equal": True,
+            "monitoring_inserted": recovered.inserted,
             "deliveries_replayed": len(lines),
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
             "deliveries_sha256": hashlib.sha256(deliveries_bytes).hexdigest(),
@@ -832,7 +1010,51 @@ def main() -> None:
         dedicated=args.dedicated,
         reference_source=Path(__file__).read_bytes(),
     )
-    summary = workload.replay(output) if args.replay else asyncio.run(workload.run(output))
+    if args.replay:
+        summary = workload.replay(output)
+    else:
+        with tempfile.TemporaryDirectory(prefix="paper-alert-") as temporary:
+            address = str(Path(temporary) / "receiver.sock")
+            with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
+                receiver.bind(address)
+                receiver.settimeout(1)
+                summary = asyncio.run(workload.run(output, alert_socket=address))
+                status = DomainCodec().decode_json(
+                    (output / "run/monitoring/monitoring-status.json").read_bytes(),
+                    PaperMonitoringResult,
+                )
+                views = tuple(
+                    DashboardSnapshot.read(output / "run/monitoring" / name)
+                    for name in status.dashboards
+                )
+                expected = tuple(
+                    (alert.delivery.control_sha256, alert.delivery.identity)
+                    for view in views
+                    for alert in view.alert_results
+                    if alert.delivery is not None
+                )
+                observed = tuple(receiver.recv(4096).decode() for _ in expected)
+                for evidence, _ in expected:
+                    assert any(evidence in message for message in observed)
+                receiver.settimeout(0.05)
+                try:
+                    receiver.recv(4096)
+                except TimeoutError:
+                    pass
+                else:
+                    raise AssertionError("unexpected duplicate paper alert")
+                (output / "alert-delivery.json").write_bytes(
+                    DomainCodec().encode_json(
+                        {
+                            "socket_accepted": len(expected),
+                            "receiver_observed": len(observed),
+                            "delivery_identities": tuple(identity for _, identity in expected),
+                            "human_acknowledged": "not_tested",
+                            "remote_service": "not_tested",
+                            "receiver": "local AF_UNIX receiver in installed paper consumer",
+                        }
+                    )
+                )
     print(DomainCodec().encode_json(summary).decode())
 
 

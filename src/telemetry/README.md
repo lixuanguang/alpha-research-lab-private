@@ -1,8 +1,8 @@
 # Monitoring, metrics, dashboards and alerts
 
-Owner: quant development. Status: implemented local monitoring interfaces;
-external venue/service qualification remains with
-[MR11/MR12](../../docs/roadmap/README.md#mr12-delivery-and-acceptance).
+Owner: quant development. Local monitoring interfaces are implemented; the
+finite public-paper integration and its acceptance evidence are owned by the
+[paper-monitoring record](../../docs/roadmap/paper-monitoring.md).
 This package is included in both operating wheels and imports no research stack.
 It cannot submit orders, release a risk block or change account state.
 
@@ -94,6 +94,43 @@ receipt-to-durable lag are separate signals. Receipt lag is measured with local
 monotonic clocks through durable append; it is not exchange latency. Source clock
 drift is explicitly `not_measured`; receipt/source differences cannot establish it.
 
+The public-paper composition adds a finite final monitoring receipt after
+`run_live_shared_paper` has retained its economic outputs. It stores
+`monitoring-input.json` with the projected facts, their actual first
+`recorded_at` receipt, exact copied delivery source-clock fields and hashes of
+the retained manifest, account result, traces, report and delivery log. The
+reader checks those hashes before reuse. Historical report and lifecycle event
+times remain distinct from this receipt.
+
+`runtime.processing_seconds` records the last measured monotonic delivery
+callback that applied matching and decisions. It is not transport or durable
+write latency. Paper entry/cancel assumptions create lifecycle observations
+marked `modeled`; `data.source_clock_drift_seconds` and
+`data.receipt_to_durable_seconds` are explicit `not_measured` values. Neither is
+computed by subtracting unrelated clocks.
+
+`MonitoringConfiguration.paper(...)` selects dimensioned `last` values for
+paper state and report economics, keeps account and strategy scopes separate,
+and produces up to 32 panels per page. Currency and instrument series remain
+separate; values from different scopes or currencies are not summed. The report
+digest links valuation series to the retained exact report, including its
+valuation cutoff and gas applicability. Lifecycle facts remain available for
+custom consumers but are omitted from these cumulative default pages.
+
+The automatic render retains `monitoring-status.json`, a telemetry SQLite
+journal, configuration JSON, and one directory per scope/page. Each dashboard
+directory contains `snapshot.json`, `dashboard.html` and `manifest.json`. This
+is a finite local final view, not a deployed or continuously refreshed service.
+The application can recover these views through
+`applications.paper.render_paper_monitoring(input_path, journal_path=...,
+output=..., alert_socket=None)`. It verifies and reuses the immutable input
+envelope, performs idempotent telemetry ingestion, and renders without
+replaying account or execution activity.
+
+`MonitoringConfiguration` is now exported from `telemetry`; the existing
+`applications.execute.MonitoringConfiguration` import remains supported for
+callers of the installed execution API.
+
 For an existing telemetry journal, create an explicit editable view using the
 installed API (substitute the actual scope, mode and UTC observation window):
 
@@ -101,9 +138,8 @@ installed API (substitute the actual scope, mode and UTC observation window):
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from applications.execute import MonitoringConfiguration
 from serialization import DomainCodec
-from telemetry import MonitoringQuery, TelemetryStore
+from telemetry import MonitoringConfiguration, MonitoringQuery, TelemetryStore
 
 now = datetime.now(UTC)
 query = MonitoringQuery(
@@ -142,18 +178,24 @@ pending attempt is not silently replayed. Alert-store failure is retained as
 `alert_persistence_failed` in the dashboard.
 
 Thresholds are diagnostic. Hard risk, stop/cancel, fencing and recovery retain
-their independent owners. Reference tests block telemetry storage and saturate
-its queue while checking that supervision/protection still completes. The
-installed shared-account workload verifies dashboard retries and failed local
-routing without changing exact cash, positions, fees or stops.
+their independent owners. The reference test scope includes telemetry storage
+failure and queue saturation while supervision/protection continues. The
+installed shared-account consumer defines checks for dashboard retries and
+failed local routing against unchanged cash, positions, fees and stops; run
+outcomes belong to the owning acceptance record.
 
 ## Qualification and remaining boundaries
 
-Current software evidence covers installed retained studies, local account
-controls and scripted OKX/Bitfinex spot adapters. Neither a fixture venue label
-nor a rendered chart establishes external venue conformance. Authorized demo/
-paper-account access is still unavailable under MR11. Remote service routing,
-acknowledgement, host/source clock qualification and deployed failure drills
-remain unproven. Dashboard volumes/latency and retention sizing beyond the stated
-bounds belong to MR15, not an inferred capacity result from these small workloads.
-MR13 activation, MR14 deployed multiple instances and MR17/G5 remain open.
+The public-paper render is a finite local final view; it does not establish a
+deployed monitoring service. Private venue qualification, including demo or
+account access, remains KIV outside public-paper acceptance under the
+[live-trading reconsideration record](../../docs/roadmap/README.md#live-trading-kiv-and-reconsideration).
+Actual local receiver observation, receiver loss and restoration are qualified
+separately from socket acceptance. Remote service routing/receiver observation,
+human acknowledgement, host/source clock qualification and deployed failure
+drills remain unqualified. Dashboard
+capacity and retention sizing belong to MR15. MR13 activation/recovery and MR14
+deployed multiple instances remain separate outcomes; MR17/G5 integrated
+acceptance also remains open. The
+[paper-monitoring record](../../docs/roadmap/paper-monitoring.md) owns the current
+integration results and remaining limits.

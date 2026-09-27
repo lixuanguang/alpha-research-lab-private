@@ -205,7 +205,9 @@ the prior venue-adapter work remains unchanged.
 
 No authenticated orders, venue fill/latency qualification, continuous operation,
 long outage/service recovery, deployed scheduling or capacity observation was
-performed. Live trading remains KIV. MR12 receives versioned events/results;
-dashboard expansion, MR13 activation, MR14 broader integration and MR15 capacity
-remain open. No dependency/governance policy, private credentials or capital were
+performed by this MR08/MR11 qualification. Live trading remains KIV. The subsequent
+[MR12 integration](paper-monitoring.md) consumes these versioned events/results
+and qualifies local paper dashboards and alert delivery. MR13 activation, MR14
+broader integration and MR15 capacity remain open. No dependency/governance policy,
+private credentials or capital were
 changed; no merge or push was performed.

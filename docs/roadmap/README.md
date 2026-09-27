@@ -18,8 +18,9 @@ installed OKX/Bitfinex public-input paper matching, independent reconciliation a
 retained exact cost/P&L reports. MR10 has a delivered local operational increment.
 Native authenticated test-venue qualification remains unavailable and KIV; its
 existing software evidence is retained separately from public-paper acceptance.
-MR12 now delivers a local monitoring increment; integrated paper operating
-qualification and MR13–MR17 remain open, including their
+MR12 is complete for the bounded installed public-paper monitoring scope,
+including retained dashboards and observed local alert delivery. Final integrated
+paper operating qualification and MR13–MR17 remain open, including their
 explicitly owned prerequisite slices.
 P1 stays deferred and unaccepted.
 
@@ -333,7 +334,7 @@ the research graph's QuantLib release restriction remains in force.
 | MR09 | **[Portfolio and shared-account infrastructure](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Deliver allocation/target and order-intent coordination, account budgets, conflict/self-trade prevention, strategy-tagged child orders/fills/costs and shared-account recovery. Establish tagged-order attribution first, then qualify compatible netting and deterministic allocation of fills, residuals and costs as part of this same required outcome. Two distinct active strategies share an instrument/account and reconcile independently and in aggregate; either can stop without accidentally canceling the other's orders or bypassing account protection. | MR08; full allocation/netting remains required before onboarding, even without QR strategies |
 | MR10 | **[Paper operational qualification](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence).** Deliver runbooks and commands for startup, stop, restart, reconciliation, backup/restore and rollback. Reference paper workloads pass the applicable [failure scenarios](#decisive-acceptance-scenarios), retaining state, alerts and recovery outcomes. Final paper acceptance incorporates MR11–MR14 results; private-stream and real venue recovery qualification is KIV. | Applicable MR04 services and MR05–MR08 for dedicated-account drills; MR09 for shared-account drills; complete alongside MR11–MR14 rather than blocking their development |
 | MR11 | **[OKX and Bitfinex paper execution/account integration](../architecture/portfolio-and-execution-design.md#oms-and-venue-adapter-design) — complete for the [bounded paper scope](#mr11-delivery-and-acceptance).** Deliver live-public-input spot paper execution through the same strategy/OMS/risk contracts, with per-venue capability/specification profiles, simulated order lifecycle, balances and reconciliation. Expose explicit fill, delay, transaction-cost and slippage assumptions, applicable gas-cost inputs or recorded inapplicability, and sensitivity scenarios. Retain separate per-venue integrated paper traces, cost attribution and net P&L; reconcile fills/fees to each strategy and the account. Qualify one complete paper path, then the second. Existing native test adapters are supplementary; authenticated private venue qualification is KIV. | MR07–MR08 contracts and MR03 cost interfaces; MR06 before paper deployment; public market-data access; MR09 attribution; no private trading credentials required |
-| MR12 | **[Monitoring, metrics, charts and alerts](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence) — local increment delivered; [integrated paper qualification open](#mr12-delivery-and-acceptance).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account views. Register a custom research metric/chart and delayed-label diagnostic without modifying collectors or runtime; test telemetry loss independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; basic telemetry ships earlier with each capability |
+| MR12 | **[Monitoring, metrics, charts and alerts](../architecture/runtime-and-operations-design.md#monitoring-recovery-and-operational-evidence) — complete for the [bounded installed public-paper scope](#mr12-delivery-and-acceptance).** Provide versioned event/metric APIs, queries, retained dashboards, configurable panels/thresholds, alert routing and default data/runtime/risk/account/economic views. Register custom research metrics/charts and delayed-label diagnostics without modifying collectors or runtime. Qualify both venues' dedicated/shared paper dashboards, causal replay and local alert receiver failure/recovery independently of hard controls. | MR03 report contracts; MR08–MR11 runtime signals; deployed services and capacity remain with MR14–MR15 |
 | MR13 | **[Paper activation and recovery machinery](../governance/workflow.md#activate-and-operate).** Implement disabled-by-default paper manifests and separate paper authorization envelopes, scoped simulated limits, fencing and recovery. Provide distinct block-new-exposure, cancel and reduce-position operations with defined stale-data, disconnected and illiquid paper behavior. Reject absent/expired paper authority and incompatible code/model/schema/state; prove restart and rollback preserve simulated fills and costs without duplication. Paper configuration must reject production submission authority. Live activation and external-fill recovery are KIV. | MR06, MR10 paper drills and MR11–MR12; feed results back into final MR10 acceptance |
 | MR14 | **[Multiple-instance integration](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk).** Run different reference components and instruments with isolated/shared-account configurations through paper/shadow; add an instance through configuration, then stop/restart it without losing attribution or weakening other accounts' controls. | MR09, MR12–MR13; live trading remains KIV |
 | MR15 | **[Research and runtime capacity qualification](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices).** Define numeric launch budgets early, covering multi-day data, multiple instruments, concurrent studies/trials, replay, feature-store materialization/retrieval, live ingestion, book reconstruction, quote consolidation and dashboard queries. Record volumes, retention, throughput, p50/p95/p99 latency, memory/disk, concurrency, hardware/cache conditions and recovery targets before measurement. Remove demonstration-size limits where they prevent the workload; preserve causal/numerical parity. Retain research acceptance separately from final integrated runtime acceptance and deploy the topology needed to meet both. | Budgets start with MR01/MR04; MR01–MR04 for research acceptance; MR07/MR07A/MR07B/MR12/MR14 for final runtime acceptance; no QR bottleneck required |
@@ -463,11 +464,15 @@ operating workloads retain their requests, snapshots and summaries under
 `logs/mr10/operating-okx/` and `logs/mr10/operating-bitfinex/`.
 These artifacts are local retained evidence, not published deployment records.
 
-Final MR10 paper acceptance remains open. Next, incorporate both delivered MR11
-public-input paper paths, MR12 monitoring/routing, MR13 paper authorization/reduce-position/
-recovery and MR14 multi-instance results. Qualify service/alert failure and
-restoration in the selected paper operating environment; local fixtures cannot
-establish an untested deployed service boundary. Older snapshots are restored
+The [public-paper monitoring record](paper-monitoring.md) renews affected MR10
+evidence for both installed venue paths: independent exact dashboard reconciliation,
+receiver-observed local alerts, receiver failure/restoration and unchanged account
+controls. Actual public inputs establish the source boundary; local operating
+drills establish the receiver and storage/queue boundaries. Final MR10 paper
+acceptance remains open for MR13 paper authorization/reduce-position/recovery,
+MR14 multi-instance results and their deployed service failure/restoration drills.
+Local observations cannot establish an untested deployed service boundary.
+Older snapshots are restored
 only into absent stopped workspaces; integrated paper recovery must prevent
 rewinding or duplicating committed simulated fills. Authenticated private-stream
 loss, exchange timeout/cancel/fill outcomes and real-account anti-rewind evidence
@@ -491,8 +496,9 @@ native-source path only. Assumptions remain authored, with no exchange fill,
 queue, latency-calibration or profitability claim. The [delivery record](paper-integration.md)
 retains commands, artifact/source identities, failures, results and precise limits;
 the [paper guide](../../src/applications/paper/README.md#automatic-public-input-accounts)
-owns the user journey. MR12 can consume retained versioned traces/reports; dashboard
-expansion, MR13 activation, MR14 broader deployment and MR15 capacity remain open.
+owns the user journey. MR12 now projects retained versioned traces/reports into
+qualified local dashboards. MR13 activation, MR14 broader deployment and MR15
+capacity remain open.
 
 The native private-adapter implementation and its historical validation below are
 supplementary software evidence and remain KIV for external qualification. The [execution guide](../../src/execution/README.md#test-venue-execution)
@@ -542,8 +548,8 @@ access was available for that implementation. No authenticated request or test
 order was sent. This unresolved external evidence is retained as a qualification
 limit and deferred from MR17/G5 under the paper delivery policy.
 
-The next required actions belong to MR10/MR12–MR15: qualify wider paper operations,
-monitoring, activation/recovery, multi-instance deployment and capacity before
+The next required actions belong to MR10/MR13–MR15: qualify wider paper operations,
+activation/recovery, multi-instance deployment and capacity before
 MR17/G5. These operating gates remain open after this bounded integration.
 If live work is reopened, native conformance still needs separately authorized
 OKX demo and Bitfinex paper-account access, account identities, venue specifications
@@ -552,7 +558,15 @@ fill/cancel, stream-loss and restart evidence. Scripted proofs do not supply it.
 
 ### MR12 delivery and acceptance
 
-Partial: the local monitoring capability is implemented and integrated. The
+Complete for the bounded installed, finite local public-paper operating scope.
+Dedicated and shared OKX/Bitfinex accounts now retain default source/runtime,
+order/fill/reject/uncertain-exposure, independent risk, reconciliation,
+account/strategy and exact cost/gross/net P&L views. Committed account facts and
+MR11 reports remain authoritative. Cumulative economics use last values with
+separate currency series, report valuation policy and explicit gas applicability.
+The [integration record](paper-monitoring.md) retains the bounded plan, runnable
+operator journey, independent results, artifact identities and impact-based reuse.
+The
 [telemetry guide](../../src/telemetry/README.md) owns versioned events/metrics,
 causal revision queries, retention, configured dashboards and local alert routes.
 The [execution command](../../src/applications/execute/README.md#retained-monitoring)
@@ -577,19 +591,28 @@ Quant development's installed study consumer registers a fresh custom metric and
 chart across retained studies and paper telemetry; saved model predictions and
 outcomes exercise delayed-label diagnostics. The existing two-venue paper
 operational consumer now exercises the installed dashboard command, exact account
-values, reopening, idempotent retry and failed local alert delivery. Focused
+values, reopening, idempotent retry, receiver loss and restoration. Actual
+public-feed runs separately cover both venues and both account modes, with
+independently reconciled economic dashboards and receiver-observed local alerts.
+Socket acceptance, receiver observation and human acknowledgement are recorded
+separately; no human acknowledgement is claimed. Focused
 faults cover blocked telemetry writes, overflow, retention expiry, incompatible
 units/schemas, changed retries and future/corrected labels. These are software
 and local operating proofs, not empirical strategy or physical venue evidence.
-Validation logs and retained artifacts live under ignored `logs/mr12/`.
+Prior extension evidence lives under ignored `logs/mr12/`; renewed integration
+evidence lives under `logs/paper-monitoring/`.
 
-MR12 does not close MR11's unavailable external test-account acceptance; that
-qualification is now deferred. The remaining paper action is to instrument both
-public-input paper paths with simulated order/reject/reconciliation and cost/net
-P&L signals, and qualify service/alert delivery and host/source clock observations
-in the selected paper environment. Source clock drift is currently explicit
-`not_measured`, not inferred from receipt delay. MR10 incorporates these operating
-results; MR13 owns paper activation/recovery, MR14 multiple paper instances, and
+This acceptance covers a final retained view per finite invocation and its local
+recovery. It does not establish continuous/deployed monitoring, remote routing,
+human acknowledgement or host/source clock qualification. Actual monotonic
+callback processing delay is distinct from modeled execution delay; source clock
+drift and receipt-to-durable delay remain `not_measured`. Retrospective projection
+uses actual monitoring receipt time; saved receipt envelopes reopen idempotently,
+and late corrections cannot alter an earlier cutoff. New captures do not relabel
+old lifecycle facts. Incomplete telemetry ingestion refuses partial dashboards
+and remains recoverable without account actions. MR10 incorporates these operating
+results without closing its final gate. MR13 owns paper activation/recovery,
+MR14 deployed multiple paper instances, and
 MR15 measured dashboard/load budgets beyond the bounded local query/storage
 contracts. Those outcomes and MR17/G5 remain open. Native private-stream signals
 remain unqualified and KIV.

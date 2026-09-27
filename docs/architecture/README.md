@@ -136,7 +136,8 @@ Current dependency direction is organized by functional owner:
   supply identity, supervision and observations without importing applications.
   The [monitoring guide](../../src/telemetry/README.md) owns causal versioned
   telemetry, exact metrics, retained dashboards, local routing and independent
-  watchdog emission. Research report adapters stay in `research.studies`.
+  watchdog emission. `execution.PaperMonitoring` projects committed paper facts
+  and exact reports; research report adapters stay in `research.studies`.
   `runtime.SharedDecisionRuntime` reuses one `DecisionSession` per selected
   instance and restores its policy state from the account journal.
 - [`execution/`](../../src/execution/README.md) owns the portable paper/shadow
@@ -149,9 +150,10 @@ Current dependency direction is organized by functional owner:
   postings and append-only corrections. MR11 owns integrated paper reconciliation;
   authenticated physical venue reconciliation is KIV.
 - [`applications.paper`](../../src/applications/paper/README.md) composes the
-  existing dedicated-account candidate flows and `run_shared_paper`, which
-  consumes explicit normalized account/order events without venue submission or
-  automatic shared-order matching.
+  existing dedicated-account candidate flows, explicit normalized-fact
+  `run_shared_paper`, and `run_live_shared_paper` for native public-input matching
+  in dedicated/shared paper accounts. The latter retains exact reports and
+  independently recoverable monitoring; it makes no venue submissions.
 - `applications/` composes these libraries and exposes the installed commands.
   Libraries never import applications; applications never import sibling workflows.
 

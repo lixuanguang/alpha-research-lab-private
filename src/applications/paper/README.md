@@ -90,14 +90,92 @@ Slippage already paid through effective fill prices is disclosed without a secon
 deduction. Gas is explicitly inapplicable for the off-chain spot profile, with
 a retained reason; applicable gas requires a future activity/accounting contract.
 
+### Retained public-paper monitoring
+
+After the account result and report are retained, `run_live_shared_paper` projects
+the committed account, strategy, trace and report facts into an immutable
+`monitoring-input.json` envelope and renders a finite final view automatically.
+The optional `alert_socket` argument selects an explicit local Unix datagram
+route; it defaults to `None`. The returned `SharedPublicPaperResult.monitoring`
+contains dashboard names, recorder counts and any projection, storage, render or
+alert errors. Monitoring failures are returned after the paper operation and do
+not undo it or enter account-failure handling.
+
+Each event's `recorded_at` is the actual first monitoring receipt used to create
+that envelope, including a retrospective import; event time and source
+availability retain their own clocks. The envelope copies the delivered source
+clock fields (`position`, optional native `source_time`, `received_ns` and
+`available_at`) without normalizing them, and stores SHA-256 identities for the
+retained manifest, account result, execution traces, cost report and deliveries
+that exist. Reading the envelope verifies those referenced bytes. These copies
+preserve the inputs; they do not qualify the source clock.
+
+`runtime.processing_seconds` is the monotonic duration of the most recent actual
+delivery callback that applies matching and decisions. It excludes feed transport
+and persistence and is not the modeled `entry_delay_us` or `cancel_delay_us`.
+Lifecycle facts produced from those paper assumptions carry modeled clock quality.
+`data.source_clock_drift_seconds` and `data.receipt_to_durable_seconds` remain
+explicitly `not_measured`; the workflow does not infer either from UTC clocks.
+
+Default paper views use exact `last` values for current account/strategy state
+and report economics. Account and strategy scopes, currencies, and instruments
+remain separate series; the view does not sum them. Report-derived valuation is
+keyed by the report digest and retains its cutoff, mark-age limit, gas
+applicability, and currency results. Lifecycle events stay individually
+attributable in telemetry for custom metric/chart consumers, while the default
+snapshot views select cumulative state series.
+
+The workflow writes `monitoring-input.json`, a telemetry journal, per-scope
+configuration JSON, one directory per dashboard page, and `monitoring-status.json`.
+Each dashboard directory contains `snapshot.json`, self-contained
+`dashboard.html`, and `manifest.json`; the names in the returned `dashboards`
+field identify those directories. Open `monitoring/index.html` for the account
+and strategy pages, report, original inputs and diagnostic status. This finite
+invocation does not run a continuously refreshed dashboard service.
+
+Monitoring can be regenerated from the retained envelope without reopening the
+account journal, venue source, or execution workflow:
+
+The recovery API is `render_paper_monitoring(input_path, *, journal_path,
+output, alert_socket=None)`.
+
+```python
+from pathlib import Path
+
+from applications.paper import render_paper_monitoring
+
+result = render_paper_monitoring(
+    Path("/absolute/run/monitoring-input.json"),
+    journal_path=Path("/absolute/run/monitor.sqlite3"),
+    output=Path("/absolute/run/monitoring-reopened"),
+)
+```
+
+Use an absent output directory. Reusing the same telemetry journal makes event
+ingestion idempotent; the renderer verifies the envelope's evidence identities,
+then rebuilds only its telemetry views at the original receipt cutoff. Incomplete
+ingestion refuses partial dashboards; replay the saved envelope after storage
+or queue recovery. A fresh capture stamps new receipts only for its new lifecycle
+facts, preserving prior envelopes. With an `alert_socket`, diagnostic rules
+send local datagrams and retain pending/delivered/failed attempts in
+`monitor.alerts.sqlite3`. `delivered` means the local socket accepted the send;
+it does not show that a receiver processed it or that a person acknowledged it.
+Alert and telemetry failures remain separate from account controls.
+Default routes diagnose blocks, uncertainty, reconciliation/source/runtime
+failures and negative net P&L by currency; missing/stale evidence triggers the
+configured route. Preserve the same socket configuration and alert journal when
+reopening if identical alert identities are required.
+
 Replay retained `SharedBookDelivery` envelopes through a fresh
 `SharedPaperCaptureObserver` over the same source/registry configuration. Native
 state rebuilds from the beginning of the recording; exact old account/decision
 retries preserve newer state. A new capture uses a new recording and waits for
 fresh synchronization. Known invalid input blocks admission without releasing
 unresolved exposure. Completion neither cancels orders nor liquidates holdings.
-This is a bounded local invocation; service fencing/activation, deployment-wide
-scheduling, dashboards and capacity qualification stay in MR13/MR14/MR12/MR15.
+This is a bounded local invocation. MR13 activation/recovery, MR14 deployed
+multi-instance scheduling, MR15 capacity, and remote monitoring remain separate
+outcomes. The [public-paper monitoring record](../../../docs/roadmap/paper-monitoring.md)
+owns its acceptance commands, results and remaining qualification limits.
 
 The [installed acceptance consumer](../../../tests/integration/consumers/runtime/public_paper.py)
 adds independently calculated balances and order cumulatives, reconciliation,
@@ -145,5 +223,7 @@ the execution wheel owns only the portable order/account boundary.
 All modes are local and non-executable. Native input supports declared OKX/Bitfinex
 spot books; other named sources use `run_paper` and must satisfy the candidate's
 admitted signatures. Shared-account coordination accepts normalized facts or
-automatically matched public books. Authenticated venue conformance, full MR14
-multi-instance deployment and production activation remain separate outcomes.
+automatically matched public books. Private venue qualification remains KIV
+outside paper acceptance; MR13 activation/recovery and full MR14 deployed
+multi-instance operation remain separate outcomes under the
+[live-trading reconsideration record](../../../docs/roadmap/README.md#live-trading-kiv-and-reconsideration).

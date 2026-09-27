@@ -232,7 +232,10 @@ python -I /absolute/copied/parity_consumer.py /absolute/fresh-replay-output \
 
 The paper consumer below exercises the same shared BBO through actual post-durable
 delivery and saved envelope replay. Native protocol fixtures and modeled fills
-remain separate from source qualification and private execution evidence.
+remain separate from source qualification and private execution evidence. Private
+venue qualification is KIV outside the bounded paper-acceptance gate; the
+[reconsideration record](../docs/roadmap/README.md#live-trading-kiv-and-reconsideration)
+owns that boundary.
 
 `tests/unit/execution/` exercises the portable OMS and finite-liquidity matcher:
 atomic quote admission, exact cash/inventory/fee reservations, fencing, restart,
@@ -338,7 +341,29 @@ This mode makes no network request. It checks the retained configuration,
 consumer and implementation identities, rebuilds native source state from saved
 deliveries, and writes `replay-verification.json` with equal before/after hashes
 for accounts, child orders, net orders and matching traces. Existing economic
-reports and reconciliation files remain byte-identical.
+reports and reconciliation files remain byte-identical. The run also retains
+`monitoring-input.json` and the automatically returned `.monitoring` result, with
+per-scope dashboard directories containing `snapshot.json`, `dashboard.html`
+and `manifest.json`. `monitoring-reconciliation.json` records exact dashboard
+to source-event arithmetic and the envelope hash, separately from the account
+`reconciliation.json`.
+
+In `--replay`, the consumer also calls
+`applications.paper.render_paper_monitoring` with the saved envelope and the
+same telemetry journal, using a new output directory. This recovery step
+checks zero newly inserted events and equal dashboard names and snapshots; it
+does not replay matching or account operations to rebuild the view. The overall
+consumer still performs its separate retained-delivery execution replay before
+that monitoring recovery check. The [MR12 monitoring record](../docs/roadmap/paper-monitoring.md)
+owns observed commands, results and remaining limits.
+
+On a normal run, the consumer supplies a temporary local AF_UNIX datagram
+receiver path as `alert_socket`, records which alert sends the receiver reads,
+and writes `alert-delivery.json`. Its `human_acknowledged` and `remote_service`
+fields are `not_tested`: sender status, receiver receipt and human or remote
+acknowledgement are distinct outcomes. The run retains source-clock copies, but
+`data.source_clock_drift_seconds` and `data.receipt_to_durable_seconds` remain
+`not_measured`; this consumer does not qualify source-clock accuracy.
 
 The focused `test_paper_matching.py`, `test_account_paper_matching.py`,
 `test_public_paper.py` and `test_paper_reports.py` cases cover timing, liquidity,
@@ -367,7 +392,9 @@ knowledge clocks, independent quote binding and underfunded-reservation failures
 `unit/accounting/test_accounts.py` tests exact multi-currency replay and corrections.
 This MR08 software proof does not qualify a venue, empirical strategy, live
 capital, portfolio netting or capacity. The MR08 roadmap record owns its actual
-commands and results; physical venue reconciliation remains MR11 evidence.
+commands and results. Private venue/account qualification remains KIV outside
+paper acceptance under the
+[live-trading reconsideration record](../docs/roadmap/README.md#live-trading-kiv-and-reconsideration).
 
 ## Shared portfolio workflow
 
@@ -403,7 +430,8 @@ belong to the [MR09 acceptance record](../docs/roadmap/README.md#mr09-delivery-a
 
 These are local software proofs over authored account and order facts. They do
 not qualify physical OKX or Bitfinex private streams, order handling or account
-state; those venue conformance results belong to MR11.
+state. That private venue qualification remains KIV outside paper acceptance
+under the [live-trading reconsideration record](../docs/roadmap/README.md#live-trading-kiv-and-reconsideration).
 
 ## Local operational qualification
 
@@ -420,8 +448,11 @@ For retained evidence, copy those files together and run:
 
 Run `--venue bitfinex` separately with another absent output. Both are authored
 spot fixtures. Retained requests, control history, partial/cancel state, exact
-fees/cash/positions, backup identity and local watchdog/alert outcomes distinguish
-software behavior from physical venue qualification. The watchdog drills use
+fees/cash/positions, backup identity and local watchdog/alert outcomes describe
+software behavior. Private venue qualification remains KIV outside paper
+acceptance under the
+[live-trading reconsideration record](../docs/roadmap/README.md#live-trading-kiv-and-reconsideration).
+The watchdog drills use
 actual process loss and a bounded SQLite page quota, not host-volume exhaustion.
 The account unit tests cover stale recovery, unknown outcomes and snapshot
 verification; dedicated candidate tests cover clock/protocol faults and repeat
