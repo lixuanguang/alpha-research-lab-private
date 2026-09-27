@@ -36,6 +36,22 @@ from execution.records import OrderEvent, OrderState, StepCommit
 from serialization import DomainCodec, WireRecord
 from telemetry import OperationAlert
 
+type AccountResponseProjection = Literal[
+    "full",
+    "accounts",
+    "orders",
+    "net_orders",
+    "checkpoint",
+    "saved_batch",
+    "paper_activations",
+    "quarantine",
+    "traces",
+    "facts",
+    "residuals",
+    "reductions",
+    "operation",
+]
+
 
 class AccountExecutionRequest(WireRecord, frozen=True):
     """Select exactly one durable account operation without executable authority."""
@@ -64,6 +80,8 @@ class AccountExecutionRequest(WireRecord, frozen=True):
         "bind_paper_scenario",
         "paper_market",
         "reduce_paper",
+        "serve_paper",
+        "shutdown_paper",
     ]
     decision: AccountDecision | None = None
     event: OrderEvent | None = None
@@ -92,9 +110,37 @@ class AccountExecutionRequest(WireRecord, frozen=True):
     backup_root: str | None = None
     restore_root: str | None = None
     manifest_sha256: str | None = None
+    service_socket: str | None = None
+    service_seconds: int | None = None
+    projection: AccountResponseProjection = "full"
 
     def __post_init__(self) -> None:
         """Reject missing, extra and ambiguous operation payloads."""
+        if self.projection not in (
+            "full",
+            "accounts",
+            "orders",
+            "net_orders",
+            "checkpoint",
+            "saved_batch",
+            "paper_activations",
+            "quarantine",
+            "traces",
+            "facts",
+            "residuals",
+            "reductions",
+            "operation",
+        ):
+            raise ValueError("invalid account response projection")
+        if self.projection == "operation":
+            if self.action == "inspect":
+                raise ValueError("account inspection requires a state projection")
+        elif self.projection != "full" and self.action != "inspect":
+            raise ValueError("account state projection requires inspection")
+        if self.projection == "checkpoint" and self.query_instance is None:
+            raise ValueError("checkpoint projection requires an instance query")
+        if self.projection == "saved_batch" and self.query_batch is None:
+            raise ValueError("saved batch projection requires a batch query")
         fields = {
             "admit": self.decision,
             "event": self.event,
@@ -122,6 +168,8 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             "revoke_paper",
             "claim_paper",
             "bind_paper_scenario",
+            "serve_paper",
+            "shutdown_paper",
         ):
             raise ValueError("invalid account action")
         for action, payload in fields.items():
@@ -129,7 +177,9 @@ class AccountExecutionRequest(WireRecord, frozen=True):
                 raise ValueError("account action has missing or extraneous payload")
             if payload is not None:
                 payload.__post_init__()
-        if (self.action in ("control", "claim_paper")) != (self.control is not None):
+        if (self.action in ("control", "claim_paper", "shutdown_paper")) != (
+            self.control is not None
+        ):
             raise ValueError("account control action has missing or extraneous payload")
         if self.control is not None:
             self.control.__post_init__()
@@ -150,10 +200,33 @@ class AccountExecutionRequest(WireRecord, frozen=True):
                 "bind_paper_scenario",
                 "paper_market",
                 "reduce_paper",
+                "stop_instance",
                 "restart_instance",
                 "reissue_pending",
+                "serve_paper",
+                "shutdown_paper",
             ):
                 raise ValueError("paper owner is outside a guarded account action")
+        if self.action == "serve_paper":
+            if (
+                self.paper_owner is None
+                or self.service_socket is None
+                or not Path(self.service_socket).is_absolute()
+                or type(self.service_seconds) is not int
+                or not 1 <= self.service_seconds <= 120
+            ):
+                raise ValueError(
+                    "paper service requires an owner, absolute socket and bounded lifetime"
+                )
+        elif self.service_socket is not None or self.service_seconds is not None:
+            raise ValueError("paper service fields require service startup")
+        if self.action == "shutdown_paper" and (
+            self.paper_owner is None
+            or self.control is None
+            or self.control.kind != "stop"
+            or self.control.account_id != self.paper_owner.account_id
+        ):
+            raise ValueError("paper service shutdown requires matching owner and stop control")
         if self.action in ("bind_paper_scenario", "paper_market"):
             if not self.account_id or self.scenario is None:
                 raise ValueError("paper market requires account and scenario")

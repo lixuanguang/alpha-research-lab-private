@@ -11,6 +11,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+# third party library imports
+import msgspec
+
 # project library imports
 from configuration import BookKey, PaperExecutionScenario
 from execution import AccountControl, AccountQuote, PaperAccount, PaperMarket, PortfolioCommit
@@ -49,12 +52,17 @@ class SharedBookDelivery(WireRecord, frozen=True):
     inputs: tuple[SharedStrategyInput, ...]
     coordinated_at: datetime | None
     schema_version: str = "shared-book-delivery-v1"
+    market_effects: bool | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Reject unbound policy clocks or partial coordination envelopes."""
         self.source.__post_init__()
         if self.schema_version != "shared-book-delivery-v1" or type(self.inputs) is not tuple:
             raise ValueError("invalid shared book delivery")
+        if self.market_effects is not msgspec.UNSET and type(self.market_effects) is not bool:
+            raise ValueError("invalid shared market selection")
+        if self.market_effects is False and (self.inputs or self.coordinated_at is not None):
+            raise ValueError("unselected market cannot coordinate decisions")
         if self.inputs:
             if self.coordinated_at is None:
                 raise ValueError("shared delivery requires coordination time")
@@ -70,11 +78,12 @@ class SharedBookDelivery(WireRecord, frozen=True):
 
 
 class SharedPaperCaptureObserver:
-    """Match existing orders before evaluating new decisions on each eligible book.
+    """Match existing orders before decisions on selected eligible books.
 
     Native reconstruction, freshness and control invalidation remain owned by
     ``LiveBookDecisionSource`` and ``BookRegistry``. The append-only delivery log
     is fsynced before effects; replay uses its original clocks and exact contexts.
+    An optional market interval defers account effects without dropping native rows.
     A fresh observer rebuilds source state from the beginning of its recording.
     Account transactions and policy retry identities survive process restart.
     """
@@ -91,12 +100,23 @@ class SharedPaperCaptureObserver:
         inputs: SharedBookInputs,
         delivery_path: Path | None,
         clock: Callable[[], datetime] | None = None,
+        market_interval_us: int = 0,
     ) -> None:
         """Bind explicit admitted owners and optional new-recording retention path."""
         scenario.__post_init__()
         request = source.request
         self._key = BookKey(venue=request.config.venue, instrument_id=request.config.instrument_id)
         selected = books.lookup(self._key, cutoff_ns=0).selection
+        if (
+            type(market_interval_us) is not int
+            or market_interval_us < 0
+            or market_interval_us
+            > min(
+                source.requirements[0].max_age_us,
+                request.config.idle_seconds * 1_000_000,
+            )
+        ):
+            raise ValueError("market interval exceeds source freshness or idle bound")
         if (
             scenario.venue != request.config.venue
             or scenario.instrument_id != request.config.instrument_id
@@ -114,6 +134,8 @@ class SharedPaperCaptureObserver:
         self.account_id, self.scenario, self.inputs = account_id, scenario, inputs
         self.delivery_path = delivery_path
         self._clock = clock
+        self.market_interval_us = market_interval_us
+        self._last_effect_at: datetime | None = None
         self._codec = DomainCodec()
         self._retained_bytes = 0
         self._maximum_bytes = request.config.max_bytes * 4
@@ -127,14 +149,16 @@ class SharedPaperCaptureObserver:
         """Retain actual post-persistence availability and coordination before effects."""
         source = LiveBookDelivery(record=record, book=row, available_at=self._now())
         market = self._market(source)
+        market_effects = market is not None and self._select_market(market.at)
         selected: tuple[SharedStrategyInput, ...] = ()
-        if market is not None:
+        if market_effects and market is not None:
             causal = self.source.read(str(self.scenario.instrument_id), source.available_at)
             selected = self.inputs.build(causal, market)
         delivery = SharedBookDelivery(
             source=source,
             inputs=selected,
             coordinated_at=self._coordination_time(source.available_at) if selected else None,
+            market_effects=False if market is not None and not market_effects else msgspec.UNSET,
         )
         self._retain(delivery)
         started_ns = time.monotonic_ns()
@@ -149,6 +173,12 @@ class SharedPaperCaptureObserver:
         delivery.__post_init__()
         market = self._market(delivery.source)
         self._apply(delivery, market)
+
+    def _select_market(self, at: datetime) -> bool:
+        """Select the first eligible book and then only books at the declared interval."""
+        return self._last_effect_at is None or at - self._last_effect_at >= timedelta(
+            microseconds=self.market_interval_us
+        )
 
     def _market(self, delivery: LiveBookDelivery) -> PaperMarket | None:
         """Advance native quality before exposing finite eligible displayed touch liquidity."""
@@ -195,6 +225,8 @@ class SharedPaperCaptureObserver:
         """Validate retained feature lineage and compose existing atomic public operations."""
         delivery.__post_init__()
         if market is None:
+            if delivery.market_effects is False:
+                raise ValueError("ineligible native input cannot skip market effects")
             if delivery.inputs:
                 raise ValueError("ineligible native input cannot produce shared decisions")
             if self._source_invalidated(delivery):
@@ -203,13 +235,17 @@ class SharedPaperCaptureObserver:
                 else:
                     self.journal.control(
                         AccountControl(
-                            identity=f"public-input-fault:{self.source.request.identity}",
+                            identity="public-input-fault:"
+                            + hashlib.sha256(self._codec.encode_json(delivery.source)).hexdigest(),
                             account_id=self.account_id,
                             kind="fault",
                             at=delivery.source.available_at,
                             reason="public_input_invalid",
                         )
                     )
+            return
+        if delivery.market_effects is False:
+            self.last_market = market
             return
         causal = self.source.read(str(self.scenario.instrument_id), market.at)
         quote = AccountQuote(price=market.ask, at=market.at)
@@ -219,8 +255,10 @@ class SharedPaperCaptureObserver:
         prior = self.journal.paper_traces(self.account_id)
         if not any(trace.market.identity == market.identity for trace in prior):
             self.journal.observe(quote)
-        self.journal.match_public_market(self.account_id, market, self.scenario)
+        if self.journal.config.mode == "paper":
+            self.journal.match_public_market(self.account_id, market, self.scenario)
         self.last_market = market
+        self._last_effect_at = market.at
         if delivery.inputs and delivery.coordinated_at is not None:
             self.decisions.append(
                 self.runtime.evaluate(

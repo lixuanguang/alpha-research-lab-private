@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 # third party library imports
+import msgspec
 import pytest
 from msgspec.structs import replace
 
@@ -39,11 +40,12 @@ from execution import (
     PaperMarket,
     PortfolioContext,
 )
-from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
+from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level
 from reference_data.instruments import InstrumentId
+from research.features import FeatureVector
 from research.observations import (
     DecisionInputs,
     InputRequirement,
@@ -60,7 +62,7 @@ from runtime import (
 )
 from runtime.live_paper import LiveBookDelivery
 from serialization import DomainCodec
-from strategies import ConfirmedSignal, OrderIntent
+from strategies import ConfirmedSignal, DecisionContext, OrderIntent
 
 
 class _NoDecisionInputs:
@@ -74,6 +76,44 @@ class _NoDecisionInputs:
     def build(self, inputs: DecisionInputs, market: PaperMarket) -> tuple[SharedStrategyInput, ...]:
         """Ignore an eligible book while preserving the observer's market effects."""
         return ()
+
+
+class _SignalInputs:
+    """Supply an exact positive signal only when the observer selects a book."""
+
+    def __init__(self) -> None:
+        """Count only book boundaries used to construct policy input."""
+        self.calls = 0
+
+    @property
+    def identity(self) -> str:
+        """Pin this deterministic test feature formula."""
+        return "signal-public-book"
+
+    def build(self, inputs: DecisionInputs, market: PaperMarket) -> tuple[SharedStrategyInput, ...]:
+        """Provide one causal positive signal at the selected book cutoff."""
+        self.calls += 1
+        at = inputs.decision_at
+        vector = FeatureVector(
+            entity=inputs.entity,
+            decision_at=at,
+            event_at=at,
+            information_start=at,
+            available_at=at,
+            expires_at=at + timedelta(seconds=1),
+            definition=self.identity,
+            fields=(NumericField(name="signal", units="score"),),
+            values=(ExactRatio(numerator="1", denominator="1"),),
+            reasons=("native-book",),
+            input_identity=inputs.identity,
+        )
+        return (
+            SharedStrategyInput(
+                instance_id="alpha",
+                context=DecisionContext(features=vector, prediction=None),
+                quote=AccountQuote(price=market.ask, at=at),
+            ),
+        )
 
 
 class _SequenceClock:
@@ -244,6 +284,9 @@ class TestSharedPublicPaper:
         *,
         scenario: PaperExecutionScenario | None = None,
         clock: _SequenceClock | None = None,
+        market_interval_us: int = 0,
+        retain: bool = False,
+        inputs: _SignalInputs | None = None,
     ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
         """Construct the actual source, registry, account and decision owners."""
         request = cls._request()
@@ -273,9 +316,10 @@ class TestSharedPublicPaper:
             runtime=runtime,
             account_id="paper",
             scenario=scenario or cls._scenario(),
-            inputs=_NoDecisionInputs(),
-            delivery_path=None,
+            inputs=inputs if inputs is not None else _NoDecisionInputs(),
+            delivery_path=path.with_suffix(".jsonl") if retain else None,
             clock=clock,
+            market_interval_us=market_interval_us,
         )
         return observer, journal
 
@@ -321,6 +365,298 @@ class TestSharedPublicPaper:
             inputs=(),
             coordinated_at=None,
         )
+
+    def test_market_interval_retains_every_book_but_only_selected_effects(
+        self, tmp_path: Path
+    ) -> None:
+        """Intermediate native updates advance source state without pricing or matching."""
+        path = tmp_path / "sampled.sqlite3"
+        times = tuple(self.at + timedelta(seconds=seconds) for seconds in range(5))
+        clock = _SequenceClock(
+            (
+                times[0],
+                times[1],
+                times[1] + timedelta(microseconds=1),
+                times[2],
+                times[3],
+                times[4],
+                times[4] + timedelta(microseconds=1),
+            )
+        )
+        inputs = _SignalInputs()
+        observer, journal = self._observer(
+            path,
+            clock=clock,
+            market_interval_us=3_000_000,
+            retain=True,
+            inputs=inputs,
+        )
+        assert journal.reconcile(self._opening())
+        deliveries = (
+            self._delivery(
+                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+            ),
+            self._delivery(
+                1,
+                seconds=1,
+                kind="frame",
+                outcome="snapshot",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            ),
+            self._delivery(
+                2,
+                seconds=2,
+                kind="frame",
+                outcome="update",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            ),
+            self._delivery(
+                3,
+                seconds=3,
+                kind="frame",
+                outcome="update",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            ),
+            self._delivery(
+                4,
+                seconds=4,
+                kind="frame",
+                outcome="update",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            ),
+        )
+        for index, delivery in enumerate(deliveries):
+            observer.observe(delivery.source.record, delivery.source.book)
+            if index == 1:
+                first_effects = (
+                    journal.accounts(),
+                    journal.orders(),
+                    journal.paper_traces("paper"),
+                    journal.checkpoint("alpha"),
+                )
+                assert first_effects[3] is not None
+            if index in (2, 3):
+                assert (
+                    journal.accounts(),
+                    journal.orders(),
+                    journal.paper_traces("paper"),
+                    journal.checkpoint("alpha"),
+                ) == first_effects
+                assert inputs.calls == 1
+                assert observer.source.latest_book is not None
+                assert observer.source.latest_book.position == index
+                assert observer.last_market is not None
+                assert observer.last_market.at == times[index]
+        assert inputs.calls == 2
+        assert journal.checkpoint("alpha") != first_effects[3]
+        assert observer.delivered_count == len(deliveries)
+        retained = tuple(
+            DomainCodec().decode_json(line, SharedBookDelivery)
+            for line in path.with_suffix(".jsonl").read_bytes().splitlines()
+        )
+        assert len(retained) == len(deliveries)
+        assert tuple(item.source.book.position for item in retained) == tuple(range(5))
+        assert tuple(item.market_effects for item in retained) == (
+            msgspec.UNSET,
+            msgspec.UNSET,
+            False,
+            False,
+            msgspec.UNSET,
+        )
+        assert len(journal.paper_traces("paper")) == 2
+        assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
+            self._quantity("1"),
+        )
+
+        replay_inputs = _SignalInputs()
+        replay, recovered = self._observer(tmp_path / "replay.sqlite3", inputs=replay_inputs)
+        assert recovered.reconcile(self._opening())
+        for delivery in retained:
+            replay.deliver(delivery)
+        assert replay_inputs.calls == 0
+        assert recovered.accounts() == journal.accounts()
+        assert recovered.orders() == journal.orders()
+        assert recovered.paper_traces("paper") == journal.paper_traces("paper")
+        assert recovered.paper_report_facts("paper") == journal.paper_report_facts("paper")
+        assert recovered.checkpoint("alpha") == journal.checkpoint("alpha")
+
+    def test_market_interval_never_delays_source_fault(self, tmp_path: Path) -> None:
+        """An invalid boundary inside the interval blocks a previously priced account."""
+        observer, journal = self._observer(
+            tmp_path / "invalid.sqlite3", market_interval_us=3_000_000
+        )
+        assert journal.reconcile(self._opening())
+        for delivery in (
+            self._delivery(
+                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+            ),
+            self._delivery(
+                1,
+                seconds=1,
+                kind="frame",
+                outcome="snapshot",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            ),
+            replace(
+                self._delivery(
+                    2,
+                    seconds=2,
+                    kind="frame",
+                    outcome="update",
+                    status="degraded",
+                    reason="visible_depth_only",
+                    market=True,
+                ),
+                market_effects=False,
+            ),
+            self._delivery(
+                3,
+                seconds=3,
+                kind="gap",
+                outcome="gap",
+                status="recovering",
+                reason="disconnect_unknown_loss",
+            ),
+        ):
+            observer.deliver(delivery)
+        assert journal.accounts()[0].operator_block == "public_input_invalid"
+        assert observer.last_market is not None
+        assert observer.last_market.at == self.at + timedelta(seconds=2)
+
+    def test_market_interval_bounds_and_legacy_wire_identity(self, tmp_path: Path) -> None:
+        """The omitted selection field preserves v1 bytes; invalid cadence fails early."""
+        delivery = self._delivery(
+            0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+        )
+        codec = DomainCodec()
+        expected = codec.encode_json(
+            {
+                "source": delivery.source,
+                "inputs": delivery.inputs,
+                "coordinated_at": delivery.coordinated_at,
+                "schema_version": delivery.schema_version,
+            }
+        )
+        assert codec.encode_json(delivery) == expected
+        assert b"market_effects" not in expected
+        assert codec.decode_json(expected, SharedBookDelivery) == delivery
+        assert hashlib.sha256(codec.encode_json(delivery)).hexdigest() == (
+            hashlib.sha256(expected).hexdigest()
+        )
+        with pytest.raises(ValueError, match="cannot coordinate"):
+            replace(delivery, market_effects=False, coordinated_at=self.at)
+        for interval in (-1, True, 5_000_001, 10_000_000):
+            with pytest.raises(ValueError, match="market interval"):
+                self._observer(tmp_path / f"bad-{interval}.sqlite3", market_interval_us=interval)
+
+    def test_managed_distinct_invalidations_keep_exact_retry_identity(self, tmp_path: Path) -> None:
+        """Repeated bad source facts remain durable faults without reusing changed controls."""
+        path = tmp_path / "managed-invalid.sqlite3"
+        observer, original = self._observer(path)
+        clock = _SequenceClock((self.at - timedelta(seconds=1),))
+        admin = AccountJournal(path, original.config, clock=clock)
+        deployment = PaperDeployment(
+            account_id="paper",
+            configuration_sha256=hashlib.sha256(
+                DomainCodec().encode_json(original.config)
+            ).hexdigest(),
+            releases=("a" * 64,),
+            strategies=(
+                PaperStrategyIdentity(
+                    instance_id="alpha",
+                    policy_identity="test",
+                    candidate_identity="test",
+                    model_identity="test",
+                    feature_identity="test",
+                ),
+            ),
+            input_identity="test",
+            scenario=self._scenario(),
+            state_identity="paper-account-state-v1",
+        )
+        admin.install_paper(deployment)
+        admin.authorize_paper(
+            PaperAuthorization(
+                identity="fault-test",
+                deployment_sha256=deployment.identity,
+                valid_from=self.at - timedelta(seconds=1),
+                expires_at=self.at + timedelta(seconds=20),
+                quantities=(self._quantity("10"),),
+                maximum_order_notional=self._money("1000"),
+                maximum_orders=10,
+            )
+        )
+        observed = self.at - timedelta(microseconds=1)
+        admin.observe(AccountQuote(price=self._price("100"), at=observed))
+        assert admin.reconcile(replace(self._opening(), at=observed))
+        clock.times = (self.at,)
+        owner = admin.claim_paper(
+            "paper",
+            "fault-worker",
+            "a" * 64,
+            AccountControl(
+                identity="fault-claim",
+                account_id="paper",
+                kind="restart",
+                at=self.at,
+                expected_control_identity=f"paper-deployment:{deployment.identity}",
+            ),
+        )
+        clock.times = (self.at + timedelta(seconds=4),)
+        worker = AccountJournal(path, original.config, paper_owner=owner, clock=clock)
+        observer.journal = worker
+        observer.runtime = SharedDecisionRuntime(worker, (self._binding(),))
+        observer.deliver(
+            self._delivery(
+                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+            )
+        )
+        observer.deliver(
+            self._delivery(
+                1,
+                seconds=1,
+                kind="frame",
+                outcome="snapshot",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            )
+        )
+        first = self._delivery(
+            2,
+            seconds=2,
+            kind="gap",
+            outcome="gap",
+            status="recovering",
+            reason="disconnect_unknown_loss",
+        )
+        second = self._delivery(
+            3,
+            seconds=3,
+            kind="gap",
+            outcome="gap",
+            status="recovering",
+            reason="disconnect_unknown_loss",
+        )
+        observer.deliver(first)
+        observer.deliver(second)
+        controls = worker.controls()
+        faults = tuple(item for item in controls if item.request.reason == "public_input_invalid")
+        assert len(faults) == 2 and all(item.status == "applied" for item in faults)
+        assert faults[0].request.identity != faults[1].request.identity
+        observer._apply(first, None)
+        assert worker.controls() == controls
+        assert worker.accounts()[0].phase == "faulted"
 
     def test_invalid_after_market_blocks_admission_and_preserves_order(
         self, tmp_path: Path
@@ -412,6 +748,12 @@ class TestSharedPublicPaper:
                 market=True,
             )
         )
+        before_control = (
+            journal.accounts(),
+            journal.orders(),
+            journal.paper_traces("paper"),
+            journal.checkpoint("alpha"),
+        )
         observer.deliver(
             self._delivery(
                 2,
@@ -423,6 +765,12 @@ class TestSharedPublicPaper:
             )
         )
         assert journal.accounts()[0].operator_block is None
+        assert (
+            journal.accounts(),
+            journal.orders(),
+            journal.paper_traces("paper"),
+            journal.checkpoint("alpha"),
+        ) == before_control
         observer.deliver(
             self._delivery(
                 3,

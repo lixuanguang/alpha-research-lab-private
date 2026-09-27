@@ -253,6 +253,20 @@ class TestPortfolioAccounts:
             "beta": "partial",
         }
         assert reopened.physical_open_orders("shared") == ()
+        retry_at = cancel_at + timedelta(microseconds=1)
+        reopened.observe(AccountQuote(price=self._price(), at=retry_at))
+        before_orders = reopened.orders()
+        refused = reopened.coordinate(
+            PortfolioBatch(
+                identity="new-decision-cannot-bypass-residual-reconciliation",
+                at=retry_at + timedelta(microseconds=1),
+                decisions=(self._decision(instance="beta", identity="beta-next", at=retry_at),),
+            )
+        )
+        assert refused.status == "rejected"
+        assert refused.reason == "reissue_requires_current_reconciliation"
+        assert reopened.orders() == before_orders
+        assert len(reopened.net_orders()) == 1
         assert reopened.reconcile(
             AccountObservation(
                 identity="after-cancel",

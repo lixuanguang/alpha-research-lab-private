@@ -42,7 +42,11 @@ OKX `books` supports event or receipt age; Bitfinex R0 has no exchange event
 clock and supports receipt age. Both use exact visible L2/L3 sizes, require
 uncrossed two-sided state, and expose only descriptive imbalance. A heartbeat
 can carry the last valid market value but cannot refresh its age. Gaps, session
-changes and invalid books clear it until a new validated snapshot. A read
+changes and invalid books clear it until a new validated snapshot. For Bitfinex
+R0, a sequenced heartbeat or later nonmarket control carries that
+value only when the retained full L3 orders reproduce both the old market hash
+and the control's new sequence-bound hash. These controls never become market
+observations or advance market freshness. A read
 freezes one UTC cutoff, retaining missing and stale reasons; earlier cutoffs
 cannot be reopened in the same live source. `book_at(entity, at)` returns the
 canonical market row only when the frozen named decision admits it, so paper

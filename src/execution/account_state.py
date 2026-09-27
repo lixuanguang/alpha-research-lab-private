@@ -207,6 +207,9 @@ class AccountStateStore:
         self.path = path
         self.config = config
         self.codec = codec
+        self._configuration_payload = codec.encode_json(config)
+        self._cached_payload: bytes | None = None
+        self._cached_state: _FirmState | None = None
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -218,7 +221,7 @@ class AccountStateStore:
                 tuple[object, ...] | None,
                 connection.execute("SELECT configuration FROM firm WHERE id=1").fetchone(),
             )
-            payload = self.codec.encode_json(config)
+            payload = self._configuration_payload
             if row is None:
                 connection.execute(
                     "INSERT INTO firm VALUES (1, ?, ?)",
@@ -293,9 +296,10 @@ class AccountStateStore:
             try:
                 transaction = _AccountTransaction(self._load(connection))
                 yield transaction
+                payload = self.codec.encode_json(transaction.state)
                 connection.execute(
                     "UPDATE firm SET payload=? WHERE id=1",
-                    (self.codec.encode_json(transaction.state),),
+                    (payload,),
                 )
                 connection.commit()
             except BaseException:
@@ -335,11 +339,18 @@ class AccountStateStore:
         return connection
 
     def _load(self, connection: sqlite3.Connection) -> _FirmState:
-        """Decode complete typed firm state and reject malformed storage."""
+        """Read current bytes and reuse a typed decode only for an identical row."""
         row = cast(
             tuple[object, ...] | None,
-            connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+            connection.execute("SELECT configuration, payload FROM firm WHERE id=1").fetchone(),
         )
-        if row is None or type(row[0]) is not bytes:
+        if row is None or type(row[0]) is not bytes or row[0] != self._configuration_payload:
+            raise ValueError("account configuration or state schema differs")
+        if type(row[1]) is not bytes:
             raise ValueError("firm account state is missing or malformed")
-        return self.codec.decode_json(row[0], _FirmState)
+        payload = row[1]
+        if payload == self._cached_payload and self._cached_state is not None:
+            return self._cached_state
+        state = self.codec.decode_json(payload, _FirmState)
+        self._cached_payload, self._cached_state = payload, state
+        return state

@@ -217,6 +217,79 @@ class TestLiveBookDecisionSource:
                 history_capacity=16,
             )
 
+    def test_bitfinex_sequenced_controls_carry_only_proved_old_market(self) -> None:
+        """Native heartbeats preserve L3 value and age without becoming market rows."""
+        scenario = _LiveScenario("bitfinex", "receipt")
+        entity = str(scenario.request.config.instrument_id)
+        scenario.push("session", 1_000_000_000)
+        scenario.push(
+            "frame",
+            1_001_000_000,
+            raw=b'{"event":"conf","status":"OK","flags":65536}',
+        )
+        scenario.push("frame", 1_002_000_000, raw=_BITFINEX_ACK)
+        market = scenario.push("frame", 1_003_000_000, raw=b"[7,[[1,100,2],[2,101,-1]],1]")
+        assert market.outcome == "snapshot"
+        boundaries = (
+            (5_000_000_000, b'[7,"hb",2]', "heartbeat"),
+            (6_000_000_000, b'{"event":"info","version":2}', "control"),
+            (10_000_000_000, b'[7,"hb",3]', "heartbeat"),
+        )
+        for received_ns, raw, outcome in boundaries:
+            boundary = scenario.push("frame", received_ns, raw=raw)
+            assert boundary.outcome == outcome
+            assert boundary.state_identity != market.state_identity
+            assert boundary.orders == ()
+            assert boundary.bids == ()
+            assert boundary.asks == ()
+            assert scenario.source.latest_book == market
+            at = _EPOCH + timedelta(microseconds=received_ns // 1_000)
+            observed = scenario.source.read(entity, at).observations[0]
+            assert observed.value == ExactRatio(numerator="1", denominator="3")
+            assert observed.event_at == _EPOCH + timedelta(microseconds=1_003_000)
+            assert observed.available_at == observed.event_at
+            assert scenario.source.book_at(entity, at) == market
+            quote = scenario.source.current_quote(entity, at)
+            assert quote is not None and quote.available_ns == 1_003_000_000
+        stale_at = _EPOCH + timedelta(seconds=17)
+        assert (
+            scenario.source.read(entity, stale_at).observations[0].reason == "stale_market_progress"
+        )
+        assert scenario.source.current_quote(entity, stale_at) is None
+
+    def test_bitfinex_boundary_refuses_changed_identity_and_sequence_gap(self) -> None:
+        """A control carry requires the exact native L3 hash at its validated sequence."""
+        scenario = _LiveScenario("bitfinex", "receipt")
+        entity = str(scenario.request.config.instrument_id)
+        scenario.push("session", 1_000_000_000)
+        scenario.push(
+            "frame",
+            1_001_000_000,
+            raw=b'{"event":"conf","status":"OK","flags":65536}',
+        )
+        scenario.push("frame", 1_002_000_000, raw=_BITFINEX_ACK)
+        scenario.push("frame", 1_003_000_000, raw=b"[7,[[1,100,2],[2,101,-1]],1]")
+        record = CaptureRecord(kind="frame", epoch=0, received_ns=5_000_000_000, raw=b'[7,"hb",2]')
+        outcome = scenario.replay.apply(record)
+        row = BookProjection.capture(len(scenario.records), record, outcome, scenario.replay)
+        scenario.source.accept(record, replace(row, state_identity="0" * 64))
+        assert scenario.source.latest_book is None
+        assert scenario.source.current_quote(entity, _EPOCH + timedelta(seconds=5)) is None
+        assert (
+            scenario.source.read(entity, _EPOCH + timedelta(seconds=5)).observations[0].value
+            is None
+        )
+
+        gap = _LiveScenario("bitfinex", "receipt")
+        gap.push("session", 1_000_000_000)
+        gap.push("frame", 1_001_000_000, raw=b'{"event":"conf","status":"OK","flags":65536}')
+        gap.push("frame", 1_002_000_000, raw=_BITFINEX_ACK)
+        gap.push("frame", 1_003_000_000, raw=b"[7,[[1,100,2],[2,101,-1]],1]")
+        invalid = gap.push("frame", 5_000_000_000, raw=b'[7,"hb",4]')
+        assert invalid.outcome == "invalid_frame"
+        assert gap.source.latest_book is None
+        assert gap.source.current_quote(entity, _EPOCH + timedelta(seconds=5)) is None
+
     def test_capacity_and_mismatched_canonical_receipt(self) -> None:
         """Evicted history stays missing and mismatched source coordinates are refused."""
         scenario = _LiveScenario("okx", "receipt", history_capacity=1)

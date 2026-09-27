@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
     from runtime.monitoring import CandidateMonitoringExporter
     from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
+    from runtime.policy_worker import PolicyProcessFailure, ProcessDecisionPolicy
     from runtime.portfolio import (
         SharedDecisionCheckpoint,
         SharedDecisionRuntime,
@@ -107,6 +108,15 @@ def __getattr__(name: str) -> object:
         exports = {
             "PaperCandidateRuntime": paper.PaperCandidateRuntime,
             "PaperCheckpoint": paper.PaperCheckpoint,
+        }
+        return exports[name]
+    if name in {"PolicyProcessFailure", "ProcessDecisionPolicy"}:
+        # project library imports
+        from runtime import policy_worker
+
+        exports = {
+            "PolicyProcessFailure": policy_worker.PolicyProcessFailure,
+            "ProcessDecisionPolicy": policy_worker.ProcessDecisionPolicy,
         }
         return exports[name]
     if name in {"CandidateFeatureFeed"}:
@@ -232,6 +242,8 @@ __all__ = [
     "PaperCaptureObserver",
     "PaperCheckpoint",
     "PolicyFactory",
+    "PolicyProcessFailure",
+    "ProcessDecisionPolicy",
     "ProcessSupervisor",
     "RuntimeFiles",
     "SharedBookDelivery",

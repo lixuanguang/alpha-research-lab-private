@@ -27,6 +27,7 @@ from execution.accounts import (
     PortfolioResidual,
     TaggedOrder,
 )
+from execution.installed_account import InstalledPaperAccount, SocketPaperAccount
 from execution.journal import PaperOrderJournal
 from execution.lifecycle import SpotOrderLifecycle
 from execution.monitoring import ExecutionMonitoring
@@ -85,6 +86,7 @@ __all__ = [
     "EventKind",
     "ExecutionMonitoring",
     "GatewayView",
+    "InstalledPaperAccount",
     "JournalEvent",
     "NativeFill",
     "NetAllocation",
@@ -114,6 +116,7 @@ __all__ = [
     "PortfolioDecision",
     "PortfolioResidual",
     "PrivateVenueSession",
+    "SocketPaperAccount",
     "SpotOrderLifecycle",
     "StepCommit",
     "StepRecord",

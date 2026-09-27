@@ -100,6 +100,15 @@ The ordinary paper matcher alone supplies fills and terminal cancellations.
 Manual managed fill/post/lifecycle injection is rejected. Partial fills, zero
 liquidity, cancellation requests and rejected reductions do not imply liquidation.
 
+MR14 corrects the operational freshness cutoff: quote, matching-book and account
+observation ages are checked against actual admission time sampled inside the
+serialized transaction, while causal checks still use the requested event time.
+The regression rejects a request aged nine seconds whose quote/book is eighteen
+seconds old under a ten-second limit, without new orders or reservations. Exact
+same-owner retries return their retained result, and fresh attributable reduction
+remains available after grant expiry. The [MR14 record](multi-instance-paper.md)
+owns the correction's validation and subsequent service qualification.
+
 Latest-journal restart and compatible code rollback preserve all economic facts,
 checkpoints, reservations and protection. Restored snapshots are quarantined
 before publication; none can silently resume managed execution. This conservative
@@ -340,6 +349,8 @@ venue journeys renew projection through the managed entry point.
 The fixtures establish software behavior on OKX/Bitfinex native public messages,
 not exchange fills, queue priority, empirical profitability or calibrated latency.
 There is no production authority, private credential requirement or real capital.
-MR10 incorporates these local results but remains open for MR14 multiple-instance
-deployment and deployed service failure/restoration. MR15 capacity, continuous
-monitoring and remote routing remain separate.
+MR10 incorporates these results together with the later
+[MR14 supervised service qualification](multi-instance-paper.md), which supplies
+bounded multiple-instance operation, operating monitoring and actual local service
+failure/restoration. MR15 capacity and remote routing remain separate; these
+engineering workloads do not establish indefinite daemon operation.

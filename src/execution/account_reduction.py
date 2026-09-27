@@ -112,7 +112,11 @@ class AccountReduction:
         self.admission = admission
 
     def apply(
-        self, transaction: _AccountTransaction, request: PaperReductionRequest
+        self,
+        transaction: _AccountTransaction,
+        request: PaperReductionRequest,
+        *,
+        admission_at: datetime | None = None,
     ) -> PaperReductionResult:
         """Persist the exact original outcome, without simulating a fill."""
         request.__post_init__()
@@ -121,10 +125,16 @@ class AccountReduction:
                 if saved.request != request:
                     raise ValueError("paper reduction identity reused with different content")
                 return saved
+        if admission_at is not None and (
+            request.at > admission_at
+            or admission_at - request.at
+            > timedelta(microseconds=self.admission.config.budgets.max_quote_age_us)
+        ):
+            raise ValueError("paper_reduction_stale_or_future")
         transaction.account(request.account_id)
         before = transaction.state
         try:
-            order = self._reserve(transaction, request)
+            order = self._reserve(transaction, request, admission_at=admission_at or request.at)
         except ValueError as error:
             transaction.state = before
             result = PaperReductionResult(
@@ -142,9 +152,13 @@ class AccountReduction:
         return result
 
     def _reserve(
-        self, transaction: _AccountTransaction, request: PaperReductionRequest
+        self,
+        transaction: _AccountTransaction,
+        request: PaperReductionRequest,
+        *,
+        admission_at: datetime,
     ) -> OrderState:
-        """Require fresh independent state before admitting one protective sell."""
+        """Require causal inputs that remain fresh at actual admission."""
         if self.admission.config.mode != "paper":
             raise ValueError("paper_reduction_requires_paper_mode")
         account = transaction.account(request.account_id)
@@ -168,13 +182,13 @@ class AccountReduction:
             for saved in transaction.state.reconciliations
         ):
             raise ValueError("account_not_reconciled")
-        if request.at - account.reconciled_at > timedelta(
+        if admission_at - account.reconciled_at > timedelta(
             microseconds=self.admission.config.budgets.max_state_age_us
         ):
             raise ValueError("stale_state")
         if request.quote.at > request.at:
             raise ValueError("future_quote")
-        if request.at - request.quote.at > timedelta(
+        if admission_at - request.quote.at > timedelta(
             microseconds=self.admission.config.budgets.max_quote_age_us
         ):
             raise ValueError("stale_quote")
@@ -206,7 +220,7 @@ class AccountReduction:
         market_at = traces[-1].market.at
         if market_at > request.at:
             raise ValueError("future_paper_market")
-        if request.at - market_at > timedelta(
+        if admission_at - market_at > timedelta(
             microseconds=self.admission.config.budgets.max_quote_age_us
         ):
             raise ValueError("stale_paper_market")

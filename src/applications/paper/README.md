@@ -54,7 +54,8 @@ batch outcomes with `submission_attempted=False`.
 `run_shared_paper` preserves the explicit normalized-fact workflow. For automatic
 native-book matching use `run_live_shared_paper` below. Shadow mode refuses fill
 events. `run_paper` and `run_live_paper` retain the dedicated candidate paths;
-broader multiple-instance deployment remains MR14 and authenticated execution is KIV.
+the [supervised local deployment](#supervised-local-deployments) composes multiple
+instances, and authenticated execution remains KIV.
 
 ## Automatic public-input accounts
 
@@ -173,8 +174,8 @@ retries preserve newer state. A new capture uses a new recording and waits for
 fresh synchronization. Known invalid input blocks admission without releasing
 unresolved exposure. Completion neither cancels orders nor liquidates holdings.
 This is a bounded local invocation. Managed signed activation and local recovery
-are documented below; MR14 deployed multi-instance scheduling, MR15 capacity,
-and remote monitoring remain separate outcomes. The
+are documented below. The supervised service composition below supplies multi-instance
+scheduling; MR15 capacity and remote monitoring remain separate outcomes. The
 [public-paper monitoring record](../../../docs/roadmap/paper-monitoring.md) owns
 its acceptance commands, results and remaining qualification limits.
 
@@ -228,9 +229,8 @@ automatically matched public books. Private venue qualification remains KIV
 outside paper acceptance. The bounded signed managed-paper activation and local
 recovery interface is described below; its operational evidence and remaining
 qualification limits are tracked in the
-[activation record](../../../docs/roadmap/paper-activation.md). Full MR14 deployed
-multi-instance operation remains a separate outcome under the
-[live-trading reconsideration record](../../../docs/roadmap/README.md#live-trading-kiv-and-reconsideration).
+[activation record](../../../docs/roadmap/paper-activation.md). The supervised multi-instance composition below has its own
+[MR14 qualification record](../../../docs/roadmap/multi-instance-paper.md).
 
 ## Signed account consumer
 
@@ -269,3 +269,82 @@ exercise this interface. A process timeout has an uncertain outcome: inspect
 retained journal facts and exact request identity before recovery. Monitoring
 failure is diagnostic and must never cause a committed matching/admission request
 to be rerun.
+
+## Supervised local deployments
+
+`PaperServiceConfiguration` separates available source, instance and account
+definitions from the `active` instance tuple. Each account definition points to an
+explicitly activated signed account socket. Each source binds one native capture,
+venue/instrument identity, execution scenario, freshness budget and explicit
+`market_interval_us` (default 3,000,000); each instance
+selects its source and installed reference policy. The supported local envelope is
+at most four accounts, eight source processes and sixteen policy instances, with
+bounded 1–120 second invocations. These resource ceilings are not MR15 throughput
+qualification. `fixed_clip` and `liquidity_clip` are different engineering formulas,
+not profitability recommendations.
+
+The interval is positive and no larger than source freshness or capture idle time.
+It is part of the signed input identity. All native books are retained and validated;
+the first eligible book and later books at least one interval apart trigger matching
+and strategy decisions. Intermediate eligible books update monitoring marks without
+fills or checkpoint changes. Source invalidation still protects accounts immediately.
+Delivery records retain this selection for exact replay. This selected-book paper
+model does not establish sustained native-feed capacity.
+
+After installing, authorizing, reconciling and claiming each account separately,
+start its signed owner service using the
+[account command](../execute/README.md#bounded-account-owner-service). Then use the
+full installed research distribution for the source/policy supervisor:
+
+```sh
+alpha-execute deployment --config /absolute/services.json --owners /absolute/owners.json \
+  --root /absolute/service-state --socket /private/tmp/paper-supervisor.sock
+alpha-execute deployment-control --socket /private/tmp/paper-supervisor.sock \
+  --request /absolute/operator-control.json
+```
+
+`owners.json` encodes `PaperServiceOwners(owners=...)`. Operator control files encode
+`PaperServiceControl(action=..., identity=..., subject=...)`; actions are `inspect`,
+`stop_instance`, `restart_instance`, `stop_source`, `restart_source` and `shutdown`.
+Instance/source actions name their configured subject. A repeated control identity
+must retain identical content. Restarting a source provides fresh synchronization
+and may settle accepted obligations; it does not clear the account stop or authorize
+new decisions. Instance restart still checks journal reconciliation and independent
+account protection. `shutdown` stops children and requests account service stops.
+
+`restart_instance` may carry one complete typed `AccountObservation` in its optional
+`observation` field for the named instance's account. The supervisor sends that
+independent observation to the current signed owner and requires a successful
+reconciliation immediately before the restart command, before scheduling another
+source cohort. A mismatched or rejected observation starts no worker; omitting it
+retains the journal's existing reconciliation requirement. A lost account response
+is uncertain and is never retried automatically. A successfully applied control
+retains the full observation, so changed reuse of its identity is rejected.
+
+The root retains immutable configuration revisions, native captures, fsynced
+delivery envelopes, socket requests/results, operational events and `status.json`.
+`monitoring/<account>.json` contains the account and strategy cost/valuation report;
+`monitoring/telemetry.sqlite3` uses the existing telemetry query/dashboard APIs.
+Liveness, source quality and economic progress have separate observations. Failed
+or stale monitoring does not establish healthy execution and does not retry it.
+The [MR14 record](../../../docs/roadmap/multi-instance-paper.md) separates numerical
+fixtures, actual service observations and native public-source evidence.
+
+To add a provisioned inactive instance, stop the supervisor and services, change
+only the active selection, increment `revision`, and set `previous_sha256` to the
+previous configuration identity. Preserve the service root and account journals.
+Reconcile and explicitly claim new owner generations, start their services and
+launch the successor configuration. Existing account, source, policy and checkpoint
+identities remain exact. An unknown instance, changed policy, instrument, budget or
+account configuration is incompatible; this procedure never resets a journal or
+silently migrates economic state. An unprovisioned signed definition requires its
+own compatible installation procedure.
+
+Each account target has one atomic journal budget. Multiple strategies/instruments
+within that target share risk and compatible netting. Isolated targets and USD/USDT
+have independent budgets; no atomic cross-journal firm limit or implicit FX is
+claimed. Policy loss triggers selective stop; source loss conservatively faults
+dependent accounts; owner loss terminates every dependent policy before recovery.
+Unrelated accounts continue only within their own source and authority controls.
+An error while committing or retaining a cohort is an uncertain account outcome,
+even if a policy process also died. It faults the account and is never retried.

@@ -161,6 +161,25 @@ support rather than rewriting terminal state. The
 [MR07 roadmap boundary](../roadmap/README.md#mr07-delivery-and-acceptance)
 qualifies the bounded scope and separates source observations from modeled fills.
 
+The supervised local composition retains this same coordinator and journal. Each
+instance selects its own input, reference policy and explicit instrument through
+typed configuration. Netting requires compatible economic context and identical
+venue/instrument identity; separate instruments never become one physical order.
+Each account service atomically reserves instance/account capacity, including
+pending and uncertain orders. Separate service journals protect isolated accounts;
+their individual firm limits do not constitute one atomic budget across journals.
+USD and USDT remain separate currencies without implicit conversion.
+
+Selective worker loss stops that instance and cancels its accepted shared parent
+where necessary, retaining residual ownership for the surviving children. A new
+decision cannot bypass the requirement for reconciliation after the terminal
+parent outcome before residual reissue. Source loss faults all dependent accounts;
+an owner failure terminates every dependent policy. Independent accounts continue
+only with their own healthy source and current authority. Shadow records decisions
+and reservations without paper matching or internal crossing fills. The
+[MR14 record](../roadmap/multi-instance-paper.md) separates these implementation
+contracts from measured installed service observations.
+
 The retained live adapter contract below applies if live work is reopened.
 Venue adapters translate canonical orders into one broker or venue protocol. They own credentials, throttles, sequence
 numbers, venue-specific timeouts, retry rules, idempotency keys, and source errors. They expose normalized events back

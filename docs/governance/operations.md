@@ -2,8 +2,8 @@
 
 This runbook owns the implemented local installation and paper account recovery
 lifecycle and the requirements for later deployed strategies/services. The
-public-paper workflow now emits a finite final monitoring view; continuous
-operating monitoring and final deployed acceptance remain open. The
+public-paper workflow emits a finite final monitoring view; the supervised local
+deployment also samples account and instance reports while its services run. The
 [paper-monitoring record](../roadmap/paper-monitoring.md) owns its integration
 evidence and limits. Physical venue stop/cancel and other live operations are
 [KIV](../roadmap/README.md#live-trading-kiv-and-reconsideration).
@@ -430,10 +430,11 @@ monitoring failures in its result. The installed
 can reopen configured telemetry without changing operating state. Socket status
 means local datagram acceptance; it does not establish receiver processing or
 human acknowledgement. Inspect pending/failed attempts and telemetry loss
-separately from hard controls. Deployed routing and external venue/source-clock
-qualification remain unqualified. The bounded activation/recovery evidence is
-tracked in the [MR13 record](../roadmap/paper-activation.md); MR14 deployed
-multi-instance operation and MR15 capacity remain separate work. Additional
+separately from hard controls. The current [MR14 record](../roadmap/multi-instance-paper.md)
+distinguishes supervised local service and public routing observations from their
+remaining limits. Bounded activation/recovery evidence is tracked in the
+[MR13 record](../roadmap/paper-activation.md); external venue/source-clock
+qualification and MR15 capacity remain separate work. Additional
 operators and staffing-dependent approval/review programs follow actual
 organizational need and remain separate from technical completion.
 
@@ -444,6 +445,153 @@ telemetry topology follows the launch capacity budget. Minimum monitoring and
 tested recovery accompany each capability as it is built. The local paper
 consumer retains actual receiver observations separately from socket acceptance;
 human acknowledgement and remote-service delivery remain untested.
+
+## Supervised multi-instance paper services
+
+Use the [service guide](../../src/applications/paper/README.md#supervised-local-deployments)
+and [account service request](../../src/applications/execute/README.md#bounded-account-owner-service)
+for the supported commands. The [MR14 record](../roadmap/multi-instance-paper.md)
+owns the declared environment, workload/freshness/recovery budgets, retained
+attempts and acceptance status. These finite local invocations do not create a
+background system daemon or grant private venue authority.
+
+1. Install a separately signed account target for each shared or isolated account.
+   Author its disabled deployment with the full provisioned instance/input/scenario
+   envelope. Separately authorize, supply fresh independent quotes and account
+   observations, and claim its owner generation. Preserve each target's current
+   journal. Installation alone never activates scheduling. Declare each source's
+   `market_interval_us` before signing: the positive interval is bounded by source
+   freshness and capture idle time, and changes input identity. Every native book
+   is retained/validated; only selected books trigger matching and decisions.
+   Intermediate books update monitoring marks, while source faults remain immediate.
+2. Start each target through `alpha-governance-artifacts run ... -- account
+   --request SERVE.json`, with action `serve_paper`, the claimed owner, absolute
+   socket path and `service_seconds` no greater than 120. Start `alpha-execute
+   deployment` from the installed research distribution, naming the exact
+   configuration, owner tuple, retained service root and control socket.
+3. Inspect `deployment-control` and the retained `status.json` during operation.
+   Check policy/source process status, account heartbeat, source freshness,
+   authority and generation, reconciliation, reservations and per-strategy
+   report costs/net P&L separately. A successful monitoring sample in `status.json`
+   includes the account activation, report and each configured instance's scope,
+   orders, nonterminal reservations, residuals and stopped flag. The retained
+   `monitoring/<account>.json` records those fields with the inspected account
+   state; its telemetry database is a projection. A live heartbeat is not a
+   current market or economic progress. The installed account journal remains
+   authoritative.
+4. Use `stop_instance` for a selective policy stop. Other strategies retain
+   ownership, but cancellation of a shared physical parent can suspend their
+   residuals until a fresh complete reconciliation. Inspect terminal outcomes,
+   independently observe the complete account, then explicitly `restart_instance`.
+   An optional typed `AccountObservation` on that control makes the supervisor
+   reconcile through the current signed account owner and require success
+   immediately before restart, before another cohort is scheduled. The observation
+   must name the instance's account; a mismatched or rejected observation starts
+   no worker. Without it, the journal's prior reconciliation requirement still
+   applies. A successfully applied control identity can be replayed only with
+   identical content. An uncertain account response is never automatically
+   retried. Restarting the
+   service alone does not restore authority or clear account protection.
+   Operator reduction remains a separate `reduce_paper` account request, using
+   current admission-time quote/book/state freshness even if the grant expired.
+5. On source loss/staleness, the supervisor stops dependent policies and faults
+   the affected accounts. `restart_source` starts a fresh unsynchronized capture
+   and may settle old obligations; it does not clear controls or resume policies.
+   On owner loss, all dependent workers stop and no uncertain account request is
+   replayed. Stop the supervisor, inspect the latest journal through the signed
+   launcher, reconcile retained requests/results and independent facts, resolve
+   pending/uncertain orders, then claim a fresh owner before restarting services.
+6. An account/delivery persistence failure stops affected admission; storage that
+   cannot record a fault cannot prove a clean stop. Terminate the producer, retain
+   the failure, restore writable storage, inspect current state and reconcile.
+   A diagnostic/receiver failure is recorded separately and cannot clear hard
+   controls, create authority or cause an execution retry.
+7. To activate a provisioned inactive instance, shut down the deployment, increment
+   selection revision with the previous configuration digest, and add its name to
+   `active`. Preserve every account/source/policy definition and the service root.
+   Reconcile and claim fresh generations, then relaunch. Unknown definitions,
+   changed budgets and incompatible state fail; no journal reset is supported.
+8. Use explicit `shutdown` when the trial completes. Confirm source/policy PIDs
+   have exited, account services have stopped, account phases are stopped and
+   unresolved obligations remain visible. Retain captures, requests, configuration
+   history, service events and receiver observations before cleanup.
+
+For an already installed, authorized and claimed deployment, these control files
+show the separate operator steps. Give each new action a unique identity. Replace
+the example instance, socket and paths with the deployed values. After the stop,
+inspect its terminal outcomes and prepare
+`/private/tmp/paper-controls/independent-observation.json` as a complete, current
+`DomainCodec` JSON `AccountObservation` from independent account facts for that
+instance's account. The restart file embeds that observation as a typed field:
+
+```sh
+mkdir -p /private/tmp/paper-controls
+printf '%s\n' '{"action":"inspect","identity":"inspect-001"}' \
+  > /private/tmp/paper-controls/inspect.json
+alpha-execute deployment-control --socket /private/tmp/paper-supervisor.sock \
+  --request /private/tmp/paper-controls/inspect.json
+
+printf '%s\n' '{"action":"stop_instance","identity":"stop-001","subject":"shared-fixed-btc"}' \
+  > /private/tmp/paper-controls/stop.json
+alpha-execute deployment-control --socket /private/tmp/paper-supervisor.sock \
+  --request /private/tmp/paper-controls/stop.json
+
+# Inspect terminal outcomes and author the independent observation file here.
+python - <<'PY'
+import json
+from pathlib import Path
+
+directory = Path('/private/tmp/paper-controls')
+observation = json.loads((directory / 'independent-observation.json').read_text())
+control = {
+    'action': 'restart_instance',
+    'identity': 'restart-001',
+    'subject': 'shared-fixed-btc',
+    'observation': observation,
+}
+(directory / 'restart.json').write_text(json.dumps(control))
+PY
+alpha-execute deployment-control --socket /private/tmp/paper-supervisor.sock \
+  --request /private/tmp/paper-controls/restart.json
+
+printf '%s\n' '{"action":"shutdown","identity":"shutdown-001"}' \
+  > /private/tmp/paper-controls/shutdown.json
+alpha-execute deployment-control --socket /private/tmp/paper-supervisor.sock \
+  --request /private/tmp/paper-controls/shutdown.json
+```
+
+Stop after any rejected or uncertain control response and inspect the current
+journal and any retained control result before issuing a new identity. Installation,
+authorization, owner claim and inactive-instance activation remain the separate
+procedures above.
+
+### Recover unsent managed shadow intents
+
+Shadow has no paper matcher and no modeled fills. After a supervised shadow loss,
+inspect the current signed journal and distinguish a never-submitted physical
+parent from an acknowledged, accepted, unknown or filled order. Explicitly stop
+the affected account, then selectively stop every affected instance. For each
+verified unsent, zero-fill and zero-fee physical parent still at `intent` or
+`cancel_requested`, send an owner-bound `net_event` with `kind="rejected"` through
+the signed account launcher. Use the exact current `PaperOwner`, a nonfuture event
+clock and a stable event identity; the
+[typed request example](../../src/applications/execute/README.md#shadow-unsent-intent-settlement)
+shows the command. This is a local no-submission fact that releases a reservation,
+not an exchange response. The operation retains the journal and strategy
+checkpoints without adding economic postings. It cannot be used while the
+account is running, for accepted or uncertain orders, for manual paper-mode
+outcomes or to post a fill.
+
+Inspect the resulting terminal parents and independently reconcile the complete
+account with empty physical open orders. Only then explicitly claim a new owner,
+start its signed service and restart selected policies. The claim and each
+instance restart advance the account control clock: supply a fresh complete
+observation immediately before each instance restart, preferably in that
+supervisor control's `observation` field. A pre-claim reconciliation alone is
+insufficient. Exact saved rejection
+retries remain idempotent under the current owner after restart; a replaced owner
+cannot create a new rejection. The [MR14 record](../roadmap/multi-instance-paper.md)
+owns the bounded installed shadow recovery qualification and service acceptance.
 
 ## Incident record
 

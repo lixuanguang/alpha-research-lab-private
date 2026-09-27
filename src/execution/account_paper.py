@@ -22,7 +22,7 @@ from execution.account_records import (
     AccountPaperFill,
     AccountPaperTrace,
 )
-from execution.account_state import AccountStateStore, _AccountTransaction
+from execution.account_state import AccountStateStore, _AccountTransaction, _FirmState
 from execution.paper import PaperMarket, PaperMatchEvaluator
 from execution.paper_authority import PaperAuthority, PaperOwner
 from execution.records import OrderEvent, OrderState
@@ -56,6 +56,14 @@ class AccountPaperMatching:
     def bind(self, account_id: str, scenario: PaperExecutionScenario) -> None:
         """Pin a venue/instrument scenario before its first account order."""
         with self.store.write() as transaction:
+            if self.owner is not None:
+                PaperAuthority.require_owner(
+                    transaction,
+                    account_id,
+                    self.owner,
+                    at=self.clock(),
+                    new_exposure=False,
+                )
             self.bind_transaction(transaction, account_id, scenario)
 
     def bind_transaction(
@@ -65,7 +73,7 @@ class AccountPaperMatching:
         scenario: PaperExecutionScenario,
     ) -> None:
         """Stage immutable matching assumptions together with a disabled deployment."""
-        self._require_paper()
+        self._require_binding_mode()
         scenario.__post_init__()
         limits = self._limits(scenario)
         if scenario.adverse.per != limits.lot.dimension:
@@ -126,7 +134,7 @@ class AccountPaperMatching:
             activation = PaperAuthority.require_owner(
                 transaction, account_id, self.owner, at=self.clock(), new_exposure=False
             )
-            if activation is not None and activation.deployment.scenario != scenario:
+            if activation is not None and scenario not in activation.deployment.scenarios:
                 raise ValueError("paper_scenario_incompatible")
             transaction.account(account_id)
             binding = self._binding(transaction, account_id, scenario)
@@ -162,10 +170,10 @@ class AccountPaperMatching:
         return result
 
     def report_facts(
-        self, account_id: str
+        self, account_id: str, *, state: _FirmState | None = None
     ) -> tuple[tuple[AccountPaperFill, ...], tuple[AccountPaperCost, ...]]:
         """Project current owned fills and effective cost links from retained facts."""
-        state = self.store.read()
+        state = self.store.read() if state is None else state
         account = next(
             (item for item in state.accounts if item.ledger.account_id == account_id), None
         )
@@ -428,3 +436,8 @@ class AccountPaperMatching:
         """Prevent simulated fills in shadow and authorized venue journals."""
         if self.config.mode != "paper":
             raise ValueError("automatic matching requires paper account mode")
+
+    def _require_binding_mode(self) -> None:
+        """Allow immutable source assumptions for paper and non-filling shadow."""
+        if self.config.mode not in ("paper", "shadow"):
+            raise ValueError("paper scenario requires paper or shadow account mode")

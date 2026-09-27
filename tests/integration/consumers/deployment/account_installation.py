@@ -586,7 +586,6 @@ class AccountInstallationAcceptance:
             or first.config_schema != "account-runtime-v1"
             or first.state_schema != second.state_schema
             or first.state_schema not in ("account-journal-v2", "account-journal-v3")
-            or (first.state_schema == "account-journal-v3" and first.mode != "paper")
         ):
             raise ValueError("account acceptance requires compatible signed paper releases")
 

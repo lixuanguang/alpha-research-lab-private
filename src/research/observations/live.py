@@ -11,7 +11,7 @@ from fractions import Fraction
 
 # project library imports
 from financial_units import ExactRatio
-from market_data.books import BookDepth
+from market_data.books import BookDepth, VisibleBook
 from market_data.contracts import BookObservation, BookQuote, CaptureRecord, CaptureRequest
 from research.observations.inputs import DecisionInputs, InputRequirement, NamedObservation
 from serialization import DomainCodec
@@ -87,6 +87,7 @@ class LiveBookDecisionSource:
         self._position = 0
         self._last_received_ns = 0
         self._last_available_at: datetime | None = None
+        self._last_sequence: int | None = None
         self._latest_book: BookObservation | None = None
         self._market_lineage: str | None = None
         self._last_decision_at: datetime | None = None
@@ -246,7 +247,10 @@ class LiveBookDecisionSource:
             and row.outcome in ("control", "heartbeat", "duplicate")
             and self._latest_book is not None
             and self._latest_book.epoch == row.epoch
-            and self._latest_book.state_identity == row.state_identity
+            and (
+                self._latest_book.state_identity == row.state_identity
+                or self._unchanged_bitfinex_boundary(record, row)
+            )
             and self._history
             and self._market_lineage is not None
         ):
@@ -284,6 +288,37 @@ class LiveBookDecisionSource:
         self._position += 1
         self._last_received_ns = record.received_ns
         self._last_available_at = delivered_at
+        self._last_sequence = row.sequence
+
+    def _unchanged_bitfinex_boundary(self, record: CaptureRecord, row: BookObservation) -> bool:
+        """Prove a sequenced heartbeat/control changed no retained visible L3 order."""
+        market = self._latest_book
+        if (
+            self._request.config.venue != "bitfinex"
+            or record.kind != "frame"
+            or row.outcome not in ("heartbeat", "control", "duplicate")
+            or market is None
+            or market.sequence is None
+            or self._last_sequence is None
+            or row.sequence != self._last_sequence + (1 if row.outcome == "heartbeat" else 0)
+            or row.source_time != market.source_time
+            or row.orders
+            or row.bids
+            or row.asks
+        ):
+            return False
+        visible = VisibleBook(self._request.config.max_orders)
+        try:
+            for order in market.orders:
+                visible.set(order)
+        except ValueError:
+            return False
+        visible.ready = True
+        visible.sequence = market.sequence
+        if market.state_identity != visible.identity:
+            return False
+        visible.sequence = row.sequence
+        return row.state_identity == visible.identity
 
     def read(self, entity: str, at: datetime) -> DecisionInputs:
         """Freeze one then-known projection, preserving invalidation and event age.

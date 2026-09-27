@@ -37,7 +37,14 @@ from configuration.paper import PaperConfiguration, PaperExecutionScenario
 from configuration.paper_activation import (
     PaperAuthorization,
     PaperDeployment,
+    PaperSourceBinding,
     PaperStrategyIdentity,
+)
+from configuration.paper_services import (
+    PaperServiceAccount,
+    PaperServiceConfiguration,
+    PaperServiceInstance,
+    PaperServiceSource,
 )
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
 from configuration.venue_execution import (
@@ -81,6 +88,11 @@ __all__ = [
     "PaperConfiguration",
     "PaperDeployment",
     "PaperExecutionScenario",
+    "PaperServiceAccount",
+    "PaperServiceConfiguration",
+    "PaperServiceInstance",
+    "PaperServiceSource",
+    "PaperSourceBinding",
     "PaperStrategyIdentity",
     "PublicDataJob",
     "ResolvedManifest",
