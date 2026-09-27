@@ -1,0 +1,685 @@
+"""Run finite signed paper capacity trials and retain failures and cleanup.
+
+Copy this consumer with capacity_inputs, capacity_reads and paper_services outside
+the checkout. Use an installed research interpreter and separately verified signed
+account targets. Every invocation gets a fresh evidence directory.
+"""
+
+from __future__ import annotations
+
+# standard library imports
+import argparse
+import hashlib
+import os
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime
+from functools import partial
+from pathlib import Path
+from typing import BinaryIO, Literal
+from uuid import uuid4
+
+# third party library imports
+import msgspec
+from capacity_inputs import CapacityVariant, CapacityWorkload
+from capacity_reads import CapacityReadObserver
+from capacity_recovery import CapacityRecovery
+
+# project library imports
+from accounting import AccountLedger
+from applications.execute.services import (
+    PaperServiceControl,
+    PaperServiceOwners,
+    run_paper_services,
+)
+from configuration import PaperAuthorization, PaperDeployment, PaperServiceConfiguration
+from execution import (
+    AccountControl,
+    AccountExecutionRequest,
+    InstalledPaperAccount,
+    PaperOwner,
+    SocketPaperAccount,
+)
+from runtime import InstalledIdentity
+from serialization import DomainCodec
+
+
+class _Health(msgspec.Struct, frozen=True):
+    """Read the signed service process identity without weakening account responses."""
+
+    pid: int
+    generation: int
+
+
+class _Child(msgspec.Struct, frozen=True):
+    """Read an observed child process identity from supervisor status."""
+
+    pid: int | None
+    alive: bool
+
+
+class _Status(msgspec.Struct, frozen=True):
+    """Read only operating signals needed by the diagnostic driver."""
+
+    active: tuple[str, ...]
+    workers: dict[str, _Child]
+    sources: dict[str, _Child]
+    faulted_accounts: tuple[str, ...]
+    stopping: bool
+
+
+class AlertReceiver:
+    """Retain actual local diagnostic receipt without acknowledging economic work."""
+
+    def __init__(self, path: Path, output: Path) -> None:
+        """Bind a fresh finite trial's datagram endpoint."""
+        self.path, self.output = path, output
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.socket.bind(str(path))
+        self.socket.settimeout(0.1)
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._receive)
+        self.thread.start()
+
+    def _receive(self) -> None:
+        """Retain each datagram with its actual local receipt clock."""
+        with self.output.open("ab") as stream:
+            while not self.stop.is_set():
+                try:
+                    payload = self.socket.recv(8192)
+                except TimeoutError:
+                    continue
+                stream.write(
+                    DomainCodec().encode_json(
+                        {"received_ns": time.monotonic_ns(), "payload": payload.decode()}
+                    )
+                    + b"\n"
+                )
+                stream.flush()
+
+    def close(self) -> None:
+        """Stop receipt and remove only this driver's endpoint."""
+        self.stop.set()
+        self.thread.join(2)
+        self.socket.close()
+        self.path.unlink(missing_ok=True)
+
+
+class CapacityTrial:
+    """Own signed startup, a measured finite interval and unconditional shutdown."""
+
+    def __init__(
+        self,
+        root: Path,
+        output: Path,
+        launcher: Path,
+        *,
+        public_venue: Literal["okx", "bitfinex"] | None = None,
+        variant: CapacityVariant = "base",
+        recover: bool = False,
+        faults: bool = False,
+    ) -> None:
+        """Bind predeclared configuration and exact signed installation paths."""
+        self.root, self.output, self.launcher = root, output, launcher
+        self.public_venue, self.variant = public_venue, variant
+        self.recover, self.faults = recover, faults
+        self.codec = DomainCodec()
+        self.config = self.codec.decode_json(
+            (root / "preparation/services-initial.json").read_bytes(), PaperServiceConfiguration
+        )
+        self.socket_root = Path(self.config.accounts[0].socket_path).parent
+        self.control_socket = self.socket_root / "supervisor.sock"
+        self.workload = CapacityWorkload(
+            opening_at=self.config.accounts[0].configuration.opening_at,
+            socket_root=self.socket_root,
+        )
+        self.policy = root / "release-policy.json"
+        self.service_root = output / "operating"
+        self.processes: list[subprocess.Popen[bytes]] = []
+        self.streams: list[BinaryIO] = []
+        self.watchers: list[threading.Thread] = []
+        self.owners: dict[str, PaperOwner] = {}
+        self.clients: dict[str, SocketPaperAccount] = {}
+        self.account_pids: dict[str, int] = {}
+        self.child_pids: set[int] = set()
+        self.failures: list[str] = []
+        self.supervisor: subprocess.Popen[bytes] | None = None
+        self.receiver: AlertReceiver | None = None
+        self.first_service_at: float | None = None
+        self.shutdown_requested = False
+
+    def record(self, kind: str, values: object) -> None:
+        """Flush an attributable driver observation before the next operation."""
+        row = {
+            "kind": kind,
+            "at": datetime.now(UTC),
+            "monotonic": time.monotonic(),
+            "values": values,
+        }
+        with (self.output / "observations.jsonl").open("ab") as stream:
+            stream.write(self.codec.encode_json(row) + b"\n")
+            stream.flush()
+
+    def admin(self, account_id: str) -> InstalledPaperAccount:
+        """Select the exact fixed installed account configuration and retained target."""
+        definition = next(item for item in self.config.accounts if item.account_id == account_id)
+        return InstalledPaperAccount(
+            config=definition.configuration,
+            launcher=self.launcher,
+            target=self.root / f"target-{account_id}",
+            policy=self.policy,
+            requests=self.output / "admin" / account_id,
+        )
+
+    @staticmethod
+    def wait_until(condition: Callable[[], bool], seconds: float) -> None:
+        """Wait for one actual condition with an explicit monotonic deadline."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            time.sleep(0.05)
+        raise TimeoutError("bounded capacity condition did not become true")
+
+    def bootstrap(self) -> None:
+        """Install declared paper authority and claim all owners before service lifetime starts."""
+        for definition in self.config.accounts:
+            name = definition.account_id
+            admin = self.admin(name)
+            state = admin.execute(AccountExecutionRequest(action="inspect"))
+            if state.paper_activations:
+                raise ValueError(
+                    "fresh capacity trial requires unused targets or explicit recovery"
+                )
+            deployment = self.codec.decode_json(
+                (self.root / f"preparation/deployment-{name}.json").read_bytes(), PaperDeployment
+            )
+            authorization = self.codec.decode_json(
+                (self.root / f"preparation/authorization-{name}.json").read_bytes(),
+                PaperAuthorization,
+            )
+            self.owners[name] = self.workload.install_and_claim(
+                definition,
+                deployment,
+                authorization,
+                launcher=self.launcher,
+                target=admin.target,
+                policy=self.policy,
+                requests=admin.requests,
+            )
+        self.record("claimed_owners", self.owners)
+
+    def _spawn(self, name: str, args: list[str]) -> subprocess.Popen[bytes]:
+        """Retain stdout/stderr for one finite owned child, including failed starts."""
+        out = (self.output / f"{name}.stdout").open("wb")
+        err = (self.output / f"{name}.stderr").open("wb")
+        self.streams.extend((out, err))
+        started = time.monotonic()
+        child = subprocess.Popen(args, stdout=out, stderr=err)
+        self.processes.append(child)
+        watcher = threading.Thread(target=self._watch_lifetime, args=(name, child, started))
+        self.watchers.append(watcher)
+        watcher.start()
+        return child
+
+    def _watch_lifetime(self, name: str, child: subprocess.Popen[bytes], started: float) -> None:
+        """Measure actual process exit independently of later sequential cleanup checks."""
+        code = child.wait()
+        elapsed = time.monotonic() - started
+        bound = 75 if name == "supervisor" else 120
+        self.record(
+            "process_lifetime",
+            {
+                "name": name,
+                "pid": child.pid,
+                "seconds": elapsed,
+                "bound_seconds": bound,
+                "exit": code,
+                "within_bound": elapsed <= bound,
+            },
+        )
+        if elapsed > bound:
+            self.failures.append(f"{name} lifetime exceeds {bound} seconds")
+
+    def _account_ready(self) -> bool:
+        """Require current generations from every launched signed account owner."""
+        for definition in self.config.accounts:
+            path = Path(definition.socket_path).with_suffix(".health.json")
+            if not path.is_file():
+                return False
+            health = msgspec.json.decode(path.read_bytes(), type=_Health)
+            if health.generation != self.owners[definition.account_id].generation:
+                return False
+            self.account_pids[definition.account_id] = health.pid
+        return True
+
+    def launch(self) -> None:
+        """Start four finite signed services together and measure real startup skew."""
+        self.socket_root.mkdir(parents=True, exist_ok=True)
+        self.receiver = AlertReceiver(
+            self.socket_root / "alerts.sock", self.output / "alerts.jsonl"
+        )
+        selected = msgspec.structs.replace(
+            self.config, alert_socket=str(self.socket_root / "alerts.sock")
+        )
+        (self.output / "configuration.json").write_bytes(self.codec.encode_json(selected))
+        (self.output / "owners.json").write_bytes(
+            self.codec.encode_json(PaperServiceOwners(owners=tuple(self.owners.values())))
+        )
+        self.first_service_at = time.monotonic()
+        for definition in self.config.accounts:
+            name = definition.account_id
+            request = AccountExecutionRequest(
+                action="serve_paper",
+                paper_owner=self.owners[name],
+                service_socket=definition.socket_path,
+                service_seconds=120,
+            )
+            path = self.output / f"serve-{name}.json"
+            path.write_bytes(self.codec.encode_json(request))
+            self._spawn(
+                name,
+                [
+                    str(self.launcher),
+                    "run",
+                    "--target",
+                    str(self.root / f"target-{name}"),
+                    "--policy",
+                    str(self.policy),
+                    "--",
+                    "account",
+                    "--request",
+                    str(path),
+                ],
+            )
+            self.clients[name] = SocketPaperAccount(
+                config=definition.configuration,
+                socket_path=Path(definition.socket_path),
+                requests=self.output / "client" / name,
+                paper_owner=self.owners[name],
+                timeout_seconds=2,
+            )
+        self.wait_until(self._account_ready, 18)
+        args = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "child",
+            "--root",
+            str(self.root),
+            "--output",
+            str(self.output),
+            "--launcher",
+            str(self.launcher),
+            "--variant",
+            self.variant,
+        ]
+        if self.public_venue is not None:
+            args.extend(("--public-venue", self.public_venue))
+        if self.recover:
+            args.append("--recover")
+        self.supervisor = self._spawn("supervisor", args)
+        skew = time.monotonic() - self.first_service_at
+        self.record(
+            "startup",
+            {"first_service_to_supervisor_seconds": skew, "account_pids": self.account_pids},
+        )
+        if skew > 20:
+            self.failures.append("supervisor startup exceeds 20 seconds")
+        self.wait_until(self._steady_ready, 12)
+
+    def status(self) -> _Status:
+        """Read retained status without imposing a synchronous control round trip."""
+        result = msgspec.json.decode((self.service_root / "status.json").read_bytes(), type=_Status)
+        for child in (*result.workers.values(), *result.sources.values()):
+            if child.pid is not None:
+                self.child_pids.add(child.pid)
+        return result
+
+    def _steady_ready(self) -> bool:
+        """Separate startup until every policy has actually committed a checkpoint."""
+        if self.supervisor is None or self.supervisor.poll() is not None:
+            raise RuntimeError("capacity supervisor exited during startup")
+        if not (self.service_root / "status.json").exists():
+            return False
+        status = self.status()
+        if len(status.sources) != 4 or len(status.workers) != 8:
+            return False
+        return all(
+            self.clients[item.account_id].checkpoint(item.instance_id) is not None
+            for item in self.config.instances
+        )
+
+    def control(
+        self, action: Literal["inspect", "shutdown", "restart_source"], subject: str | None = None
+    ) -> None:
+        """Send one explicit control once; never retry an uncertain economic request."""
+        if action == "shutdown":
+            if self.shutdown_requested:
+                return
+            self.shutdown_requested = True
+        request = PaperServiceControl(action=action, identity=uuid4().hex, subject=subject)
+        path = self.output / f"control-{request.identity}.json"
+        path.write_bytes(self.codec.encode_json(request))
+        result = subprocess.run(
+            [
+                str(Path(sys.executable).parent / "alpha-execute"),
+                "deployment-control",
+                "--socket",
+                str(self.control_socket),
+                "--request",
+                str(path),
+            ],
+            capture_output=True,
+            timeout=8,
+        )
+        path.with_suffix(".stdout").write_bytes(result.stdout)
+        path.with_suffix(".stderr").write_bytes(result.stderr)
+        if result.returncode:
+            raise RuntimeError(f"control failed: {path}")
+
+    def retain_accounts(self, label: str, *, sockets: bool) -> None:
+        """Retain complete current facts and per-instance checkpoint identities."""
+        for definition in self.config.accounts:
+            name = definition.account_id
+            client = self.clients[name] if sockets else self.admin(name)
+            state = client.execute(AccountExecutionRequest(action="inspect", account_id=name))
+            (self.output / f"{label}-{name}.json").write_bytes(self.codec.encode_json(state))
+            snapshot = AccountLedger(state.accounts[0].ledger).snapshot()
+            self.record(
+                "account_facts",
+                {
+                    "label": label,
+                    "account": name,
+                    "snapshot": snapshot,
+                    "physical_orders": len(state.net_orders),
+                    "child_orders": len(state.orders),
+                    "checkpoints": {
+                        item.instance_id: client.checkpoint(item.instance_id)
+                        for item in self.config.instances
+                        if item.account_id == name
+                    },
+                },
+            )
+            if self.public_venue is None and label == "steady":
+                cash, fees, positions = self.workload.first_touch_oracle()[name]
+                if (snapshot.cash, snapshot.fees, snapshot.positions) != (
+                    (cash,),
+                    (fees,),
+                    positions,
+                ):
+                    self.failures.append(f"independent first-touch economics differ: {name}")
+
+    def run_faults(self) -> None:
+        """Inject separate faults under native base load and retain each first outcome."""
+        recovery = CapacityRecovery(self)
+        time.sleep(1 if self.recover else 7)
+        probes: tuple[tuple[str, Callable[[], object]], ...] = (
+            ("policy_death", partial(recovery.worker_death, "okx-shared-fixed-btc")),
+            ("source_death", partial(recovery.source_death, "okx-eth-book")),
+            (
+                "request_retention",
+                partial(
+                    recovery.request_retention_failure,
+                    "bitfinex-shared",
+                    "bitfinex-shared-fixed-btc",
+                ),
+            ),
+            ("owner_death", partial(recovery.account_death, "bitfinex-isolated")),
+        )
+        for name, probe in probes:
+            try:
+                self.record("fault_result", {"name": name, "result": probe()})
+            except Exception as error:
+                self.failures.append(f"{name}: {type(error).__name__}: {error}")
+                self.record("fault_failure", self.failures[-1])
+        self.control("shutdown")
+
+    def _replacement_progressed(self, recovery: CapacityRecovery) -> bool:
+        """Require actual fresh checkpoint progress from every replacement instance."""
+        return all(
+            self.clients[item.account_id].checkpoint(item.instance_id)
+            != recovery.before_checkpoints[item.instance_id]
+            for item in self.config.instances
+        )
+
+    def finish_interval(self) -> None:
+        """Retain final active state and request shutdown before parity postprocessing."""
+        final = self.status()
+        self.record("steady_completed", final)
+        if final.faulted_accounts or len(final.active) != 8 or final.stopping:
+            self.failures.append("steady interval lost active owners, sources or instances")
+        try:
+            self.retain_accounts("steady", sockets=True)
+        finally:
+            self.control("shutdown")
+
+    def run(self) -> dict[str, object]:
+        """Measure at least 60 seconds, retaining every first failure and final protection."""
+        self.output.mkdir(parents=True, exist_ok=False)
+        result: dict[str, object] = {
+            "implementation": InstalledIdentity.sha256(),
+            "public_venue": self.public_venue,
+            "variant": self.variant,
+            "fixture_identity": hashlib.sha256(
+                Path(__file__).with_name("capacity_inputs.py").read_bytes()
+            ).hexdigest(),
+        }
+        try:
+            recovery = CapacityRecovery(self) if self.recover else None
+            if recovery is None:
+                self.bootstrap()
+                first_claim = None
+            else:
+                first_claim = recovery.recover_four_owners()
+            self.launch()
+            if recovery is not None and first_claim is not None:
+                self.wait_until(partial(self._replacement_progressed, recovery), 8)
+                elapsed = time.monotonic() - first_claim
+                self.record(
+                    "all_replacement_instances_progressed",
+                    {
+                        "first_claim_to_progress_seconds": elapsed,
+                        "operator_total_seconds": time.monotonic()
+                        - (recovery.operator_started_at or first_claim),
+                        "within_40_seconds": elapsed <= 40,
+                    },
+                )
+                if elapsed > 40:
+                    self.failures.append("four-owner recovery exceeds unchanged 40-second budget")
+            if self.faults:
+                self.run_faults()
+                result["faults_only"] = True
+                return result
+            start = time.monotonic()
+            self.record("steady_started", {"monotonic": start})
+            result["reads"] = CapacityReadObserver(
+                self.output / "reads",
+                self.service_root,
+                process_pids=(os.getpid(),),
+                occupied_roots=(
+                    self.service_root,
+                    self.output / "measurements",
+                    *(
+                        self.root / f"target-{item.account_id}" / "state"
+                        for item in self.config.accounts
+                    ),
+                ),
+                duration_seconds=60,
+            ).run(on_interval_complete=self.finish_interval)
+            result["measurement_and_postprocess_seconds"] = time.monotonic() - start
+        except Exception as error:
+            self.failures.append(f"{type(error).__name__}: {error}")
+            self.record("failure", self.failures[-1])
+        finally:
+            self.cleanup()
+            result["failures"] = self.failures
+            result["passed"] = not self.failures
+            (self.output / "summary.json").write_bytes(self.codec.encode_json(result))
+        return result
+
+    def cleanup(self) -> None:
+        """Stop all owned processes and verify stopped journals even after failed measurement."""
+        if self.supervisor is not None and self.supervisor.poll() is None:
+            try:
+                self.control("shutdown")
+            except Exception as error:
+                self.failures.append(f"shutdown request: {error}")
+        if self.supervisor is None or self.supervisor.poll() is not None:
+            for name, client in self.clients.items():
+                if not client.socket_path.exists():
+                    continue
+                try:
+                    client.shutdown(
+                        AccountControl(
+                            identity=uuid4().hex,
+                            account_id=name,
+                            kind="stop",
+                            at=datetime.now(UTC),
+                            reason="capacity final socket shutdown",
+                        )
+                    )
+                except Exception as error:
+                    self.record(
+                        "uncertain_cleanup_shutdown", {"account": name, "error": str(error)}
+                    )
+                    pid = self.account_pids.get(name)
+                    if pid is not None:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+        for process in reversed(self.processes):
+            if process.poll() is None:
+                try:
+                    process.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+        for watcher in self.watchers:
+            watcher.join(1)
+        for pid in self.child_pids:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            self.failures.append(f"owned child still alive: {pid}")
+            os.kill(pid, signal.SIGTERM)
+        if self.receiver is not None:
+            self.receiver.close()
+        for stream in self.streams:
+            stream.close()
+        phases: dict[str, str] = {}
+        for definition in self.config.accounts:
+            try:
+                admin = self.admin(definition.account_id)
+                state = admin.execute(AccountExecutionRequest(action="inspect"))
+                if state.accounts[0].phase != "stopped":
+                    admin.control(
+                        AccountControl(
+                            identity=uuid4().hex,
+                            account_id=definition.account_id,
+                            kind="stop",
+                            at=datetime.now(UTC),
+                            reason="capacity trial final cleanup",
+                        )
+                    )
+                    state = admin.execute(AccountExecutionRequest(action="inspect"))
+                phases[definition.account_id] = state.accounts[0].phase
+                (self.output / f"final-{definition.account_id}.json").write_bytes(
+                    self.codec.encode_json(state)
+                )
+            except Exception as error:
+                self.failures.append(f"cleanup {definition.account_id}: {error}")
+        self.record(
+            "cleanup",
+            {"phases": phases, "process_exits": [(p.pid, p.returncode) for p in self.processes]},
+        )
+
+
+class _Arguments(argparse.Namespace):
+    """Carry finite driver and supervised-child arguments."""
+
+    action: Literal["run", "child"]
+    root: Path
+    output: Path
+    launcher: Path
+    public_venue: Literal["okx", "bitfinex"] | None
+    variant: CapacityVariant
+    recover: bool
+    faults: bool
+
+
+def main() -> None:
+    """Compose an installed finite characterization or its supervised source child."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("run", "child"))
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--launcher", type=Path, required=True)
+    parser.add_argument("--public-venue", choices=("okx", "bitfinex"))
+    parser.add_argument(
+        "--variant",
+        choices=("base", "quiet", "oversize", "backpressure", "reconnect"),
+        default="base",
+    )
+    parser.add_argument("--recover", action="store_true")
+    parser.add_argument("--faults", action="store_true")
+    args = parser.parse_args(namespace=_Arguments())
+    if args.action == "run":
+        print(
+            DomainCodec()
+            .encode_json(
+                CapacityTrial(
+                    args.root,
+                    args.output,
+                    args.launcher,
+                    public_venue=args.public_venue,
+                    variant=args.variant,
+                    recover=args.recover,
+                    faults=args.faults,
+                ).run()
+            )
+            .decode()
+        )
+    else:
+        codec = DomainCodec()
+        config = codec.decode_json(
+            (args.output / "configuration.json").read_bytes(), PaperServiceConfiguration
+        )
+        owners = codec.decode_json((args.output / "owners.json").read_bytes(), PaperServiceOwners)
+        workload = CapacityWorkload(
+            opening_at=config.accounts[0].configuration.opening_at,
+            socket_root=Path(config.accounts[0].socket_path).parent,
+        )
+        # Alert routing is an invocation setting, independent of native fixture identity.
+        transports = workload.fixture_transports(
+            msgspec.structs.replace(config, alert_socket=None),
+            variant=args.variant,
+            exclude_venue=args.public_venue,
+            epoch_root=args.output / "fixture-epochs",
+            start_high=frozenset(item.name for item in config.sources)
+            if args.recover
+            else frozenset(),
+        )
+        result = run_paper_services(
+            config,
+            owners.owners,
+            root=args.output / "operating",
+            control_socket=Path(config.accounts[0].socket_path).parent / "supervisor.sock",
+            transports=transports,
+            measurement_root=args.output / "measurements",
+        )
+        print(codec.encode_json(result).decode())
+
+
+if __name__ == "__main__":
+    main()

@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import os
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,12 +27,13 @@ class CaptureJournal:
     most twice max_bytes plus bounded request/descriptor metadata.
     """
 
-    def __init__(self, root: Path, request: CaptureRequest) -> None:
+    def __init__(self, root: Path, request: CaptureRequest, *, measure_fsync: bool = False) -> None:
         """Bind a fresh capture directory; create it explicitly with start before use.
 
         Args:
             root: Unique caller-owned local recording directory.
             request: Immutable recording, configuration and implementation binding.
+            measure_fsync: Retain individual record fsync and cursor checkpoint durations.
         """
         self.root, self.request = root, request
         self.codec = DomainCodec()
@@ -39,6 +41,9 @@ class CaptureJournal:
         self.count = 0
         self._digest = hashlib.sha256()
         self._writable = False
+        self._measure_fsync = measure_fsync
+        self.last_record_fsync_ns: int | None = None
+        self.last_cursor_checkpoint_ns: int | None = None
 
     def start(self) -> None:
         """Exclusively provision and synchronize the request and journal directory."""
@@ -74,14 +79,24 @@ class CaptureJournal:
         if self.size + len(encoded) > self.request.config.max_bytes - reserve:
             raise OverflowError("capture storage limit")
         self._writable = False
+        self.last_record_fsync_ns = None
+        self.last_cursor_checkpoint_ns = None
         with (self.root / "journal.jsonl").open("ab") as output:
             output.write(encoded)
             output.flush()
-            os.fsync(output.fileno())
+            if self._measure_fsync:
+                started_ns = time.monotonic_ns()
+                os.fsync(output.fileno())
+                self.last_record_fsync_ns = time.monotonic_ns() - started_ns
+            else:
+                os.fsync(output.fileno())
         self.size += len(encoded)
         self.count += 1
         self._digest.update(encoded)
+        checkpoint_started_ns = time.monotonic_ns() if self._measure_fsync else 0
         self._checkpoint()
+        if self._measure_fsync:
+            self.last_cursor_checkpoint_ns = time.monotonic_ns() - checkpoint_started_ns
         self._writable = True
 
     def _checkpoint(self) -> None:

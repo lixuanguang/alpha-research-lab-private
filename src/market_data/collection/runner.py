@@ -30,7 +30,7 @@ from market_data.datasets import DatasetReaders
 from market_data.replay import SavedCapture
 from market_data.storage import CaptureJournal
 from serialization import DomainCodec
-from telemetry import HealthMetric, HealthMetrics
+from telemetry import HealthMetric, HealthMetrics, RuntimeMeasurementJournal
 
 
 class CaptureTransport(SnapshotTransport, Protocol):
@@ -76,6 +76,7 @@ class CaptureRunner:
         snapshot_ready: Callable[[NativeBook], bool] | None = None,
         observer: CaptureObserver | None = None,
         health: HealthMetrics | None = None,
+        measurements: RuntimeMeasurementJournal | None = None,
         snapshot_records: int | None = None,
         readers: DatasetReaders | None = None,
     ) -> None:
@@ -88,6 +89,7 @@ class CaptureRunner:
             snapshot_ready: Adapter-owned predicate for a negotiated REST snapshot.
             observer: Optional synchronous, loss-intolerant canonical boundary consumer.
             health: Optional independent progress counters.
+            measurements: Optional individual monotonic timing and queue evidence.
             snapshot_records: Optional 1..10000 record canonical prefix bound.
             readers: Verification readers required with snapshot_records.
         """
@@ -102,6 +104,7 @@ class CaptureRunner:
         self._snapshot_ready = snapshot_ready
         self._observer = observer
         self._health = health
+        self._measurements = measurements
         self._snapshot_records = snapshot_records
         self._readers = readers
         self._codec = DomainCodec()
@@ -123,7 +126,7 @@ class CaptureRunner:
         request.__post_init__()
         config = request.config
         root = output / request.recording_id
-        journal = CaptureJournal(root, request)
+        journal = CaptureJournal(root, request, measure_fsync=self._measurements is not None)
         replay = self._replay(config)
         try:
             journal.start()
@@ -149,7 +152,7 @@ class CaptureRunner:
             socket: FeedSocket | None = None
             reader: asyncio.Task[None] | None = None
             snapshot: asyncio.Task[None] | None = None
-            queue = CaptureQueue(config.queue_capacity, self._health)
+            queue = CaptureQueue(config.queue_capacity, self._health, self._measurements)
             try:
                 budget = deadline - time.monotonic()
                 if budget <= 0:
@@ -193,6 +196,7 @@ class CaptureRunner:
                                 received_ns=record.received_ns,
                                 reason=record.reason,
                             )
+                        append_started_ns = time.monotonic_ns()
                         try:
                             await asyncio.to_thread(journal.append, record)
                         except OSError:
@@ -220,7 +224,15 @@ class CaptureRunner:
                                 )
                         previous_market_ns = replay.quality.last_market_ns
                         outcome = await asyncio.to_thread(replay.apply, record)
-                        self._observe(journal, replay, record, outcome)
+                        self._observe(
+                            journal,
+                            replay,
+                            record,
+                            outcome,
+                            receipt_ns=queued_at_ns,
+                            append_started_ns=append_started_ns,
+                            durable_ns=persisted_at_ns,
+                        )
                         if self._health is not None:
                             self._health.set(HealthMetric.INVALID, len(replay.gaps))
                             self._health.set(HealthMetric.GAPS, len(replay.gaps))
@@ -345,11 +357,42 @@ class CaptureRunner:
         replay: CaptureReplay,
         record: CaptureRecord,
         outcome: str,
+        *,
+        receipt_ns: int | None = None,
+        append_started_ns: int | None = None,
+        durable_ns: int | None = None,
     ) -> None:
         """Publish only durably appended canonical rows to the optional observer."""
-        if self._observer is not None:
+        if self._observer is not None or self._measurements is not None:
             row = BookProjection.capture(journal.count - 1, record, outcome, replay)
-            self._observer.observe(record, row)
+            if (
+                self._measurements is not None
+                and record.kind in ("frame", "snapshot")
+                and receipt_ns is not None
+                and append_started_ns is not None
+                and durable_ns is not None
+            ):
+                reconstructed_ns = time.monotonic_ns()
+                self._measurements.record(
+                    {
+                        "kind": "capture_boundary",
+                        "cursor": journal.count,
+                        "record_kind": record.kind,
+                        "outcome": row.outcome,
+                        "raw_bytes": len(record.raw),
+                        "receipt_ns": receipt_ns,
+                        "append_started_ns": append_started_ns,
+                        "durable_ns": durable_ns,
+                        "reconstructed_ns": reconstructed_ns,
+                        "receipt_to_durable_ns": max(0, durable_ns - receipt_ns),
+                        "append_to_durable_ns": max(0, durable_ns - append_started_ns),
+                        "record_fsync_ns": journal.last_record_fsync_ns,
+                        "cursor_checkpoint_ns": journal.last_cursor_checkpoint_ns,
+                        "durable_to_reconstructed_ns": max(0, reconstructed_ns - durable_ns),
+                    }
+                )
+            if self._observer is not None:
+                self._observer.observe(record, row)
 
     async def _append_terminal(
         self, journal: CaptureJournal, replay: CaptureReplay, record: CaptureRecord

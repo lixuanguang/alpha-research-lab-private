@@ -40,6 +40,7 @@ from configuration import (
     PaperServiceSource,
 )
 from execution import (
+    AccountControl,
     AccountExecutionRequest,
     AccountExecutionResult,
     AccountObservation,
@@ -60,7 +61,7 @@ from runtime import (
     SharedPaperCaptureObserver,
 )
 from serialization import DomainCodec
-from telemetry import HealthMetrics
+from telemetry import HealthMetrics, RuntimeMeasurementJournal
 
 
 class _AliveSource(multiprocessing.Process):
@@ -69,6 +70,91 @@ class _AliveSource(multiprocessing.Process):
     def is_alive(self) -> bool:
         """Keep source loss separate from observer uncertainty."""
         return True
+
+
+class _ClosingSource(multiprocessing.Process):
+    """Expose a source fence without launching an operating-system child."""
+
+    def __init__(self, name: str, events: list[str]) -> None:
+        """Bind one fake live process and shared shutdown order."""
+        self.label, self.events, self.alive = name, events, True
+
+    @property
+    def pid(self) -> int:
+        """Enter the production close path for an already started source."""
+        return 12345
+
+    def is_alive(self) -> bool:
+        """Expose whether the source still requires fencing."""
+        return self.alive
+
+    def terminate(self) -> None:
+        """Record the protective fence before evidence closure."""
+        self.events.append(f"source:{self.label}")
+        self.alive = False
+
+    def join(self, timeout: float | None = None) -> None:
+        """Model bounded acknowledgement of source exit."""
+
+
+class _ClosingMeasurements(RuntimeMeasurementJournal):
+    """Raise one fsync-like close error after the source was already fenced."""
+
+    def __init__(self, name: str, events: list[str], *, fail: bool) -> None:
+        """Bind the diagnostic close result without creating a file."""
+        self.name, self.events, self.fail = name, events, fail
+
+    def close(self) -> None:
+        """Fail the first evidence flush while preserving later cleanup calls."""
+        self.events.append(f"measurement:{self.name}")
+        if self.fail:
+            raise OSError("injected measurement fsync failure")
+
+
+class _ClosingObserver(SharedPaperCaptureObserver):
+    """Expose only the source cleanup fields of one account observer."""
+
+    def __init__(self, measurements: RuntimeMeasurementJournal) -> None:
+        """Bind optional evidence and a status-safe absent market."""
+        self.measurements = measurements
+        self.last_market = None
+
+
+class _ClosingWorker(ProcessDecisionPolicy):
+    """Record a policy process fence after source evidence failure."""
+
+    def __init__(self, events: list[str]) -> None:
+        """Retain one close order without starting a process."""
+        self.events = events
+        self.health = HealthMetrics()
+
+    @property
+    def pid(self) -> int:
+        """Identify the stopped policy child in status observations."""
+        return 23456
+
+    @property
+    def is_alive(self) -> bool:
+        """Expose a stable fake process for retained shutdown status."""
+        return False
+
+    def close(self) -> None:
+        """Record that a worker still closes after measurement fsync fails."""
+        self.events.append("worker")
+
+
+class _ClosingAccount(SocketPaperAccount):
+    """Record owner-service shutdown after all source and worker fences."""
+
+    def __init__(self, events: list[str]) -> None:
+        """Avoid a socket while preserving the installed shutdown signature."""
+        self.events = events
+
+    def shutdown(self, control: AccountControl) -> AccountExecutionResult:
+        """Require the owned stop and retain its cleanup order."""
+        assert control.kind == "stop" and control.account_id == "shared"
+        self.events.append("account")
+        return AccountExecutionResult(accounts=(), orders=())
 
 
 class _ChangingWorker(ProcessDecisionPolicy):
@@ -243,6 +329,11 @@ class _RestartAccount(SocketPaperAccount):
 
 class TestPaperServices:
     """Keep service sockets, observations and diagnostics distinct from authority."""
+
+    @staticmethod
+    def _implementation_identity() -> str:
+        """Bind one installed identity for isolated supervisor cleanup checks."""
+        return "b" * 64
 
     @staticmethod
     def _socket_path() -> Path:
@@ -563,7 +654,9 @@ class TestPaperServices:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """One typed control reconciles before a restart, with no intervening scheduling."""
-        monkeypatch.setattr(InstalledIdentity, "sha256", staticmethod(lambda: "b" * 64))
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
         config = self._two_account_config()
         owners = (self._owner(), self._owner("isolated"))
         codec = DomainCodec()
@@ -698,3 +791,62 @@ class TestPaperServices:
             sender.close()
             receiver.close()
             health_path.unlink(missing_ok=True)
+
+    def test_measurement_close_failure_still_fences_every_source_worker_and_account(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed evidence fsync cannot abort protective shutdown of other owners."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        services = PaperServices(
+            config,
+            (self._owner(),),
+            root=tmp_path,
+            control_socket=self._socket_path(),
+        )
+        events: list[str] = []
+        senders: list[Connection[bytes, bytes]] = []
+        receivers: list[Connection[bytes, bytes]] = []
+        for name, fail in (("first", True), ("second", False)):
+            receiver, sender = cast(
+                "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
+                multiprocessing.get_context("spawn").Pipe(duplex=False),
+            )
+            receivers.append(receiver)
+            senders.append(sender)
+            services.sources[name] = _SourceChild(
+                definition=config.sources[0],
+                request=CaptureRequest(
+                    config=config.sources[0].capture,
+                    recording_id=str(uuid4()),
+                    implementation_identity="b" * 64,
+                ),
+                process=cast(BaseProcess, _ClosingSource(name, events)),
+                receiver=receiver,
+                health=HealthMetrics(),
+                observers={
+                    "shared": _ClosingObserver(_ClosingMeasurements(name, events, fail=fail))
+                },
+            )
+        services.workers["first"] = _ClosingWorker(events)
+        services.accounts["shared"] = _ClosingAccount(events)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            services._shutdown(listener)
+            assert events == [
+                "source:first",
+                "measurement:first",
+                "source:second",
+                "measurement:second",
+                "worker",
+                "account",
+            ]
+            assert all(receiver.closed for receiver in receivers)
+            assert listener.fileno() == -1
+            assert [event["reason"] for event in services.failures] == ["source_close_failed"]
+        finally:
+            listener.close()
+            for sender in senders:
+                sender.close()

@@ -14,7 +14,7 @@ from market_data.collection import CaptureRunner, CaptureTransport
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
 from runtime import ProcessSupervisor
 from serialization import DomainCodec, WireRecord
-from telemetry import HealthMetrics
+from telemetry import HealthMetrics, RuntimeMeasurementJournal
 
 
 class SourceDelivery(WireRecord, frozen=True):
@@ -48,23 +48,32 @@ async def capture_service(
     connection: Connection[bytes, bytes],
     health: HealthMetrics,
     transport: CaptureTransport | None,
+    measurement_path: Path | None = None,
 ) -> None:
     """Compose native source ownership, retained capture and independent process heartbeat."""
     heartbeat = asyncio.create_task(ProcessSupervisor.heartbeat(health))
+    measurements: RuntimeMeasurementJournal | None = None
     try:
+        if measurement_path is not None:
+            measurements = RuntimeMeasurementJournal(measurement_path)
         runner = CaptureRunner(
             book_factory=BookAdapters.create,
             transport=VenueTransport(request.config) if transport is None else transport,
             subscriptions=VenueSubscriptions(),
             observer=SourceForwarder(connection),
             health=health,
+            measurements=measurements,
         )
         result = await runner.run(request, root)
         (root / "source-result.json").write_bytes(DomainCodec().encode_json(result.summary))
     finally:
-        heartbeat.cancel()
-        await asyncio.gather(heartbeat, return_exceptions=True)
-        connection.close()
+        try:
+            if measurements is not None:
+                measurements.close()
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            connection.close()
 
 
 def run_source_service(
@@ -73,11 +82,12 @@ def run_source_service(
     connection: Connection[bytes, bytes],
     health: HealthMetrics,
     transport: CaptureTransport | None,
+    measurement_path: Path | None = None,
 ) -> None:
     """Own a spawned source event loop and retain a failure before process exit."""
     root.mkdir(parents=True, exist_ok=True)
     try:
-        asyncio.run(capture_service(request, root, connection, health, transport))
+        asyncio.run(capture_service(request, root, connection, health, transport, measurement_path))
     except Exception as error:
         (root / "source-failure.json").write_bytes(
             DomainCodec().encode_json({"error": type(error).__name__, "reason": str(error)})
