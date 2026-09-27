@@ -257,6 +257,15 @@ release restriction is weakened by the numerical consumer.
 
 ## Commands
 
+MR15's research capacity consumer declares the already admitted **psutil 7.2.2**
+as a direct development dependency for recursive process-tree CPU/RSS sampling.
+The root lock changes only its two development-edge entries; external versions,
+artifact hashes, runtime requirements and the four independent environment locks
+remain unchanged. The root digest binding is updated and the complete admission,
+audit and installed-artifact checks remain required. The diagnostic records
+unavailable OS counters explicitly; this dependency adds no trading or service
+authority.
+
 ```sh
 uv run --frozen alpha-governance-dependencies
 uv run --frozen alpha-governance-dependencies audit

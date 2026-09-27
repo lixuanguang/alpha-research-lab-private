@@ -577,7 +577,8 @@ merged.
 
 `DatasetManifest.read` verifies manifest identity, raw/canonical bytes, source
 readers and admission before returning. Version 1 trade manifests retain their
-identities; book publication uses the separate `book-dataset-v1` family. A
+identities; book publication uses the separate `book-dataset-v1` and
+`book-dataset-v2` families. A
 manifest path or `latest` alias is never a substitute for an explicit identity.
 
 ## Publish and reopen an atomic snapshot
@@ -709,12 +710,21 @@ and [research study protocol](../../examples/study-protocol.md#research-ticket).
 `DatasetPublication.publish_books` accepts completed Bitfinex R0, Coinbase
 Exchange L3 or OKX native capture/archive directories, an existing `RawStore`,
 an existing snapshot directory and explicit `max_records`/`max_bytes`. The
-separate `book-dataset-v1` family preserves requests, raw descriptors, selected
-prefix, normalized states and quality; trade manifests/readers remain unchanged.
+`book-dataset-v2` format writes a typed source header followed by one exact
+`BookObservation` JSON line per original raw position. Publication keeps one
+observation plus the native visible state in memory, then independently replays
+the retained raw input against every staged line before the directory is made
+visible. The manifest and partition digests identify exact bytes. Previously
+published `book-dataset-v1` envelopes remain readable with their old identities;
+trade manifests/readers remain unchanged.
 
-At most 10,000 raw positions per input are admitted, subject to source/archive
-limits. L3 orders keep native IDs and sizes; L2 levels keep aggregate sizes and
-counts; zero-size updates delete levels. Adjacent duplicates retain positions
+At most 1,000,000 raw positions per input are selectable for streamed publication,
+subject to each source's own record limit and the caller's raw/canonical byte cap.
+The legacy in-memory `BookInput.admit` reference envelope remains limited to
+10,000 positions; the online `BookCapture` parity buffer retains its own 10,000
+position bound. Publication reports use `BookAdmissionReport` with counts and a
+digest, without carrying the whole canonical file in memory. L3 orders keep native
+IDs and sizes; L2 levels keep aggregate sizes and counts; zero-size updates delete levels. Adjacent duplicates retain positions
 without repeating mutations, and conflicting native sequences reject the whole
 partition. Full visible state is a bounded reference representation. Transport
 gaps, unknown availability and selected-prefix limits remain quality controls.
@@ -733,6 +743,34 @@ raw/source/depth evidence; it opens no source connection. `step` reuses shared
 replay phases and `ReplayCursor` identity rules. `received_ns` remains exact in
 each observation; scheduling rounds up to the shared microsecond UTC clock and
 never exposes input early.
+
+`BookSnapshot.read` admits the complete pinned snapshot once and provides
+`selection`, `partition` and `observations` for repeated queries and replay.
+Returned evidence is independently decoded. Each v2 observation traversal checks
+the selected file digest on an open descriptor before yielding its first row;
+the cheap `verify_partition` check detects a replaced or modified path after
+session opening under the required protected immutable-store contract. Its
+`require_limit` check applies a consumer's per-file cap to actual manifest,
+canonical and retained raw sizes. Optional `BookSnapshot.read(report=...)` sinks
+receive `BookAdmissionReport` values; the legacy generic snapshot report sink
+requires full `QualityReport.canonical` bytes and is unavailable for v2. Sessions
+require protected stores and never grant a source availability clock that was not
+captured originally.
+
+`BookQueryReader.open` owns a reusable verified session; `batches(query)` yields
+bounded, isolated projections. The existing `read` convenience method still
+collects its result in memory. A live query first checks whether any market value
+qualifies, preserving the no-values reason on every batch; this prescan and the
+delivery pass each verify the canonical digest and can each traverse the history.
+`BookReplay.from_snapshot` shares admission while
+owning a separate cursor. Receipt ties preserve the reference epoch/position
+order using a temporary disk spill with a 2 MiB SQLite page cache; ordinary
+receipt progression retains one lookahead. Call `close()` on an unfinished
+stepping replay to release its canonical file and temporary spill. A separately
+obtained `batches()` iterator owns its stream and must itself be exhausted or
+closed by its caller. Raw and canonical stores and
+their ancestors must remain protected throughout the session; a warm query does
+not re-normalize original raw bytes.
 
 Unknown archive receipt/availability remains queryable but unschedulable.
 Snapshot/configuration/input/terminal changes invalidate a cursor; batch-size

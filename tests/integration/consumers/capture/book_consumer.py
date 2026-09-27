@@ -13,11 +13,15 @@ import market_data
 from market_data.adapters.sources import SourceAdapters
 from market_data.adapters.venues.okx import OKXBook
 from market_data.contracts import CaptureRecord
-from market_data.datasets import BookDatasetManifest, BookHistory, DatasetPublication, SnapshotStore
+from market_data.datasets import (
+    BookDatasetManifest,
+    BookSnapshot,
+    DatasetPublication,
+    SnapshotStore,
+)
 from market_data.storage import RawStore
 from market_data.validation import ContinuousQuality
 from runtime import ImplementationIdentity
-from serialization import DomainCodec
 
 
 def main() -> None:
@@ -27,7 +31,6 @@ def main() -> None:
     raw, snapshots = output / "raw", output / "snapshots"
     raw.mkdir()
     snapshots.mkdir()
-    codec = DomainCodec()
     identity = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
         (source,), RawStore(raw), snapshots, max_records=32, max_bytes=64_000_000
     )
@@ -35,8 +38,15 @@ def main() -> None:
         snapshots, RawStore(raw), readers=SourceAdapters(), manifest_type=BookDatasetManifest
     )
     manifest = store.read(identity, max_bytes=64_000_000)
-    path = snapshots / identity / manifest.partitions[0].sha256
-    history = codec.decode_json(path.read_bytes(), BookHistory)
+    snapshot = BookSnapshot.read(
+        snapshots,
+        RawStore(raw),
+        readers=SourceAdapters(),
+        identity=identity,
+        max_bytes=64_000_000,
+    )
+    selected = manifest.partitions[0].selection
+    observations = tuple(snapshot.observations(selected.request.identity))
     assert (
         DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
             (source,), RawStore(raw), snapshots, max_records=32, max_bytes=64_000_000
@@ -123,9 +133,9 @@ def main() -> None:
     summary = {
         "installed_package": str(Path(market_data.__file__).resolve()),
         "snapshot_identity": identity,
-        "raw_identity": history.input.raw.sha256,
+        "raw_identity": selected.raw.sha256,
         "scope": manifest.scope,
-        "observations": len(history.observations),
+        "observations": len(observations),
         "boundaries": [
             {
                 "position": row.position,
@@ -137,7 +147,7 @@ def main() -> None:
                 "levels": len(row.bids) + len(row.asks),
                 "sequence": row.sequence,
             }
-            for row in history.observations[:8]
+            for row in observations[:8]
         ],
         "transitions": transitions,
         "refusals": failures,
