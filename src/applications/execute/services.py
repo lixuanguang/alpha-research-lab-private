@@ -56,7 +56,13 @@ from runtime import (
 )
 from serialization import DomainCodec, WireRecord
 from strategies import DecisionPolicy, LiquidityClipPolicy, ReferenceClipPolicy
-from telemetry import HealthAlert, HealthMetric, HealthMetrics, HealthPolicy
+from telemetry import (
+    HealthAlert,
+    HealthMetric,
+    HealthMetrics,
+    HealthPolicy,
+    RuntimeMeasurementJournal,
+)
 
 
 class PaperServiceControl(WireRecord, frozen=True):
@@ -143,10 +149,15 @@ class PaperServices:
         root: Path,
         control_socket: Path,
         transports: Mapping[str, CaptureTransport] | None = None,
+        measurement_root: Path | None = None,
     ) -> None:
         """Bind explicit configuration and claimed owners without starting any process."""
         configuration.__post_init__()
-        if not root.is_absolute() or not control_socket.is_absolute():
+        if (
+            not root.is_absolute()
+            or not control_socket.is_absolute()
+            or (measurement_root is not None and not measurement_root.is_absolute())
+        ):
             raise ValueError("paper services require absolute operating paths")
         if len(str(control_socket).encode()) > 100:
             raise ValueError("paper supervisor socket path is too long")
@@ -163,6 +174,7 @@ class PaperServices:
             control_socket,
         )
         self.transports = {} if transports is None else dict(transports)
+        self.measurement_root = measurement_root
         if not set(self.transports).issubset(item.name for item in configuration.sources):
             raise ValueError("unknown injected source transport")
         self.codec = DomainCodec()
@@ -345,22 +357,30 @@ class PaperServices:
                         next_sample = time.monotonic() + self.config.poll_seconds
                     time.sleep(0.02)
             finally:
-                self.is_stopping = True
-                for child in self.sources.values():
-                    self._close_source(child)
-                for worker in self.workers.values():
-                    worker.close()
-                for account_id, account in self.accounts.items():
-                    try:
-                        account.shutdown(
-                            self._account_control(account_id, "stop", "supervisor_shutdown")
-                        )
-                    except (OSError, ValueError, RuntimeError, TimeoutError) as error:
-                        self._record("shutdown_failed", account_id, str(error))
-                self._write_status()
-                listener.close()
-                self.control_socket.unlink(missing_ok=True)
+                self._shutdown(listener)
             return self.status()
+
+    def _shutdown(self, listener: socket.socket) -> None:
+        """Fence every child and request every account stop despite diagnostic close failure."""
+        self.is_stopping = True
+        for name, child in self.sources.items():
+            try:
+                self._close_source(child)
+            except OSError as error:
+                self._record("source_close_failed", name, str(error))
+        for name, worker in self.workers.items():
+            try:
+                worker.close()
+            except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+                self._record("worker_close_failed", name, str(error))
+        for account_id, account in self.accounts.items():
+            try:
+                account.shutdown(self._account_control(account_id, "stop", "supervisor_shutdown"))
+            except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+                self._record("shutdown_failed", account_id, str(error))
+        self._write_status()
+        listener.close()
+        self.control_socket.unlink(missing_ok=True)
 
     def status(self) -> dict[str, object]:
         """Expose liveness, freshness and economic observations as separate signals."""
@@ -497,7 +517,21 @@ class PaperServices:
         root = self.root / "runs" / self.run_id / source.name / request.recording_id
         process = multiprocessing.get_context("spawn").Process(
             target=run_source_service,
-            args=(request, root, sender, health, self.transports.get(source.name)),
+            args=(
+                request,
+                root,
+                sender,
+                health,
+                self.transports.get(source.name),
+                (
+                    None
+                    if self.measurement_root is None
+                    else self.measurement_root
+                    / self.run_id
+                    / source.name
+                    / f"{request.recording_id}.capture.jsonl"
+                ),
+            ),
         )
         child = _SourceChild(source, request, process, receiver, health, {})
         self.sources[source.name] = child
@@ -561,6 +595,16 @@ class PaperServices:
                 / f"{child.request.recording_id}-{account_id}.jsonl"
             )
             path.parent.mkdir(parents=True, exist_ok=True)
+            measurements = (
+                None
+                if self.measurement_root is None
+                else RuntimeMeasurementJournal(
+                    self.measurement_root
+                    / self.run_id
+                    / source.name
+                    / f"{child.request.recording_id}.{account_id}.paper.jsonl"
+                )
+            )
             child.observers[account_id] = SharedPaperCaptureObserver(
                 source=LiveBookDecisionSource(
                     child.request, inputs.requirement, history_capacity=1000
@@ -573,6 +617,7 @@ class PaperServices:
                 inputs=inputs,
                 delivery_path=path,
                 market_interval_us=source.market_interval_us,
+                measurements=measurements,
             )
 
     def _supervise(self) -> None:
@@ -887,6 +932,15 @@ class PaperServices:
                 child.process.kill()
                 child.process.join(1)
         child.receiver.close()
+        failed: list[str] = []
+        for account_id, observer in child.observers.items():
+            if observer.measurements is not None:
+                try:
+                    observer.measurements.close()
+                except OSError as error:
+                    failed.append(f"{account_id}:{type(error).__name__}")
+        if failed:
+            raise OSError("measurement close failed: " + ", ".join(failed))
 
 
 def run_paper_services(
@@ -896,10 +950,16 @@ def run_paper_services(
     root: Path,
     control_socket: Path,
     transports: Mapping[str, CaptureTransport] | None = None,
+    measurement_root: Path | None = None,
 ) -> dict[str, object]:
     """Compose one explicit bounded installed deployment and return its stopped service state."""
     services = PaperServices(
-        configuration, owners, root=root, control_socket=control_socket, transports=transports
+        configuration,
+        owners,
+        root=root,
+        control_socket=control_socket,
+        transports=transports,
+        measurement_root=measurement_root,
     )
     return services.run()
 

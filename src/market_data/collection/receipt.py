@@ -14,16 +14,22 @@ from websockets.exceptions import WebSocketException
 # project library imports
 from configuration import CaptureConfig
 from market_data.contracts import CaptureRecord, FeedSocket, SnapshotTransport
-from telemetry import HealthMetric, HealthMetrics
+from telemetry import HealthMetric, HealthMetrics, RuntimeMeasurementJournal
 
 
 class CaptureQueue(asyncio.Queue[CaptureRecord]):
     """Track actual queued bytes and monotonic age through the durable append."""
 
-    def __init__(self, maxsize: int, health: HealthMetrics | None = None) -> None:
+    def __init__(
+        self,
+        maxsize: int,
+        health: HealthMetrics | None = None,
+        measurements: RuntimeMeasurementJournal | None = None,
+    ) -> None:
         """Bind one bounded event-loop queue and optional shared observation."""
         super().__init__(maxsize)
         self._health = health
+        self._measurements = measurements
         self._receipts: deque[tuple[int, int]] = deque()
         self._put_clock: dict[int, int] = {}
         self._bytes = 0
@@ -49,7 +55,7 @@ class CaptureQueue(asyncio.Queue[CaptureRecord]):
         super().put_nowait(item)
         self._receipts.append((self._put_clock.pop(id(item), time.monotonic_ns()), len(item.raw)))
         self._bytes += len(item.raw)
-        self._observe()
+        self._observe("accepted")
 
     async def take(self) -> tuple[CaptureRecord, int]:
         """Return the oldest frame and retain its age until durable acknowledgement."""
@@ -58,16 +64,30 @@ class CaptureQueue(asyncio.Queue[CaptureRecord]):
 
     def acknowledged(self) -> None:
         """Release exactly one entry after its durable append or deliberate terminal skip."""
+        if self._measurements is not None:
+            self._observe("durable_ready")
         _, size = self._receipts.popleft()
         self._bytes -= size
-        self._observe()
+        self._observe("acknowledged")
 
-    def _observe(self) -> None:
+    def _observe(self, phase: str) -> None:
         """Publish current in-flight bytes and oldest monotonic enqueue time."""
+        oldest_ns = 0 if not self._receipts else self._receipts[0][0]
         if self._health is not None:
             self._health.set(HealthMetric.QUEUE_BYTES, self._bytes)
-            self._health.set(
-                HealthMetric.QUEUE_OLDEST_NS, 0 if not self._receipts else self._receipts[0][0]
+            self._health.set(HealthMetric.QUEUE_OLDEST_NS, oldest_ns)
+        if self._measurements is not None:
+            at_ns = time.monotonic_ns()
+            self._measurements.record(
+                {
+                    "kind": "queue",
+                    "phase": phase,
+                    "at_ns": at_ns,
+                    "pending_records": self.qsize(),
+                    "in_flight_records": len(self._receipts) - self.qsize(),
+                    "queued_bytes": self._bytes,
+                    "oldest_age_ns": 0 if oldest_ns == 0 else max(0, at_ns - oldest_ns),
+                }
             )
 
 

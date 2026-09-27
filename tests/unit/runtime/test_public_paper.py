@@ -63,6 +63,7 @@ from runtime import (
 from runtime.live_paper import LiveBookDelivery
 from serialization import DomainCodec
 from strategies import ConfirmedSignal, DecisionContext, OrderIntent
+from telemetry import RuntimeMeasurementJournal
 
 
 class _NoDecisionInputs:
@@ -287,6 +288,7 @@ class TestSharedPublicPaper:
         market_interval_us: int = 0,
         retain: bool = False,
         inputs: _SignalInputs | None = None,
+        measurements: RuntimeMeasurementJournal | None = None,
     ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
         """Construct the actual source, registry, account and decision owners."""
         request = cls._request()
@@ -320,6 +322,7 @@ class TestSharedPublicPaper:
             delivery_path=path.with_suffix(".jsonl") if retain else None,
             clock=clock,
             market_interval_us=market_interval_us,
+            measurements=measurements,
         )
         return observer, journal
 
@@ -384,12 +387,15 @@ class TestSharedPublicPaper:
             )
         )
         inputs = _SignalInputs()
+        measurement_path = tmp_path / "paper-measurements.jsonl"
+        measurements = RuntimeMeasurementJournal(measurement_path, sync_every=1)
         observer, journal = self._observer(
             path,
             clock=clock,
             market_interval_us=3_000_000,
             retain=True,
             inputs=inputs,
+            measurements=measurements,
         )
         assert journal.reconcile(self._opening())
         deliveries = (
@@ -458,6 +464,27 @@ class TestSharedPublicPaper:
         assert inputs.calls == 2
         assert journal.checkpoint("alpha") != first_effects[3]
         assert observer.delivered_count == len(deliveries)
+        measurements.close()
+        measured = tuple(
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in measurement_path.read_bytes().splitlines()
+        )
+        assert len(measured) == len(deliveries)
+        assert tuple(item["position"] for item in measured) == tuple(range(5))
+        assert tuple(item["market_selected"] for item in measured) == (
+            False,
+            True,
+            False,
+            False,
+            True,
+        )
+        selected_rows = tuple(item for item in measured if item["policy_selected"] is True)
+        assert len(selected_rows) == 2
+        assert all(item["checkpoint_acknowledged"] is True for item in selected_rows)
+        assert all(
+            isinstance(item["book_to_checkpoint_ns"], int) and item["book_to_checkpoint_ns"] >= 0
+            for item in selected_rows
+        )
         retained = tuple(
             DomainCodec().decode_json(line, SharedBookDelivery)
             for line in path.with_suffix(".jsonl").read_bytes().splitlines()

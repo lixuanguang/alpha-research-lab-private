@@ -24,6 +24,7 @@ from research.observations import DecisionInputs, LiveBookDecisionSource
 from runtime.live_paper import LiveBookDelivery
 from runtime.portfolio import SharedDecisionRuntime, SharedStrategyInput
 from serialization import DomainCodec, WireRecord
+from telemetry import RuntimeMeasurementJournal
 
 
 class SharedBookInputs(Protocol):
@@ -101,6 +102,7 @@ class SharedPaperCaptureObserver:
         delivery_path: Path | None,
         clock: Callable[[], datetime] | None = None,
         market_interval_us: int = 0,
+        measurements: RuntimeMeasurementJournal | None = None,
     ) -> None:
         """Bind explicit admitted owners and optional new-recording retention path."""
         scenario.__post_init__()
@@ -135,6 +137,7 @@ class SharedPaperCaptureObserver:
         self.delivery_path = delivery_path
         self._clock = clock
         self.market_interval_us = market_interval_us
+        self.measurements = measurements
         self._last_effect_at: datetime | None = None
         self._codec = DomainCodec()
         self._retained_bytes = 0
@@ -147,8 +150,10 @@ class SharedPaperCaptureObserver:
 
     def observe(self, record: CaptureRecord, row: BookObservation) -> None:
         """Retain actual post-persistence availability and coordination before effects."""
+        book_started_ns = time.monotonic_ns() if self.measurements is not None else 0
         source = LiveBookDelivery(record=record, book=row, available_at=self._now())
         market = self._market(source)
+        bbo_observed_ns = time.monotonic_ns() if self.measurements is not None else 0
         market_effects = market is not None and self._select_market(market.at)
         selected: tuple[SharedStrategyInput, ...] = ()
         if market_effects and market is not None:
@@ -162,11 +167,33 @@ class SharedPaperCaptureObserver:
         )
         self._retain(delivery)
         started_ns = time.monotonic_ns()
+        prior_decisions = len(self.decisions)
         try:
             self._apply(delivery, market)
         finally:
-            self.processing_ns = time.monotonic_ns() - started_ns
+            finished_ns = time.monotonic_ns()
+            self.processing_ns = finished_ns - started_ns
             self.delivered_count += 1
+            if self.measurements is not None:
+                acknowledged = len(self.decisions) > prior_decisions
+                self.measurements.record(
+                    {
+                        "kind": "paper_book",
+                        "position": row.position,
+                        "outcome": row.outcome,
+                        "market_eligible": market is not None,
+                        "market_selected": market_effects,
+                        "policy_selected": bool(selected),
+                        "checkpoint_acknowledged": acknowledged,
+                        "checkpoint_status": self.decisions[-1].status if acknowledged else None,
+                        "book_started_ns": book_started_ns,
+                        "bbo_observed_ns": bbo_observed_ns,
+                        "checkpoint_acknowledged_ns": finished_ns if acknowledged else None,
+                        "book_to_checkpoint_ns": (
+                            finished_ns - book_started_ns if acknowledged else None
+                        ),
+                    }
+                )
 
     def deliver(self, delivery: SharedBookDelivery) -> None:
         """Replay one retained envelope into a fresh source and an existing account journal."""

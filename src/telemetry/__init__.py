@@ -25,6 +25,7 @@ from telemetry.metrics import (
     SeriesMetric,
 )
 from telemetry.operations import OperationalAlerts, OperationAlert
+from telemetry.runtime_measurements import RuntimeMeasurementJournal
 from telemetry.store import TelemetryStore
 
 __all__ = [
@@ -56,6 +57,7 @@ __all__ = [
     "MonitoringQuery",
     "OperationAlert",
     "OperationalAlerts",
+    "RuntimeMeasurementJournal",
     "SeriesMetric",
     "TelemetryStore",
 ]

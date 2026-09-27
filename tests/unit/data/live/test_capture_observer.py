@@ -7,6 +7,7 @@ import asyncio
 from pathlib import Path
 
 # third party library imports
+import msgspec
 import pytest
 from msgspec.structs import replace
 
@@ -17,6 +18,7 @@ from market_data.adapters.transport import VenueSubscriptions, VenueTransport
 from market_data.collection import CaptureRunner
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, FeedSocket
 from market_data.storage import CaptureJournal
+from telemetry import RuntimeMeasurementJournal
 
 _ROOT = Path(__file__).parents[4]
 _ACK = b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}'
@@ -142,3 +144,63 @@ class TestCaptureObserver:
         assert socket.closed and not (root / "manifest.json").exists()
         interrupted = tuple(CaptureJournal(root, request).records(completed=False))
         assert interrupted[-2].raw == _BOOK and interrupted[-1].kind == "gap"
+
+    def test_opt_in_measurements_retain_each_fsynced_frame_and_queue_change(
+        self, tmp_path: Path
+    ) -> None:
+        """Tie individual monotonic timings to durable cursors without changing raw input."""
+        request, socket = self._request(), _Socket()
+        path = tmp_path / "capture-measurements.jsonl"
+        with RuntimeMeasurementJournal(path, sync_every=1) as measurements:
+            runner = CaptureRunner(
+                book_factory=BookAdapters.create,
+                transport=_Transport(request.config, socket),
+                subscriptions=VenueSubscriptions(),
+                measurements=measurements,
+            )
+            result = asyncio.run(runner.run(request, tmp_path))
+        rows = tuple(
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in path.read_bytes().splitlines()
+        )
+        boundaries = tuple(row for row in rows if row["kind"] == "capture_boundary")
+        queues = tuple(row for row in rows if row["kind"] == "queue")
+        assert len(boundaries) == 2
+        assert all(row["schema_version"] == "runtime-measurement-v1" for row in rows)
+        assert [row["cursor"] for row in boundaries] == [2, 3]
+        assert [row["outcome"] for row in boundaries] == ["acknowledgement", "snapshot"]
+        for row in boundaries:
+            receipt = row["receipt_ns"]
+            append_started = row["append_started_ns"]
+            durable = row["durable_ns"]
+            reconstructed = row["reconstructed_ns"]
+            assert all(
+                isinstance(value, int)
+                for value in (receipt, append_started, durable, reconstructed)
+            )
+            assert isinstance(receipt, int)
+            assert isinstance(append_started, int)
+            assert isinstance(durable, int)
+            assert isinstance(reconstructed, int)
+            assert receipt <= append_started <= durable <= reconstructed
+            record_fsync = row["record_fsync_ns"]
+            cursor_checkpoint = row["cursor_checkpoint_ns"]
+            assert isinstance(record_fsync, int) and record_fsync >= 0
+            assert isinstance(cursor_checkpoint, int) and cursor_checkpoint >= 0
+        assert [row["phase"] for row in queues].count("accepted") >= 2
+        assert [row["phase"] for row in queues].count("acknowledged") >= 2
+        assert [row["phase"] for row in queues].count("durable_ready") >= 2
+        assert any(
+            isinstance(age, int) and age > 0
+            for age in (row["oldest_age_ns"] for row in queues if row["phase"] == "durable_ready")
+        )
+        assert any(
+            isinstance(value, int) and value >= 1
+            for value in (row["pending_records"] for row in queues)
+        )
+        assert result.summary["replay_parity"] is True
+        assert tuple(
+            record.raw
+            for record in CaptureJournal(result.root, request).records()
+            if record.kind == "frame"
+        ) == (_ACK, _BOOK)
