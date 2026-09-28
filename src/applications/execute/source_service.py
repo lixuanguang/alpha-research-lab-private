@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import asyncio
 from multiprocessing.connection import Connection
+from multiprocessing.synchronize import Event
 from pathlib import Path
 
 # project library imports
@@ -29,6 +30,18 @@ class SourceDelivery(WireRecord, frozen=True):
         self.book.__post_init__()
 
 
+class _ReceivedSourceDelivery(WireRecord, frozen=True):
+    """Decode the closed source pipe once, including both nested source invariants.
+
+    Only typed decoding at the supervisor pipe boundary constructs this schema.
+    The nested records run their constructor checks during decoding; repeating
+    them on this envelope would rescan the same immutable native depth.
+    """
+
+    record: CaptureRecord
+    book: BookObservation
+
+
 class SourceForwarder:
     """Apply bounded pipe backpressure after source persistence and before consumption."""
 
@@ -49,6 +62,7 @@ async def capture_service(
     health: HealthMetrics,
     transport: CaptureTransport | None,
     measurement_path: Path | None = None,
+    stop: Event | None = None,
 ) -> None:
     """Compose native source ownership, retained capture and independent process heartbeat."""
     heartbeat = asyncio.create_task(ProcessSupervisor.heartbeat(health))
@@ -64,7 +78,9 @@ async def capture_service(
             health=health,
             measurements=measurements,
         )
-        result = await runner.run(request, root)
+        result = await runner.run(
+            request, root, stop_requested=None if stop is None else stop.is_set
+        )
         (root / "source-result.json").write_bytes(DomainCodec().encode_json(result.summary))
     finally:
         try:
@@ -83,11 +99,14 @@ def run_source_service(
     health: HealthMetrics,
     transport: CaptureTransport | None,
     measurement_path: Path | None = None,
+    stop: Event | None = None,
 ) -> None:
     """Own a spawned source event loop and retain a failure before process exit."""
     root.mkdir(parents=True, exist_ok=True)
     try:
-        asyncio.run(capture_service(request, root, connection, health, transport, measurement_path))
+        asyncio.run(
+            capture_service(request, root, connection, health, transport, measurement_path, stop)
+        )
     except Exception as error:
         (root / "source-failure.json").write_bytes(
             DomainCodec().encode_json({"error": type(error).__name__, "reason": str(error)})

@@ -11,24 +11,33 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
+from multiprocessing.synchronize import Event
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
 # third party library imports
+import msgspec
 import pytest
+from msgspec import Raw
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from accounting import AccountLedger, AccountPosting, AccountState, Fill, PaperAccountReport
 from applications.execute.service_inputs import ServiceBookInputs
-from applications.execute.service_monitor import PaperServiceMonitor
+from applications.execute.service_monitor import (
+    PaperServiceDiagnostics,
+    PaperServiceMonitor,
+    _DiagnosticReceipt,
+    _ReadOnlyPaperAccount,
+)
 from applications.execute.services import (
     PaperServiceControl,
     PaperServiceOwners,
     PaperServices,
     _SourceChild,
 )
-from applications.execute.source_service import SourceDelivery
+from applications.execute.source_service import SourceDelivery, _ReceivedSourceDelivery
 from configuration import (
     AccountConfiguration,
     CaptureConfig,
@@ -52,7 +61,7 @@ from execution import (
     SocketPaperAccount,
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
+from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
     InstalledIdentity,
@@ -95,6 +104,38 @@ class _ClosingSource(multiprocessing.Process):
 
     def join(self, timeout: float | None = None) -> None:
         """Model bounded acknowledgement of source exit."""
+
+
+class _GracefulSource(multiprocessing.Process):
+    """Finish cleanly after pipe EOF without requiring a termination signal."""
+
+    def __init__(self, events: list[str]) -> None:
+        """Retain source exit ordering against account stop."""
+        self.events = events
+        self.alive = True
+
+    @property
+    def pid(self) -> int:
+        """Represent one launched cooperative source process."""
+        return 12345
+
+    @property
+    def exitcode(self) -> int | None:
+        """Expose zero only after a clean process join."""
+        return None if self.alive else 0
+
+    def is_alive(self) -> bool:
+        """Remain in interpreter teardown until joined after pipe EOF."""
+        return self.alive
+
+    def terminate(self) -> None:
+        """Fail if shutdown kills an already completed source pipe."""
+        raise AssertionError("clean source should not be terminated")
+
+    def join(self, timeout: float | None = None) -> None:
+        """Record the bounded clean exit before account shutdown."""
+        self.events.append("source:joined")
+        self.alive = False
 
 
 class _ClosingMeasurements(RuntimeMeasurementJournal):
@@ -212,7 +253,7 @@ class _UncertainObserver(SharedPaperCaptureObserver):
         self.calls = 0
         self.policy_failure = policy_failure
 
-    def observe(self, record: CaptureRecord, row: BookObservation) -> None:
+    def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
         """Fail after receipt without claiming whether the account committed."""
         self.calls += 1
         if self.policy_failure:
@@ -293,6 +334,61 @@ class _SnapshotAccount(SocketPaperAccount):
         """Count any diagnostic or economic command sent by the monitor."""
         self.seen_requests.append(request)
         return self.state
+
+
+class _DelayedDiagnostics(PaperServiceDiagnostics):
+    """Hold reports at a process boundary while the supervisor continues protection."""
+
+    @classmethod
+    def _serve(
+        cls,
+        configuration: PaperServiceConfiguration,
+        owners: tuple[PaperOwner, ...],
+        root: Path,
+        deadline: float,
+        stopped: Event,
+    ) -> None:
+        """Wait for an explicit test release before using the production reporting loop."""
+        (root / "diagnostic-ready").touch()
+        while not (root / "allow-reports").exists():
+            if stopped.wait(0.01) or time.monotonic() >= deadline:
+                return
+        super()._serve(configuration, owners, root, deadline, stopped)
+
+
+class _StalledDiagnostics(PaperServiceDiagnostics):
+    """Model a report blocked beyond cooperative shutdown."""
+
+    @classmethod
+    def _serve(
+        cls,
+        configuration: PaperServiceConfiguration,
+        owners: tuple[PaperOwner, ...],
+        root: Path,
+        deadline: float,
+        stopped: Event,
+    ) -> None:
+        """Expose startup, then ignore the stop signal until the finite deadline."""
+        (root / "diagnostic-ready").touch()
+        time.sleep(max(0.0, deadline - time.monotonic()))
+
+
+class _CrashAfterStopDiagnostics(PaperServiceDiagnostics):
+    """Model a failed report retention after cooperative shutdown has been requested."""
+
+    @classmethod
+    def _serve(
+        cls,
+        configuration: PaperServiceConfiguration,
+        owners: tuple[PaperOwner, ...],
+        root: Path,
+        deadline: float,
+        stopped: Event,
+    ) -> None:
+        """Expose startup, observe stop, and fail while retaining the last report."""
+        (root / "diagnostic-ready").touch()
+        stopped.wait(max(0.0, deadline - time.monotonic()))
+        raise OSError("diagnostic final retention failed")
 
 
 class _RestartAccount(SocketPaperAccount):
@@ -491,14 +587,14 @@ class TestPaperServices:
         )
 
     @staticmethod
-    def _delivery() -> SourceDelivery:
+    def _delivery(position: int = 0) -> SourceDelivery:
         """Pass one typed, already persisted source boundary through the pipe."""
         return SourceDelivery(
-            record=CaptureRecord(kind="session", epoch=0, received_ns=1),
+            record=CaptureRecord(kind="session", epoch=0, received_ns=position + 1),
             book=BookObservation(
-                position=0,
+                position=position,
                 epoch=0,
-                received_ns=1,
+                received_ns=position + 1,
                 source_time=None,
                 sequence=None,
                 outcome="session",
@@ -527,6 +623,92 @@ class TestPaperServices:
                     client.connect(str(path))
             finally:
                 path.unlink(missing_ok=True)
+
+    def test_supervise_consumes_one_delivery_per_source_on_each_productive_pass(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Backlogged sources each advance once per turn and expose an idle turn."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config, owner = self._config(self._socket_path()), self._owner()
+        services = _SupervisorHarness(config, owner, tmp_path, self._socket_path())
+        services.active.clear()
+        services.faulted_accounts.add("shared")
+        services.unavailable_accounts.add("shared")
+        connections: list[Connection[bytes, bytes]] = []
+        try:
+            for name in ("first-source", "second-source"):
+                receiver, sender = cast(
+                    "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
+                    multiprocessing.get_context("spawn").Pipe(duplex=False),
+                )
+                connections.extend((receiver, sender))
+                for position in range(2):
+                    sender.send_bytes(DomainCodec().encode_json(self._delivery(position)))
+                services.sources[name] = _SourceChild(
+                    definition=config.sources[0],
+                    request=CaptureRequest(
+                        config=config.sources[0].capture,
+                        recording_id=str(uuid4()),
+                        implementation_identity="b" * 64,
+                    ),
+                    process=cast(BaseProcess, _AliveSource()),
+                    receiver=receiver,
+                    health=HealthMetrics(),
+                    observers={},
+                )
+            assert services._supervise() is True
+            assert [child.received_count for child in services.sources.values()] == [1, 1]
+            assert services._supervise() is True
+            assert [child.received_count for child in services.sources.values()] == [2, 2]
+            assert services._supervise() is False
+            assert services.failures == []
+        finally:
+            for connection in connections:
+                connection.close()
+
+    @pytest.mark.parametrize("target", (SourceDelivery, _ReceivedSourceDelivery))
+    @pytest.mark.parametrize(
+        ("before", "after", "reason"),
+        (
+            (b"1" * 64, b"bad", "book state or quality"),
+            (b'"size":"4"', b'"size":"0"', "aggregate levels"),
+            (b'"received_ns":1', b'"received_ns":0', "capture record"),
+        ),
+    )
+    def test_source_pipe_decode_validates_nested_book(
+        self,
+        target: type[SourceDelivery] | type[_ReceivedSourceDelivery],
+        before: bytes,
+        after: bytes,
+        reason: str,
+    ) -> None:
+        """Typed pipe decoding rejects malformed depth before the trusted observer path."""
+        codec = DomainCodec()
+        delivery = self._delivery()
+        delivery = replace(
+            delivery,
+            book=replace(
+                delivery.book,
+                bids=((Decimal("99"), Level(size=Decimal("4"), order_count=1)),),
+            ),
+        )
+        payload = codec.encode_json(delivery)
+        received = codec.decode_json(payload, target)
+        assert received.record == delivery.record and received.book == delivery.book
+        assert codec.encode_json(received) == payload
+        corrupted = payload.replace(before, after)
+        assert corrupted != payload
+        with pytest.raises(ValueError, match=reason):
+            codec.decode_json(corrupted, target)
+
+    def test_public_source_delivery_revalidates_mutated_book(self) -> None:
+        """Direct public envelope construction rejects an unsafe copied native row."""
+        delivery = self._delivery()
+        force_setattr(delivery.book, "state_identity", "bad")
+        with pytest.raises(ValueError, match="book state or quality"):
+            SourceDelivery(record=delivery.record, book=delivery.book)
 
     def test_diagnostic_failure_does_not_retry_account_work(self, tmp_path: Path) -> None:
         """A failed monitor inspection records one error and no economic request."""
@@ -584,6 +766,23 @@ class TestPaperServices:
         assert flat_report.account.positions == ()
         assert flat_report.account.currencies[0].nav.value == Decimal("1000")
         assert [request.action for request in flat.seen_requests] == ["inspect"]
+
+        receipt = _DiagnosticReceipt(
+            account_id=owner.account_id,
+            requested_at=now,
+            observed_at=cast(datetime, flat_sample["observed_at"]),
+            status="retained",
+            phase="running",
+            account=Raw(DomainCodec().encode_json(flat_sample["account"])),
+            activation=Raw(DomainCodec().encode_json(flat_sample["activation"])),
+            report=Raw(DomainCodec().encode_json(flat_sample["report"])),
+            instances=Raw(DomainCodec().encode_json(flat_sample["instances"])),
+        )
+        codec = DomainCodec()
+        round_trip = codec.decode_json(codec.encode_json(receipt), _DiagnosticReceipt)
+        projected = msgspec.json.decode(codec.encode_json(round_trip), type=dict[str, Raw])
+        for field in ("account", "activation", "report", "instances"):
+            assert bytes(projected[field]) == codec.encode_json(flat_sample[field])
 
         fill = Fill(
             identity="fill-1",
@@ -850,3 +1049,270 @@ class TestPaperServices:
             listener.close()
             for sender in senders:
                 sender.close()
+
+    def test_shutdown_joins_clean_source_eof_and_reports_missing_cursor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A clean pipe EOF is joined before accounts stop; absent raw proof stays failed."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        services = PaperServices(
+            config, (self._owner(),), root=tmp_path, control_socket=self._socket_path()
+        )
+        services.active.clear()
+        services.faulted_accounts.add("shared")
+        events: list[str] = []
+        receiver, sender = cast(
+            "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
+            multiprocessing.get_context("spawn").Pipe(duplex=False),
+        )
+        stop = multiprocessing.get_context("spawn").Event()
+        services.sources["book"] = _SourceChild(
+            definition=config.sources[0],
+            request=CaptureRequest(
+                config=config.sources[0].capture,
+                recording_id=str(uuid4()),
+                implementation_identity="b" * 64,
+            ),
+            process=cast(BaseProcess, _GracefulSource(events)),
+            receiver=receiver,
+            health=HealthMetrics(),
+            observers={},
+            stop=stop,
+        )
+        services.accounts["shared"] = _ClosingAccount(events)
+        sender.close()
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            services._shutdown(listener, deadline=time.monotonic() + 1)
+            assert stop.is_set()
+            assert events == ["source:joined", "source:joined", "account"]
+            assert b'"status":"incomplete"' in services.codec.encode_json(
+                services.delivery_accounting["book"]
+            )
+            assert [event["reason"] for event in services.failures] == [
+                "source_delivery_incomplete"
+            ]
+            assert receiver.closed
+        finally:
+            sender.close()
+            receiver.close()
+            listener.close()
+
+    @staticmethod
+    def _wait_diagnostic_marker(diagnostics: PaperServiceDiagnostics) -> None:
+        """Require an actual child to reach the bounded test gate."""
+        deadline = time.monotonic() + 5
+        while not (diagnostics.root / "diagnostic-ready").exists():
+            assert diagnostics.status()["alive"] is True
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+
+    def test_blocked_report_does_not_delay_account_protection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fault is detected by the existing accounts projection while full reports wait."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config, owner = self._config(self._socket_path()), self._owner()
+        services = PaperServices(
+            config, (owner,), root=tmp_path, control_socket=self._socket_path()
+        )
+        view = AccountView(
+            ledger=AccountState(
+                account_id=owner.account_id,
+                currencies=(config.accounts[0].configuration.accounts[0].cash[0].currency,),
+            ),
+            reconciled_at=config.accounts[0].configuration.opening_at,
+            phase="faulted",
+            active_control_identity="first-protection",
+            control_cutoff_at=datetime.now(UTC),
+        )
+        account = _SnapshotAccount(
+            config.accounts[0].configuration,
+            owner,
+            AccountExecutionResult(accounts=(view,), orders=()),
+        )
+        services.accounts[owner.account_id] = account
+        services.workers["first"] = _StableWorker()
+        diagnostics = _DelayedDiagnostics(
+            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+        )
+        services.diagnostics = diagnostics
+        diagnostics.start()
+        try:
+            self._wait_diagnostic_marker(diagnostics)
+            services._sample()
+            assert not (diagnostics.root / "allow-reports").exists()
+            assert account.seen_requests[0].action == "inspect"
+            assert account.seen_requests[0].projection == "accounts"
+            assert services.faulted_accounts == {owner.account_id}
+            assert services.active == set()
+            phase = cast(dict[str, object], services.account_phases[owner.account_id])
+            assert phase["phase"] == "faulted" and phase["status"] == "observed"
+            assert isinstance(phase["observed_at"], datetime)
+            assert [event["reason"] for event in services.failures] == ["account_protected"]
+        finally:
+            diagnostics.close(deadline=time.monotonic() + 1)
+        assert diagnostics.status()["alive"] is False
+        assert diagnostics.status()["exitcode"] == 0
+
+    def test_diagnostic_latest_batch_is_bounded_and_failure_is_visible(
+        self, tmp_path: Path
+    ) -> None:
+        """Three waiting requests become one report with two explicitly coalesced batches."""
+        config, owner = self._config(self._socket_path()), self._owner()
+        diagnostics = _DelayedDiagnostics(
+            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+        )
+        diagnostics.start()
+        try:
+            self._wait_diagnostic_marker(diagnostics)
+            for _ in range(3):
+                diagnostics.submit({owner.account_id: ()})
+            assert diagnostics.status()["pending_batches"] == 1
+            (diagnostics.root / "allow-reports").touch()
+            deadline = time.monotonic() + 5
+            receipts: tuple[_DiagnosticReceipt, ...] = ()
+            while not receipts:
+                receipts = diagnostics.poll()
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            assert len(receipts) == 1
+            assert receipts[0].status == "failed"
+            assert receipts[0].error is not None and "FileNotFoundError" in receipts[0].error
+            assert receipts[0].requested_at <= receipts[0].observed_at
+            assert diagnostics.status()["completed_batches"] == 1
+            assert diagnostics.status()["coalesced_batches"] == 2
+            assert diagnostics.failure_count == 1
+            assert diagnostics.poll() == ()
+        finally:
+            diagnostics.close(deadline=time.monotonic() + 1)
+        status = diagnostics.status()
+        assert status["alive"] is False and status["exitcode"] == 0
+        assert status["pid"] is not None and status["exit_observed_at"] is not None
+        assert (diagnostics.root / "diagnostic-events.jsonl").read_bytes().count(b"\n") == 1
+
+    def test_diagnostic_stall_is_fenced_within_shared_deadline(self, tmp_path: Path) -> None:
+        """A stuck report is terminated and its PID remains visible after bounded cleanup."""
+        config, owner = self._config(self._socket_path()), self._owner()
+        diagnostics = _StalledDiagnostics(
+            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+        )
+        diagnostics.start()
+        try:
+            self._wait_diagnostic_marker(diagnostics)
+            diagnostics.close(deadline=time.monotonic() + 1)
+            status = diagnostics.status()
+            assert status["alive"] is False
+            assert status["exitcode"] == -15
+            assert status["forced_fence"] is True
+            assert status["pid"] is not None
+            assert diagnostics.failure_count == 1
+        finally:
+            diagnostics.close(deadline=time.monotonic() + 1)
+
+    def test_diagnostic_account_rejects_mutation_before_transport(self, tmp_path: Path) -> None:
+        """An economic control cannot cross the read-only diagnostic client boundary."""
+        config, owner = self._config(self._socket_path()), self._owner()
+        requests = tmp_path / "requests"
+        account = _ReadOnlyPaperAccount(
+            config=config.accounts[0].configuration,
+            socket_path=Path(config.accounts[0].socket_path),
+            requests=requests,
+            paper_owner=owner,
+        )
+        with pytest.raises(ValueError, match="can only inspect"):
+            account.control(
+                AccountControl(
+                    identity="diagnostics-cannot-fault",
+                    account_id=owner.account_id,
+                    kind="fault",
+                    at=datetime.now(UTC),
+                    reason="diagnostic mutation forbidden",
+                )
+            )
+        assert not requests.exists()
+
+    def test_shutdown_fences_stalled_diagnostics_before_source_cleanup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A blocked report leaves deadline time for EOF, source join and account stop."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config, owner = self._config(self._socket_path()), self._owner()
+        services = PaperServices(
+            config, (owner,), root=tmp_path, control_socket=self._socket_path()
+        )
+        services.active.clear()
+        services.faulted_accounts.add(owner.account_id)
+        events: list[str] = []
+        receiver, sender = cast(
+            "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
+            multiprocessing.get_context("spawn").Pipe(duplex=False),
+        )
+        stop = multiprocessing.get_context("spawn").Event()
+        services.sources["book"] = _SourceChild(
+            definition=config.sources[0],
+            request=CaptureRequest(
+                config=config.sources[0].capture,
+                recording_id=str(uuid4()),
+                implementation_identity="b" * 64,
+            ),
+            process=cast(BaseProcess, _GracefulSource(events)),
+            receiver=receiver,
+            health=HealthMetrics(),
+            observers={},
+            stop=stop,
+        )
+        services.accounts[owner.account_id] = _ClosingAccount(events)
+        diagnostics = _StalledDiagnostics(
+            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+        )
+        services.diagnostics = diagnostics
+        diagnostics.start()
+        sender.close()
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            self._wait_diagnostic_marker(diagnostics)
+            deadline = time.monotonic() + 1
+            services._shutdown(listener, deadline=deadline)
+            assert time.monotonic() < deadline
+            assert stop.is_set() and receiver.closed
+            assert events == ["source:joined", "source:joined", "account"]
+            assert diagnostics.status()["alive"] is False
+            assert diagnostics.status()["forced_fence"] is True
+            assert diagnostics.status()["exitcode"] == -15
+            assert [event["reason"] for event in services.failures] == [
+                "source_delivery_incomplete"
+            ]
+        finally:
+            diagnostics.close(deadline=time.monotonic() + 1)
+            sender.close()
+            receiver.close()
+            listener.close()
+
+    def test_post_stop_diagnostic_crash_is_recorded_once(self, tmp_path: Path) -> None:
+        """A final retention failure remains visible after stop and is never counted as a fence."""
+        config, owner = self._config(self._socket_path()), self._owner()
+        diagnostics = _CrashAfterStopDiagnostics(
+            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+        )
+        diagnostics.start()
+        try:
+            self._wait_diagnostic_marker(diagnostics)
+            diagnostics.request_stop()
+            diagnostics.close(deadline=time.monotonic() + 1)
+            assert diagnostics.status()["alive"] is False
+            assert diagnostics.status()["exitcode"] == 1
+            assert diagnostics.status()["forced_fence"] is False
+            assert diagnostics.failure_count == 1
+            assert diagnostics.last_error == "diagnostic_process_exit:1"
+            assert diagnostics.poll() == ()
+            assert diagnostics.failure_count == 1
+        finally:
+            diagnostics.close(deadline=time.monotonic() + 1)

@@ -57,7 +57,11 @@ class SharedBookDelivery(WireRecord, frozen=True):
 
     def __post_init__(self) -> None:
         """Reject unbound policy clocks or partial coordination envelopes."""
-        self.source.__post_init__()
+        LiveBookDelivery.__post_init__(self.source)
+        self._require_coordination()
+
+    def _require_coordination(self) -> None:
+        """Validate newly constructed selection and coordination after native validation."""
         if self.schema_version != "shared-book-delivery-v1" or type(self.inputs) is not tuple:
             raise ValueError("invalid shared book delivery")
         if self.market_effects is not msgspec.UNSET and type(self.market_effects) is not bool:
@@ -76,6 +80,23 @@ class SharedBookDelivery(WireRecord, frozen=True):
             item.__post_init__()
             if item.context.decision_at != self.source.available_at:
                 raise ValueError("shared input cutoff differs from actual delivery")
+
+
+class _ObservedLiveBookDelivery(LiveBookDelivery, frozen=True):
+    """Wrap validated source records while checking the new actual availability clock."""
+
+    def __post_init__(self) -> None:
+        """Rely on the typed pipe or public observe boundary for native validation."""
+        self._require_availability()
+
+
+class _ObservedSharedBookDelivery(SharedBookDelivery, frozen=True):
+    """Coordinate validated native inputs without changing the retained wire schema."""
+
+    def __post_init__(self) -> None:
+        """Check only the new availability, policy and coordination invariants."""
+        self.source._require_availability()
+        self._require_coordination()
 
 
 class SharedPaperCaptureObserver:
@@ -145,13 +166,21 @@ class SharedPaperCaptureObserver:
         self.decisions: list[PortfolioCommit] = []
         self.processing_ns: int | None = None
         self.delivered_count = 0
+        self.retained_count = 0
+        self._public_faulted = False
         self.last_market: PaperMarket | None = None
         journal.bind_paper_scenario(account_id, scenario)
 
     def observe(self, record: CaptureRecord, row: BookObservation) -> None:
         """Retain actual post-persistence availability and coordination before effects."""
+        record.__post_init__()
+        row.__post_init__()
+        self._observe_validated(record, row)
+
+    def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
+        """Consume native invariants checked by public observe or typed pipe decoding."""
         book_started_ns = time.monotonic_ns() if self.measurements is not None else 0
-        source = LiveBookDelivery(record=record, book=row, available_at=self._now())
+        source = _ObservedLiveBookDelivery(record=record, book=row, available_at=self._now())
         market = self._market(source)
         bbo_observed_ns = time.monotonic_ns() if self.measurements is not None else 0
         market_effects = market is not None and self._select_market(market.at)
@@ -159,7 +188,7 @@ class SharedPaperCaptureObserver:
         if market_effects and market is not None:
             causal = self.source.read(str(self.scenario.instrument_id), source.available_at)
             selected = self.inputs.build(causal, market)
-        delivery = SharedBookDelivery(
+        delivery = _ObservedSharedBookDelivery(
             source=source,
             inputs=selected,
             coordinated_at=self._coordination_time(source.available_at) if selected else None,
@@ -197,7 +226,7 @@ class SharedPaperCaptureObserver:
 
     def deliver(self, delivery: SharedBookDelivery) -> None:
         """Replay one retained envelope into a fresh source and an existing account journal."""
-        delivery.__post_init__()
+        SharedBookDelivery.__post_init__(delivery)
         market = self._market(delivery.source)
         self._apply(delivery, market)
 
@@ -209,15 +238,16 @@ class SharedPaperCaptureObserver:
 
     def _market(self, delivery: LiveBookDelivery) -> PaperMarket | None:
         """Advance native quality before exposing finite eligible displayed touch liquidity."""
-        delivery.__post_init__()
-        self.source.accept(delivery.record, delivery.book, available_at=delivery.available_at)
+        self.source._accept_validated(
+            delivery.record, delivery.book, available_at=delivery.available_at
+        )
         elapsed = delivery.available_at - datetime(1970, 1, 1, tzinfo=UTC)
         available_ns = (
             elapsed.days * 86_400 + elapsed.seconds
         ) * 1_000_000_000 + elapsed.microseconds * 1000
         request = self.source.request
         self.books.accept(
-            BookDepth.from_observation(delivery.book).quote(
+            BookDepth._touch_quote_validated(
                 delivery.book,
                 venue=request.config.venue,
                 instrument_id=request.config.instrument_id,
@@ -228,7 +258,7 @@ class SharedPaperCaptureObserver:
         )
         if (
             delivery.book.outcome not in ("snapshot", "update")
-            or self.source.current_quote(str(self.scenario.instrument_id), delivery.available_at)
+            or self.source.current_book(str(self.scenario.instrument_id), delivery.available_at)
             is None
         ):
             return None
@@ -250,17 +280,16 @@ class SharedPaperCaptureObserver:
 
     def _apply(self, delivery: SharedBookDelivery, market: PaperMarket | None) -> None:
         """Validate retained feature lineage and compose existing atomic public operations."""
-        delivery.__post_init__()
         if market is None:
             if delivery.market_effects is False:
                 raise ValueError("ineligible native input cannot skip market effects")
             if delivery.inputs:
                 raise ValueError("ineligible native input cannot produce shared decisions")
-            if self._source_invalidated(delivery):
+            if not self._public_faulted and self._source_invalidated(delivery):
                 if self.journal.paper_owner is None:
                     self.journal.block(self.account_id, "public_input_invalid")
                 else:
-                    self.journal.control(
+                    result = self.journal.control(
                         AccountControl(
                             identity="public-input-fault:"
                             + hashlib.sha256(self._codec.encode_json(delivery.source)).hexdigest(),
@@ -270,6 +299,9 @@ class SharedPaperCaptureObserver:
                             reason="public_input_invalid",
                         )
                     )
+                    if result.status != "applied" or result.phase != "faulted":
+                        raise ValueError("public input fault was not applied")
+                self._public_faulted = True
             return
         if delivery.market_effects is False:
             self.last_market = market
@@ -303,6 +335,7 @@ class SharedPaperCaptureObserver:
         if record.kind in ("session_end", "end") and record.reason in (
             "duration_limit",
             "message_limit",
+            "supervisor_stop",
         ):
             freshness = min(
                 timedelta(microseconds=self.source.requirements[0].max_age_us),
@@ -339,3 +372,4 @@ class SharedPaperCaptureObserver:
             stream.flush()
             os.fsync(stream.fileno())
         self._retained_bytes += len(payload)
+        self.retained_count += 1

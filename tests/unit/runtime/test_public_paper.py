@@ -13,7 +13,7 @@ from typing import Literal
 # third party library imports
 import msgspec
 import pytest
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from accounting import AccountLedger, AccountSnapshot
@@ -32,6 +32,7 @@ from configuration import (
 )
 from execution import (
     AccountControl,
+    AccountControlResult,
     AccountDecision,
     AccountJournal,
     AccountObservation,
@@ -61,6 +62,7 @@ from runtime import (
     SharedStrategyInput,
 )
 from runtime.live_paper import LiveBookDelivery
+from runtime.shared_paper import _ObservedLiveBookDelivery, _ObservedSharedBookDelivery
 from serialization import DomainCodec
 from strategies import ConfirmedSignal, DecisionContext, OrderIntent
 from telemetry import RuntimeMeasurementJournal
@@ -485,11 +487,25 @@ class TestSharedPublicPaper:
             isinstance(item["book_to_checkpoint_ns"], int) and item["book_to_checkpoint_ns"] >= 0
             for item in selected_rows
         )
-        retained = tuple(
-            DomainCodec().decode_json(line, SharedBookDelivery)
-            for line in path.with_suffix(".jsonl").read_bytes().splitlines()
-        )
+        codec = DomainCodec()
+        retained_bytes = path.with_suffix(".jsonl").read_bytes().splitlines()
+        retained = tuple(codec.decode_json(line, SharedBookDelivery) for line in retained_bytes)
         assert len(retained) == len(deliveries)
+        for payload, delivery in zip(retained_bytes, retained, strict=True):
+            observed_source = _ObservedLiveBookDelivery(
+                record=delivery.source.record,
+                book=delivery.source.book,
+                available_at=delivery.source.available_at,
+            )
+            observed = _ObservedSharedBookDelivery(
+                source=observed_source,
+                inputs=delivery.inputs,
+                coordinated_at=delivery.coordinated_at,
+                schema_version=delivery.schema_version,
+                market_effects=delivery.market_effects,
+            )
+            assert codec.encode_json(observed_source) == codec.encode_json(delivery.source)
+            assert codec.encode_json(observed) == codec.encode_json(delivery) == payload
         assert tuple(item.source.book.position for item in retained) == tuple(range(5))
         assert tuple(item.market_effects for item in retained) == (
             msgspec.UNSET,
@@ -586,8 +602,8 @@ class TestSharedPublicPaper:
             with pytest.raises(ValueError, match="market interval"):
                 self._observer(tmp_path / f"bad-{interval}.sqlite3", market_interval_us=interval)
 
-    def test_managed_distinct_invalidations_keep_exact_retry_identity(self, tmp_path: Path) -> None:
-        """Repeated bad source facts remain durable faults without reusing changed controls."""
+    def test_managed_invalidations_fault_once_per_observer(self, tmp_path: Path) -> None:
+        """The first bad source fact faults its owner without repeated account loads."""
         path = tmp_path / "managed-invalid.sqlite3"
         observer, original = self._observer(path)
         clock = _SequenceClock((self.at - timedelta(seconds=1),))
@@ -679,11 +695,151 @@ class TestSharedPublicPaper:
         observer.deliver(second)
         controls = worker.controls()
         faults = tuple(item for item in controls if item.request.reason == "public_input_invalid")
-        assert len(faults) == 2 and all(item.status == "applied" for item in faults)
-        assert faults[0].request.identity != faults[1].request.identity
+        assert len(faults) == 1 and faults[0].status == "applied"
+        assert faults[0].request.identity == (
+            "public-input-fault:"
+            + hashlib.sha256(DomainCodec().encode_json(first.source)).hexdigest()
+        )
         observer._apply(first, None)
         assert worker.controls() == controls
         assert worker.accounts()[0].phase == "faulted"
+
+    def test_public_fault_unknown_outcome_propagates_without_retry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An uncertain account write remains visible to the supervisor for fencing."""
+        observer, journal = self._observer(tmp_path / "unknown-fault.sqlite3")
+        assert journal.reconcile(self._opening())
+        observer.deliver(
+            self._delivery(
+                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+            )
+        )
+        observer.deliver(
+            self._delivery(
+                1,
+                seconds=1,
+                kind="frame",
+                outcome="snapshot",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            )
+        )
+        calls = 0
+
+        def uncertain(account_id: str, reason: str) -> None:
+            """Model one account outcome whose commit result is unknown."""
+            nonlocal calls
+            calls += 1
+            raise TimeoutError("unknown account outcome")
+
+        monkeypatch.setattr(journal, "block", uncertain)
+        with pytest.raises(TimeoutError, match="unknown account outcome"):
+            observer.deliver(
+                self._delivery(
+                    2,
+                    seconds=2,
+                    kind="gap",
+                    outcome="gap",
+                    status="recovering",
+                    reason="disconnect_unknown_loss",
+                )
+            )
+        assert calls == 1
+        assert journal.accounts()[0].operator_block is None
+
+    def test_rejected_public_fault_is_not_confirmed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit rejected control fences the source instead of latching success."""
+        observer, journal = self._observer(tmp_path / "rejected-fault.sqlite3")
+        assert journal.reconcile(self._opening())
+        observer.deliver(
+            self._delivery(
+                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+            )
+        )
+        observer.deliver(
+            self._delivery(
+                1,
+                seconds=1,
+                kind="frame",
+                outcome="snapshot",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            )
+        )
+        monkeypatch.setattr(journal, "paper_owner", object())
+        calls = 0
+
+        def reject(request: AccountControl) -> AccountControlResult:
+            """Return a typed refusal without changing the account state."""
+            nonlocal calls
+            calls += 1
+            return AccountControlResult(
+                request=request,
+                status="rejected",
+                phase="running",
+                recovery_generation=0,
+                reason="test refusal",
+            )
+
+        monkeypatch.setattr(journal, "control", reject)
+        with pytest.raises(ValueError, match="fault was not applied"):
+            observer.deliver(
+                self._delivery(
+                    2,
+                    seconds=2,
+                    kind="gap",
+                    outcome="gap",
+                    status="recovering",
+                    reason="disconnect_unknown_loss",
+                )
+            )
+        assert calls == 1
+        assert observer._public_faulted is False
+
+    @pytest.mark.parametrize("is_private_wire", (False, True))
+    def test_observer_rejects_mutated_nested_book_before_retention(
+        self, tmp_path: Path, is_private_wire: bool
+    ) -> None:
+        """The public entry validates nested rows before either trusted private core."""
+        path = tmp_path / "untrusted.sqlite3"
+        observer, journal = self._observer(path, retain=True)
+        assert journal.reconcile(self._opening())
+        delivery = self._delivery(
+            0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+        )
+        if is_private_wire:
+            delivery = _ObservedSharedBookDelivery(
+                source=_ObservedLiveBookDelivery(
+                    record=delivery.source.record,
+                    book=delivery.source.book,
+                    available_at=delivery.source.available_at,
+                ),
+                inputs=(),
+                coordinated_at=None,
+            )
+        force_setattr(delivery.source.book, "state_identity", "bad")
+        with pytest.raises(ValueError, match="book state or quality"):
+            LiveBookDelivery(
+                record=delivery.source.record,
+                book=delivery.source.book,
+                available_at=delivery.source.available_at,
+            )
+        with pytest.raises(ValueError, match="book state or quality"):
+            SharedBookDelivery(source=delivery.source, inputs=(), coordinated_at=None)
+        with pytest.raises(ValueError, match="book state or quality"):
+            DomainCodec().decode_json(DomainCodec().encode_json(delivery), SharedBookDelivery)
+        with pytest.raises(ValueError, match="book state or quality"):
+            observer.observe(delivery.source.record, delivery.source.book)
+        with pytest.raises(ValueError, match="book state or quality"):
+            observer.deliver(delivery)
+        assert not path.with_suffix(".jsonl").exists()
+        assert observer.source.latest_book is None
+        assert observer.delivered_count == 0
 
     def test_invalid_after_market_blocks_admission_and_preserves_order(
         self, tmp_path: Path

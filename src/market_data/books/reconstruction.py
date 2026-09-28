@@ -170,6 +170,7 @@ class CaptureReplay:
                 not in (
                     "duration_limit",
                     "message_limit",
+                    "supervisor_stop",
                     "storage_limit_unknown_tail",
                     "overload_unknown_loss",
                 )

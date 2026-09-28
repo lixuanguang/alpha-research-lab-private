@@ -200,6 +200,16 @@ class LiveBookDecisionSource:
         """
         record.__post_init__()
         row.__post_init__()
+        self._accept_validated(record, row, available_at=available_at)
+
+    def _accept_validated(
+        self,
+        record: CaptureRecord,
+        row: BookObservation,
+        *,
+        available_at: datetime | None,
+    ) -> None:
+        """Advance a complete boundary already checked by LiveBookDelivery."""
         if (
             row.position != self._position
             or row.epoch != record.epoch
@@ -220,25 +230,25 @@ class LiveBookDecisionSource:
         lineage = self._lineage(record, row, delivered_at)
         projection_available_at = delivered_at
         market_progress_at: datetime | None = None
-        book_value = self._book_value(row) if row.outcome in ("snapshot", "update") else None
         valid_market = (
             row.status == "degraded"
             and row.outcome in ("snapshot", "update")
-            and book_value is not None
+            and self._has_two_sided_book(row)
         )
+        has_market_value = False
         if valid_market:
-            value = book_value
             event_at = received_at
             reason = "visible_depth_only;recorder_coverage_unproven"
             if self._requirement.clock == "event":
                 if row.source_time is None or not row.source_time.isdigit():
-                    value, reason = None, "unknown_source_event_time"
+                    reason = "unknown_source_event_time"
                 else:
                     event_at = self._from_ms(int(row.source_time))
-            if value is not None:
+            if reason != "unknown_source_event_time":
                 self._latest_book = row
                 self._market_lineage = lineage
                 market_progress_at = min(received_at, event_at)
+                has_market_value = True
             else:
                 self._latest_book = None
                 self._market_lineage = None
@@ -255,14 +265,15 @@ class LiveBookDecisionSource:
             and self._market_lineage is not None
         ):
             previous = self._history[-1].observation
-            event_at, value, reason = previous.event_at, previous.value, previous.reason
+            event_at, reason = previous.event_at, previous.reason
             lineage = f"{self._market_lineage}|{lineage}"
             projection_available_at = previous.available_at or delivered_at
             market_progress_at = self._history[-1].market_progress_at
+            has_market_value = self._history[-1].book is not None
         else:
             self._latest_book = None
             self._market_lineage = None
-            event_at, value = received_at, None
+            event_at = received_at
             reason = (
                 f"{row.status}:{row.reason}"
                 if row.status != "degraded"
@@ -273,7 +284,7 @@ class LiveBookDecisionSource:
             entity=str(self._request.config.instrument_id),
             event_at=event_at,
             available_at=projection_available_at,
-            value=value,
+            value=None,
             reason=reason,
             lineage=lineage,
         )
@@ -281,7 +292,7 @@ class LiveBookDecisionSource:
             _LiveBoundary(
                 available_at=delivered_at,
                 observation=observation,
-                book=self._latest_book if value is not None else None,
+                book=self._latest_book if has_market_value else None,
                 market_progress_at=market_progress_at,
             )
         )
@@ -359,10 +370,22 @@ class LiveBookDecisionSource:
                     row.lineage,
                     row if refusal != "future_source_event" else None,
                 )
-            elif row.value is None:
-                decision = DecisionInputs(entity=entity, decision_at=at, observations=(row,))
             else:
-                decision = DecisionInputs(entity=entity, decision_at=at, observations=(row,))
+                value = None if selected.book is None else self._book_value(selected.book)
+                projected = (
+                    row
+                    if value is None
+                    else NamedObservation(
+                        input=row.input,
+                        entity=row.entity,
+                        event_at=row.event_at,
+                        available_at=row.available_at,
+                        value=value,
+                        reason=row.reason,
+                        lineage=row.lineage,
+                    )
+                )
+                decision = DecisionInputs(entity=entity, decision_at=at, observations=(projected,))
         self._last_decision_at, self._last_decision = at, decision
         self._last_decision_book = (
             selected.book
@@ -376,7 +399,7 @@ class LiveBookDecisionSource:
         row = selected.observation
         if row.event_at > at:
             return "future_source_event"
-        if row.value is None:
+        if selected.book is None:
             return None
         if at - row.event_at > timedelta(microseconds=self._requirement.max_age_us):
             return "stale_input"
@@ -424,6 +447,17 @@ class LiveBookDecisionSource:
                 hashlib.sha256(record.raw).hexdigest(),
             )
         )
+
+    @staticmethod
+    def _has_two_sided_book(row: BookObservation) -> bool:
+        """Check visible touch eligibility before deferring exact depth arithmetic."""
+        if row.orders:
+            bid = max((order.price for order in row.orders if order.side == "buy"), default=None)
+            ask = min((order.price for order in row.orders if order.side == "sell"), default=None)
+        else:
+            bid = max((price for price, _ in row.bids), default=None)
+            ask = min((price for price, _ in row.asks), default=None)
+        return bid is not None and ask is not None and bid < ask
 
     @staticmethod
     def _book_value(row: BookObservation) -> ExactRatio | None:

@@ -51,8 +51,8 @@ class CapacityNativeFixture:
     burst_end = 2000
     reconnect_slot = 1250
     adverse_slot = 500
-    ask_shift_start = 115
-    ask_shift_end = 140
+    bitfinex_reprice_slot = 115
+    okx_ask_shift_slot = 115
     codec: ClassVar[DomainCodec] = DomainCodec()
 
     def __init__(
@@ -87,6 +87,8 @@ class CapacityNativeFixture:
         self.sequence = 0
         self.started_at: float | None = None
         self.last_source_ms = 0
+        self._emitted: list[tuple[int, int, str]] = []
+        self._closed = False
 
     @property
     def identity(self) -> str:
@@ -103,7 +105,7 @@ class CapacityNativeFixture:
         return hashlib.sha256(
             self.codec.encode_json(
                 (
-                    "capacity-native-v1",
+                    "capacity-native-v2",
                     self.source.capture,
                     self.frame_count,
                     self.burst_start,
@@ -141,6 +143,8 @@ class CapacityNativeFixture:
         self.epoch = max(self.epoch + 1, marker_epoch)
         self.phase = 0
         self.sequence = 0
+        self._emitted = []
+        self._closed = False
         return self
 
     def _claim_epoch(self) -> tuple[int, float]:
@@ -200,12 +204,35 @@ class CapacityNativeFixture:
         if self.variant == "reconnect" and index == self.reconnect_slot:
             raise OSError("authored public-feed disconnect")
         if self.variant == "oversize" and index == self.adverse_slot:
-            return b"x" * (self.source.capture.max_frame_bytes + 1)
-        self.last_source_ms = max(self.last_source_ms, time.time_ns() // 1_000_000)
-        return self._native_frame(self.last_source_ms)
+            frame = b"x" * (self.source.capture.max_frame_bytes + 1)
+        else:
+            self.last_source_ms = max(self.last_source_ms, time.time_ns() // 1_000_000)
+            frame = self._native_frame(self.last_source_ms)
+        self._emitted.append((index, time.monotonic_ns(), hashlib.sha256(frame).hexdigest()))
+        return frame
 
     async def close(self) -> None:
-        """Close the scripted epoch without changing the global schedule."""
+        """Retain exact emitted slots and bytes at close without changing the schedule."""
+        if self.epoch_path is None or self._closed:
+            return
+        closed_ns = time.monotonic_ns()
+        self._closed = True
+        path = self.epoch_path.with_suffix(f".epoch-{self.epoch}-receipts.json")
+        with path.open("xb") as stream:
+            stream.write(
+                self.codec.encode_json(
+                    {
+                        "fixture_identity": self.identity,
+                        "active_identity": self.active_identity,
+                        "epoch": self.epoch,
+                        "anchor_ns": int(self.epoch_path.read_bytes().splitlines()[1]),
+                        "closed_ns": closed_ns,
+                        "emitted": self._emitted,
+                    }
+                )
+            )
+            stream.flush()
+            os.fsync(stream.fileno())
 
     def snapshot(self) -> bytes:
         """Refuse REST fallback for both WebSocket-snapshot feeds."""
@@ -241,7 +268,11 @@ class CapacityNativeFixture:
                 bitfinex_asks = [
                     [
                         item + 26,
-                        str(Decimal("104" if high else "100") + Decimal("0.01") * item),
+                        str(
+                            Decimal("100")
+                            if not high and item == 0
+                            else Decimal("104") + Decimal("0.01") * item
+                        ),
                         -4,
                     ]
                     for item in range(25)
@@ -249,18 +280,10 @@ class CapacityNativeFixture:
                 return self.codec.encode_json([7, [*bids, *bitfinex_asks], self.sequence])
             if self.index % 100 == 0:
                 return self.codec.encode_json([7, "hb", self.sequence])
-            if not high and self.ask_shift_start <= self.index < self.ask_shift_end:
-                offset = self.index - self.ask_shift_start
-                return self.codec.encode_json(
-                    [
-                        7,
-                        [offset + 26, str(Decimal("104") + Decimal("0.01") * offset), -4],
-                        self.sequence,
-                    ]
-                )
+            if not high and self.index == self.bitfinex_reprice_slot:
+                return self.codec.encode_json([7, [26, "104", -4], self.sequence])
             amount = -5 if self.index % 2 else -4
-            ask_price = "104.24" if high or self.index >= self.ask_shift_end else "100.24"
-            return self.codec.encode_json([7, [50, ask_price, amount], self.sequence])
+            return self.codec.encode_json([7, [50, "104.24", amount], self.sequence])
         argument = {"channel": "books", "instId": symbol}
         if phase == 0:
             return self.codec.encode_json({"event": "subscribe", "arg": argument})
@@ -290,7 +313,7 @@ class CapacityNativeFixture:
             return b"pong"
         previous = self.sequence
         self.sequence += 1
-        if not high and self.index == self.ask_shift_start:
+        if not high and self.index == self.okx_ask_shift_slot:
             removals = [
                 [str(Decimal("100") + Decimal("0.01") * item), "0", "0", "0"] for item in range(400)
             ]
@@ -299,7 +322,7 @@ class CapacityNativeFixture:
             ]
             update_asks = [*removals, *additions]
         else:
-            ask_price = "104.24" if high or self.index > self.ask_shift_start else "100.24"
+            ask_price = "104.24" if high or self.index > self.okx_ask_shift_slot else "100.24"
             update_asks = [[ask_price, "5" if self.index % 2 else "4", "0", "1"]]
         row = {
             "prevSeqId": previous,

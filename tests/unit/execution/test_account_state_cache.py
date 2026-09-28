@@ -6,6 +6,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import cast
 
 # third party library imports
 import msgspec
@@ -40,6 +41,13 @@ def test_open_reader_reuses_exact_bytes_but_sees_another_writer(tmp_path: Path) 
     assert reader.accounts()[0] == changed.accounts[0]
     assert writer._store.read() is writer._store.read()
 
+    with reader._store.write() as transaction:
+        transaction.state = replace(transaction.state, stopped_instances=("alpha",))
+    assert reader._store.read().stopped_instances == ("alpha",)
+    assert writer._store.read() == reader._store.read()
+    reopened = AccountJournal(path, config)
+    assert reopened._store.read() == reader._store.read()
+
 
 def test_warm_cache_rejects_changed_configuration_and_malformed_payload(tmp_path: Path) -> None:
     """The cached typed value never hides altered on-disk authority or state bytes."""
@@ -48,6 +56,8 @@ def test_warm_cache_rejects_changed_configuration_and_malformed_payload(tmp_path
     path = tmp_path / "tampered.sqlite3"
     codec = DomainCodec()
     store = AccountStateStore(path, config, codec)
+    with store.write() as transaction:
+        transaction.state = replace(transaction.state, stopped_instances=("alpha",))
     original = store.read()
     assert store.read() is original
 
@@ -86,3 +96,25 @@ def test_rolled_back_stage_never_becomes_cached_state(tmp_path: Path) -> None:
     committed = store.read()
     assert committed.stopped_instances == ("alpha",)
     assert committed is store.read()
+
+
+def test_invalid_staged_schema_preserves_durable_and_cached_state(tmp_path: Path) -> None:
+    """A staged activation/schema mismatch cannot become a committed cached value."""
+    path = tmp_path / "invalid-stage.sqlite3"
+    codec = DomainCodec()
+    store = AccountStateStore(path, _AccountFixture._config(), codec)
+    original = store.read()
+    payload = codec.encode_json(original)
+
+    with pytest.raises(ValueError, match="unsupported account journal state schema"):
+        with store.write() as transaction:
+            transaction.state = replace(transaction.state, schema_version="account-journal-v3")
+
+    assert store.read() is original
+    with closing(sqlite3.connect(path)) as connection:
+        row = cast(
+            tuple[object, ...] | None,
+            connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+        )
+    assert row == (payload,)
+    assert AccountStateStore(path, _AccountFixture._config(), codec).read() == original

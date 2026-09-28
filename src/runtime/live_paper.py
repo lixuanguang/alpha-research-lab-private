@@ -29,6 +29,10 @@ class LiveBookDelivery(WireRecord, frozen=True):
         """Reject invented availability before the original received frame."""
         self.record.__post_init__()
         self.book.__post_init__()
+        self._require_availability()
+
+    def _require_availability(self) -> None:
+        """Validate the separately observed UTC clock against the original receipt."""
         self._require_utc(self.available_at, field_name="live delivery")
         received = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
             microseconds=(self.record.received_ns + 999) // 1000
@@ -78,7 +82,7 @@ class PaperCaptureObserver:
 
     def deliver(self, delivery: LiveBookDelivery) -> None:
         """Replay or deliver one exact retained envelope before exposing a priced market."""
-        delivery.__post_init__()
+        LiveBookDelivery.__post_init__(delivery)
         payload = self._codec.encode_json(delivery)
         identity = hashlib.sha256(payload).hexdigest()
         self.runtime.input_delivery(identity=identity, at=delivery.available_at, payload=payload)

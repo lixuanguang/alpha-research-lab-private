@@ -113,27 +113,40 @@ class TestCapacityInputs:
         assert isinstance(max_frame_bytes, int) and max_frame_bytes <= 8_000_000
         assert fixture.index == fixture.phase == fixture.sequence == 0
         book = BookAdapters.create(source.capture)
-        count = 4 if venue == "okx" else 5
+        count = 2 if venue == "okx" else 3
         outcomes: list[str] = []
         for index in range(count):
             fixture.index = index + 1
             outcomes.append(book.apply(fixture._native_frame(1_700_000_000_000)))
         assert "snapshot" in outcomes
-        assert "update" in outcomes
         assert book.ready
         assert len(book.bids) == (400 if venue == "okx" else 25)
         assert len(book.asks) == (400 if venue == "okx" else 25)
         assert min(book.asks) == Decimal("100")
         assert max(book.bids) == Decimal("99")
-        for index in range(count, fixture.ask_shift_end + 1):
+        if venue == "bitfinex":
+            assert book.orders["26"].price == Decimal("100")
+            assert all(
+                order.price >= Decimal("104")
+                for order in book.orders.values()
+                if order.side == "sell" and order.order_id != "26"
+            )
+        for index in range(count, fixture.frame_count):
             fixture.index = index + 1
-            book.apply(fixture._native_frame(1_700_000_000_000))
-        assert min(book.asks) == Decimal("104")
-        assert len(book.asks) == (400 if venue == "okx" else 25)
-        for index in range(fixture.ask_shift_end + 1, fixture.frame_count):
-            fixture.index = index + 1
-            book.apply(fixture._native_frame(1_700_000_000_000))
+            outcome = book.apply(fixture._native_frame(1_700_000_000_000))
+            if index == count:
+                assert outcome == "update"
+            if venue == "bitfinex":
+                assert min(book.asks) == Decimal(
+                    "104" if index + 1 >= fixture.bitfinex_reprice_slot else "100"
+                )
+            elif index + 1 >= fixture.okx_ask_shift_slot:
+                assert min(book.asks) == Decimal("104")
         assert book.ready and min(book.asks) == Decimal("104")
+        assert len(book.asks) == (400 if venue == "okx" else 25)
+        if venue == "bitfinex":
+            assert book.orders["26"].price == Decimal("104")
+            assert len(book.orders) == 50
         recovered = CapacityNativeFixture(source, start_high=True)
         recovered_book = BookAdapters.create(source.capture)
         for index in range(count):
@@ -141,6 +154,53 @@ class TestCapacityInputs:
             recovered_book.apply(recovered._native_frame(1_700_000_000_000))
         assert min(recovered_book.asks) == Decimal("104")
         assert recovered.identity != CapacityNativeFixture(source).identity
+
+    def test_bitfinex_selected_books_preserve_first_touch_oracle(self) -> None:
+        """Select at three seconds across an atomic R0 reprice and price the one fill."""
+        workload = CapacityWorkload(
+            opening_at=datetime(2026, 9, 27, 12, tzinfo=UTC),
+            socket_root=Path("/private/tmp/capacity-bitfinex-economics"),
+        )
+        source = next(
+            item
+            for item in workload.service_configuration().sources
+            if item.capture.venue == "bitfinex"
+        )
+        fixture = CapacityNativeFixture(source)
+        book = BookAdapters.create(source.capture)
+        selected: list[tuple[Decimal, Decimal]] = []
+        last_selected_us: int | None = None
+        for slot in range(200):
+            fixture.index = slot + 1
+            outcome = book.apply(fixture._native_frame(1_700_000_000_000))
+            if outcome not in ("snapshot", "update"):
+                continue
+            elapsed_us = round(fixture.elapsed_seconds(slot) * 1_000_000)
+            if last_selected_us is None or elapsed_us - last_selected_us >= 3_000_000:
+                ask = min(book.asks)
+                selected.append((ask, book.asks[ask].size))
+                last_selected_us = elapsed_us
+
+        assert selected[:3] == [
+            (Decimal("100"), Decimal("4")),
+            (Decimal("100"), Decimal("4")),
+            (Decimal("104"), Decimal("4")),
+        ]
+        assert all(ask >= Decimal("104") for ask, _ in selected[2:])
+        assert source.market_interval_us == 3_000_000
+        assert source.scenario.take_fraction == Decimal("0.5")
+        first_fill = selected[1][1] * source.scenario.take_fraction
+        assert first_fill == Decimal("2")
+        opening_limit = selected[0][0] + Decimal("2")
+        assert all(ask > opening_limit for ask, _ in selected[2:])
+        effective = selected[1][0] + source.scenario.adverse.value
+        fee = (first_fill * effective * source.scenario.fee_rate).quantize(Decimal("0.01"))
+        expected_cash = Decimal("100000") - first_fill * effective - fee
+        for account_id in ("bitfinex-shared", "bitfinex-isolated"):
+            cash, fees, positions = workload.first_touch_oracle()[account_id]
+            assert cash.value == expected_cash == Decimal("99798.80")
+            assert fees.value == fee == Decimal("0.20")
+            assert positions[0].value == first_fill
 
     def test_fault_variants_are_bounded_and_identified(self) -> None:
         """Keep adverse frames and reconnect input distinct from the base corpus."""
