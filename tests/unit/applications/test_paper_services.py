@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 # standard library imports
+import concurrent.futures
 import multiprocessing
 import os
 import socket
+import threading
 import time
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from multiprocessing.connection import Connection
+from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
 from multiprocessing.synchronize import Event
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 from uuid import uuid4
 
 # third party library imports
@@ -35,6 +39,7 @@ from applications.execute.services import (
     PaperServiceControl,
     PaperServiceOwners,
     PaperServices,
+    _AccountHealth,
     _SourceChild,
 )
 from applications.execute.source_service import SourceDelivery, _ReceivedSourceDelivery
@@ -61,7 +66,8 @@ from execution import (
     SocketPaperAccount,
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level
+from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level, Order
+from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
     InstalledIdentity,
@@ -79,6 +85,47 @@ class _AliveSource(multiprocessing.Process):
     def is_alive(self) -> bool:
         """Keep source loss separate from observer uncertainty."""
         return True
+
+
+class _SourceReadinessProbe:
+    """Record the bounded wait set without introducing wall-clock assertions."""
+
+    def __init__(self) -> None:
+        """Start with no observed receiver wait."""
+        self.receivers: list[Connection[bytes, bytes] | socket.socket] = []
+        self.timeout: float | None = None
+
+    def __call__(
+        self, receivers: list[Connection[bytes, bytes] | socket.socket], timeout: float
+    ) -> list[Connection[bytes, bytes] | socket.socket]:
+        """Expose ready pipes while retaining the actual wait deadline."""
+        self.receivers, self.timeout = receivers, timeout
+        return [
+            receiver
+            for receiver in receivers
+            if not isinstance(receiver, socket.socket) and receiver.poll()
+        ]
+
+
+class _CompletionReadinessProbe(_SourceReadinessProbe):
+    """Observe a real completion wake while unrelated source pipes remain idle."""
+
+    def __init__(self) -> None:
+        """Retain selector entry and its actual ready descriptors."""
+        super().__init__()
+        self.entered = threading.Event()
+        self.ready: list[Connection[bytes, bytes] | socket.socket] = []
+
+    def __call__(
+        self, receivers: list[Connection[bytes, bytes] | socket.socket], timeout: float
+    ) -> list[Connection[bytes, bytes] | socket.socket]:
+        """Use a finite test gate while preserving the production wait-set/deadline evidence."""
+        self.receivers, self.timeout = receivers, timeout
+        self.entered.set()
+        self.ready = cast(
+            "list[Connection[bytes, bytes] | socket.socket]", wait(receivers, timeout=2)
+        )
+        return self.ready
 
 
 class _ClosingSource(multiprocessing.Process):
@@ -187,13 +234,14 @@ class _ClosingWorker(ProcessDecisionPolicy):
 class _ClosingAccount(SocketPaperAccount):
     """Record owner-service shutdown after all source and worker fences."""
 
-    def __init__(self, events: list[str]) -> None:
+    def __init__(self, events: list[str], account_id: str = "shared") -> None:
         """Avoid a socket while preserving the installed shutdown signature."""
         self.events = events
+        self.account_id = account_id
 
     def shutdown(self, control: AccountControl) -> AccountExecutionResult:
         """Require the owned stop and retain its cleanup order."""
-        assert control.kind == "stop" and control.account_id == "shared"
+        assert control.kind == "stop" and control.account_id == self.account_id
         self.events.append("account")
         return AccountExecutionResult(accounts=(), orders=())
 
@@ -301,6 +349,133 @@ class _SupervisorHarness(PaperServices):
     def _refresh_observers(self, source_name: str) -> None:
         """Record cohort refresh after process selection."""
         self.events.append(f"refresh:{source_name}")
+
+
+class _ObservationGate(SharedPaperCaptureObserver):
+    """Expose independent account progress and the exact per-source delivery order."""
+
+    def __init__(
+        self,
+        name: str,
+        events: list[str],
+        release: threading.Event,
+        *,
+        barrier: threading.Barrier | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        """Bind a bounded callback gate without account transport or public I/O."""
+        self.name, self.events, self.release = name, events, release
+        self.barrier, self.error = barrier, error
+        self.entered, self.finished = threading.Event(), threading.Event()
+        self.positions: list[int] = []
+        self.callback_threads: list[int] = []
+        self.inputs = ServiceBookInputs((), 30_000_000)
+        self.last_market = None
+        self.measurements = None
+
+    def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
+        """Require concurrent arrival where declared, then retain the completed native position."""
+        self.events.append(f"observe:{self.name}:{row.position}")
+        self.callback_threads.append(threading.get_ident())
+        self.entered.set()
+        try:
+            if self.barrier is not None:
+                self.barrier.wait(timeout=2)
+            if not self.release.wait(2):
+                raise TimeoutError("observation gate was not released")
+            self.positions.append(row.position)
+            if self.error is not None:
+                raise self.error
+        finally:
+            self.events.append(f"finished:{self.name}:{row.position}")
+            self.finished.set()
+
+
+class _SupervisorPass:
+    """Retain one supervisor call while callbacks wait at explicit test gates."""
+
+    def __init__(self, services: PaperServices) -> None:
+        """Own the completion and failure of one finite pass."""
+        self.services = services
+        self.entered = threading.Event()
+        self.finished = threading.Event()
+        self.error: BaseException | None = None
+        self.thread_id: int | None = None
+
+    def __call__(self) -> None:
+        """Expose completion only after the production supervisor returned or failed."""
+        self.thread_id = threading.get_ident()
+        self.entered.set()
+        try:
+            self.services._supervise()
+        except BaseException as error:
+            self.error = error
+        finally:
+            self.finished.set()
+
+
+class _SchedulingHarness(_SupervisorHarness):
+    """Retain lifecycle ordering and the thread that fences an uncertain account."""
+
+    def __init__(
+        self,
+        config: PaperServiceConfiguration,
+        owners: tuple[PaperOwner, ...],
+        root: Path,
+        control_socket: Path,
+    ) -> None:
+        """Bind the normal harness and record only lifecycle thread identities."""
+        super().__init__(config, owners, root, control_socket)
+        self.lifecycle_threads: list[int] = []
+
+    def _fault_account(self, account_id: str, reason: str, detail: str) -> None:
+        """Observe the protective account action before returning its normal harness outcome."""
+        self.events.append(f"fault:{account_id}")
+        self.lifecycle_threads.append(threading.get_ident())
+        super()._fault_account(account_id, reason, detail)
+
+    def _stop_instance(self, name: str, reason: str) -> None:
+        """Observe selective fencing on the supervisor rather than a callback thread."""
+        self.events.append(f"stop:{name}")
+        self.lifecycle_threads.append(threading.get_ident())
+        super()._stop_instance(name, reason)
+
+
+class _LifecycleCall:
+    """Retain one real lifecycle request while native observations remain gated."""
+
+    def __init__(
+        self,
+        services: PaperServices,
+        operation: Literal["control", "source_fault", "shutdown"],
+        listener: socket.socket,
+        events: list[str],
+    ) -> None:
+        """Bind one concrete request and own its completion or unexpected failure."""
+        self.services, self.operation, self.listener, self.events = (
+            services,
+            operation,
+            listener,
+            events,
+        )
+        self.entered, self.finished = threading.Event(), threading.Event()
+        self.error: BaseException | None = None
+
+    def __call__(self) -> None:
+        """Complete the request only after the production lifecycle boundary returns."""
+        self.entered.set()
+        try:
+            if self.operation == "control":
+                self.services.apply(PaperServiceControl(action="shutdown", identity="stop"))
+            elif self.operation == "source_fault":
+                self.services._fault_source("book", "operator_source_stop")
+            else:
+                self.services._shutdown(self.listener)
+            self.events.append(f"lifecycle:{self.operation}")
+        except BaseException as error:
+            self.error = error
+        finally:
+            self.finished.set()
 
 
 class _DiagnosticAccount(SocketPaperAccount):
@@ -562,6 +737,111 @@ class TestPaperServices:
             revision=original.revision,
         )
 
+    @classmethod
+    def _two_source_config(cls, *, shared: bool = False) -> PaperServiceConfiguration:
+        """Bind distinct native instruments to either separate or one serialized owner."""
+        config = cls._two_account_config()
+        source = config.sources[0]
+        capture = replace(
+            source.capture,
+            symbol="ETH-USDT",
+            base_currency="ETH",
+            instrument_id=InstrumentId(uuid4()),
+        )
+        dimension = Dimension(instrument_id=capture.instrument_id, kind=QuantityKind.BASE_UNIT)
+        quantity = Quantity(value=config.instances[0].quantity.value, dimension=dimension)
+        adverse = Price(
+            value=source.scenario.adverse.value,
+            currency=source.scenario.adverse.currency,
+            per=dimension,
+        )
+        other_source = replace(
+            source,
+            name="other-book",
+            capture=capture,
+            scenario=replace(source.scenario, instrument_id=capture.instrument_id, adverse=adverse),
+        )
+        other_instance = replace(
+            config.instances[1], source=other_source.name, quantity=quantity, lot=quantity
+        )
+        account = config.accounts[1].configuration
+        limits = replace(account.instruments[0], maximum=quantity, lot=quantity, tick=adverse)
+        instance_limit = replace(account.budgets.instances[0], instruments=(capture.instrument_id,))
+        accounts: tuple[PaperServiceAccount, ...]
+        if shared:
+            account = config.accounts[0].configuration
+            other_instance = replace(other_instance, account_id="shared")
+            instance_limit = replace(instance_limit, account_id="shared")
+            combined_instruments: tuple[SpotLimits, ...] = (*account.instruments, limits)
+            combined_instances: tuple[InstanceLimit, ...] = (
+                *account.budgets.instances,
+                instance_limit,
+            )
+            account = replace(
+                account,
+                instruments=combined_instruments,
+                budgets=replace(account.budgets, instances=combined_instances),
+            )
+            accounts = (replace(config.accounts[0], configuration=account),)
+        else:
+            account = replace(
+                account,
+                instruments=(limits,),
+                budgets=replace(account.budgets, instances=(instance_limit,)),
+            )
+            accounts = (config.accounts[0], replace(config.accounts[1], configuration=account))
+        return replace(
+            config,
+            accounts=accounts,
+            sources=(source, other_source),
+            instances=(config.instances[0], other_instance),
+        )
+
+    @classmethod
+    @contextmanager
+    def _scheduling_harness(
+        cls, config: PaperServiceConfiguration, root: Path, observers: dict[str, _ObservationGate]
+    ) -> Iterator[_SchedulingHarness]:
+        """Own real typed pipes and fresh owner health without starting signed services."""
+        owners = tuple(cls._owner(account.account_id) for account in config.accounts)
+        services = _SchedulingHarness(config, owners, root, cls._socket_path())
+        services.events = next(iter(observers.values())).events
+        services.workers = {name: _StableWorker() for name in config.active}
+        with ExitStack() as resources:
+            for account_definition, owner in zip(config.accounts, owners, strict=True):
+                health_path = Path(account_definition.socket_path).with_suffix(".health.json")
+                resources.callback(health_path.unlink, missing_ok=True)
+                health_path.write_bytes(
+                    services.codec.encode_json(cls._owner_health(owner, time.monotonic_ns()))
+                )
+            for source_definition in config.sources:
+                receiver, sender = cast(
+                    "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
+                    multiprocessing.get_context("spawn").Pipe(duplex=False),
+                )
+                resources.callback(receiver.close)
+                resources.callback(sender.close)
+                for position in range(2):
+                    sender.send_bytes(services.codec.encode_json(cls._delivery(position)))
+                account_id = next(
+                    instance.account_id
+                    for instance in config.instances
+                    if instance.source == source_definition.name
+                )
+                services.sources[source_definition.name] = _SourceChild(
+                    definition=source_definition,
+                    request=CaptureRequest(
+                        config=source_definition.capture,
+                        recording_id=str(uuid4()),
+                        implementation_identity="b" * 64,
+                    ),
+                    process=cast(BaseProcess, _AliveSource()),
+                    receiver=receiver,
+                    health=HealthMetrics(),
+                    observers={account_id: observers[source_definition.name]},
+                )
+            yield services
+
     @staticmethod
     def _owner(account_id: str = "shared") -> PaperOwner:
         """Name the current owner expected by the account heartbeat."""
@@ -572,6 +852,20 @@ class TestPaperServices:
             release_identity="b" * 64,
             owner_id="worker",
             generation=1,
+        )
+
+    @staticmethod
+    def _owner_health(owner: PaperOwner, at_ns: int) -> _AccountHealth:
+        """Create a fresh complete heartbeat for identity and process-liveness fencing."""
+        return _AccountHealth(
+            pid=os.getpid(),
+            owner_id=owner.owner_id,
+            generation=owner.generation,
+            release_identity=owner.release_identity,
+            heartbeat_at="2026-09-27T00:00:00Z",
+            heartbeat_ns=at_ns,
+            request_progress_ns=at_ns,
+            status="ready",
         )
 
     @staticmethod
@@ -668,6 +962,329 @@ class TestPaperServices:
             for connection in connections:
                 connection.close()
 
+    def test_disjoint_sources_progress_across_passes_with_one_ordered_frame_in_flight(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An independent source advances twice while a blocked source retains its first frame."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._two_source_config()
+        events: list[str] = []
+        barrier = threading.Barrier(2)
+        first_release, other_release = threading.Event(), threading.Event()
+        other_release.set()
+        first = _ObservationGate("shared", events, first_release, barrier=barrier)
+        other = _ObservationGate("isolated", events, other_release, barrier=barrier)
+        with self._scheduling_harness(
+            config, tmp_path, {"book": first, "other-book": other}
+        ) as services:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                services._observation_executor = executor
+                try:
+                    assert services._supervise() is True
+                    assert first.entered.wait(2)
+                    assert other.finished.wait(2)
+                    assert services._pending_observations["other-book"].result(timeout=2) == ()
+                    first_future = services._pending_observations["book"]
+                    assert other.positions == [0] and first.positions == []
+                    assert not first.finished.is_set()
+                    assert [child.received_count for child in services.sources.values()] == [1, 1]
+                    assert services.fault_calls == services.stop_calls == []
+                    first.barrier = other.barrier = None
+                    assert services._supervise() is True
+                    assert services._pending_observations["other-book"].result(timeout=2) == ()
+                    assert other.positions == [0, 1] and first.positions == []
+                    assert [child.received_count for child in services.sources.values()] == [1, 2]
+                    assert services._supervise() is False
+                    readiness = _SourceReadinessProbe()
+                    monkeypatch.setattr("applications.execute.services.wait", readiness)
+                    services._wait_for_source()
+                    assert readiness.receivers == [services.sources["other-book"].receiver]
+                    assert readiness.timeout is not None and 0 <= readiness.timeout <= 0.02
+                    first_release.set()
+                    assert first_future.result(timeout=2) == ()
+                    assert services._supervise() is True
+                    services._join_observations()
+                    assert first.positions == other.positions == [0, 1]
+                    assert [child.received_count for child in services.sources.values()] == [2, 2]
+                    assert services._supervise() is False
+                    assert all(
+                        worker != threading.get_ident()
+                        for worker in (*first.callback_threads, *other.callback_threads)
+                    )
+                finally:
+                    first_release.set()
+                    other_release.set()
+                    services._join_observations()
+                    services._observation_executor = None
+
+    @pytest.mark.parametrize("all_pending", (False, True))
+    def test_completion_wakes_idle_source_wait_and_closes_run_owned_handles(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, all_pending: bool
+    ) -> None:
+        """A completed source wakes both mixed and all-pending waits without a new pipe frame."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._two_source_config()
+        events: list[str] = []
+        first_release, other_release = threading.Event(), threading.Event()
+        first = _ObservationGate("shared", events, first_release)
+        other = _ObservationGate("isolated", events, other_release)
+        with self._scheduling_harness(
+            config, tmp_path, {"book": first, "other-book": other}
+        ) as services:
+            if not all_pending:
+                idle = services.sources["other-book"].receiver
+                idle.recv_bytes()
+                idle.recv_bytes()
+            readiness = _CompletionReadinessProbe()
+            monkeypatch.setattr("applications.execute.services.wait", readiness)
+            thread = threading.Thread(target=services._wait_for_source)
+            with ExitStack() as stack:
+                services._start_observation_executor(stack)
+                receiver, sender = (
+                    services._observation_wake_receiver,
+                    services._observation_wake_sender,
+                )
+                assert receiver is not None and sender is not None
+                try:
+                    assert services._supervise() is True
+                    assert first.entered.wait(2)
+                    if all_pending:
+                        assert other.entered.wait(2)
+                    first_future = services._pending_observations["book"]
+                    assert not first_future.done()
+                    thread.start()
+                    assert readiness.entered.wait(2)
+                    first_release.set()
+                    thread.join(3)
+                    assert not thread.is_alive()
+                    assert first_future.result(timeout=2) == ()
+                    assert readiness.ready == [receiver]
+                    assert readiness.timeout is not None and 0 <= readiness.timeout <= 0.02
+                    assert readiness.receivers == (
+                        [receiver]
+                        if all_pending
+                        else [services.sources["other-book"].receiver, receiver]
+                    )
+                    if all_pending:
+                        assert not services._pending_observations["other-book"].done()
+                finally:
+                    first_release.set()
+                    other_release.set()
+                    if thread.ident is not None:
+                        thread.join(3)
+                    services._join_observations()
+            assert receiver.fileno() == sender.fileno() == -1
+            assert services._observation_executor is None
+            assert services._observation_wake_receiver is services._observation_wake_sender is None
+            assert services._pending_observations == {}
+
+    def test_shared_account_sources_keep_name_order_on_supervisor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shared owner advances each source once per turn in serialized name order."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._two_source_config(shared=True)
+        events: list[str] = []
+        released = threading.Event()
+        released.set()
+        first = _ObservationGate("first-source", events, released)
+        other = _ObservationGate("second-source", events, released)
+        with self._scheduling_harness(
+            config, tmp_path, {"book": first, "other-book": other}
+        ) as services:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                services._observation_executor = executor
+                readiness = _SourceReadinessProbe()
+                monkeypatch.setattr("applications.execute.services.wait", readiness)
+                services._wait_for_source()
+                assert readiness.receivers == [
+                    child.receiver for child in services.sources.values()
+                ]
+                assert readiness.timeout == 0.02
+                assert services._supervise() is True
+                assert [child.received_count for child in services.sources.values()] == [1, 1]
+                assert services._supervise() is True
+                assert [child.received_count for child in services.sources.values()] == [2, 2]
+                assert services._supervise() is False
+                assert events == [
+                    "observe:first-source:0",
+                    "finished:first-source:0",
+                    "observe:second-source:0",
+                    "finished:second-source:0",
+                    "observe:first-source:1",
+                    "finished:first-source:1",
+                    "observe:second-source:1",
+                    "finished:second-source:1",
+                ]
+                assert first.positions == other.positions == [0, 1]
+                assert (
+                    first.callback_threads == other.callback_threads == [threading.get_ident()] * 2
+                )
+                assert services.fault_calls == services.stop_calls == []
+                assert services.failures == []
+                services._observation_executor = None
+
+    @pytest.mark.parametrize("policy_failure", (False, True))
+    def test_parallel_observer_failure_waits_for_all_jobs_before_fencing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy_failure: bool
+    ) -> None:
+        """No failure closes workers or faults an owner until the unrelated callback has joined."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._two_source_config()
+        events: list[str] = []
+        barrier = threading.Barrier(2)
+        released, blocked = threading.Event(), threading.Event()
+        released.set()
+        error = (
+            PolicyProcessFailure(123, "decision policy unavailable")
+            if policy_failure
+            else TimeoutError("account response uncertain")
+        )
+        first = _ObservationGate("shared", events, released, barrier=barrier, error=error)
+        other = _ObservationGate("isolated", events, blocked, barrier=barrier)
+        with self._scheduling_harness(
+            config, tmp_path, {"book": first, "other-book": other}
+        ) as services:
+            services.workers["first"] = _ChangingWorker()
+            runner = _SupervisorPass(services)
+            thread = threading.Thread(target=runner)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                services._observation_executor = executor
+                try:
+                    assert services._supervise() is True
+                    assert first.finished.wait(2)
+                    assert other.entered.wait(2)
+                    assert services._pending_observations["book"].result(timeout=2)
+                    assert not other.finished.is_set()
+                    assert services.fault_calls == services.stop_calls == []
+                    assert services.active == {"first", "other"}
+                    # Isolate the completed failure from a later queued delivery.
+                    for child in services.sources.values():
+                        child.receiver.recv_bytes()
+                    thread.start()
+                    assert runner.entered.wait(2)
+                    assert not runner.finished.wait(0.05)
+                    blocked.set()
+                    thread.join(3)
+                    assert not thread.is_alive()
+                    assert runner.error is None
+                    assert first.positions == other.positions == [0]
+                    assert services.stop_calls == [("first", "worker_lost_during_decision")]
+                    assert services.fault_calls == (
+                        [] if policy_failure else [("shared", "account_or_delivery_failure")]
+                    )
+                    assert services.active == {"other"}
+                    assert services.lifecycle_threads == [runner.thread_id] * len(
+                        services.lifecycle_threads
+                    )
+                    assert events.index("finished:isolated:0") < events.index("stop:first")
+                finally:
+                    blocked.set()
+                    if thread.ident is not None:
+                        thread.join(3)
+                    services._join_observations()
+                    services._observation_executor = None
+
+    def test_parallel_observation_starts_after_later_source_fault_is_fenced(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A later source's invalid position is fenced before an earlier ready job begins."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._two_source_config()
+        events: list[str] = []
+        released = threading.Event()
+        released.set()
+        first = _ObservationGate("shared", events, released)
+        other = _ObservationGate("isolated", events, released)
+        with self._scheduling_harness(
+            config, tmp_path, {"book": first, "other-book": other}
+        ) as services:
+            services.sources["other-book"].receiver.recv_bytes()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                services._observation_executor = executor
+                assert services._supervise() is True
+                services._join_observations()
+                assert services.fault_calls == [("isolated", "source_failure:ValueError")]
+                assert events == ["fault:isolated", "observe:shared:0", "finished:shared:0"]
+                assert first.positions == [0] and other.positions == []
+                assert services.lifecycle_threads == [threading.get_ident()]
+                services._observation_executor = None
+
+    @pytest.mark.parametrize("operation", ("control", "source_fault", "shutdown"))
+    def test_inflight_observations_join_before_lifecycle_mutations(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        operation: Literal["control", "source_fault", "shutdown"],
+    ) -> None:
+        """Operator stop, source protection and shutdown complete after both native callbacks."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._two_source_config()
+        events: list[str] = []
+        blocked, released = threading.Event(), threading.Event()
+        released.set()
+        first = _ObservationGate("shared", events, blocked)
+        other = _ObservationGate("isolated", events, released)
+        with (
+            self._scheduling_harness(
+                config, tmp_path, {"book": first, "other-book": other}
+            ) as services,
+            socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener,
+        ):
+            runner = _LifecycleCall(services, operation, listener, events)
+            thread = threading.Thread(target=runner)
+            with ExitStack() as stack:
+                services._start_observation_executor(stack)
+                try:
+                    assert services._supervise() is True
+                    assert first.entered.wait(2) and other.finished.wait(2)
+                    if operation == "shutdown":
+                        for name, child in services.sources.items():
+                            child.process = cast(BaseProcess, _ClosingSource(name, events))
+                        services.workers = {name: _ClosingWorker(events) for name in config.active}
+                        services.accounts = {
+                            account.account_id: _ClosingAccount(events, account.account_id)
+                            for account in config.accounts
+                        }
+                    thread.start()
+                    assert runner.entered.wait(2)
+                    assert not runner.finished.wait(0.05) and not services.is_stopping
+                    assert services.fault_calls == []
+                    assert not any(e.startswith("source:") for e in events)
+                    blocked.set()
+                    thread.join(3)
+                    assert not thread.is_alive() and runner.error is None
+                    assert first.positions == other.positions == [0]
+                    complete = max(
+                        events.index(f"finished:{name}:0") for name in ("shared", "isolated")
+                    )
+                    boundary = (
+                        events.index("fault:shared")
+                        if operation == "source_fault"
+                        else events.index("source:book")
+                        if operation == "shutdown"
+                        else events.index("lifecycle:control")
+                    )
+                    assert complete < boundary
+                    assert services._pending_observations == {}
+                finally:
+                    blocked.set()
+                    if thread.ident is not None:
+                        thread.join(3)
+                    services._join_observations()
+
     @pytest.mark.parametrize("target", (SourceDelivery, _ReceivedSourceDelivery))
     @pytest.mark.parametrize(
         ("before", "after", "reason"),
@@ -696,7 +1313,11 @@ class TestPaperServices:
         )
         payload = codec.encode_json(delivery)
         received = codec.decode_json(payload, target)
-        assert received.record == delivery.record and received.book == delivery.book
+        assert received.record == delivery.record
+        assert codec.encode_json(received.book) == codec.encode_json(delivery.book)
+        if target is SourceDelivery:
+            assert type(received.book) is BookObservation
+            assert received.book == delivery.book
         assert codec.encode_json(received) == payload
         corrupted = payload.replace(before, after)
         assert corrupted != payload
@@ -709,6 +1330,104 @@ class TestPaperServices:
         force_setattr(delivery.book, "state_identity", "bad")
         with pytest.raises(ValueError, match="book state or quality"):
             SourceDelivery(record=delivery.record, book=delivery.book)
+
+    def test_received_native_depth_is_retained_exactly(self) -> None:
+        """The private decoder preserves all L2 levels and L3 identities on the public wire."""
+        codec = DomainCodec()
+        original = self._delivery()
+        l2 = replace(
+            original,
+            book=replace(
+                original.book,
+                bids=((Decimal("99"), Level(Decimal("4"), 2)),),
+                asks=((Decimal("101"), Level(Decimal("5"), 3)),),
+            ),
+        )
+        l3 = replace(
+            original,
+            book=replace(
+                original.book,
+                orders=(
+                    Order("bid-native", "buy", Decimal("99"), Decimal("4")),
+                    Order("ask-native", "sell", Decimal("101"), Decimal("5")),
+                ),
+            ),
+        )
+        payloads = tuple(codec.encode_json(delivery) for delivery in (l2, l3))
+        for payload in payloads:
+            received = codec.decode_json(payload, _ReceivedSourceDelivery)
+            assert codec.encode_json(received) == payload
+            public = codec.decode_json(codec.encode_json(received), SourceDelivery)
+            assert type(public.book) is BookObservation
+            assert codec.encode_json(public) == payload
+
+    @pytest.mark.parametrize(
+        ("kind", "before", "after", "reason"),
+        (
+            ("l2", b'[["98",', b'[["0",', "positive exact prices"),
+            ("l2", b'[["98",', b'[["NaN",', "positive exact prices"),
+            ("l2", b'[["98",', b'[["99",', "duplicate native order or aggregate price"),
+            ("l2", b'"order_count":2', b'"order_count":0', "aggregate levels"),
+            ("l3", b'"order_id":"ask-native"', b'"order_id":"bid-native"', "duplicate native"),
+            ("l3", b'"side":"buy"', b'"side":"invalid"', "order identity or side"),
+            ("l3", b'"size":"4"', b'"size":"0"', "orders require positive"),
+        ),
+    )
+    def test_received_book_rejects_invalid_prices_uniqueness_and_native_values(
+        self, kind: str, before: bytes, after: bytes, reason: str
+    ) -> None:
+        """The private schema retains all semantic book and typed nested value checks."""
+        codec = DomainCodec()
+        original = self._delivery()
+        l2 = replace(
+            original,
+            book=replace(
+                original.book,
+                bids=(
+                    (Decimal("98"), Level(Decimal("3"), 1)),
+                    (Decimal("99"), Level(Decimal("4"), 2)),
+                ),
+            ),
+        )
+        l3 = replace(
+            original,
+            book=replace(
+                original.book,
+                orders=(
+                    Order("bid-native", "buy", Decimal("99"), Decimal("4")),
+                    Order("ask-native", "sell", Decimal("101"), Decimal("5")),
+                ),
+            ),
+        )
+        payload = codec.encode_json(l3 if kind == "l3" else l2)
+        corrupted = payload.replace(before, after)
+        assert corrupted != payload
+        with pytest.raises(ValueError, match=reason):
+            codec.decode_json(corrupted, _ReceivedSourceDelivery)
+
+    @pytest.mark.parametrize("kind", ("level", "order"))
+    def test_public_delivery_revalidates_received_nested_native_values(self, kind: str) -> None:
+        """A private decoded row cannot bypass public recursive checks after unsafe mutation."""
+        codec = DomainCodec()
+        original = self._delivery()
+        book = (
+            replace(original.book, bids=((Decimal("99"), Level(Decimal("4"), 2)),))
+            if kind == "level"
+            else replace(
+                original.book,
+                orders=(Order("bid-native", "buy", Decimal("99"), Decimal("4")),),
+            )
+        )
+        received = codec.decode_json(
+            codec.encode_json(SourceDelivery(record=original.record, book=book)),
+            _ReceivedSourceDelivery,
+        )
+        if kind == "level":
+            force_setattr(received.book.bids[0][1], "size", Decimal("0"))
+        else:
+            force_setattr(received.book.orders[0], "size", Decimal("0"))
+        with pytest.raises(ValueError, match=r"aggregate levels|orders require positive"):
+            SourceDelivery(record=received.record, book=received.book)
 
     def test_diagnostic_failure_does_not_retry_account_work(self, tmp_path: Path) -> None:
         """A failed monitor inspection records one error and no economic request."""

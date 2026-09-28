@@ -178,11 +178,14 @@ class BookState(WireRecord, frozen=True):
         self.known_holding.model_copy()
         for row in (self.exchange, self.local):
             if row is not None:
-                row.__post_init__()
+                BookObservation.__post_init__(row)
                 if row.position >= self.input_count:
                     raise ValueError("checkpoint book beyond source cursor")
+        if type(self.deliveries) is not tuple:
+            raise TypeError("book state requires immutable collections")
+        for delivery in self.deliveries:
+            BookObservation.__post_init__(delivery)
         for values in (
-            self.deliveries,
             self.consumed,
             self.orders,
             self.decisions,

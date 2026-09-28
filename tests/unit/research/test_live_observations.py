@@ -19,6 +19,7 @@ from market_data.adapters.sources import BookAdapters
 from market_data.books import BookProjection, CaptureReplay
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
 from research.observations import InputRequirement, LiveBookDecisionSource, NumericField
+from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -92,6 +93,72 @@ class _LiveScenario:
 
 class TestLiveBookDecisionSource:
     """Exercise exact numeric values, healthy controls, failures and replay recovery."""
+
+    @pytest.mark.parametrize("venue", ("okx", "bitfinex"))
+    def test_historical_native_books_survive_later_updates_and_invalidation(
+        self,
+        venue: Literal["okx", "bitfinex"],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Historical reads restore every native value once and carry its original clocks."""
+        scenario = _LiveScenario(venue, "receipt")
+        scenario.push("session", 999_000_000)
+        if venue == "okx":
+            scenario.push("frame", 999_500_000, raw=_OKX_ACK)
+            snapshot = _OKX_SNAPSHOT.replace(
+                b'[["100","2","0","2"]]',
+                b'[["100","2","0","2"],["99","3","0","4"]]',
+            )
+            update = _OKX_UPDATE
+            control = b"pong"
+        else:
+            scenario.push("frame", 999_250_000, raw=b'{"event":"conf","status":"OK","flags":65536}')
+            scenario.push("frame", 999_500_000, raw=_BITFINEX_ACK)
+            snapshot = b"[7,[[1,100,2],[2,101,-1],[3,99,3]],1]"
+            update = b"[7,[1,100,1],2]"
+            control = b'[7,"hb",3]'
+        first = scenario.push("frame", 1_000_000_001, raw=snapshot)
+        second = scenario.push("frame", 1_001_000_001, raw=update)
+        scenario.push("frame", 1_002_000_001, raw=control)
+        scenario.push("gap", 1_003_000_001, reason="disconnect_unknown_loss")
+        assert scenario.source.latest_book is None
+        entity = str(scenario.request.config.instrument_id)
+        assert (
+            scenario.source.current_book(entity, _EPOCH + timedelta(microseconds=1_003_001)) is None
+        )
+        original = DomainCodec.decode_json
+        decodes = 0
+
+        def counted[T](codec: DomainCodec, data: bytes | str, target: type[T]) -> T:
+            """Count selected history restoration without replacing strict native decoding."""
+            nonlocal decodes
+            if codec is scenario.source._codec and target is BookObservation:
+                decodes += 1
+            return original(codec, data, target)
+
+        monkeypatch.setattr(DomainCodec, "decode_json", counted)
+        codec = DomainCodec()
+        first_at = _EPOCH + timedelta(microseconds=1_000_001)
+        first_decision = scenario.source.read(entity, first_at)
+        restored_first = scenario.source.book_at(entity, first_at)
+        assert restored_first is not None and restored_first == first
+        assert codec.encode_json(restored_first) == codec.encode_json(first)
+        assert scenario.source.read(entity, first_at) is first_decision
+        assert decodes == 1
+        second_at = _EPOCH + timedelta(microseconds=1_001_001)
+        scenario.source.read(entity, second_at)
+        restored_second = scenario.source.book_at(entity, second_at)
+        assert restored_second is not None and restored_second == second
+        assert codec.encode_json(restored_second) == codec.encode_json(second)
+        assert decodes == 2
+        carried_at = _EPOCH + timedelta(microseconds=1_002_001)
+        carried = scenario.source.read(entity, carried_at).observations[0]
+        assert scenario.source.book_at(entity, carried_at) is restored_second
+        assert carried.event_at == second_at and carried.available_at == second_at
+        assert decodes == 2
+        missing_at = _EPOCH + timedelta(microseconds=1_003_001)
+        assert scenario.source.read(entity, missing_at).observations[0].value is None
+        assert scenario.source.book_at(entity, missing_at) is None
 
     def test_exact_imbalance_is_projected_only_for_selected_cutoff(
         self, monkeypatch: pytest.MonkeyPatch

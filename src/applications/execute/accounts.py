@@ -42,6 +42,10 @@ from telemetry import OperationalAlerts, TelemetryStore
 class AccountExecutionApplication:
     """Bind bounded installed request files to the authoritative account journal."""
 
+    def __init__(self) -> None:
+        """Bind telemetry identity lazily for this installed application lifetime."""
+        self._monitoring: ExecutionMonitoring | None = None
+
     def run(
         self,
         *,
@@ -310,7 +314,9 @@ class AccountExecutionApplication:
                 account_id = request.control.account_id
                 alert_failures[account_id] = alert_failures.get(account_id, 0) + 1
             try:
-                events = ExecutionMonitoring(InstalledIdentity.sha256()).account(
+                if self._monitoring is None:
+                    self._monitoring = ExecutionMonitoring(InstalledIdentity.sha256())
+                events = self._monitoring.account(
                     journal,
                     observed_at=datetime.now(UTC),
                     sample=uuid4().hex,

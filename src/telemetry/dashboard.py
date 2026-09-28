@@ -7,6 +7,7 @@ import hashlib
 import html
 import os
 import sqlite3
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from fractions import Fraction
 from pathlib import Path
@@ -334,7 +335,6 @@ class DashboardSnapshot(WireRecord, frozen=True):
     def __post_init__(self) -> None:
         """Bind alert states and delivery attempts to the same selected evidence."""
         evidence = self._evidence()
-        evidence.__post_init__()
         if type(self.alert_results) is not tuple or len(self.alert_results) != len(
             self.config.alerts
         ):
@@ -369,7 +369,11 @@ class DashboardSnapshot(WireRecord, frozen=True):
     @property
     def identity(self) -> str:
         """Hash all retained bytes, including the final delivery outcomes."""
-        self.__post_init__()
+        DashboardSnapshot.__post_init__(self)
+        return self._identity()
+
+    def _identity(self) -> str:
+        """Hash a snapshot after this invocation has validated all selected evidence."""
         return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()
 
     @classmethod
@@ -393,7 +397,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
 
     def write(self, directory: Path) -> Path:
         """Retain one complete JSON/HTML view; identical retries leave bytes untouched."""
-        self.__post_init__()
+        DashboardSnapshot.__post_init__(self)
         codec = DomainCodec()
         json_bytes = codec.encode_json(self)
         html_bytes = self.render_html()
@@ -422,7 +426,15 @@ class DashboardSnapshot(WireRecord, frozen=True):
 
     def render_html(self) -> bytes:
         """Render accessible, escaped charts and exact tables without external assets."""
-        self.__post_init__()
+        DashboardSnapshot.__post_init__(self)
+        return self._render_validated_html()
+
+    def _render_validated_html(
+        self, renderer: DashboardRenderer | None = None, *, snapshot_identity: str | None = None
+    ) -> bytes:
+        """Render the complete snapshot already validated in this same owned invocation."""
+        if snapshot_identity is None:
+            snapshot_identity = self._identity()
         result_by_id = dict(zip(self.config.metric_identities, self.results, strict=True))
         escape = html.escape
         parts = [
@@ -532,7 +544,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
             '<h2 id="source-title">Input provenance</h2>'
         )
         parts.append(
-            f"<p>Snapshot SHA256 <code>{self.identity}</code>. Event values and clocks "
+            f"<p>Snapshot SHA256 <code>{snapshot_identity}</code>. Event values and clocks "
             "below are the selected revisions used for this view.</p>"
         )
         if not self.events:
@@ -545,24 +557,28 @@ class DashboardSnapshot(WireRecord, frozen=True):
             )
             for event in self.events:
                 parts.append(
-                    self._row(
-                        (
-                            f"{event.name} · {event.version}",
-                            f"{event.sample} · r{event.revision}",
-                            event.at.isoformat(),
-                            event.available_at.isoformat(),
-                            event.recorded_at.isoformat(),
-                            f"{self._exact(event.value)} {event.units}"
-                            if event.value is not None
-                            else f"gap: {event.missing_reason}",
-                            f"{self._context(event.context)} · "
-                            f"clock: {event.clock_quality} · {event.identity}",
-                        )
-                    )
+                    self._event_html(event) if renderer is None else renderer._event_html(event)
                 )
             parts.append("</tbody></table></div>")
         parts.append("</section></main></body></html>")
         return "".join(parts).encode("utf-8")
+
+    @classmethod
+    def _event_html(cls, event: MonitoringEvent) -> str:
+        """Format one event-only provenance row independently of query and dashboard selection."""
+        return cls._row(
+            (
+                f"{event.name} · {event.version}",
+                f"{event.sample} · r{event.revision}",
+                event.at.isoformat(),
+                event.available_at.isoformat(),
+                event.recorded_at.isoformat(),
+                f"{cls._exact(event.value)} {event.units}"
+                if event.value is not None
+                else f"gap: {event.missing_reason}",
+                f"{cls._context(event.context)} · clock: {event.clock_quality} · {event.identity}",
+            )
+        )
 
     @classmethod
     def _panel_html(cls, panel: DashboardPanel, result: MetricResult) -> list[str]:
@@ -737,6 +753,48 @@ class DashboardSnapshot(WireRecord, frozen=True):
         return "<tr>" + "".join(f"<td>{html.escape(value)}</td>" for value in values) + "</tr>"
 
 
+class DashboardRenderer:
+    """Build fresh validated snapshots while reusing at most 10,000 exact event-only rows.
+
+    This renderer owns the row cache for its lifetime. Every call rebuilds query
+    cutoffs, metrics, freshness, alerts, header and snapshot identity. Only complete
+    serialized event bytes can reuse provenance text; revisions and late arrivals
+    still enter through the current query. No complete dashboard is cached.
+    """
+
+    def __init__(self, config: DashboardConfig, registry: MetricRegistry) -> None:
+        """Bind explicit metric selection and a finite per-renderer provenance cache."""
+        config.__post_init__()
+        self.config, self.registry = config, registry
+        self.codec = DomainCodec()
+        self._event_rows: OrderedDict[bytes, str] = OrderedDict()
+
+    def render(
+        self, query: MonitoringQuery, events: tuple[MonitoringEvent, ...]
+    ) -> tuple[bytes, str]:
+        """Build and render one private validated snapshot before exposing any output.
+
+        Returns:
+            Complete HTML bytes and the identity of the same immutable snapshot.
+        """
+        snapshot = DashboardBuilder.build(self.config, query, events, self.registry)
+        identity = snapshot._identity()
+        return snapshot._render_validated_html(self, snapshot_identity=identity), identity
+
+    def _event_html(self, event: MonitoringEvent) -> str:
+        """Reuse event-only text after this invocation's complete snapshot validation."""
+        payload = self.codec.encode_json(event)
+        row = self._event_rows.get(payload)
+        if row is None:
+            row = DashboardSnapshot._event_html(event)
+            self._event_rows[payload] = row
+            if len(self._event_rows) > 10_000:
+                self._event_rows.popitem(last=False)
+        else:
+            self._event_rows.move_to_end(payload)
+        return row
+
+
 class DashboardBuilder:
     """Evaluate injected metric definitions and optional local delivery once."""
 
@@ -754,11 +812,12 @@ class DashboardBuilder:
         if type(events) is not tuple:
             raise TypeError("dashboard events must be an immutable tuple")
         selected = tuple(sorted(events, key=DashboardBuilder._event_order))
-        results = tuple(
-            registry.evaluate(identity, query, selected) for identity in config.metric_identities
+        results = registry.evaluate_many(config.metric_identities, query, selected)
+        evidence = (
+            _DashboardEvidence(config=config, query=query, events=selected, results=results)
+            if alerts is not None
+            else None
         )
-        evidence = _DashboardEvidence(config=config, query=query, events=selected, results=results)
-        evidence.__post_init__()
         result_by_id = dict(zip(config.metric_identities, results, strict=True))
         assessments = tuple(
             AlertEvaluation.assess(rule, result_by_id[rule.metric_identity])
@@ -768,6 +827,8 @@ class DashboardBuilder:
         for assessment in assessments:
             rule = assessment.rule
             if assessment.state == "triggered" and alerts is not None:
+                if evidence is None:
+                    raise RuntimeError("alert delivery requires validated dashboard evidence")
                 try:
                     delivery = alerts.send(
                         identity=rule.delivery_identity(evidence.identity),

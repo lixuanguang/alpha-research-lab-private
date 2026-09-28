@@ -46,6 +46,7 @@ type AccountResponseProjection = Literal[
     "paper_activations",
     "quarantine",
     "traces",
+    "market_membership",
     "facts",
     "residuals",
     "reductions",
@@ -101,6 +102,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
     owner_id: str | None = None
     query_instance: str | None = None
     query_batch: str | None = None
+    query_market: str | None = None
     instance_id: str | None = None
     at: datetime | None = None
     account_id: str | None = None
@@ -126,6 +128,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             "paper_activations",
             "quarantine",
             "traces",
+            "market_membership",
             "facts",
             "residuals",
             "reductions",
@@ -141,6 +144,18 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             raise ValueError("checkpoint projection requires an instance query")
         if self.projection == "saved_batch" and self.query_batch is None:
             raise ValueError("saved batch projection requires a batch query")
+        if self.projection == "market_membership":
+            if (
+                type(self.account_id) is not str
+                or not self.account_id
+                or type(self.query_market) is not str
+                or not self.query_market
+            ):
+                raise ValueError("market membership requires account and market identities")
+            if self.query_instance is not None or self.query_batch is not None:
+                raise ValueError("market membership requires only an account and market query")
+        elif self.query_market is not None:
+            raise ValueError("market query requires the membership projection")
         fields = {
             "admit": self.decision,
             "event": self.event,
@@ -185,6 +200,11 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             self.control.__post_init__()
         if self.paper_owner is not None:
             self.paper_owner.__post_init__()
+            if (
+                self.projection == "market_membership"
+                and self.account_id != self.paper_owner.account_id
+            ):
+                raise ValueError("market membership account differs from its owner")
             if self.action not in (
                 "inspect",
                 "admit",
@@ -344,11 +364,14 @@ class AccountExecutionResult(WireRecord, frozen=True):
     matched_market: AccountPaperTrace | None = None
     reduction_result: PaperReductionResult | None = None
     claimed_owner: PaperOwner | None = None
+    market_seen: bool | None = None
 
     def __post_init__(self) -> None:
         """Keep result authority closed and validate its retained financial records."""
         if self.submission_attempted is not False:
             raise ValueError("account application cannot submit")
+        if self.market_seen is not None and type(self.market_seen) is not bool:
+            raise ValueError("market membership result must be Boolean")
         for account in self.accounts:
             account.__post_init__()
         for order in self.orders:

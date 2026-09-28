@@ -174,7 +174,7 @@ class SharedPaperCaptureObserver:
     def observe(self, record: CaptureRecord, row: BookObservation) -> None:
         """Retain actual post-persistence availability and coordination before effects."""
         record.__post_init__()
-        row.__post_init__()
+        BookObservation.__post_init__(row)
         self._observe_validated(record, row)
 
     def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
@@ -311,8 +311,7 @@ class SharedPaperCaptureObserver:
         for item in delivery.inputs:
             if item.quote != quote or item.context.features.input_identity != causal.identity:
                 raise ValueError("shared decision substituted native quote or input lineage")
-        prior = self.journal.paper_traces(self.account_id)
-        if not any(trace.market.identity == market.identity for trace in prior):
+        if not self.journal.paper_market_seen(self.account_id, market.identity):
             self.journal.observe(quote)
         if self.journal.config.mode == "paper":
             self.journal.match_public_market(self.account_id, market, self.scenario)

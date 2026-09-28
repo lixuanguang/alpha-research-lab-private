@@ -11,12 +11,15 @@ from __future__ import annotations
 import hashlib
 import math
 import multiprocessing
+import os
+import sqlite3
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from multiprocessing.connection import Connection
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Literal, Protocol, cast
 
@@ -25,6 +28,7 @@ import msgspec
 import psutil  # type: ignore[import-untyped]  # [owner=runtime; rationale=locked diagnostic dependency has no bundled typing stubs; expires=2027-02-01]
 
 # project library imports
+from applications.execute.source_service import _DecodedBookObservation
 from configuration import (
     BookKey,
     BookRegistryConfiguration,
@@ -33,12 +37,13 @@ from configuration import (
 )
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookDepth, BookProjection, BookRegistry, CaptureReplay
-from market_data.contracts import BookQuote, CaptureRequest
+from market_data.contracts import BookObservation, BookQuote, CaptureRequest
 from market_data.storage import CaptureJournal
-from runtime import SharedBookDelivery
+from runtime import LiveBookDelivery, SharedBookDelivery
 from serialization import DomainCodec
 from telemetry import (
-    DashboardBuilder,
+    DashboardConfig,
+    DashboardRenderer,
     MetricRegistry,
     MonitoringConfiguration,
     MonitoringDefinitions,
@@ -54,6 +59,26 @@ class _ServiceRun(msgspec.Struct, frozen=True):
     """Read only the currently active run identity from the service status."""
 
     run_id: str
+
+
+class _IndexedSourceDelivery(LiveBookDelivery, frozen=True):
+    """Decode complete typed native records before checking their separate delivery clock."""
+
+    book: _DecodedBookObservation
+
+    def __post_init__(self) -> None:
+        """Avoid recursively validating native fields already checked by the typed decoder."""
+        self._require_availability()
+
+
+class _IndexedSharedDelivery(SharedBookDelivery, frozen=True):
+    """Decode a strict complete envelope for the read-only retained index."""
+
+    source: _IndexedSourceDelivery
+
+    def __post_init__(self) -> None:
+        """Check coordination after the decoder validates every nested source and policy field."""
+        self._require_coordination()
 
 
 class _MemorySample(Protocol):
@@ -115,7 +140,7 @@ class _SampledProcess(Protocol):
 
 
 class _SourceIndex:
-    """Index one actual retained source delivery stream at exact availability cutoffs."""
+    """Retain every complete serialized native delivery with its causal quote and byte count."""
 
     def __init__(
         self,
@@ -131,7 +156,7 @@ class _SourceIndex:
         self.key = BookKey(venue=request.config.venue, instrument_id=request.config.instrument_id)
         self.offset = 0
         self.deliveries = 0
-        self.history: deque[tuple[BookQuote, BookDepth, int]] = deque(maxlen=history_capacity)
+        self.history: deque[tuple[BookQuote, bytes, int]] = deque(maxlen=history_capacity)
 
 
 class _RetainedBookIndex:
@@ -171,31 +196,70 @@ class _RetainedBookIndex:
         return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
 
     def poll(self) -> int:
-        """Apply only complete newly retained delivery lines from each selected source."""
+        """Apply a captured finite prefix so later appends cannot extend a poll."""
+        retained_ends = self._retained_ends()
         with self.poll_lock:
-            return self._poll_serialized()
+            return self._poll_serialized(retained_ends)
 
-    def _poll_serialized(self) -> int:
-        """Advance offsets once while concurrent query workers share one registry."""
+    def _retained_ends(self) -> dict[str, int]:
+        """Capture selected file bounds before waiting for another reader's poll."""
+        return {
+            name: source.delivery_path.stat().st_size
+            for name, source in self.sources.items()
+            if source.delivery_path.is_file()
+        }
+
+    def read(self, source_name: str, *, cutoff_ns: int) -> dict[str, object]:
+        """Cover the request's retained prefix and report polling waits independently."""
+        retained_ends = self._retained_ends()
+        began = time.monotonic_ns()
+        with self.poll_lock:
+            acquired = time.monotonic_ns()
+            records = self._poll_serialized(retained_ends)
+            polled = time.monotonic_ns()
+        source = self.sources[source_name]
+        required_end = retained_ends.get(source_name)
+        with self.lock:
+            result = self.depth(source_name, cutoff_ns=cutoff_ns)
+            indexed_end = source.offset
+        covered = required_end is not None and indexed_end >= required_end
+        if not covered:
+            result.update(
+                eligible=False,
+                partial_coverage=True,
+                reason="incomplete_retained_delivery_prefix",
+            )
+        result.update(
+            delivery_prefix_complete=covered,
+            depth_index_required_prefix_bytes=required_end,
+            depth_index_indexed_prefix_bytes=indexed_end,
+            depth_index_poll_records=records,
+            depth_index_poll_wait_seconds=(acquired - began) / 1_000_000_000,
+            depth_index_poll_seconds=(polled - acquired) / 1_000_000_000,
+        )
+        return result
+
+    def _poll_serialized(self, retained_ends: dict[str, int]) -> int:
+        """Coalesce already covered prefixes without scanning a growing EOF."""
         count = 0
-        for source in self.sources.values():
-            if not source.delivery_path.is_file():
+        for name, retained_end in retained_ends.items():
+            source = self.sources[name]
+            if source.offset >= retained_end:
                 continue
             with source.delivery_path.open("rb") as stream:
                 stream.seek(source.offset)
-                while line := stream.readline():
+                while source.offset < retained_end:
+                    line = stream.readline(retained_end - source.offset)
                     if not line.endswith(b"\n"):
                         break
-                    delivery = self.codec.decode_json(line, SharedBookDelivery)
-                    delivery.__post_init__()
+                    delivery = self.codec.decode_json(line, _IndexedSharedDelivery)
                     row = delivery.source.book
                     if (
                         row.position != source.deliveries
                         or delivery.source.record.received_ns != row.received_ns
                     ):
                         raise ValueError(f"{source.name} delivery position or receipt differs")
-                    depth = BookDepth.from_observation(row)
-                    quote = depth.quote(
+                    quote = BookDepth._touch_quote_validated(
                         row,
                         venue=source.request.config.venue,
                         instrument_id=source.request.config.instrument_id,
@@ -205,26 +269,33 @@ class _RetainedBookIndex:
                     )
                     with self.lock:
                         self.registry.accept(quote)
-                        source.history.append((quote, depth, len(line)))
-                    source.deliveries += 1
-                    source.offset = stream.tell()
+                        source.history.append((quote, line, len(line)))
+                        source.deliveries += 1
+                        source.offset = stream.tell()
                     count += 1
         return count
 
     def depth(self, source_name: str, *, cutoff_ns: int) -> dict[str, object]:
-        """Query actual reconstructed BBO and up to native displayed depth at one cutoff."""
+        """Decode only the selected causal native boundary for its exact BBO and depth."""
         source = self.sources[source_name]
         limit = 25 if source.request.config.venue == "bitfinex" else 100
         with self.lock:
             lookup = self.registry.lookup(source.key, cutoff_ns=cutoff_ns)
             target = lookup.quote if lookup.quote is not None else lookup.boundary
-            selected_depth = BookDepth((), ())
+            selected_row: BookObservation | None = None
             scanned_bytes = 0
-            for quote, depth, encoded_bytes in reversed(source.history):
+            for quote, encoded_delivery, encoded_bytes in reversed(source.history):
                 scanned_bytes += encoded_bytes
                 if target is not None and quote.position == target.position:
-                    selected_depth = depth
+                    selected_row = self.codec.decode_json(
+                        encoded_delivery, _IndexedSharedDelivery
+                    ).source.book
                     break
+            selected_depth = (
+                BookDepth((), ())
+                if selected_row is None
+                else BookDepth.from_observation(selected_row)
+            )
             visible = BookDepth(selected_depth.bids[-limit:], selected_depth.asks[:limit])
             result = self.codec.encode_json((lookup, visible))
             return {
@@ -294,6 +365,69 @@ class _RetainedBookIndex:
                 "trace_identity": replay.summary()["trace_identity"],
             }
         return findings
+
+
+class _DashboardReader:
+    """Reuse bounded query components while selecting current SQLite revisions every time."""
+
+    def __init__(
+        self,
+        store: TelemetryStore,
+        scope: str,
+        mode: Literal["paper", "shadow"],
+        config: DashboardConfig,
+        registry: MetricRegistry,
+    ) -> None:
+        """Bind immutable metric selection and one process-owned telemetry reader."""
+        self.store, self.scope, self.mode = store, scope, mode
+        self.config, self.registry = config, registry
+        self.renderer = DashboardRenderer(config, registry)
+        self.codec = DomainCodec()
+
+    @classmethod
+    def open(
+        cls, service_root: Path, account_id: str, mode: Literal["paper", "shadow"]
+    ) -> _DashboardReader:
+        """Resolve installed metric identities before the measured read interval."""
+        at = datetime.now(UTC)
+        query = MonitoringQuery(
+            scope=f"account:{account_id}",
+            mode=mode,
+            start=at - timedelta(hours=1),
+            end=at,
+            as_of=at,
+            limit=10_000,
+        )
+        selection = MonitoringConfiguration.defaults(query)
+        return cls(
+            TelemetryStore(service_root / "monitoring" / "telemetry.sqlite3"),
+            query.scope,
+            mode,
+            selection.dashboard,
+            MetricRegistry(MonitoringDefinitions.resolve(selection.metrics)),
+        )
+
+    def read(self, at: datetime) -> dict[str, object]:
+        """Query and render one exact one-hour snapshot at its current causal cutoff."""
+        query = MonitoringQuery(
+            scope=self.scope,
+            mode=self.mode,
+            start=at - timedelta(hours=1),
+            end=at,
+            as_of=at,
+            limit=10_000,
+        )
+        events = self.store.query(query)
+        rendered, identity = self.renderer.render(query, events)
+        return {
+            "scope": query.scope,
+            "event_count": len(events),
+            "event_bytes": len(self.codec.encode_json(events)),
+            "returned_bytes": len(rendered),
+            "result_sha256": identity,
+            "scan_bytes": None,
+            "scan_unavailable_reason": "telemetry_store_scan_bytes_not_exposed",
+        }
 
 
 class _ResourceSampler:
@@ -574,7 +708,7 @@ class CapacityReadObserver:
         if stage not in ("depth_bbo", "dashboard"):
             raise ValueError("unknown read boundary")
         with self._write_lock:
-            if sample["status"] == "ok":
+            if sample["status"] == "ok" and sample["completed_within_interval"]:
                 self._samples[stage].append(cast(float, sample["seconds"]))
             else:
                 self._failures[stage] += 1
@@ -591,7 +725,60 @@ class CapacityReadObserver:
         self, account_id: str, mode: Literal["paper", "shadow"], started: float, stop: float
     ) -> None:
         """Issue one one-hour telemetry query and exact render every 200 ms."""
-        self._paced_worker("dashboard", account_id, started, stop, mode)
+        reader = _DashboardReader.open(self.service_root, account_id, mode)
+        self._paced_worker("dashboard", account_id, started, stop, reader)
+
+    @staticmethod
+    def _dashboard_process(
+        output: Path,
+        service_root: Path,
+        account_id: str,
+        mode: Literal["paper", "shadow"],
+        control: Connection[object, object],
+        duration_seconds: int,
+    ) -> None:
+        """Warm one independent dashboard reader, then follow the parent's exact interval."""
+        output.mkdir(parents=True, exist_ok=False)
+        codec = DomainCodec()
+        startup_started = time.monotonic_ns()
+        try:
+            observer = CapacityReadObserver(
+                output,
+                service_root,
+                process_pids=(os.getpid(),),
+                duration_seconds=duration_seconds,
+            )
+            reader = _DashboardReader.open(service_root, account_id, mode)
+            warmup = reader.read(datetime.now(UTC))
+            (output / "startup.json").write_bytes(
+                codec.encode_json(
+                    {
+                        "reader_id": account_id,
+                        "pid": os.getpid(),
+                        "seconds": (time.monotonic_ns() - startup_started) / 1_000_000_000,
+                        "cache_class": "warm_initialized_components_and_exact_payload_reuse",
+                        "warmup": warmup,
+                    }
+                )
+            )
+            control.send("ready")
+            schedule = control.recv()
+            if (
+                type(schedule) is not tuple
+                or len(schedule) != 2
+                or type(schedule[0]) is not float
+                or type(schedule[1]) is not float
+            ):
+                raise ValueError("dashboard reader received no valid steady interval")
+            started, stop = cast(tuple[float, float], schedule)
+            observer._paced_worker("dashboard", account_id, started, stop, reader)
+        except Exception as error:
+            (output / "failure.json").write_bytes(
+                codec.encode_json({"error": type(error).__name__, "reason": str(error)})
+            )
+            raise
+        finally:
+            control.close()
 
     def _paced_worker(
         self,
@@ -599,77 +786,93 @@ class CapacityReadObserver:
         target: str,
         started: float,
         stop: float,
-        binding: _RetainedBookIndex | Literal["paper", "shadow"],
+        binding: _RetainedBookIndex | _DashboardReader,
     ) -> None:
         """Retain missed slots instead of concealing an overloaded reader schedule."""
+        started_ns = round(started * 1_000_000_000)
+        stop_ns = round(stop * 1_000_000_000)
+        slots = math.ceil((stop - started) * 5)
         slot = 0
-        while (due := started + slot * 0.2) < stop:
-            remaining = due - time.monotonic()
-            if remaining > 0:
-                time.sleep(remaining)
-            if time.monotonic() >= stop:
+        while slot < slots:
+            due_ns = started_ns + slot * 200_000_000
+            while (remaining_ns := due_ns - time.monotonic_ns()) > 0:
+                time.sleep(remaining_ns / 1_000_000_000)
+            measured_ns = time.monotonic_ns()
+            if measured_ns >= stop_ns:
+                self._missed_slots(boundary, target, slot, slots, started_ns, stop_ns)
                 break
-            measured = time.perf_counter()
             query_at = datetime.now(UTC)
             try:
                 if boundary == "depth_bbo":
                     if not isinstance(binding, _RetainedBookIndex):
                         raise TypeError("depth reader requires native retained index")
-                    binding.poll()
-                    query_at = datetime.now(UTC)
-                    result = binding.depth(target, cutoff_ns=binding._unix_ns(query_at))
+                    result = binding.read(target, cutoff_ns=binding._unix_ns(query_at))
                 else:
-                    if binding not in ("paper", "shadow"):
-                        raise TypeError("dashboard reader requires a monitoring mode")
-                    query = MonitoringQuery(
-                        scope=f"account:{target}",
-                        mode=binding,
-                        start=query_at - timedelta(hours=1),
-                        end=query_at,
-                        as_of=query_at,
-                        limit=10_000,
-                    )
-                    events = TelemetryStore(
-                        self.service_root / "monitoring" / "telemetry.sqlite3"
-                    ).query(query)
-                    selection = MonitoringConfiguration.defaults(query)
-                    dashboard = DashboardBuilder.build(
-                        selection.dashboard,
-                        query,
-                        events,
-                        MetricRegistry(MonitoringDefinitions.resolve(selection.metrics)),
-                    )
-                    rendered = dashboard.render_html()
-                    result = {
-                        "scope": query.scope,
-                        "event_count": len(events),
-                        "event_bytes": len(self.codec.encode_json(events)),
-                        "returned_bytes": len(rendered),
-                        "result_sha256": dashboard.identity,
-                        "scan_bytes": None,
-                        "scan_unavailable_reason": "telemetry_store_scan_bytes_not_exposed",
-                    }
+                    if not isinstance(binding, _DashboardReader):
+                        raise TypeError("dashboard reader requires retained monitoring bindings")
+                    result = binding.read(query_at)
                 status = "ok"
-            except (OSError, ValueError, TypeError, RuntimeError) as error:
+            except (OSError, ValueError, TypeError, RuntimeError, sqlite3.Error) as error:
                 result = {"error": type(error).__name__, "reason": str(error)}
                 status = "failed"
+            completed_ns = time.monotonic_ns()
             self._record(
                 {
                     "boundary": boundary,
+                    "reader_id": target,
                     "target": target,
                     "phase": "steady",
                     "slot": slot,
-                    "started_offset_seconds": measured - started,
+                    "request_index": slot,
+                    "scheduled_monotonic_ns": due_ns,
+                    "started_monotonic_ns": measured_ns,
+                    "completed_monotonic_ns": completed_ns,
+                    "scheduled_stop_monotonic_ns": stop_ns,
+                    "completed_within_interval": completed_ns <= stop_ns,
+                    "queue_delay_seconds": (measured_ns - due_ns) / 1_000_000_000,
+                    "response_seconds": (completed_ns - due_ns) / 1_000_000_000,
+                    "started_offset_seconds": (measured_ns - started_ns) / 1_000_000_000,
                     "at_utc": query_at.isoformat(),
-                    "seconds": time.perf_counter() - measured,
+                    "seconds": (completed_ns - measured_ns) / 1_000_000_000,
                     "status": status,
                     **result,
                 }
             )
             slot += 1
-            now = time.monotonic()
-            if started + slot * 0.2 < now:
-                slot = math.ceil((now - started) / 0.2)
+
+    def _missed_slots(
+        self,
+        boundary: Literal["depth_bbo", "dashboard"],
+        target: str,
+        start: int,
+        end: int,
+        started_ns: int,
+        stop_ns: int,
+    ) -> None:
+        """Retain every omitted due request without treating it as a latency observation."""
+        for slot in range(start, end):
+            self._record(
+                {
+                    "boundary": boundary,
+                    "reader_id": target,
+                    "target": target,
+                    "phase": "steady",
+                    "slot": slot,
+                    "request_index": slot,
+                    "scheduled_monotonic_ns": started_ns + slot * 200_000_000,
+                    "started_monotonic_ns": None,
+                    "completed_monotonic_ns": None,
+                    "scheduled_stop_monotonic_ns": stop_ns,
+                    "completed_within_interval": False,
+                    "queue_delay_seconds": None,
+                    "response_seconds": None,
+                    "started_offset_seconds": None,
+                    "at_utc": None,
+                    "seconds": 0.0,
+                    "status": "missed",
+                    "reason": "reader_schedule_backlog_or_interval_complete",
+                }
+            )
 
     def _poll(self, index: _RetainedBookIndex, stop_event: threading.Event) -> None:
         """Keep read state aligned with fsynced complete delivery records."""
@@ -793,6 +996,8 @@ class CapacityReadObserver:
             daemon=True,
         )
         started_process = False
+        dashboard_processes: list[tuple[str, BaseProcess, Connection[object, object]]] = []
+        startup_phase = "resource_sampler_startup"
         try:
             sampler_process.start()
             started_process = True
@@ -800,19 +1005,57 @@ class CapacityReadObserver:
             if not parent_control.poll(5) or parent_control.recv() != "ready":
                 raise TimeoutError("capacity resource sampler did not become ready")
             sampler_startup_seconds = time.perf_counter() - sampler_started
+            startup_phase = "dashboard_reader_startup"
+            reader_started = time.perf_counter()
+            for account in config.accounts:
+                reader_control, reader_child = cast(
+                    "tuple[Connection[object, object], Connection[object, object]]",
+                    context.Pipe(),
+                )
+                reader_process: BaseProcess = context.Process(
+                    target=self._dashboard_process,
+                    args=(
+                        self.output / "dashboard-readers" / account.account_id,
+                        self.service_root,
+                        account.account_id,
+                        account.configuration.mode,
+                        reader_child,
+                        self.duration_seconds,
+                    ),
+                    daemon=True,
+                )
+                try:
+                    reader_process.start()
+                finally:
+                    reader_child.close()
+                dashboard_processes.append((account.account_id, reader_process, reader_control))
+            reader_deadline = time.monotonic() + 5
+            for account_id, _, reader_control in dashboard_processes:
+                if (
+                    not reader_control.poll(max(0.0, reader_deadline - time.monotonic()))
+                    or reader_control.recv() != "ready"
+                ):
+                    raise TimeoutError(f"dashboard reader {account_id} did not become ready")
+            reader_startup_seconds = time.perf_counter() - reader_started
             started_at_utc = datetime.now(UTC)
             started = time.monotonic()
             stop = started + self.duration_seconds
             parent_control.send((started, stop))
+            for _, _, reader_control in dashboard_processes:
+                reader_control.send((started, stop))
         except Exception as error:
             sampler_stop.set()
             if started_process and sampler_process.is_alive():
                 sampler_process.terminate()
                 sampler_process.join(2)
+            for _, reader_process, _ in dashboard_processes:
+                if reader_process.is_alive():
+                    reader_process.terminate()
+                reader_process.join(2)
             (self.output / "failure.json").write_bytes(
                 self.codec.encode_json(
                     {
-                        "phase": "resource_sampler_startup",
+                        "phase": startup_phase,
                         "error": type(error).__name__,
                         "reason": str(error),
                     }
@@ -822,6 +1065,8 @@ class CapacityReadObserver:
         finally:
             parent_control.close()
             child_control.close()
+            for _, _, reader_control in dashboard_processes:
+                reader_control.close()
         stop_event = threading.Event()
         threads = [threading.Thread(target=self._poll, args=(index, stop_event), daemon=True)]
         threads.extend(
@@ -831,14 +1076,6 @@ class CapacityReadObserver:
                 daemon=True,
             )
             for name in index.sources
-        )
-        threads.extend(
-            threading.Thread(
-                target=self._dashboard_worker,
-                args=(account.account_id, account.configuration.mode, started, stop),
-                daemon=True,
-            )
-            for account in config.accounts
         )
         for thread in threads:
             thread.start()
@@ -860,11 +1097,28 @@ class CapacityReadObserver:
         join_deadline = steady_ended + 5
         for thread in threads:
             thread.join(timeout=max(0.0, join_deadline - time.monotonic()))
-        if any(thread.is_alive() for thread in threads) and postprocess_error is None:
+        for _, reader_process, _ in dashboard_processes:
+            reader_process.join(timeout=max(0.0, join_deadline - time.monotonic()))
+        stuck_readers = any(reader.is_alive() for _, reader, _ in dashboard_processes)
+        if (
+            any(thread.is_alive() for thread in threads) or stuck_readers
+        ) and postprocess_error is None:
             postprocess_phase = "read_worker_join"
             postprocess_error = TimeoutError(
                 "capacity read worker did not stop within bounded interval"
             )
+        for _, reader_process, _ in dashboard_processes:
+            if reader_process.is_alive():
+                reader_process.terminate()
+                reader_process.join(2)
+        for account_id, reader_process, _ in dashboard_processes:
+            samples = self.output / "dashboard-readers" / account_id / "samples.jsonl"
+            if samples.is_file():
+                for line in samples.read_bytes().splitlines():
+                    self._record(msgspec.json.decode(line, type=dict[str, object]))
+            if reader_process.exitcode != 0 and postprocess_error is None:
+                postprocess_phase = "dashboard_reader"
+                postprocess_error = RuntimeError(f"dashboard reader {account_id} failed")
         if postprocess_error is None:
             postprocess_phase = "native_replay_parity"
             try:
@@ -912,6 +1166,7 @@ class CapacityReadObserver:
         interval = {
             "started_monotonic_ns": round(started * 1_000_000_000),
             "steady_ended_monotonic_ns": round(steady_ended * 1_000_000_000),
+            "scheduled_stop_monotonic_ns": round(stop * 1_000_000_000),
             "started_at_utc": started_at_utc.isoformat(),
             "steady_ended_at_utc": steady_ended_at_utc.isoformat(),
             "steady_duration_seconds": self.duration_seconds,
@@ -919,6 +1174,22 @@ class CapacityReadObserver:
             "postprocess_elapsed_seconds": time.monotonic() - steady_ended,
             "startup_discovery_seconds": startup_seconds,
             "startup_sampler_seconds": sampler_startup_seconds,
+            "startup_dashboard_seconds": reader_startup_seconds,
+            "cache_class": "warm_initialized_components_and_exact_payload_reuse",
+            "dashboard_execution": "four_independent_reader_processes",
+            "dashboard_reader_processes": {
+                account_id: {
+                    "pid": reader_process.pid,
+                    "exitcode": reader_process.exitcode,
+                    "alive_after_join": reader_process.is_alive(),
+                }
+                for account_id, reader_process, _ in dashboard_processes
+            },
+            "resource_sampler_process": {
+                "pid": sampler_process.pid,
+                "exitcode": sampler_process.exitcode,
+                "alive_after_join": sampler_process.is_alive(),
+            },
             "source_requests": {
                 name: source.request.identity for name, source in index.sources.items()
             },

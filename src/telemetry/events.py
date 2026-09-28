@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import re
 from datetime import datetime
 from typing import Literal
 
@@ -12,6 +13,7 @@ from financial_units import ExactRatio
 from serialization import DomainCodec, WireRecord
 
 MonitoringMode = Literal["research", "paper", "shadow", "venue_test", "data"]
+_TEXT_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f]")
 
 
 class MonitoringIdentity(WireRecord, frozen=True):
@@ -63,7 +65,7 @@ class MonitoringIdentity(WireRecord, frozen=True):
             type(value) is not str
             or not value.strip()
             or len(value.encode()) > 256
-            or any(ord(char) < 32 for char in value)
+            or _TEXT_CONTROL_CHARACTERS.search(value) is not None
         ):
             raise ValueError("monitoring text must be bounded and nonempty")
 

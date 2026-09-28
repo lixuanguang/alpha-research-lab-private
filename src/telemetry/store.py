@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import sqlite3
+from collections import OrderedDict
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,7 @@ class TelemetryStore:
         self.path = path
         self.max_events = max_events
         self.codec = DomainCodec()
+        self._query_payloads: OrderedDict[bytes, MonitoringEvent] = OrderedDict()
 
     def append(self, events: tuple[MonitoringEvent, ...]) -> int:
         """Atomically retain up to 10,000 facts, rejecting changed retries and revisions.
@@ -126,7 +128,7 @@ class TelemetryStore:
             floor = self._floor(connection)
             if floor is not None and query.start < floor:
                 raise ValueError("monitoring query predates retained history")
-            rows = self._rows(
+            rows = self._query_rows(
                 connection.execute(
                     "SELECT payload FROM (SELECT payload, at, name, sample, "
                     "ROW_NUMBER() OVER (PARTITION BY name, version, sample "
@@ -212,6 +214,31 @@ class TelemetryStore:
             if len(row) != 1 or type(row[0]) is not bytes:
                 raise ValueError("invalid monitoring payload")
             result.append(self.codec.decode_json(row[0], MonitoringEvent))
+        return tuple(result)
+
+    def _query_rows(self, cursor: sqlite3.Cursor) -> tuple[MonitoringEvent, ...]:
+        """Reuse at most 10,000 exact payloads while checking every returned immutable event.
+
+        The SQL snapshot still selects current causal revisions and the retention
+        floor on every query. A changed database payload or a force-mutated public
+        object is decoded again through the strict wire boundary.
+        """
+        rows = cast(list[tuple[object, ...]], cursor.fetchall())
+        result: list[MonitoringEvent] = []
+        for row in rows:
+            if len(row) != 1 or type(row[0]) is not bytes:
+                raise ValueError("invalid monitoring payload")
+            payload = row[0]
+            event = self._query_payloads.get(payload)
+            if event is None or self.codec.encode_json(event) != payload:
+                event = self.codec.decode_json(payload, MonitoringEvent)
+                self._query_payloads[payload] = event
+            else:
+                event.__post_init__()
+                self._query_payloads.move_to_end(payload)
+            result.append(event)
+            if len(self._query_payloads) > 10_000:
+                self._query_payloads.popitem(last=False)
         return tuple(result)
 
     @staticmethod

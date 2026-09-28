@@ -123,6 +123,7 @@ class InstalledPaperAccount:
         account_id: str | None = None,
         instance: str | None = None,
         batch: str | None = None,
+        market: str | None = None,
         projection: AccountResponseProjection = "full",
     ) -> AccountExecutionResult:
         """Query fresh state without replaying any execution operation."""
@@ -132,7 +133,9 @@ class InstalledPaperAccount:
                 account_id=account_id,
                 query_instance=instance,
                 query_batch=batch,
+                query_market=market,
                 projection=projection,
+                paper_owner=self.paper_owner if projection == "market_membership" else None,
             )
         )
 
@@ -163,6 +166,15 @@ class InstalledPaperAccount:
     def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
         """Read original public quotes and committed modeled effects."""
         return self._inspect(account_id=account_id, projection="traces").paper_traces
+
+    def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
+        """Inspect fresh account-scoped membership under the bound installed owner."""
+        result = self._inspect(
+            account_id=account_id, market=market_identity, projection="market_membership"
+        )
+        if type(result.market_seen) is not bool:
+            raise ValueError("installed paper response lacks Boolean market membership")
+        return result.market_seen
 
     def paper_report_facts(
         self, account_id: str

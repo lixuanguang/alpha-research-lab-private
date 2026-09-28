@@ -14,6 +14,9 @@ operations; production trading remains unavailable.
 They project committed state into a separate versioned journal after the
 authoritative operation. `telemetry_error` reports persistence failure without
 undoing a stop, changing account state or retrying venue activity.
+An account application binds its telemetry implementation fingerprint on first
+use and retains it for that application lifetime. Each operation still reads
+current account facts; launcher verification and owner fencing are unchanged.
 
 `MonitoringConfiguration` selects a bounded UTC query, exact implementation-pinned
 metric definitions, panels and optional local alert rules. Its `defaults` method
@@ -450,3 +453,26 @@ invalidation still faults immediately. Retained `SharedBookDelivery` records
 mark skipped economics with `market_effects=false` for exact replay; legacy
 records that omit the field preserve per-book behavior. This models selected
 paper opportunities and does not qualify feed throughput or MR15 capacity.
+
+The supervisor consumes at most one durable frame per source per pass. When the
+complete configured account sets of its sources are disjoint, a run-owned pool
+observes those frames concurrently, with at most one in-flight job and frame per
+source and at most four jobs. A pending source receives its next frame only after
+completion, while other sources can progress across passes. Native validation,
+full delivery retention and per-row fsync still precede each account's selected
+effects. Worker and source health checks continue on every pass while jobs are
+pending. With an active disjoint-source executor, owner identity, heartbeat and
+process liveness have a twenty-millisecond deadline from each check's start;
+the first subsequent supervisor pass performs the due check. The first check
+is immediate. Account RPCs still validate current authority independently.
+Every job joins before lifecycle fences, controls, phase sampling,
+status or shutdown; failures are handled on the supervisor after removing owned
+futures. Sources sharing any account retain
+serial source-name and account-name order. The pool remains available through
+the existing bounded shutdown drain and closes before launch fences release;
+account and policy timeouts, selection cadence and authority are unchanged.
+Waiting excludes busy source pipes and includes a run-owned completion socket,
+so finishing a job wakes the supervisor even if the remaining source pipes are
+idle. Nonblocking notifications coalesce and close after worker callbacks join.
+The existing twenty-millisecond idle bound and the next owner-check deadline
+bound waits; completed jobs never wait for another source frame.

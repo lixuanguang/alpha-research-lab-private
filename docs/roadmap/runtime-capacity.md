@@ -1,8 +1,8 @@
 # MR15 runtime capacity profile
 
 Owner: quant development. Status: **bounded stage-1 processing, native/economic
-parity and four-owner recovery qualified; latency, query, feature and public-route
-gaps remain; stage 2 gated**. Updated 2026-09-28 (Singapore; observations use UTC)
+parity, four-owner recovery, receipt/BBO latency and warm queries qualified;
+feature, cold-cache, public-route and sustained-operation gaps remain; stage 2 gated**. Updated 2026-09-28 (Singapore; observations use UTC)
 after the bounded [MR14 service record](multi-instance-paper.md). The
 [roadmap](README.md#runtime-operations-and-handoff) owns MR15 delivery status;
 the [runtime design](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices)
@@ -658,3 +658,133 @@ public routes and both fault trials: all are absent; every retained final
 account phase is `stopped`. Prelaunch failures are labeled as having no observed
 running-service PID. This cleanup result does not upgrade any failed capacity
 or recovery criterion.
+
+### Latency and warm-query closure declaration (2026-09-28)
+
+This follow-up closes only the measured receipt/BBO latency and warm-query gaps.
+The original budgets, native depth, signed authority, risk limits and three-second
+selection cadence above remain binding. Qualification requires four sources,
+four owners and eight instances, at least 60 continuously healthy measured
+seconds including the declared burst, and complete native/economic parity.
+Four depth and four dashboard readers each complete 300 requests scheduled
+200 ms apart within that minute. Service and scheduled-arrival response latency
+must both pass; each claimed percentile needs at least 1,000 observations.
+
+The final signed implementation must pass steady and replacement-owner recovery
+measurements, the affected loaded fault checks and retained Bitfinex one-sided
+protection. Account/capture/supervisor lifetimes remain bounded by 120/100/75
+seconds. Run affected checks before freezing, establish steady and recovery
+viability before full local `make check`, and run no hosted CI. Builds, tests,
+profiling and source edits must not overlap measured intervals.
+
+Unchanged source-protocol/oversize/reconnect and public-route evidence remains
+historical with its original identity and limitations. Feature serving, cold-cache
+qualification, fresh successful Bitfinex public health, sustained processing,
+capture rollover, longer service/handoff and extended authority remain open.
+Stage 2 stays gated. No account journal, grant or durable capture migration is
+introduced by these repairs.
+
+The [canonical index](runtime-capacity-evidence.json) retains the original
+characterization and processing/recovery requalification sections. Its unchanged
+artifact lists moved to the hash-linked
+[historical manifest](runtime-capacity-artifact-manifest.json) to keep each file
+within the existing 1 MB scanner limit. The 442 original and 2,050 requalification
+entries remain exact; restoring both lists reconstructs the pre-split JSON.
+Current closure evidence should link retained reports rather than duplicate
+their raw rows or inventory every reproduced installation.
+
+#### Retained follow-up attempts
+
+All attempts and their original traces remain under
+`logs/runtime-capacity/latency-query-N`. The earlier detailed narrative is
+retained in `latency-query-9/retained-followup-history.md`; diagnostic profiles
+remain in `logs/runtime-capacity/latency-query-diagnosis`.
+
+| Candidate | Outcome and next diagnosed cause |
+| --- | --- |
+| 1 | Failed. Both query classes completed 1,200 requests; depth response p95/p99 was 1,644.548/3,026.238 ms, queue age reached 6.330 seconds and health ended early. Native/economic parity and bounded cleanup passed. A depth reader held a shared lock while draining a moving file end. |
+| 2 | Failed before launch. Four signed builds were retained; local checks rejected a cross-owner private decoder import. No paper authority was granted. |
+| 3 | Failed before launch. The relocated decoder left an extra terminal blank line rejected by formatting. No paper authority was granted. |
+| 4 | Failed. Depth response p95/p99 was 776.430/1,756.544 ms and a 2.296-second observation gap broke health. Retained replay identified costly GC over complete native-book histories; parity and cleanup passed. |
+| 5 | Failed. Encoded histories brought depth response to 12.631/96.439/164.937 ms, but source latency failed, dashboard completed only 1,193 requests and health ended early. A separate instrumented run remained diagnostic only; account calls serialized independent selected-book work. |
+| 6 | Failed. Health, both 1,200-request classes, parity, resources and lifetimes passed; Bitfinex BBO p95 was 223.610/224.729 ms and OKX receipt p95 was 270.026/272.750 ms. Per-pass joins still serialized work. |
+| 7 | Failed. Health, query capacity and parity passed, but source receipt p95 regressed to 2–3 seconds. Completion polling and repeated owner-file reads delayed admission. Its separately instrumented attempt also failed health and remains retained. |
+| 8 | Steady passed; recovery failed Bitfinex BTC BBO p95 at 101.929 ms against 100 ms. Recovery retained health, query capacity, economic facts, owner fencing and all-eight progress. Loaded faults and one-sided replay were not run for this failed candidate. |
+
+Failed setup, local-CI, profiling and network attempts remain in their respective
+candidate directories. Their successful reruns do not replace the first result.
+The one-sided replay on candidate 1 preserved `public_input_invalid` across
+1,162 retained Bitfinex ETH deliveries; it is protection evidence, not a fresh
+successful public-feed observation.
+
+#### Repairs supported by the retained profiles
+
+Receipt delay lay mainly outside durable append: retained burst append means
+were 1.21–1.38 ms. The L2 touch path now constructs only its selected sides, and
+the private source-pipe decoder validates native children once while public
+entries retain full validation. Decoder microprofile gains alone were small in
+the complete burst replay (7.653 to 7.525 seconds).
+
+Readers capture finite file prefixes and retain explicit partial coverage.
+Complete native history is stored as validated bytes and decoded at the selected
+causal row, avoiding repeated GC scans without dropping revisions or changing
+history limits, cutoffs or freshness. All 1,200 controlled same-prefix results
+matched; three older diagnostic outputs still lack enough prefix evidence to
+reconcile their mismatch. Dashboard work reuses bounded exact payload/render
+work while current SQL revisions, retention, availability, metrics and alerts
+are reevaluated.
+
+Independent accounts may keep one source observation in flight across supervisor
+passes. Per-source/shared-account order remains serial; lifecycle changes join
+outstanding work. Completion notifications and owner-file checks scheduled within
+the existing 20 ms idle bound avoid unnecessary waiting. Source/worker health
+and account RPC authority checks remain active.
+
+### Fresh signed latency and warm-query follow-up
+
+Candidate 9 retained the fresh account-and-market membership repair but failed
+recovery BBO p95 at 131.288 ms for Bitfinex BTC and 121.677 ms for ETH. Its
+separate diagnostic recovery located repeated installed-source hashing in the
+selected-account telemetry path. Twenty-one uninstrumented hash calls averaged
+14.652 ms; this diagnostic is not a qualification percentile. All three candidate
+9 runs retain their original results and clean process audits.
+
+Candidate 10 binds the telemetry fingerprint once per account application lifetime,
+while every operation still reads current account facts and verifies authority.
+It retains full trace reporting and uses fresh Boolean membership only where the
+observer previously transferred history to answer that question. Four newly
+signed releases bind implementation
+`7f31316338bacfb945de79d00ac87b7460739a0087e7e91b3f64294e9e6e68bb`.
+The [canonical index](runtime-capacity-evidence.json) links the compact closure
+record at `logs/runtime-capacity/latency-query-10/closure-evidence.json`.
+
+| Measured boundary | Steady | Replacement-owner recovery |
+| --- | --- | --- |
+| Continuously healthy interval | 60.004 seconds | 60.003 seconds |
+| Receipt p95 across four sources | 2.697–3.422 ms | 4.949–79.402 ms |
+| BBO p95 across four sources | 21.250–23.467 ms | 32.473–81.215 ms |
+| Depth scheduled-arrival response p50/p95/p99 | 8.747/21.648/29.336 ms | 7.618/22.922/35.697 ms |
+| Dashboard scheduled-arrival response p50/p95/p99 | 55.351/106.615/126.875 ms | 53.925/114.585/144.647 ms |
+
+Both trials pass every declared receipt/BBO and warm-query percentile, including
+service latency. Each source supplies 2,250 receipt and 2,228 BBO samples in the
+measured minute; each query class completes 1,200 requests, 300 per reader.
+Complete native parity and steady economic replay pass. Recovery preserves the
+baseline economic facts, fences former owners and advances all eight instances
+within the original recovery budget. Independent recovery-suffix economic replay
+remains unqualified.
+
+Average CPU was 2.063/2.191 logical cores and peak RSS 2.472/2.483 GiB for
+steady/recovery. Account lifetimes were at most 63.616 seconds, and enclosing
+supervisor lifetimes at most 62.429 seconds also bound all capture children.
+All original queue, disk and lifetime limits pass. Loaded policy/source/owner and
+request-retention faults pass; the retained 1,162-delivery Bitfinex ETH replay
+preserves `public_input_invalid`. Every observed PID is absent after cleanup and
+all four accounts are stopped in every trial.
+
+Final local `make check` passed: 1,958 passed, 2 skipped
+and 3 deselected; installed-wheel smoke passed. All measured runtime source bytes
+remain identical to the four signed archives. No hosted CI ran. This closes the
+bounded stage-1 latency and warm-query slice only; the feature, cold-cache,
+fresh public-health, sustained-service and other limitations declared above
+remain open, and stage 2 stays gated.

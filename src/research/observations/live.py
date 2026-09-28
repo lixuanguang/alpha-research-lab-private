@@ -19,11 +19,15 @@ from serialization import DomainCodec
 
 @dataclass(frozen=True, slots=True)
 class _LiveBoundary:
-    """Keep one delivery boundary and its last admitted economic observation."""
+    """Keep each causal boundary and its complete encoded native market state.
+
+    Retaining bytes avoids repeatedly scanning every historical level and decimal
+    for cycles. Controls share the preceding market payload and its original age.
+    """
 
     available_at: datetime
     observation: NamedObservation
-    book: BookObservation | None
+    book_payload: bytes | None
     market_progress_at: datetime | None
 
 
@@ -72,9 +76,10 @@ class LiveBookDecisionSource:
             raise ValueError("live history capacity must be within 1..10000")
         self._request = request
         self._requirement = requirement
+        self._codec = DomainCodec()
         self._history: deque[_LiveBoundary] = deque(maxlen=history_capacity)
         self._identity = hashlib.sha256(
-            DomainCodec().encode_json(
+            self._codec.encode_json(
                 (
                     request.config,
                     request.implementation_identity,
@@ -89,10 +94,12 @@ class LiveBookDecisionSource:
         self._last_available_at: datetime | None = None
         self._last_sequence: int | None = None
         self._latest_book: BookObservation | None = None
+        self._latest_book_payload: bytes | None = None
         self._market_lineage: str | None = None
         self._last_decision_at: datetime | None = None
         self._last_decision: DecisionInputs | None = None
         self._last_decision_book: BookObservation | None = None
+        self._last_decision_book_payload: bytes | None = None
 
     @property
     def request(self) -> CaptureRequest:
@@ -154,9 +161,13 @@ class LiveBookDecisionSource:
         if entity != str(self._request.config.instrument_id) or not self._history:
             return None
         boundary = self._history[-1]
-        if boundary.available_at > at or boundary.book is None or self._refusal(boundary, at):
+        if (
+            boundary.available_at > at
+            or boundary.book_payload is None
+            or self._refusal(boundary, at)
+        ):
             return None
-        return boundary.book
+        return self._latest_book
 
     def current_quote(self, entity: str, at: datetime) -> BookQuote | None:
         """Expose the latest causally eligible book with its original market delivery time."""
@@ -199,7 +210,7 @@ class LiveBookDecisionSource:
             ValueError: Positions, clocks or provenance do not match this stream.
         """
         record.__post_init__()
-        row.__post_init__()
+        BookObservation.__post_init__(row)
         self._accept_validated(record, row, available_at=available_at)
 
     def _accept_validated(
@@ -245,12 +256,14 @@ class LiveBookDecisionSource:
                 else:
                     event_at = self._from_ms(int(row.source_time))
             if reason != "unknown_source_event_time":
+                self._latest_book_payload = self._codec.encode_json(row)
                 self._latest_book = row
                 self._market_lineage = lineage
                 market_progress_at = min(received_at, event_at)
                 has_market_value = True
             else:
                 self._latest_book = None
+                self._latest_book_payload = None
                 self._market_lineage = None
         elif (
             row.status == "degraded"
@@ -269,9 +282,10 @@ class LiveBookDecisionSource:
             lineage = f"{self._market_lineage}|{lineage}"
             projection_available_at = previous.available_at or delivered_at
             market_progress_at = self._history[-1].market_progress_at
-            has_market_value = self._history[-1].book is not None
+            has_market_value = self._history[-1].book_payload is not None
         else:
             self._latest_book = None
+            self._latest_book_payload = None
             self._market_lineage = None
             event_at = received_at
             reason = (
@@ -292,7 +306,7 @@ class LiveBookDecisionSource:
             _LiveBoundary(
                 available_at=delivered_at,
                 observation=observation,
-                book=self._latest_book if has_market_value else None,
+                book_payload=self._latest_book_payload if has_market_value else None,
                 market_progress_at=market_progress_at,
             )
         )
@@ -357,6 +371,7 @@ class LiveBookDecisionSource:
             if at == self._last_decision_at and self._last_decision is not None:
                 return self._last_decision
         selected = next((item for item in reversed(self._history) if item.available_at <= at), None)
+        book: BookObservation | None = None
         if selected is None:
             decision = self._missing(entity, at, "no_live_input", self._identity)
         else:
@@ -371,7 +386,9 @@ class LiveBookDecisionSource:
                     row if refusal != "future_source_event" else None,
                 )
             else:
-                value = None if selected.book is None else self._book_value(selected.book)
+                if selected.book_payload is not None:
+                    book = self._retained_book(selected.book_payload)
+                value = None if book is None else self._book_value(book)
                 projected = (
                     row
                     if value is None
@@ -387,19 +404,28 @@ class LiveBookDecisionSource:
                 )
                 decision = DecisionInputs(entity=entity, decision_at=at, observations=(projected,))
         self._last_decision_at, self._last_decision = at, decision
-        self._last_decision_book = (
-            selected.book
-            if selected is not None and decision.observations[0].value is not None
+        self._last_decision_book = book if decision.observations[0].value is not None else None
+        self._last_decision_book_payload = (
+            selected.book_payload
+            if selected is not None and self._last_decision_book is not None
             else None
         )
         return decision
+
+    def _retained_book(self, payload: bytes) -> BookObservation:
+        """Reuse hot state or strictly decode the complete selected historical book."""
+        if payload is self._latest_book_payload and self._latest_book is not None:
+            return self._latest_book
+        if payload is self._last_decision_book_payload and self._last_decision_book is not None:
+            return self._last_decision_book
+        return self._codec.decode_json(payload, BookObservation)
 
     def _refusal(self, selected: _LiveBoundary, at: datetime) -> str | None:
         """Apply identical future/source/local-progress rules to reads and live views."""
         row = selected.observation
         if row.event_at > at:
             return "future_source_event"
-        if selected.book is None:
+        if selected.book_payload is None:
             return None
         if at - row.event_at > timedelta(microseconds=self._requirement.max_age_us):
             return "stale_input"

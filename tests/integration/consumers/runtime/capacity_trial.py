@@ -54,6 +54,9 @@ class _Health(msgspec.Struct, frozen=True):
 
     pid: int
     generation: int
+    heartbeat_ns: int = 0
+    owner_id: str | None = None
+    release_identity: str | None = None
 
 
 class _Child(msgspec.Struct, frozen=True):
@@ -61,6 +64,14 @@ class _Child(msgspec.Struct, frozen=True):
 
     pid: int | None
     alive: bool
+
+
+class _AccountPhase(msgspec.Struct, frozen=True):
+    """Retain the actual account-phase read and its observation clock."""
+
+    observed_at: datetime
+    status: str
+    phase: str | None = None
 
 
 class _Status(msgspec.Struct, frozen=True):
@@ -72,6 +83,12 @@ class _Status(msgspec.Struct, frozen=True):
     faulted_accounts: tuple[str, ...]
     stopping: bool
     diagnostics: _Child | None = None
+    observed_at: datetime | None = None
+    configuration: str | None = None
+    run_id: str | None = None
+    pid: int | None = None
+    owners: tuple[PaperOwner, ...] = ()
+    account_phases: dict[str, _AccountPhase] | None = None
 
 
 class AlertReceiver:
@@ -155,6 +172,11 @@ class CapacityTrial:
         self.receiver: AlertReceiver | None = None
         self.first_service_at: float | None = None
         self.shutdown_requested = False
+        self._health_stop = threading.Event()
+        self._health_thread: threading.Thread | None = None
+        self._health_run_id: str | None = None
+        self._health_last_ns: int | None = None
+        self._health_configuration: str | None = None
 
     def record(self, kind: str, values: object) -> None:
         """Flush an attributable driver observation before the next operation."""
@@ -272,6 +294,7 @@ class CapacityTrial:
         selected = msgspec.structs.replace(
             self.config, alert_socket=str(self.socket_root / "alerts.sock")
         )
+        self._health_configuration = selected.identity
         (self.output / "configuration.json").write_bytes(self.codec.encode_json(selected))
         (self.output / "owners.json").write_bytes(
             self.codec.encode_json(PaperServiceOwners(owners=tuple(self.owners.values())))
@@ -551,6 +574,81 @@ class CapacityTrial:
                 raise RuntimeError(f"account launcher {process.pid} exited with status {code}")
         self.retain_accounts("post_shutdown", sockets=False)
 
+    def _sample_health(self) -> None:
+        """Retain fresh four-owner health throughout the declared measured interval."""
+        status = self.status()
+        at, now_ns = datetime.now(UTC), time.monotonic_ns()
+        phases = status.account_phases or {}
+        if self._health_run_id is None:
+            self._health_run_id = status.run_id
+        healthy = (
+            self._healthy_status(status)
+            and self._health_configuration is not None
+            and status.configuration == self._health_configuration
+            and status.run_id is not None
+            and status.run_id == self._health_run_id
+            and status.observed_at is not None
+            and 0 <= (at - status.observed_at).total_seconds() <= 2
+            and {owner.account_id: owner for owner in status.owners} == self.owners
+            and set(phases) == set(self.owners)
+            and all(
+                phase.status == "observed"
+                and phase.phase == "running"
+                and 0 <= (at - phase.observed_at).total_seconds() <= 2
+                for phase in phases.values()
+            )
+            and self.supervisor is not None
+            and status.pid == self.supervisor.pid
+            and self.supervisor.poll() is None
+            and (self._health_last_ns is None or now_ns - self._health_last_ns <= 2_000_000_000)
+        )
+        health: dict[str, _Health] = {}
+        for account in self.config.accounts:
+            row = self.codec.decode_json(
+                Path(account.socket_path).with_suffix(".health.json").read_bytes(), _Health
+            )
+            health[account.account_id] = row
+            owner = self.owners[account.account_id]
+            healthy = healthy and (
+                row.pid == self.account_pids[account.account_id]
+                and row.generation == owner.generation
+                and row.owner_id == owner.owner_id
+                and row.release_identity == owner.release_identity
+                and 0 <= time.monotonic_ns() - row.heartbeat_ns <= 2_000_000_000
+            )
+            os.kill(row.pid, 0)
+        for child in (*status.workers.values(), *status.sources.values()):
+            if child.pid is not None:
+                os.kill(child.pid, 0)
+        self._health_last_ns = now_ns
+        self.record("steady_health", {"healthy": healthy, "status": status, "owners": health})
+        if not healthy:
+            raise ValueError("measured interval has stale, missing or unhealthy service evidence")
+
+    def _monitor_health(self) -> None:
+        """Sample sticky protection and actual liveness without economic requests."""
+        while not self._health_stop.wait(0.5):
+            try:
+                self._sample_health()
+            except (OSError, ValueError) as error:
+                self.failures.append(f"steady health: {type(error).__name__}: {error}")
+                self.record("steady_health_failure", self.failures[-1])
+                return
+
+    def _stop_health_monitor(self) -> None:
+        """Join the owned observer before service shutdown or failure cleanup."""
+        self._health_stop.set()
+        if self._health_thread is not None:
+            self._health_thread.join(2)
+            if self._health_thread.is_alive():
+                raise TimeoutError("bounded health observer did not stop")
+
+    def _finish_healthy_interval(self) -> None:
+        """Close the continuous health witness before requesting finite shutdown."""
+        self._stop_health_monitor()
+        self._sample_health()
+        self.finish_interval()
+
     def run(self) -> dict[str, object]:
         """Measure at least 60 seconds, retaining every first failure and final protection."""
         self.output.mkdir(parents=True, exist_ok=False)
@@ -577,6 +675,9 @@ class CapacityTrial:
                 result["faults_only"] = True
                 return result
             start = time.monotonic()
+            self._sample_health()
+            self._health_thread = threading.Thread(target=self._monitor_health)
+            self._health_thread.start()
             self.record("steady_started", {"monotonic": start})
             result["reads"] = CapacityReadObserver(
                 self.output / "reads",
@@ -591,13 +692,16 @@ class CapacityTrial:
                     ),
                 ),
                 duration_seconds=60,
-            ).run(on_interval_complete=self.finish_interval)
+            ).run(on_interval_complete=self._finish_healthy_interval)
             result["measurement_and_postprocess_seconds"] = time.monotonic() - start
         except Exception as error:
             self.failures.append(f"{type(error).__name__}: {error}")
             self.record("failure", self.failures[-1])
         finally:
-            self.cleanup()
+            try:
+                self._stop_health_monitor()
+            finally:
+                self.cleanup()
             result["failures"] = self.failures
             result["passed"] = not self.failures
             (self.output / "summary.json").write_bytes(self.codec.encode_json(result))

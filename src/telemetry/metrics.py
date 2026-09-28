@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import re
 from datetime import datetime
 from fractions import Fraction
 from typing import Literal, Protocol
@@ -12,6 +13,8 @@ from typing import Literal, Protocol
 from financial_units import ExactRatio
 from serialization import DomainCodec, WireRecord
 from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringMode, MonitoringQuery
+
+_SHA256_TEXT = re.compile(r"[0-9a-f]{64}")
 
 
 class MetricInput(WireRecord, frozen=True):
@@ -140,9 +143,7 @@ class MetricResult(WireRecord, frozen=True):
         if type(self.input_ids) is not tuple or len(self.input_ids) > self.query.limit:
             raise ValueError("metric input identities must be bounded")
         if len(set(self.input_ids)) != len(self.input_ids) or any(
-            type(value) is not str
-            or len(value) != 64
-            or any(c not in "0123456789abcdef" for c in value)
+            type(value) is not str or _SHA256_TEXT.fullmatch(value) is None
             for value in self.input_ids
         ):
             raise ValueError("metric input identities must be distinct SHA256 values")
@@ -248,6 +249,48 @@ class MetricRegistry:
                 "metric implementation replaced selected definition or input identities"
             )
         return result
+
+    def evaluate_many(
+        self,
+        identities: tuple[str, ...],
+        query: MonitoringQuery,
+        events: tuple[MonitoringEvent, ...],
+    ) -> tuple[MetricResult, ...]:
+        """Validate one complete query, then isolate each metric's named/versioned inputs."""
+        query.__post_init__()
+        if (
+            type(identities) is not tuple
+            or len(identities) > 64
+            or len(set(identities)) != len(identities)
+        ):
+            raise ValueError("metric selections must be bounded and distinct")
+        if type(events) is not tuple or len(events) > query.limit:
+            raise ValueError("metric requires a bounded immutable event query")
+        series: dict[tuple[str, str], list[MonitoringEvent]] = {}
+        for event in events:
+            if type(event) is not MonitoringEvent:
+                raise TypeError("metric input events must be typed")
+            event.__post_init__()
+            if (
+                (event.context.scope, event.context.mode) != (query.scope, query.mode)
+                or not query.start <= event.at < query.end
+                or event.recorded_at > query.as_of
+                or event.available_at > query.as_of
+            ):
+                raise ValueError("metric input violates query scope or availability")
+            series.setdefault((event.name, event.version), []).append(event)
+        results: list[MetricResult] = []
+        for identity in identities:
+            definition = self._definitions.get(identity)
+            if definition is None:
+                raise ValueError("unregistered or changed monitoring definition")
+            selected = tuple(
+                event
+                for item in definition.spec.inputs
+                for event in series.get((item.name, item.version), ())
+            )
+            results.append(self.evaluate(identity, query, selected))
+        return tuple(results)
 
     @staticmethod
     def _order(event: MonitoringEvent) -> tuple[datetime, str, str]:

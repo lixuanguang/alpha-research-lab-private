@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 
 # third party library imports
 import pytest
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from financial_units import ExactRatio
@@ -20,12 +20,58 @@ from telemetry.dashboard import (
     DashboardBuilder,
     DashboardConfig,
     DashboardPanel,
+    DashboardRenderer,
     DashboardSnapshot,
     UnavailablePolicy,
 )
 from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringQuery
-from telemetry.metrics import MetricInput, MetricRegistry, MetricSpec, SeriesMetric
+from telemetry.metrics import MetricInput, MetricRegistry, MetricResult, MetricSpec, SeriesMetric
 from telemetry.operations import OperationalAlerts
+
+
+class _RetainedResultMetric:
+    """Retain an injected metric result so a later buggy definition can corrupt it."""
+
+    def __init__(self, metric: SeriesMetric) -> None:
+        """Wrap a normal exact definition and keep its most recent result."""
+        self.metric = metric
+        self.result: MetricResult | None = None
+
+    @property
+    def spec(self) -> MetricSpec:
+        """Expose the unchanged configured metric definition."""
+        return self.metric.spec
+
+    def evaluate(self, query: MonitoringQuery, events: tuple[MonitoringEvent, ...]) -> MetricResult:
+        """Return the normal result while retaining its reference for fault injection."""
+        self.result = self.metric.evaluate(query, events)
+        return self.result
+
+
+class _MutatingCallbackMetric:
+    """Corrupt an admitted input or earlier result inside the injected code boundary."""
+
+    def __init__(self, spec: MetricSpec, prior: _RetainedResultMetric | None = None) -> None:
+        """Select which prior admitted exact value the buggy callback will mutate."""
+        self.spec, self.prior = spec, prior
+
+    def evaluate(self, query: MonitoringQuery, events: tuple[MonitoringEvent, ...]) -> MetricResult:
+        """Return matching input identities after forcing a nested exact value invalid."""
+        if self.prior is None:
+            value = events[0].value
+        else:
+            assert self.prior.result is not None
+            value = self.prior.result.value
+        assert value is not None
+        force_setattr(value, "numerator", True)
+        return MetricResult(
+            spec=self.spec,
+            query=query,
+            value=ExactRatio(numerator="1", denominator="1"),
+            status="ok",
+            reason=None,
+            input_ids=tuple(event.identity for event in events),
+        )
 
 
 class TestDashboard:
@@ -337,3 +383,91 @@ class TestDashboard:
         assert len(title_ids) == len(set(title_ids))
         snapshot.write(tmp_path / "versions")
         assert DashboardSnapshot.read(tmp_path / "versions") == snapshot
+
+    def test_public_snapshot_boundaries_revalidate_mutated_events(self, tmp_path: Path) -> None:
+        """A frozen snapshot's render, identity and retention reject forced invalid input."""
+        metric = self._metric()
+        snapshot = DashboardBuilder.build(
+            self._config(metric),
+            self._query(),
+            (self._event("sample", 1, self._ratio(2)),),
+            MetricRegistry((metric,)),
+        )
+        force_setattr(snapshot.events[0], "recorded_at", self.start + timedelta(hours=5))
+        with pytest.raises(ValueError, match="selected query"):
+            snapshot.render_html()
+        with pytest.raises(ValueError, match="selected query"):
+            _ = snapshot.identity
+        with pytest.raises(ValueError, match="selected query"):
+            snapshot.write(tmp_path / "invalid")
+        assert not (tmp_path / "invalid").exists()
+
+    def test_renderer_reuse_matches_public_snapshots_at_changed_cutoffs_and_revisions(self) -> None:
+        """Event-only row reuse cannot freeze metric freshness, knowledge or revision text."""
+        metric = self._metric()
+        config, registry = self._config(metric), MetricRegistry((metric,))
+        renderer = DashboardRenderer(config, registry)
+        first = self._event("sample", 3, self._ratio(2))
+        query = self._query()
+        original = DashboardBuilder.build(config, query, (first,), registry)
+        assert renderer.render(query, (first,)) == (original.render_html(), original.identity)
+        late_query = self._query(as_of_hours=6)
+        stale = DashboardBuilder.build(config, late_query, (first,), registry)
+        assert stale.results[0].status == "stale"
+        assert renderer.render(late_query, (first,)) == (stale.render_html(), stale.identity)
+        correction = replace(
+            first,
+            value=self._ratio(9),
+            revision=1,
+            available_at=self.start + timedelta(hours=5),
+            recorded_at=self.start + timedelta(hours=5),
+        )
+        revised = DashboardBuilder.build(config, late_query, (correction,), registry)
+        assert renderer.render(late_query, (correction,)) == (
+            revised.render_html(),
+            revised.identity,
+        )
+        with pytest.raises(ValueError, match="scope or availability"):
+            renderer.render(query, (correction,))
+        force_setattr(first, "recorded_at", self.start + timedelta(hours=5))
+        with pytest.raises(ValueError, match="scope or availability"):
+            renderer.render(query, (first,))
+
+    @pytest.mark.parametrize("mutate_prior_result", (False, True))
+    def test_renderer_admits_inputs_and_results_after_injected_callbacks(
+        self, mutate_prior_result: bool
+    ) -> None:
+        """A buggy callback cannot poison an input or earlier result after their first admission."""
+        metric = self._metric()
+        prior = _RetainedResultMetric(metric)
+        poisoned = _MutatingCallbackMetric(
+            replace(metric.spec, name="callback-fault"), prior if mutate_prior_result else None
+        )
+        config = DashboardConfig(
+            title="Callback boundary",
+            panels=(
+                DashboardPanel(title="Normal", metric_identity=prior.spec.identity, kind="table"),
+                DashboardPanel(
+                    title="Injected", metric_identity=poisoned.spec.identity, kind="table"
+                ),
+            ),
+        )
+        renderer = DashboardRenderer(config, MetricRegistry((prior, poisoned)))
+        with pytest.raises(ValueError):
+            renderer.render(self._query(), (self._event("sample", 3, self._ratio(2)),))
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        (("clock_quality", "unsupported"), ("sensitivity", "unsupported"), ("units", "\n")),
+    )
+    def test_renderer_reuse_rejects_forced_unselected_event_metadata(
+        self, field: str, value: str
+    ) -> None:
+        """A reused row still needs full input admission even when no selected metric uses it."""
+        metric = self._metric()
+        renderer = DashboardRenderer(self._config(metric), MetricRegistry((metric,)))
+        event = replace(self._event("unselected", 1, self._ratio(2)), name="unselected")
+        renderer.render(self._query(), (event,))
+        force_setattr(event, field, value)
+        with pytest.raises(ValueError):
+            renderer.render(self._query(), (event,))

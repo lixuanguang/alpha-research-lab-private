@@ -317,6 +317,18 @@ class AccountJournal:
         if request.projection == "operation":
             return AccountExecutionResult(accounts=(), orders=())
         state = self._store.read()
+        if request.projection == "market_membership":
+            if request.account_id is None or request.query_market is None:
+                raise ValueError("market membership requires account and market identities")
+            if request.paper_owner is not None and request.paper_owner != self.paper_owner:
+                raise ValueError("paper_owner_stale_or_absent")
+            return AccountExecutionResult(
+                accounts=(),
+                orders=(),
+                market_seen=self._paper.market_seen(
+                    request.account_id, request.query_market, state=state
+                ),
+            )
         selected_accounts = (
             tuple(
                 account
@@ -574,6 +586,10 @@ class AccountJournal:
     def paper_traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
         """Read exact public inputs, scenarios and attributable modeled effects."""
         return self._paper.traces(account_id)
+
+    def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
+        """Read fresh account membership and recheck the bound managed owner generation."""
+        return self._paper.market_seen(account_id, market_identity)
 
     def paper_report_facts(
         self, account_id: str

@@ -11,7 +11,7 @@ from pathlib import Path
 
 # third party library imports
 import pytest
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from financial_units import ExactRatio
@@ -90,6 +90,25 @@ class MonitoringFixture:
 
 class TestTelemetryStore:
     """Exercise committed facts, query availability, retention and unsafe retries."""
+
+    def test_query_payload_reuse_checks_database_and_public_mutation(self, tmp_path: Path) -> None:
+        """Warm reads still admit another writer's revision and recover exact retained bytes."""
+        path = tmp_path / "telemetry.sqlite3"
+        store = TelemetryStore(path)
+        original = MonitoringFixture.event(value=Fraction(2))
+        assert store.append((original,)) == 1
+        selected = store.query(MonitoringFixture.query())[0]
+        force_setattr(selected, "value", ExactRatio(numerator="99", denominator="1"))
+        assert store.query(MonitoringFixture.query()) == (original,)
+        correction = MonitoringFixture.event(
+            value=Fraction(7), available=12, recorded=20, revision=1
+        )
+        assert TelemetryStore(path).append((correction,)) == 1
+        assert store.query(MonitoringFixture.query(19)) == (original,)
+        assert store.query(MonitoringFixture.query(20)) == (correction,)
+        assert store.prune(MonitoringFixture.at + timedelta(seconds=1)) == 2
+        with pytest.raises(ValueError, match="predates retained history"):
+            store.query(MonitoringFixture.query())
 
     def test_revisions_have_independent_knowledge_and_receipt_cutoffs(self, tmp_path: Path) -> None:
         """A source correction cannot revise an earlier retained diagnostic."""
@@ -312,3 +331,51 @@ class TestMonitoringMetrics:
                 .replace(b"monitoring-event-v1", b"monitoring-event-v9"),
                 MonitoringEvent,
             )
+
+    def test_text_admission_preserves_control_and_utf8_boundaries(self) -> None:
+        """Reject original control bytes while keeping exact Unicode and byte-limit semantics."""
+        for character in range(32):
+            with pytest.raises(ValueError, match="bounded and nonempty"):
+                MonitoringIdentity(scope=f"account{chr(character)}one", mode="paper")
+        for scope in (" ", "é" * 129):
+            with pytest.raises(ValueError, match="bounded and nonempty"):
+                MonitoringIdentity(scope=scope, mode="paper")
+        for scope in ("é" * 128, "scope\u007f", "市场:账户", "with space"):
+            assert MonitoringIdentity(scope=scope, mode="paper").scope == scope
+
+    def test_grouped_evaluation_preserves_version_units_and_full_query_cutoffs(self) -> None:
+        """Grouping cannot discard an unrelated future fact or substitute a newer version."""
+        spec = MonitoringFixture.metric()
+        registry = MetricRegistry((SeriesMetric(spec),))
+        first = MonitoringFixture.event()
+        newer = replace(first, version="v2", value=ExactRatio(numerator="99", denominator="1"))
+        query = MonitoringFixture.query()
+        direct = registry.evaluate(spec.identity, query, (first, newer))
+        assert registry.evaluate_many((spec.identity,), query, (first, newer)) == (direct,)
+        for invalid in (
+            replace(
+                first,
+                name="unselected",
+                available_at=MonitoringFixture.at + timedelta(seconds=20),
+                recorded_at=MonitoringFixture.at + timedelta(seconds=20),
+            ),
+            replace(first, units="USD"),
+            replace(first, context=replace(first.context, scope="different")),
+        ):
+            with pytest.raises(ValueError):
+                registry.evaluate_many((spec.identity,), query, (invalid,))
+
+    def test_grouped_evaluation_keeps_revision_and_nested_ratio_admission(self) -> None:
+        """Selected duplicate revisions and an unselected force-mutated value remain invalid."""
+        spec = MonitoringFixture.metric()
+        registry = MetricRegistry((SeriesMetric(spec),))
+        first = MonitoringFixture.event()
+        with pytest.raises(ValueError, match="selected revision"):
+            registry.evaluate_many(
+                (spec.identity,), MonitoringFixture.query(), (first, replace(first, revision=1))
+            )
+        unrelated = MonitoringFixture.event(name="unselected")
+        assert unrelated.value is not None
+        force_setattr(unrelated.value, "numerator", "invalid")
+        with pytest.raises(ValueError):
+            registry.evaluate_many((spec.identity,), MonitoringFixture.query(), (unrelated,))

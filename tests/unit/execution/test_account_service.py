@@ -219,6 +219,7 @@ class TestAccountOwnerService:
                 paper_owner=owner,
             )
             assert account.accounts()[0].ledger.account_id == owner.account_id
+            assert account.paper_market_seen(owner.account_id, "unseen-service-market") is False
             stopped_instance = account.execute(
                 AccountExecutionRequest(
                     action="stop_instance",
@@ -260,6 +261,8 @@ class TestAccountOwnerService:
             )
             with pytest.raises(RuntimeError, match="paper_owner_stale_or_absent"):
                 peer.block(owner.account_id, "peer-must-not-stop-owner")
+            with pytest.raises(RuntimeError, match="paper_owner_stale_or_absent"):
+                peer.paper_market_seen(owner.account_id, "unseen-service-market")
             assert account.accounts()[0].operator_block is None
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stalled:
                 stalled.connect(str(socket_path))

@@ -39,6 +39,7 @@ from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from serialization import DomainCodec
 from strategies import OrderIntent
+from telemetry import MonitoringQuery
 from telemetry.store import TelemetryStore
 
 
@@ -556,6 +557,56 @@ class TestAccountOperations:
             numerator="20000", denominator="1"
         )
         assert TelemetryStore(tmp_path / "monitor.sqlite3").append(events) == len(events)
+
+    def test_telemetry_identity_binds_to_application_lifetime(self, tmp_path: Path) -> None:
+        """Repeated operations retain one fingerprint; a new application binds afresh."""
+        journal_path = tmp_path / "accounts.sqlite3"
+        self._ready(journal_path)
+        codec = DomainCodec()
+        config_path, request_path = tmp_path / "config.json", tmp_path / "request.json"
+        config_path.write_bytes(codec.encode_json(self._config()))
+        request_path.write_bytes(
+            codec.encode_json(
+                AccountExecutionRequest(
+                    action="control",
+                    control=self._control(
+                        "stop:east", "east", "stop", self._at(4), reason="operator"
+                    ),
+                )
+            )
+        )
+        application = AccountExecutionApplication()
+        with patch(
+            "applications.execute.accounts.InstalledIdentity.sha256",
+            side_effect=("a" * 64, "b" * 64),
+        ) as fingerprint:
+            for index, current in enumerate(
+                (application, application, AccountExecutionApplication())
+            ):
+                telemetry_path = tmp_path / f"monitor-{index}.sqlite3"
+                result = current.run(
+                    config_path=config_path,
+                    journal_path=journal_path,
+                    request_path=request_path,
+                    telemetry_path=telemetry_path,
+                )
+                assert result.control is not None and result.control.status == "applied"
+                assert result.telemetry_error is None
+                cutoff = datetime.now(UTC)
+                events = TelemetryStore(telemetry_path).query(
+                    MonitoringQuery(
+                        scope="account:east",
+                        mode="paper",
+                        start=self.opening_at,
+                        end=cutoff,
+                        as_of=cutoff,
+                    )
+                )
+                assert events
+                assert {event.context.release for event in events} == {
+                    ("a" if index < 2 else "b") * 64
+                }
+            assert fingerprint.call_count == 2
 
     def test_telemetry_storage_failure_cannot_undo_applied_stop(self, tmp_path: Path) -> None:
         """An unusable monitor path is reported after the account stop commits."""

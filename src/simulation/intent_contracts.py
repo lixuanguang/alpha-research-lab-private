@@ -77,7 +77,7 @@ class IntentMarket(WireRecord, frozen=True):
         if self.book is not None:
             if type(self.book) is not BookObservation or self.book.orders:
                 raise ValueError("intent market requires canonical aggregate L2 state")
-            self.book.__post_init__()
+            BookObservation.__post_init__(self.book)
             if self.clock_assumption == "source-and-knowledge":
                 if BookFeatures.source_at(self.book) != self.source_at:
                     raise ValueError("canonical book source clock differs from market input")

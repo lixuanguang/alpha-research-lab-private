@@ -119,6 +119,30 @@ class AccountPaperMatching:
             if account_id is None or trace.account_id == account_id
         )
 
+    def market_seen(
+        self, account_id: str, market_identity: str, *, state: _FirmState | None = None
+    ) -> bool:
+        """Inspect committed or failed membership under the snapshot's current owner."""
+        if (
+            type(account_id) is not str
+            or not account_id
+            or type(market_identity) is not str
+            or not market_identity
+        ):
+            raise ValueError("market membership requires account and market identities")
+        state = self.store.read() if state is None else state
+        transaction = _AccountTransaction(state)
+        transaction.account(account_id)
+        if self.owner is not None:
+            self.owner.__post_init__()
+        PaperAuthority.require_owner(
+            transaction, account_id, self.owner, at=self.clock(), new_exposure=False
+        )
+        return any(
+            trace.account_id == account_id and trace.market.identity == market_identity
+            for trace in state.paper_traces
+        )
+
     def match(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
     ) -> AccountPaperTrace:

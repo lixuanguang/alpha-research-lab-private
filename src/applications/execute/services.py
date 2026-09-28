@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import concurrent.futures
 import errno
 import fcntl
 import hashlib
@@ -15,7 +16,7 @@ from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from multiprocessing.connection import Connection
+from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
 from multiprocessing.synchronize import Event
 from pathlib import Path
@@ -139,9 +140,14 @@ class _SourceChild:
 class PaperServices:
     """Own local child lifetime and deterministic per-source/account scheduling.
 
-    Sources are visited in name order, one durable frame per turn. Each account's
-    cohort is evaluated in instance order by the existing shared runtime. Policy
-    children have no account client: the parent commits their complete cohort once.
+    Sources are visited in name order, one durable frame per turn. Sources with
+    disjoint accounts may keep one observation in flight across turns. A source
+    receives its next frame only after completion; every job joins before a
+    lifecycle, control, phase or status mutation. Health checks continue while
+    jobs are pending. Shared-account sources remain serial.
+    Each account's cohort is evaluated in instance order by the existing shared
+    runtime. Policy children have no account client: the parent commits their
+    complete cohort once.
     No uncertain account operation is retried. Operator recovery uses retained
     facts and the separate signed account command, then a new explicit launch.
     """
@@ -210,6 +216,28 @@ class PaperServices:
         self.delivery_accounting: dict[str, object] = {}
         self.is_stopping = False
         self.run_id = uuid4().hex
+        self._observation_executor: concurrent.futures.ThreadPoolExecutor | None = None
+        self._has_disjoint_source_accounts = self._sources_have_disjoint_accounts()
+        self._pending_observations: dict[
+            str, concurrent.futures.Future[tuple[tuple[str, Exception], ...]]
+        ] = {}
+        self._observation_wake_receiver: socket.socket | None = None
+        self._observation_wake_sender: socket.socket | None = None
+        self._next_owner_health_ns = 0
+
+    def _sources_have_disjoint_accounts(self) -> bool:
+        """Permit parallel source observations only with distinct complete account sets."""
+        source_accounts: dict[str, set[str]] = {}
+        for instance in self.config.instances:
+            source_accounts.setdefault(instance.source, set()).add(instance.account_id)
+        if len(source_accounts) < 2:
+            return False
+        seen: set[str] = set()
+        for account_ids in source_accounts.values():
+            if seen.intersection(account_ids):
+                return False
+            seen.update(account_ids)
+        return True
 
     def policy(self, instance: PaperServiceInstance) -> DecisionPolicy:
         """Resolve the explicitly selected installed reference formula without fallback."""
@@ -348,6 +376,8 @@ class PaperServices:
                     os.fsync(stream.fileno())
             listener = self._listen()
             try:
+                if self._has_disjoint_source_accounts:
+                    self._start_observation_executor(stack)
                 self.diagnostics = PaperServiceDiagnostics(
                     self.config,
                     self.owners,
@@ -373,13 +403,20 @@ class PaperServices:
                         self._write_status()
                         next_sample = time.monotonic() + self.config.poll_seconds
                     if not consumed:
-                        time.sleep(0.02)
+                        self._wait_for_source()
             finally:
-                self._shutdown(listener, deadline=service_deadline)
+                try:
+                    self._join_observations()
+                finally:
+                    try:
+                        self._shutdown(listener, deadline=service_deadline)
+                    finally:
+                        self._observation_executor = None
             return self.status()
 
     def _shutdown(self, listener: socket.socket, *, deadline: float | None = None) -> None:
         """Fence every child and request every account stop despite diagnostic close failure."""
+        self._join_observations()
         self.is_stopping = True
         drain_deadline = min(
             time.monotonic() + 10.0,
@@ -430,6 +467,7 @@ class PaperServices:
 
     def status(self) -> dict[str, object]:
         """Expose liveness, freshness and economic observations as separate signals."""
+        self._join_observations()
         source_states: dict[str, object] = {}
         for name, child in self.sources.items():
             try:
@@ -469,6 +507,7 @@ class PaperServices:
     def apply(self, control: PaperServiceControl) -> dict[str, object]:
         """Apply one explicit operator command without clearing account-wide protection."""
         control.__post_init__()
+        self._join_observations()
         controls = self.root / "controls"
         controls.mkdir(exist_ok=True)
         control_path = controls / f"{hashlib.sha256(control.identity.encode()).hexdigest()}.json"
@@ -548,12 +587,14 @@ class PaperServices:
 
     def _start_instance(self, name: str) -> None:
         """Spawn one policy with no journal or account credentials."""
+        self._join_observations()
         self.workers[name] = ProcessDecisionPolicy(
             self.policy(self.instances[name]), timeout_seconds=self.config.worker_timeout_seconds
         )
 
     def _start_source(self, source: PaperServiceSource) -> None:
         """Create a fresh unsynchronized native recording and its independently watched child."""
+        self._join_observations()
         request = CaptureRequest(
             config=source.capture,
             recording_id=str(uuid4()),
@@ -594,6 +635,7 @@ class PaperServices:
 
     def _refresh_observers(self, source_name: str) -> None:
         """Replace only a cohort selection while retaining each native book and last mark."""
+        self._join_observations()
         child = self.sources.get(source_name)
         if child is None:
             return
@@ -673,9 +715,75 @@ class PaperServices:
                 measurements=measurements,
             )
 
-    def _supervise(self) -> bool:
-        """Fence failed children and consume at most one delivery per source this pass."""
-        consumed = False
+    def _wait_for_source(self) -> None:
+        """Wake on a source delivery while bounding control and health polling delay."""
+        if any(future.done() for future in self._pending_observations.values()):
+            return
+        receivers: list[Connection[bytes, bytes] | socket.socket] = [
+            child.receiver
+            for name, child in self.sources.items()
+            if not child.pipe_drained
+            and not child.receiver.closed
+            and name not in self._pending_observations
+        ]
+        timeout = 0.02
+        if self._observation_executor is not None and self._has_disjoint_source_accounts:
+            timeout = min(
+                timeout,
+                max(0.0, (self._next_owner_health_ns - time.monotonic_ns()) / 1_000_000_000),
+            )
+        if self._pending_observations and self._observation_wake_receiver is not None:
+            receivers.append(self._observation_wake_receiver)
+        if receivers:
+            wait(receivers, timeout=timeout)
+        elif self._pending_observations:
+            concurrent.futures.wait(
+                tuple(self._pending_observations.values()),
+                timeout=timeout,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+        else:
+            time.sleep(timeout)
+
+    def _start_observation_executor(self, stack: ExitStack) -> None:
+        """Own completion sockets until every worker and completion callback has joined."""
+        receiver, sender = socket.socketpair()
+        stack.callback(receiver.close)
+        stack.callback(sender.close)
+        stack.callback(self._clear_observation_executor)
+        receiver.setblocking(False)
+        sender.setblocking(False)
+        self._observation_wake_receiver, self._observation_wake_sender = receiver, sender
+        self._observation_executor = stack.enter_context(
+            concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(self.config.accounts), thread_name_prefix="paper-source"
+            )
+        )
+
+    def _clear_observation_executor(self) -> None:
+        """Clear run-owned references after the executor has joined its callbacks."""
+        self._observation_executor = None
+        self._observation_wake_receiver = self._observation_wake_sender = None
+
+    def _notify_observation_completion(
+        self, _future: concurrent.futures.Future[tuple[tuple[str, Exception], ...]]
+    ) -> None:
+        """Coalesce a completed job into one bounded, nonblocking wake notification."""
+        sender = self._observation_wake_sender
+        if sender is not None:
+            try:
+                sender.send(b"\0")
+            except BlockingIOError:
+                # A queued notification already makes the receiver readable.
+                pass
+
+    def _check_owner_health(self) -> None:
+        """Fence owner loss within the existing idle bound without caching RPC authority."""
+        if self._observation_executor is not None and self._has_disjoint_source_accounts:
+            checked_ns = time.monotonic_ns()
+            if checked_ns < self._next_owner_health_ns:
+                return
+            self._next_owner_health_ns = checked_ns + 20_000_000
         for definition in self.config.accounts:
             if definition.account_id in self.faulted_accounts:
                 continue
@@ -700,7 +808,16 @@ class PaperServices:
                     raise ValueError("account owner heartbeat is stale or replaced")
                 os.kill(health.pid, 0)
             except (OSError, ValueError, TypeError) as error:
+                self._join_observations()
                 self._fault_account(definition.account_id, "account_owner_lost", str(error))
+
+    def _supervise(self) -> bool:
+        """Fence failed children and consume at most one delivery per source this pass."""
+        self._finish_observations()
+        consumed = False
+        executor = self._observation_executor if self._has_disjoint_source_accounts else None
+        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery]] = []
+        self._check_owner_health()
         for name in tuple(sorted(self.active)):
             worker = self.workers[name]
             try:
@@ -709,7 +826,9 @@ class PaperServices:
             except TimeoutError:
                 has_stalled = True
             if not worker.is_alive or has_stalled:
-                self._stop_instance(name, "worker_lost")
+                self._join_observations()
+                if name in self.active:
+                    self._stop_instance(name, "worker_lost")
         for name, child in tuple(sorted(self.sources.items())):
             if child.pipe_drained or child.receiver.closed:
                 continue
@@ -734,6 +853,8 @@ class PaperServices:
                         self._close_source(child)
                         self._fault_source(name, reason)
                         continue
+                if name in self._pending_observations:
+                    continue
                 if child.receiver.poll():
                     try:
                         payload = child.receiver.recv_bytes(16_777_216)
@@ -747,6 +868,9 @@ class PaperServices:
                         raise ValueError("source pipe delivery position differs from durable order")
                     child.received_count += 1
                     consumed = True
+                    if executor is not None:
+                        ready.append((child, delivery))
+                        continue
                     for account_id, observer in sorted(child.observers.items()):
                         if account_id in self.unavailable_accounts:
                             continue
@@ -759,45 +883,124 @@ class PaperServices:
                             )
                         try:
                             observer._observe_validated(delivery.record, delivery.book)
-                        except PolicyProcessFailure as error:
-                            failed_worker = next(
-                                (
-                                    instance
-                                    for instance in sorted(self.active)
-                                    if self.workers[instance].pid == error.pid
-                                    and self.instances[instance].account_id == account_id
-                                ),
-                                None,
-                            )
-                            if failed_worker is None:
-                                self._fault_account(
-                                    account_id, "unidentified_policy_failure", str(error)
-                                )
-                            else:
-                                # Only this typed pre-commit failure proves that no
-                                # cohort admission was attempted. Earlier matching
-                                # receipts remain committed and are never replayed.
-                                self._stop_instance(failed_worker, "worker_lost_during_decision")
                         except Exception as error:
-                            failed = tuple(
-                                instance
-                                for instance in tuple(self.active)
-                                if not self.workers[instance].is_alive
-                            )
-                            for instance in failed:
-                                self._stop_instance(instance, "worker_lost_during_decision")
-                            # A coincident worker death does not classify an account
-                            # response or delivery failure as a rejected transaction.
-                            self._fault_account(
-                                account_id, "account_or_delivery_failure", str(error)
-                            )
+                            self._observer_failed(account_id, error)
             except (OSError, EOFError, ValueError, TimeoutError) as error:
                 self._close_source(child)
                 self._fault_source(name, f"source_failure:{type(error).__name__}")
+        if executor is not None:
+            # Collect this pass's health/receive results before adding jobs. Older
+            # jobs may remain in flight; each lifecycle fence joins them first.
+            self._observe_ready_sources(ready, executor)
         return consumed
+
+    def _observe_ready_sources(
+        self,
+        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery]],
+        executor: concurrent.futures.ThreadPoolExecutor,
+    ) -> None:
+        """Own at most one in-flight frame per disjoint source across supervisor turns."""
+        try:
+            for child, delivery in ready:
+                observers = []
+                for account_id, observer in sorted(child.observers.items()):
+                    if account_id in self.unavailable_accounts:
+                        continue
+                    if account_id in self.faulted_accounts:
+                        observer.inputs = ServiceBookInputs(
+                            (), child.definition.freshness_us, child.definition.market_interval_us
+                        )
+                    observers.append((account_id, observer))
+                if observers:
+                    future = executor.submit(self._observe_source_group, delivery, tuple(observers))
+                    self._pending_observations[child.definition.name] = future
+                    future.add_done_callback(self._notify_observation_completion)
+        except BaseException:
+            self._join_observations()
+            raise
+
+    def _finish_observations(self) -> None:
+        """Release completed source slots and fence failures after every other job joins."""
+        receiver = self._observation_wake_receiver
+        if receiver is not None:
+            try:
+                # At most four jobs plus their preceding callbacks can notify
+                # between turns; one bounded drain also tolerates coalescing.
+                receiver.recv(64)
+            except BlockingIOError:
+                pass
+        completed = [
+            name for name, future in sorted(self._pending_observations.items()) if future.done()
+        ]
+        failures: list[tuple[str, Exception]] = []
+        try:
+            for name in completed:
+                failures.extend(self._pending_observations.pop(name).result())
+            if failures and self._pending_observations:
+                concurrent.futures.wait(tuple(self._pending_observations.values()))
+                for name in sorted(tuple(self._pending_observations)):
+                    failures.extend(self._pending_observations.pop(name).result())
+        except BaseException:
+            concurrent.futures.wait(tuple(self._pending_observations.values()))
+            self._pending_observations.clear()
+            raise
+        # Every failed future has been removed and every outstanding job joined
+        # before handlers can recursively stop, fault or refresh another owner.
+        for account_id, error in failures:
+            self._observer_failed(account_id, error)
+
+    def _join_observations(self) -> None:
+        """Finish all owned source work before a supervisor lifecycle or status mutation."""
+        if self._pending_observations:
+            concurrent.futures.wait(tuple(self._pending_observations.values()))
+            self._finish_observations()
+
+    @staticmethod
+    def _observe_source_group(
+        delivery: _ReceivedSourceDelivery,
+        observers: tuple[tuple[str, SharedPaperCaptureObserver], ...],
+    ) -> tuple[tuple[str, Exception], ...]:
+        """Preserve a source's account order without mutating supervisor lifecycle state."""
+        failures: list[tuple[str, Exception]] = []
+        for account_id, observer in observers:
+            try:
+                observer._observe_validated(delivery.record, delivery.book)
+            except Exception as error:
+                failures.append((account_id, error))
+        return tuple(failures)
+
+    def _observer_failed(self, account_id: str, error: Exception) -> None:
+        """Classify an observer failure on the supervisor after all parallel jobs joined."""
+        self._join_observations()
+        if isinstance(error, PolicyProcessFailure):
+            failed_worker = next(
+                (
+                    instance
+                    for instance in sorted(self.active)
+                    if self.workers[instance].pid == error.pid
+                    and self.instances[instance].account_id == account_id
+                ),
+                None,
+            )
+            if failed_worker is None:
+                self._fault_account(account_id, "unidentified_policy_failure", str(error))
+            else:
+                # Only this typed pre-commit failure proves that no cohort admission
+                # was attempted. Earlier matching receipts are never replayed.
+                self._stop_instance(failed_worker, "worker_lost_during_decision")
+        else:
+            failed = tuple(
+                instance for instance in tuple(self.active) if not self.workers[instance].is_alive
+            )
+            for instance in failed:
+                self._stop_instance(instance, "worker_lost_during_decision")
+            # A coincident worker death does not classify an uncertain account
+            # response or delivery failure as a rejected transaction.
+            self._fault_account(account_id, "account_or_delivery_failure", str(error))
 
     def _stop_instance(self, name: str, reason: str) -> None:
         """Stop a policy before durable selective cancellation, preserving every other owner."""
+        self._join_observations()
         definition = self.instances[name]
         worker = self.workers.get(name)
         if worker is not None:
@@ -824,6 +1027,7 @@ class PaperServices:
 
     def _fault_source(self, name: str, reason: str) -> None:
         """Stop every dependent account's new exposure without assuming unrelated source health."""
+        self._join_observations()
         for account_id in sorted(
             {item.account_id for item in self.config.instances if item.source == name}
         ):
@@ -831,6 +1035,7 @@ class PaperServices:
 
     def _fault_account(self, account_id: str, reason: str, detail: str) -> None:
         """Terminate dependents before attempting the independent durable account fault."""
+        self._join_observations()
         if reason in ("account_owner_lost", "account_or_delivery_failure", "selective_stop_failed"):
             self.unavailable_accounts.add(account_id)
         if account_id in self.faulted_accounts:
@@ -845,6 +1050,7 @@ class PaperServices:
 
     def _stop_account_workers(self, account_id: str) -> None:
         """Fence all dependent policies without changing an existing account stop identity."""
+        self._join_observations()
         for name in tuple(self.active):
             if self.instances[name].account_id == account_id:
                 self.workers[name].close()
@@ -947,6 +1153,7 @@ class PaperServices:
 
     def _sample(self) -> None:
         """Keep protection reads on cadence while full reports run in their own process."""
+        self._join_observations()
         self._collect_diagnostics()
         latest_markets: dict[str, tuple[PaperMarket, ...]] = {}
         for account_id, account in self.accounts.items():
@@ -1004,6 +1211,7 @@ class PaperServices:
         except BlockingIOError:
             return
         with connection:
+            self._join_observations()
             connection.settimeout(2)
             try:
                 payload = bytearray()
@@ -1079,9 +1287,9 @@ class PaperServices:
             reason=reason,
         )
 
-    @staticmethod
-    def _close_source(child: _SourceChild, *, deadline: float | None = None) -> None:
+    def _close_source(self, child: _SourceChild, *, deadline: float | None = None) -> None:
         """Fence a source before releasing its receiver or starting a replacement."""
+        self._join_observations()
         if child.process.pid is not None:
             if child.process.is_alive():
                 child.process.terminate()

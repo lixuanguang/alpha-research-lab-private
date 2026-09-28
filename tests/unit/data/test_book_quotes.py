@@ -14,6 +14,7 @@ import pytest
 from msgspec.structs import force_setattr, replace
 
 # project library imports
+from applications.execute.source_service import _DecodedBookObservation
 from configuration import CaptureConfig
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookDepth, BookProjection, CaptureReplay
@@ -34,6 +35,18 @@ _BITFINEX_ACK = (
     b'"prec":"R0","freq":"F0","len":"25"}'
 )
 _OKX_ACK = b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}'
+
+
+class _ReferencedSize(Decimal):
+    """Model a numerically exact scalar subclass that can hold an owning book reference."""
+
+    owner: Level | None = None
+
+
+class _ReferencedCount(int):
+    """Model an integer subclass that can retain an owning book reference."""
+
+    owner: Level | None = None
 
 
 class _BookScenario:
@@ -372,6 +385,52 @@ class TestBookQuoteContract:
                 available_ns=None,
             )
 
+    @pytest.mark.parametrize("venue", ("okx", "bitfinex"))
+    def test_public_depth_revalidates_decoded_nested_records(
+        self, venue: Literal["okx", "bitfinex"]
+    ) -> None:
+        """Decoded native children remain guarded at every public depth entry."""
+        scenario = _BookScenario(venue)
+        if venue == "okx":
+            scenario.push("session")
+            scenario.push("frame", raw=_OKX_ACK)
+            row, _ = scenario.push(
+                "frame",
+                raw=self._okx_frame(
+                    "snapshot", -1, 10, [["100", "1", "0", "1"]], [["101", "2", "0", "1"]]
+                ),
+            )
+        else:
+            scenario.acknowledge_bitfinex(0)
+            row, _ = scenario.push("frame", raw=b"[7,[[1,100,1],[2,101,-2]],1]")
+        codec = DomainCodec()
+        decoded = codec.decode_json(codec.encode_json(row), _DecodedBookObservation)
+        depth = BookDepth.from_observation(decoded)
+        if decoded.orders:
+            force_setattr(decoded.orders[0], "size", Decimal(0))
+        else:
+            force_setattr(decoded.bids[0][1], "size", Decimal(0))
+        with pytest.raises(ValueError):
+            BookDepth.from_observation(decoded)
+        with pytest.raises(ValueError):
+            BookDepth.touch_quote(
+                decoded,
+                venue=scenario.config.venue,
+                instrument_id=scenario.config.instrument_id,
+                source_id="saved-native-source",
+                channel=scenario.config.channel,
+                available_ns=None,
+            )
+        with pytest.raises(ValueError):
+            depth.quote(
+                decoded,
+                venue=scenario.config.venue,
+                instrument_id=scenario.config.instrument_id,
+                source_id="saved-native-source",
+                channel=scenario.config.channel,
+                available_ns=None,
+            )
+
     @staticmethod
     def _assert_touch_matches_depth(
         scenario: _BookScenario, row: BookObservation, available_ns: int | None
@@ -432,3 +491,15 @@ class TestBookQuoteContract:
             codec.decode_json(
                 encoded.replace(b'"available_ns":null', b'"available_ns":-1'), BookQuote
             )
+
+    def test_level_rejects_scalar_subclasses_that_can_retain_native_references(self) -> None:
+        """The cycle-free leaf contract requires exact scalar types even at positive values."""
+        original = Level(Decimal("4"), 1)
+        size = _ReferencedSize("4")
+        size.owner = original
+        count = _ReferencedCount(1)
+        count.owner = original
+        with pytest.raises(ValueError, match="aggregate levels"):
+            Level(size, 1)
+        with pytest.raises(ValueError, match="aggregate levels"):
+            Level(Decimal("4"), count)
