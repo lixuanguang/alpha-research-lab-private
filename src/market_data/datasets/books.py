@@ -263,7 +263,7 @@ class BookStream:
     @staticmethod
     def validate_row(selection: BookInput, position: int, row: BookObservation) -> None:
         """Preserve original positions and source-specific clock absence or presence."""
-        row.__post_init__()
+        BookObservation.__post_init__(row)
         if row.position != position:
             raise ValueError("book history requires contiguous original positions")
         if selection.archive is not None and any(

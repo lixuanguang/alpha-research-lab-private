@@ -8,6 +8,7 @@ from telemetry.dashboard import (
     DashboardBuilder,
     DashboardConfig,
     DashboardPanel,
+    DashboardRenderer,
     DashboardSnapshot,
 )
 from telemetry.defaults import MonitoringDefinitions
@@ -34,6 +35,7 @@ __all__ = [
     "DashboardBuilder",
     "DashboardConfig",
     "DashboardPanel",
+    "DashboardRenderer",
     "DashboardSnapshot",
     "DelayedLabelError",
     "HealthAlert",

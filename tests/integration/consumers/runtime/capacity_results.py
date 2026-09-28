@@ -37,6 +37,7 @@ class _ReadRun(msgspec.Struct, frozen=True):
     steady_ended_at_utc: str | None = None
     started_monotonic_ns: int | None = None
     steady_ended_monotonic_ns: int | None = None
+    scheduled_stop_monotonic_ns: int | None = None
 
 
 class _FixtureReceipts(msgspec.Struct, frozen=True):
@@ -123,6 +124,12 @@ class _ReadSample(msgspec.Struct, frozen=True):
     phase: str
     seconds: float
     status: str
+    reader_id: str | None = None
+    request_index: int | None = None
+    slot: int | None = None
+    scheduled_monotonic_ns: int | None = None
+    started_monotonic_ns: int | None = None
+    completed_monotonic_ns: int | None = None
 
 
 class _LatencySeries:
@@ -168,6 +175,106 @@ class _LatencySeries:
         return result
 
 
+class _ReaderSchedule:
+    """Retain one reader's complete trace and qualify only actual completed slots."""
+
+    def __init__(self, budgets_ms: tuple[int, int, int]) -> None:
+        """Keep complete observations distinct from the declared sixty-second cohort."""
+        self.retained = _LatencySeries(budgets_ms)
+        self.completed = _LatencySeries(budgets_ms)
+        self.response = _LatencySeries(budgets_ms)
+        self.queue_delay = _LatencySeries(None)
+        self.retained_response = _LatencySeries(budgets_ms)
+        self.retained_queue_delay = _LatencySeries(None)
+        self.attempts = 0
+        self.failures = 0
+        self.missed = 0
+        self.missing_clocks = 0
+        self.invalid_clocks = 0
+        self.slots: set[int] = set()
+
+    def add(self, row: _ReadSample, window: tuple[int, int] | None) -> None:
+        """Count every refusal while checking request identity, clocks and completion."""
+        if row.status == "ok":
+            self.retained.add(round(row.seconds * 1_000_000_000))
+        if row.status == "missed":
+            self.missed += 1
+        else:
+            self.attempts += 1
+            self.failures += row.status == "failed"
+        slot, due = row.slot, row.scheduled_monotonic_ns
+        if (
+            window is None
+            or row.reader_id is None
+            or row.request_index is None
+            or slot is None
+            or due is None
+        ):
+            self.missing_clocks += 1
+            return
+        start, stop = window
+        if (
+            row.reader_id != row.target
+            or row.request_index != slot
+            or not 0 <= slot < 300
+            or slot in self.slots
+            or due != start + slot * 200_000_000
+        ):
+            self.invalid_clocks += 1
+            return
+        self.slots.add(slot)
+        began, finished = row.started_monotonic_ns, row.completed_monotonic_ns
+        if row.status == "missed":
+            if began is not None or finished is not None or row.seconds != 0:
+                self.invalid_clocks += 1
+            return
+        if began is None or finished is None:
+            self.missing_clocks += 1
+            return
+        if (
+            began < due
+            or began >= stop
+            or finished < began
+            or abs(round(row.seconds * 1_000_000_000) - (finished - began)) > 1000
+        ):
+            self.invalid_clocks += 1
+            return
+        if row.status == "ok":
+            self.retained_response.add(finished - due)
+            self.retained_queue_delay.add(began - due)
+            if finished <= stop:
+                self.completed.add(finished - began)
+                self.response.add(finished - due)
+                self.queue_delay.add(began - due)
+
+    def summarize(self, *, verified_window: bool) -> dict[str, object]:
+        """Require three hundred successful completions from every declared slot."""
+        schedule_complete = (
+            verified_window
+            and self.slots == set(range(300))
+            and len(self.completed.values_ns) == 300
+            and self.attempts == 300
+            and not (self.failures or self.missed or self.missing_clocks or self.invalid_clocks)
+        )
+        return {
+            **self.retained.summarize(),
+            "attempts": self.attempts,
+            "failures": self.failures,
+            "missed_slots": self.missed,
+            "completed_within_interval": len(self.completed.values_ns),
+            "distinct_scheduled_slots": len(self.slots),
+            "missing_clock_rows": self.missing_clocks,
+            "invalid_clock_rows": self.invalid_clocks,
+            "response_latency": self.response.summarize(),
+            "queue_delay": self.queue_delay.summarize(),
+            "schedule_status": "pass"
+            if schedule_complete
+            else "unmeasured"
+            if not verified_window or self.missing_clocks
+            else "fail",
+        }
+
+
 class CapacityResultsCollector:
     """Join actual signed-service captures, opt-in probes and concurrent read evidence."""
 
@@ -193,9 +300,12 @@ class CapacityResultsCollector:
             raise ValueError(f"incomplete capacity measurement row: {path}")
         return tuple(payload.splitlines())
 
-    def _capture_probe(self, path: Path) -> tuple[dict[str, object], dict[int, _CaptureBoundary]]:
+    def _capture_probe(
+        self, path: Path, steady_window_ns: tuple[int, int] | None = None
+    ) -> tuple[dict[str, object], dict[int, _CaptureBoundary]]:
         """Summarize one source's unpooled receipt, fsync, cursor and queue trace."""
         receipt = _LatencySeries((50, 250, 1000))
+        steady_receipt = _LatencySeries((50, 250, 1000))
         append = _LatencySeries(None)
         fsync = _LatencySeries(None)
         checkpoint = _LatencySeries(None)
@@ -227,6 +337,11 @@ class CapacityResultsCollector:
                     raise ValueError(f"invalid capture probe clocks or cursor: {path}")
                 cursors[row.cursor] = row
                 receipt.add(row.receipt_to_durable_ns)
+                if (
+                    steady_window_ns is not None
+                    and steady_window_ns[0] <= row.receipt_ns < steady_window_ns[1]
+                ):
+                    steady_receipt.add(row.receipt_to_durable_ns)
                 append.add(row.append_to_durable_ns)
                 fsync.add(row.record_fsync_ns)
                 checkpoint.add(row.cursor_checkpoint_ns)
@@ -267,6 +382,10 @@ class CapacityResultsCollector:
                 if path.is_file()
                 else None,
                 "receipt_to_durable": receipt.summarize(),
+                "latency_population": "complete_recording_including_startup_and_shutdown",
+                "steady_receipt_to_durable": steady_receipt.summarize(),
+                "steady_receipt_population": "native_receipts_started_within_monotonic_interval",
+                "steady_monotonic_interval_ns": steady_window_ns,
                 "append_to_durable": append.summarize(),
                 "record_fsync": fsync.summarize(),
                 "cursor_checkpoint": checkpoint.summarize(),
@@ -282,22 +401,35 @@ class CapacityResultsCollector:
             cursors,
         )
 
-    def _paper_probe(self, path: Path, cursors: dict[int, _CaptureBoundary]) -> dict[str, object]:
+    def _paper_probe(
+        self,
+        path: Path,
+        cursors: dict[int, _CaptureBoundary],
+        steady_window_ns: tuple[int, int] | None = None,
+    ) -> dict[str, object]:
         """Keep source/account BBO and selected-book checkpoint clocks separate."""
         bbo = _LatencySeries((20, 100, 500))
+        steady_bbo = _LatencySeries((20, 100, 500))
         checkpoint = _LatencySeries((250, 750, 2000))
         total = eligible = market_selected = policy_selected = acknowledged = 0
+        previous_position = -1
+        first_position: int | None = None
+        steady_ineligible = 0
+        steady_excluded_outcomes: dict[str, int] = {}
         checkpoint_statuses: dict[str, int] = {}
         for line in self._read_lines(path):
             row = msgspec.json.decode(line, type=_PaperBook)
             if (
                 row.schema_version != "runtime-measurement-v1"
                 or row.kind != "paper_book"
-                or row.position < 0
+                or row.position <= previous_position
                 or row.book_started_ns < 0
                 or row.bbo_observed_ns < row.book_started_ns
             ):
                 raise ValueError(f"invalid paper-book measurement: {path}")
+            if first_position is None:
+                first_position = row.position
+            previous_position = row.position
             total += 1
             eligible += row.market_eligible
             market_selected += row.market_selected
@@ -308,6 +440,28 @@ class CapacityResultsCollector:
                 if capture is None or row.bbo_observed_ns < capture.durable_ns:
                     raise ValueError(f"eligible BBO lacks a causal capture boundary: {path}")
                 bbo.add(row.bbo_observed_ns - capture.durable_ns)
+            if row.outcome in ("snapshot", "update"):
+                capture = cursors.get(row.position + 1)
+                if (
+                    capture is None
+                    or row.outcome != capture.outcome
+                    or row.book_started_ns < capture.durable_ns
+                    or row.bbo_observed_ns < capture.durable_ns
+                ):
+                    raise ValueError(f"native BBO lacks a causal capture boundary: {path}")
+                if (
+                    steady_window_ns is not None
+                    and steady_window_ns[0] <= capture.durable_ns < steady_window_ns[1]
+                ):
+                    steady_bbo.add(row.bbo_observed_ns - capture.durable_ns)
+                    steady_ineligible += not row.market_eligible
+            elif (
+                steady_window_ns is not None
+                and steady_window_ns[0] <= row.book_started_ns < steady_window_ns[1]
+            ):
+                steady_excluded_outcomes[row.outcome] = (
+                    steady_excluded_outcomes.get(row.outcome, 0) + 1
+                )
             if row.checkpoint_acknowledged:
                 if (
                     row.book_to_checkpoint_ns is None
@@ -326,12 +480,18 @@ class CapacityResultsCollector:
                 row.book_to_checkpoint_ns is not None or row.checkpoint_acknowledged_ns is not None
             ):
                 raise ValueError(f"unacknowledged checkpoint has a duration: {path}")
+        steady_bbo_result = steady_bbo.summarize()
+        if steady_ineligible:
+            steady_bbo_result["latency_budget_status"] = steady_bbo_result["status"]
+            steady_bbo_result["status"] = "fail"
+            steady_bbo_result["reason"] = "ineligible_snapshot_or_update_in_steady_cohort"
         return {
             "measurement_path": str(path),
             "measurement_sha256": hashlib.sha256(path.read_bytes()).hexdigest()
             if path.is_file()
             else None,
             "deliveries": total,
+            "complete_position_prefix": first_position == 0 and previous_position == total - 1,
             "market_eligible": eligible,
             "market_selected": market_selected,
             "policy_selected": policy_selected,
@@ -340,6 +500,12 @@ class CapacityResultsCollector:
             "checkpoint_rejected": checkpoint_statuses.get("rejected", 0),
             "checkpoint_statuses": checkpoint_statuses,
             "durable_to_bbo": bbo.summarize(),
+            "latency_population": "complete_recording_market_eligible_deliveries",
+            "steady_durable_to_bbo": steady_bbo_result,
+            "steady_bbo_population": "native_snapshot_or_update_durable_within_monotonic_interval",
+            "steady_monotonic_interval_ns": steady_window_ns,
+            "steady_ineligible_native_books": steady_ineligible,
+            "steady_excluded_outcomes": steady_excluded_outcomes,
             "selected_book_to_checkpoint": checkpoint.summarize(),
         }
 
@@ -464,6 +630,37 @@ class CapacityResultsCollector:
             return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
 
         return unix_ns(start), unix_ns(end)
+
+    @staticmethod
+    def _steady_monotonic_window_ns(read_root: Path | None) -> tuple[int, int] | None:
+        """Bind latency cohorts to a measured finite interval of at least sixty seconds."""
+        if read_root is None or not (read_root / "summary.json").is_file():
+            return None
+        run = msgspec.json.decode((read_root / "summary.json").read_bytes(), type=_ReadRun)
+        start = run.started_monotonic_ns
+        end = run.steady_ended_monotonic_ns
+        stop = run.scheduled_stop_monotonic_ns or end
+        if start is None or end is None or stop is None:
+            return None
+        if start < 0 or stop - start < 60_000_000_000 or end < stop:
+            return None
+        return start, stop
+
+    @staticmethod
+    def _query_schedule_window_ns(run: _ReadRun | None) -> tuple[int, int] | None:
+        """Require the exact declared query deadline rather than a later join boundary."""
+        if run is None or run.steady_duration_seconds != 60:
+            return None
+        start, stop, end = (
+            run.started_monotonic_ns,
+            run.scheduled_stop_monotonic_ns,
+            run.steady_ended_monotonic_ns,
+        )
+        if start is None or stop is None or end is None:
+            return None
+        if start < 0 or stop - start != 60_000_000_000 or end < stop:
+            return None
+        return start, stop
 
     def _capture_facts(
         self,
@@ -660,69 +857,115 @@ class CapacityResultsCollector:
             "complete_declared_burst_in_steady_interval": burst.issubset(required),
         }
 
-    def _reads(self) -> dict[str, object]:
+    def _reads(self, config: PaperServiceConfiguration | None = None) -> dict[str, object]:
         """Preserve individual reader groups and label the four-reader pool explicitly."""
         if self.read_root is None:
             return {"status": "unmeasured", "reason": "no_read_observer_root"}
         samples_path = self.read_root / "samples.jsonl"
         summary_path = self.read_root / "summary.json"
-        duration: int | None = None
+        run: _ReadRun | None = None
         if summary_path.is_file():
-            duration = msgspec.json.decode(
-                summary_path.read_bytes(), type=_ReadRun
-            ).steady_duration_seconds
+            run = msgspec.json.decode(summary_path.read_bytes(), type=_ReadRun)
+        window = self._query_schedule_window_ns(run)
         budgets = {"depth_bbo": (50, 200, 500), "dashboard": (100, 400, 1000)}
-        grouped: dict[tuple[str, str], _LatencySeries] = {}
+        expected_targets = (
+            {
+                "depth_bbo": {source.name for source in config.sources},
+                "dashboard": {account.account_id for account in config.accounts},
+            }
+            if config is not None
+            else None
+        )
+        grouped: dict[tuple[str, str], _ReaderSchedule] = {}
         pooled = {name: _LatencySeries(target) for name, target in budgets.items()}
-        attempts: dict[tuple[str, str], int] = {}
-        failures: dict[tuple[str, str], int] = {}
+        response_pooled = {name: _LatencySeries(target) for name, target in budgets.items()}
+        queue_pooled = {name: _LatencySeries(None) for name in budgets}
+        retained_pooled = {name: _LatencySeries(target) for name, target in budgets.items()}
+        retained_response_pooled = {
+            name: _LatencySeries(target) for name, target in budgets.items()
+        }
+        retained_queue_pooled = {name: _LatencySeries(None) for name in budgets}
         for line in self._read_lines(samples_path):
             row = msgspec.json.decode(line, type=_ReadSample)
-            if row.boundary not in budgets or row.phase != "steady" or row.seconds < 0:
+            if (
+                row.boundary not in budgets
+                or row.phase != "steady"
+                or not math.isfinite(row.seconds)
+                or row.seconds < 0
+                or row.status not in ("ok", "failed", "missed")
+            ):
                 raise ValueError(f"invalid steady read measurement: {samples_path}")
+            if expected_targets is not None and row.target not in expected_targets[row.boundary]:
+                raise ValueError(f"read sample has an undeclared reader target: {samples_path}")
             key = row.boundary, row.target
-            group = grouped.setdefault(key, _LatencySeries(budgets[row.boundary]))
-            attempts[key] = attempts.get(key, 0) + 1
+            group = grouped.setdefault(key, _ReaderSchedule(budgets[row.boundary]))
+            group.add(row, window)
             if row.status == "ok":
-                elapsed_ns = round(row.seconds * 1_000_000_000)
-                group.add(elapsed_ns)
-                pooled[row.boundary].add(elapsed_ns)
-            elif row.status == "failed":
-                failures[key] = failures.get(key, 0) + 1
-            else:
-                raise ValueError(f"unknown read sample status: {samples_path}")
-        groups: dict[str, dict[str, object]] = {}
+                retained_pooled[row.boundary].add(round(row.seconds * 1_000_000_000))
+        groups: dict[str, dict[str, dict[str, object]]] = {}
         workloads: dict[str, dict[str, object]] = {}
         for boundary in budgets:
-            targets = sorted(target for name, target in grouped if name == boundary)
+            targets = sorted(
+                expected_targets[boundary]
+                if expected_targets is not None
+                else (target for name, target in grouped if name == boundary)
+            )
+            for target in targets:
+                schedule = grouped.setdefault(
+                    (boundary, target), _ReaderSchedule(budgets[boundary])
+                )
+                for value in schedule.completed.values_ns:
+                    pooled[boundary].add(value)
+                for value in schedule.response.values_ns:
+                    response_pooled[boundary].add(value)
+                for value in schedule.queue_delay.values_ns:
+                    queue_pooled[boundary].add(value)
+                for value in schedule.retained_response.values_ns:
+                    retained_response_pooled[boundary].add(value)
+                for value in schedule.retained_queue_delay.values_ns:
+                    retained_queue_pooled[boundary].add(value)
             groups[boundary] = {
-                target: {
-                    **grouped[(boundary, target)].summarize(),
-                    "attempts": attempts[(boundary, target)],
-                    "failures": failures.get((boundary, target), 0),
-                }
+                target: grouped[(boundary, target)].summarize(verified_window=window is not None)
                 for target in targets
             }
             pooled_result = pooled[boundary].summarize()
-            expected = duration * 5 if duration is not None else None
-            schedule_complete = (
-                expected is not None
-                and len(targets) == 4
-                and all(attempts[(boundary, target)] >= expected for target in targets)
+            response_result = response_pooled[boundary].summarize()
+            schedule_complete = len(targets) == 4 and all(
+                group["schedule_status"] == "pass" for group in groups[boundary].values()
             )
-            if pooled_result["status"] == "pass" and not schedule_complete:
-                pooled_result["status"] = "unmeasured"
-                pooled_result["reason"] = "four_reader_schedule_incomplete"
+            for latency in (pooled_result, response_result):
+                if latency["status"] == "pass" and not schedule_complete:
+                    latency["status"] = "unmeasured"
+                    latency["reason"] = "four_reader_schedule_incomplete"
+            workload_status = pooled_result["status"]
+            workload_reason: str | None = None
+            if response_result["status"] == "fail":
+                workload_status = "fail"
+                workload_reason = "scheduled_response_latency_exceeds_warm_budget"
             workloads[boundary] = {
                 **pooled_result,
+                "status": workload_status,
+                "workload_reason": workload_reason,
                 "scope": "pooled_four_concurrent_readers",
+                "service_latency": pooled_result,
+                "response_latency": response_result,
+                "queue_delay": queue_pooled[boundary].summarize(),
                 "reader_targets": targets,
-                "expected_attempts_per_reader": expected,
+                "expected_attempts_per_reader": 300,
+                "required_successful_completions_per_reader": 300,
+                "required_successful_completions": 1200,
+                "scheduled_monotonic_interval_ns": window,
+                "all_retained_successful_reads": retained_pooled[boundary].summarize(),
+                "all_retained_response_latency": retained_response_pooled[boundary].summarize(),
+                "all_retained_queue_delay": retained_queue_pooled[boundary].summarize(),
                 "schedule_status": "pass"
                 if schedule_complete
-                else "fail"
-                if expected is not None
-                else "unmeasured",
+                else "unmeasured"
+                if window is None
+                or any(
+                    group["schedule_status"] == "unmeasured" for group in groups[boundary].values()
+                )
+                else "fail",
             }
         return {
             "samples_path": str(samples_path),
@@ -756,6 +999,7 @@ class CapacityResultsCollector:
         run_root = self.service_root / "runs" / run.run_id
         probe_root = self.measurement_root / run.run_id
         steady_window = self._steady_window_ns(self.read_root)
+        steady_monotonic_window = self._steady_monotonic_window_ns(self.read_root)
         sources: dict[str, object] = {}
         for definition in config.sources:
             origin: Literal["base_fixture", "live_public", "other_fixture"] = (
@@ -781,7 +1025,8 @@ class CapacityResultsCollector:
                     )
                 measurement_directory = probe_root / definition.name
                 source_probe, cursors = self._capture_probe(
-                    measurement_directory / f"{request.recording_id}.capture.jsonl"
+                    measurement_directory / f"{request.recording_id}.capture.jsonl",
+                    steady_monotonic_window,
                 )
                 captured_native_messages = capture["native_messages"]
                 if type(captured_native_messages) is not int:
@@ -803,6 +1048,7 @@ class CapacityResultsCollector:
                 if not probe_complete:
                     for name in (
                         "receipt_to_durable",
+                        "steady_receipt_to_durable",
                         "append_to_durable",
                         "record_fsync",
                         "cursor_checkpoint",
@@ -824,7 +1070,7 @@ class CapacityResultsCollector:
                     )
                     if account_id not in expected_accounts:
                         raise ValueError(f"paper probe has unknown account: {path}")
-                    paper[account_id] = self._paper_probe(path, cursors)
+                    paper[account_id] = self._paper_probe(path, cursors, steady_monotonic_window)
                 delivery_parity: dict[str, object] = {}
                 for account_id in sorted(expected_accounts):
                     path = run_root / definition.name / f"{request.recording_id}-{account_id}.jsonl"
@@ -847,14 +1093,21 @@ class CapacityResultsCollector:
                     delivery_count = cast(dict[str, object], delivery_parity[account_id]).get(
                         "matched_deliveries"
                     )
-                    matched_probe = account_probe["deliveries"] == delivery_count
+                    matched_probe = (
+                        account_probe["deliveries"] == delivery_count
+                        and account_probe["complete_position_prefix"] is True
+                    )
                     account_probe["coverage"] = {
                         "status": "pass" if matched_probe else "fail",
                         "measured_deliveries": account_probe["deliveries"],
                         "retained_deliveries": delivery_count,
                     }
                     if not matched_probe:
-                        for name in ("durable_to_bbo", "selected_book_to_checkpoint"):
+                        for name in (
+                            "durable_to_bbo",
+                            "steady_durable_to_bbo",
+                            "selected_book_to_checkpoint",
+                        ):
                             latency = cast(dict[str, object], account_probe[name])
                             if latency.get("status") == "pass":
                                 latency["status"] = "unmeasured"
@@ -880,7 +1133,8 @@ class CapacityResultsCollector:
             "variant": trial.variant,
             "service_configuration_identity": config.identity,
             "sources": sources,
-            "reads": self._reads(),
+            "steady_monotonic_interval_ns": steady_monotonic_window,
+            "reads": self._reads(config),
             "sustained_24_hour_status": "unmeasured",
             "sustained_24_hour_reason": "finite_service_life_and_no_capture_rollover",
         }

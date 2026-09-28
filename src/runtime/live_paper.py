@@ -28,7 +28,7 @@ class LiveBookDelivery(WireRecord, frozen=True):
     def __post_init__(self) -> None:
         """Reject invented availability before the original received frame."""
         self.record.__post_init__()
-        self.book.__post_init__()
+        BookObservation.__post_init__(self.book)
         self._require_availability()
 
     def _require_availability(self) -> None:

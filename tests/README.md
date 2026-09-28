@@ -54,6 +54,7 @@ children. Real orchestration belongs to `src/applications/`.
 | [Decision workflow](integration/test_decision_workflow.py) | Fresh feature/label/estimator/quote implementations, retained fit bytes and fresh-process restart through installed public APIs |
 | [Public data consumer](integration/consumers/datasets/public_data.py) | Installed CLI publication/discovery/read, named public-trade/book/reference assembly and replay continuation; accepts completed actual captures |
 | [Trusted installation consumer](integration/consumers/deployment/trusted_installation.py) | Real signed execution releases, isolated package inventory, signed configuration changes, production-request refusal and rollback with current mutable state |
+| [Bounded runtime capacity](integration/consumers/runtime/capacity_trial.py) | Fresh signed four-owner fixture/recovery runs, sampled healthy intervals, native/economic parity and loaded faults; [read observers](integration/consumers/runtime/capacity_reads.py) retain every paced request and [results](integration/consumers/runtime/capacity_results.py) require complete steady latency cohorts and successful per-reader schedules. Acceptance and remaining gates live in the [runtime profile](../docs/roadmap/runtime-capacity.md). |
 
 Wheel smoke installs the hash-locked runtime without governance, checks every
 shipped API/resource and installed identity, reopens the historical snapshot,

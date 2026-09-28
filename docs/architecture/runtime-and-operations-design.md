@@ -47,14 +47,29 @@ remote service recovery remains outside this increment.
 MR14 adds a bounded local composition over those owners. One signed execution
 service serializes each account's existing journal commands; one supervisor owns
 the selected native-source processes and isolated policy processes. Only the
-supervisor schedules and commits a decision cohort, in source-name then
-instance-name order. Policy processes receive typed decision inputs and previous
-state, with no account client. A missing policy response stops that cohort's new
-decision commit and fences affected scheduling. A lost account-command response
+supervisor schedules and commits a decision cohort. Within an account, source-name
+then instance-name order remains fixed. Sources with disjoint complete account
+sets may keep one observation in flight per source across supervisor passes, in
+at most four supervisor-owned threads. All jobs join before lifecycle, control,
+phase/status changes or shutdown. The
+[execution service](../../src/applications/execute/README.md#bounded-account-owner-service)
+owns completion wakeups and health scheduling within the existing protection
+budgets; account RPCs independently validate current authority.
+Sources sharing an account retain serial dispatch. Policy processes receive typed
+decision inputs and previous state, with no account client. A missing policy
+response stops that cohort's new decision commit and fences affected scheduling.
+A lost account-command response
 has an uncertain economic outcome and is never retried automatically. A durable
 owner generation fences replacements; a local account/socket scheduling fence
 rejects duplicate producers. This is a trusted
 single-user topology, not hostile-process isolation or distributed consensus.
+
+Before observing a selected quote, the shared-paper consumer reads fresh
+account-scoped market membership through the existing inspection boundary.
+The Boolean includes both committed and failed traces and avoids transferring
+the complete history for that predicate. It does not cache authority or replace
+matching, collision validation or atomic financial effects; complete traces
+remain available for inspection and replay.
 
 Full diagnostic reports run in one bounded child that can inspect accounts but
 cannot submit economic or lifecycle commands. The supervisor still reads account

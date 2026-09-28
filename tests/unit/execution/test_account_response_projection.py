@@ -8,18 +8,22 @@ from pathlib import Path
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 from test_account_journal import TestAccountJournal as _AccountFixture
+from test_account_paper_matching import TestAccountPaperMatching as _MatchingFixture
 
 # project library imports
 from applications.execute import AccountExecutionApplication
-from configuration import AccountConfiguration
+from configuration import AccountConfiguration, OpeningAccount
 from execution import (
     AccountExecutionRequest,
     AccountExecutionResult,
     AccountJournal,
     AccountQuote,
     InstalledPaperAccount,
+    PaperOwner,
 )
+from risk import AccountLimit
 from serialization import DomainCodec
 
 
@@ -29,7 +33,7 @@ class _ProjectedAccount(InstalledPaperAccount):
     def __init__(self, config: AccountConfiguration, journal: AccountJournal) -> None:
         """Keep the transport boundary transparent to request selection."""
         self.config = config
-        self.paper_owner = None
+        self.paper_owner = journal.paper_owner
         self.journal = journal
         self.seen_requests: list[AccountExecutionRequest] = []
 
@@ -37,6 +41,146 @@ class _ProjectedAccount(InstalledPaperAccount):
         """Return the same typed projection the installed application would send."""
         self.seen_requests.append(request)
         return self.journal.result_snapshot(request)
+
+
+class TestAccountMarketMembership:
+    """Keep the small membership response fresh, exact and account scoped."""
+
+    def test_membership_observes_other_writer_and_scopes_same_market(self, tmp_path: Path) -> None:
+        """A warm reader sees durable traces without borrowing another account's history."""
+        fixture = _MatchingFixture
+        initial = fixture._config()
+        opening_accounts: tuple[OpeningAccount, ...] = (
+            *initial.accounts,
+            OpeningAccount(account_id="separate", cash=(fixture._money("1000"),)),
+        )
+        account_limits: tuple[AccountLimit, ...] = (
+            *initial.budgets.accounts,
+            AccountLimit(account_id="separate", maximum=fixture._money("1000")),
+        )
+        config = replace(
+            initial,
+            accounts=opening_accounts,
+            budgets=replace(
+                initial.budgets,
+                firm_maximum=fixture._money("2000"),
+                accounts=account_limits,
+            ),
+        )
+        path = tmp_path / "membership.sqlite3"
+        writer = AccountJournal(path, config)
+        reader = AccountJournal(path, config)
+        account = _ProjectedAccount(config, reader)
+        scenario = fixture._scenario()
+        market = fixture._market("seen-book", fixture.opening_at + timedelta(seconds=1))
+        writer.bind_paper_scenario("shared", scenario)
+        opening = replace(
+            _AccountFixture._opening_snapshot(),
+            cash=(fixture._money("1000"),),
+            transfers=(fixture._money("1000"),),
+        )
+        assert writer.reconcile(
+            _AccountFixture._observation("shared-opening", fixture.opening_at, opening)
+        )
+        assert writer.reconcile(
+            _AccountFixture._observation(
+                "separate-opening", fixture.opening_at, replace(opening, account_id="separate")
+            )
+        )
+        assert reader.paper_market_seen("shared", market.identity) is False
+        assert account.paper_market_seen("shared", market.identity) is False
+
+        trace = writer.match_public_market("shared", market, scenario)
+        assert trace.status == "committed"
+        assert reader.paper_market_seen("shared", market.identity) is True
+        assert account.paper_market_seen("shared", market.identity) is True
+        request = account.seen_requests[-1]
+        assert request == AccountExecutionRequest(
+            action="inspect",
+            account_id="shared",
+            query_market=market.identity,
+            projection="market_membership",
+        )
+        result = reader.result_snapshot(request)
+        assert result == AccountExecutionResult(accounts=(), orders=(), market_seen=True)
+        assert (
+            DomainCodec().decode_json(DomainCodec().encode_json(result), AccountExecutionResult)
+            == result
+        )
+        assert account.paper_market_seen("separate", market.identity) is False
+        assert reader.paper_market_seen("shared", "seen-book-suffix") is False
+        with pytest.raises(ValueError, match="unknown account"):
+            account.paper_market_seen("absent", market.identity)
+
+        writer.bind_paper_scenario("separate", scenario)
+        writer.match_public_market("separate", market, scenario)
+        assert account.paper_market_seen("separate", market.identity) is True
+        reopened = AccountJournal(path, config)
+        assert reopened.paper_market_seen("shared", market.identity) is True
+        assert reopened.paper_market_seen("separate", market.identity) is True
+
+    @pytest.mark.parametrize(
+        ("payload", "message"),
+        (
+            (
+                b'{"action":"inspect","projection":"market_membership","query_market":"book"}',
+                "market membership requires account and market identities",
+            ),
+            (
+                b'{"action":"inspect","projection":"market_membership","account_id":"shared"}',
+                "market membership requires account and market identities",
+            ),
+            (
+                b'{"action":"inspect","projection":"market_membership",'
+                b'"account_id":"shared","query_market":""}',
+                "market membership requires account and market identities",
+            ),
+            (
+                b'{"action":"inspect","projection":"market_membership",'
+                b'"account_id":"shared","query_market":false}',
+                "Expected",
+            ),
+            (
+                b'{"action":"inspect","account_id":"shared","query_market":"book"}',
+                "market query requires the membership projection",
+            ),
+            (
+                b'{"action":"inspect","projection":"market_membership",'
+                b'"account_id":"shared","query_market":"book","query_instance":"alpha"}',
+                "market membership requires only an account and market query",
+            ),
+            (
+                b'{"action":"quote","projection":"market_membership",'
+                b'"account_id":"shared","query_market":"book"}',
+                "account state projection requires inspection",
+            ),
+        ),
+    )
+    def test_membership_rejects_malformed_or_ambiguous_queries(
+        self, payload: bytes, message: str
+    ) -> None:
+        """The installed boundary requires one explicit account and exact market identity."""
+        with pytest.raises(ValueError, match=message):
+            DomainCodec().decode_json(payload, AccountExecutionRequest)
+
+    def test_membership_request_rejects_another_owners_account(self) -> None:
+        """An explicit owner cannot query a different configured account."""
+        owner = PaperOwner(
+            account_id="separate",
+            deployment_sha256="a" * 64,
+            authorization_id="bounded-session",
+            release_identity="b" * 64,
+            owner_id="current-worker",
+            generation=1,
+        )
+        with pytest.raises(ValueError, match="market membership account differs from its owner"):
+            AccountExecutionRequest(
+                action="inspect",
+                projection="market_membership",
+                account_id="shared",
+                query_market="book",
+                paper_owner=owner,
+            )
 
 
 def test_fresh_internal_projections_match_complete_inspection(tmp_path: Path) -> None:

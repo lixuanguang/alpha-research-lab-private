@@ -51,7 +51,7 @@ class BookDepth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
         Returns:
             Sorted retained aggregate depth. Quote consumers separately gate its quality.
         """
-        row.__post_init__()
+        BookObservation.__post_init__(row)
         if not row.orders:
             return cls(tuple(sorted(row.bids)), tuple(sorted(row.asks)))
         totals: dict[tuple[str, Decimal], Fraction] = {}
@@ -121,7 +121,7 @@ class BookDepth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
         Returns:
             Common exact BBO; invalid/control boundaries expose no executable prices.
         """
-        row.__post_init__()
+        BookObservation.__post_init__(row)
         keep = row.status == "degraded" and row.outcome in ("snapshot", "update")
         bid = self.bids[-1] if self.bids and keep else None
         ask = self.asks[0] if self.asks and keep else None
@@ -160,7 +160,7 @@ class BookDepth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
         admission consume only the best price on each side. Native L3 orders at
         that price retain their exact aggregate size and original order count.
         """
-        row.__post_init__()
+        BookObservation.__post_init__(row)
         return BookDepth._touch_quote_validated(
             row,
             venue=venue,
@@ -209,12 +209,16 @@ class BookDepth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
                     else:
                         ask = touch
             else:
-                for price, level in row.bids:
-                    if bid is None or price > bid.price:
-                        bid = BookQuoteSide(price, level.size, level.order_count)
-                for price, level in row.asks:
-                    if ask is None or price < ask.price:
-                        ask = BookQuoteSide(price, level.size, level.order_count)
+                # Validated sides have unique prices, so tuple comparison never
+                # reaches Level. Construct only the two selected touch values.
+                best_bid = max(row.bids, default=None)
+                best_ask = min(row.asks, default=None)
+                if best_bid is not None:
+                    price, level = best_bid
+                    bid = BookQuoteSide(price, level.size, level.order_count)
+                if best_ask is not None:
+                    price, level = best_ask
+                    ask = BookQuoteSide(price, level.size, level.order_count)
         return BookQuote(
             venue=venue,
             instrument_id=instrument_id,

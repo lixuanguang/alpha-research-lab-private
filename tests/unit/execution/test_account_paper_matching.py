@@ -464,6 +464,7 @@ class TestAccountPaperMatching:
         assert admitted.status == "committed"
         before = AccountLedger(journal.accounts()[0].ledger).snapshot()
         market = self._market("fee-cap-book", decision_at + timedelta(seconds=1))
+        assert journal.paper_market_seen("shared", market.identity) is False
         with pytest.raises(ValueError, match="account blocked"):
             journal.match_public_market("shared", market, scenario)
         reopened = AccountJournal(journal.path, self._config())
@@ -472,6 +473,8 @@ class TestAccountPaperMatching:
         assert reopened.accounts()[0].fault == "order_event_break"
         (trace,) = reopened.paper_traces("shared")
         assert trace.status == "failed" and trace.physical_events == ()
+        assert journal.paper_market_seen("shared", market.identity) is True
+        assert reopened.paper_market_seen("shared", market.identity) is True
         assert trace.rejected_event is not None and trace.rejected_event.kind == "fill"
         with pytest.raises(ValueError, match="account blocked"):
             reopened.match_public_market("shared", market, scenario)

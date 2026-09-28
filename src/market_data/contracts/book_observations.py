@@ -40,6 +40,21 @@ class BookObservation(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 
     def __post_init__(self) -> None:
         """Reject malformed coordinates, status, state identity and mixed representations."""
+        self._require_boundary()
+        for order in self.orders:
+            if type(order) is not Order:
+                raise ValueError("book orders require native L3 records")
+            order.__post_init__()
+        for price, level in self.bids + self.asks:
+            if type(price) is not Decimal or not price.is_finite() or price <= 0:
+                raise ValueError("book levels require positive exact prices")
+            if type(level) is not Level:
+                raise ValueError("book levels require aggregate size and order count")
+            level.__post_init__()
+        self._require_unique_state()
+
+    def _require_boundary(self) -> None:
+        """Validate occurrence coordinates and the complete representation scope."""
         if (
             any(
                 value is not None and (type(value) is not int or value < 0)
@@ -68,16 +83,9 @@ class BookObservation(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
             or (self.orders and (self.bids or self.asks))
         ):
             raise ValueError("invalid book state or quality scope")
-        for order in self.orders:
-            if type(order) is not Order:
-                raise ValueError("book orders require native L3 records")
-            order.__post_init__()
-        for price, level in self.bids + self.asks:
-            if type(price) is not Decimal or not price.is_finite() or price <= 0:
-                raise ValueError("book levels require positive exact prices")
-            if type(level) is not Level:
-                raise ValueError("book levels require aggregate size and order count")
-            level.__post_init__()
+
+    def _require_unique_state(self) -> None:
+        """Reject duplicate native order identities or prices within either side."""
         if len({order.order_id for order in self.orders}) != len(self.orders) or any(
             len({price for price, _ in side}) != len(side) for side in (self.bids, self.asks)
         ):

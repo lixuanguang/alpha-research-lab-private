@@ -174,7 +174,12 @@ modeled confirmation.
 physical events, attributed child fills and durable liquidity cursor, including
 no-fill markets. `paper_report_facts(account_id)` exposes strategy-owned fills and
 their current effective fee links; a corrected-to-zero fee has an explicit zero
-link. Reconciliation still requires a complete independently supplied
+link. `paper_market_seen(account_id, market_identity)` reads fresh membership of
+committed and failed traces in exactly that account. Shared observers use this
+Boolean before observing a quote. Installed clients request `market_membership`
+with `account_id` and `query_market`, avoiding transfer of historical trace bodies;
+managed queries recheck the current bound owner generation in the same snapshot.
+Reconciliation still requires a complete independently supplied
 `AccountObservation` with physical cash, positions, costs, posting identities and
 cumulative physical open orders. A journal report or its own modeled trace is
 not an independent account observation. Supported live-public-input composition

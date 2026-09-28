@@ -27,7 +27,24 @@ class SourceDelivery(WireRecord, frozen=True):
     def __post_init__(self) -> None:
         """Validate both original source envelopes at the process boundary."""
         self.record.__post_init__()
-        self.book.__post_init__()
+        BookObservation.__post_init__(self.book)
+
+
+class _DecodedBookObservation(BookObservation, frozen=True):
+    """Receive native depth whose typed decoder has validated every Level and Order.
+
+    This private pipe schema is constructed only by strict typed decoding. Public
+    consumers must invoke ``BookObservation.__post_init__`` explicitly if handed
+    this row, including after unsafe mutation of one of its nested native records.
+    """
+
+    def __post_init__(self) -> None:
+        """Check all remaining book invariants after nested constructor validation."""
+        self._require_boundary()
+        for price, _ in self.bids + self.asks:
+            if not price.is_finite() or price <= 0:
+                raise ValueError("book levels require positive exact prices")
+        self._require_unique_state()
 
 
 class _ReceivedSourceDelivery(WireRecord, frozen=True):
@@ -39,7 +56,7 @@ class _ReceivedSourceDelivery(WireRecord, frozen=True):
     """
 
     record: CaptureRecord
-    book: BookObservation
+    book: _DecodedBookObservation
 
 
 class SourceForwarder:

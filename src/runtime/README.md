@@ -203,6 +203,21 @@ new independent admission while preserving pending exposure. See the
 [automatic paper application](../applications/paper/README.md#automatic-public-input-accounts)
 for retention, last-bid cost reports and explicit recovery boundaries.
 
+The supervised source pipe decodes a private book schema whose strict typed
+decoder validates each native `Level` and `Order` once. It then checks all book
+coordinates, quality, representation and uniqueness constraints before the
+observer consumes it. Public delivery, observation, depth, dataset and simulation
+entries explicitly invoke recursive `BookObservation` validation, including for
+a decoded row later modified through an unsafe mutation. The retained wire
+fields and native state are unchanged.
+
+The decision source keeps each historical native book as complete encoded bytes
+inside its existing bounded history. Current-state inspection uses the latest
+decoded book; historical decisions decode the selected row and retain the first
+frozen decision at an equal cutoff. Controls carry the same market payload with
+its original age. This avoids cyclic-GC scans over every historical level and
+decimal without discarding native fields, revisions or causal boundaries.
+
 For supervised services, `PaperServiceSource.market_interval_us` selects the
 economic cadence. The first eligible, two-sided native book is selected; later
 books cause paper matching and active strategy evaluation only when their actual
@@ -372,9 +387,14 @@ The [paper service application](../applications/paper/README.md#supervised-local
 owns source and instance selection, process lifetime and operator controls. It
 reuses `ProcessSupervisor.heartbeat`, `HealthMetrics`, `HealthPolicy`, native book
 adapters and the existing book registry. Each source delivers persisted native
-records in order; the supervisor visits ready sources in name order and coordinates
-each account's selected cohort. Separate source processes do not share a global
-mutable active instrument. A replacement source starts unsynchronized.
+records in order. Independent account sets can progress concurrently with one
+observation in flight per source; shared-account sources retain serial order.
+All observations join before lifecycle or status changes. The
+[execution service](../applications/execute/README.md#bounded-account-owner-service)
+owns completion wakeups, health deadlines and bounded shutdown. Native retention,
+fsync and account/policy timeouts remain unchanged. Separate source processes do
+not share a global mutable active instrument. A replacement source starts
+unsynchronized.
 
 `SocketPaperAccount` implements the same `PaperAccount` contract through the signed
 account-owner service. It does not retry an uncertain response. A local scheduler

@@ -68,6 +68,10 @@ class PaperAccount(Protocol):
         """Read durable modeled effects for an account."""
         ...
 
+    def paper_market_seen(self, account_id: str, market_identity: str) -> bool:
+        """Read fresh committed/failed membership under the current bound account owner."""
+        ...
+
     def paper_report_facts(
         self, account_id: str
     ) -> tuple[tuple[AccountPaperFill, ...], tuple[AccountPaperCost, ...]]:

@@ -18,6 +18,7 @@ import pytest
 from capacity_inputs import CapacityWorkload
 from capacity_reads import CapacityReadObserver, _RetainedBookIndex, _SourceIndex
 from capacity_results import CapacityResultsCollector
+from msgspec.structs import replace
 from paper_services import PaperServiceWorkload
 
 # project library imports
@@ -154,6 +155,136 @@ class TestCapacityReads:
             for source in index.sources.values()
         )
 
+    def test_encoded_history_retains_every_complete_native_boundary(self, tmp_path: Path) -> None:
+        """Keep control and full native facts exact while materializing only a causal selection."""
+        index, source, base = self._index(tmp_path)
+        original_lines = tuple(source.delivery_path.read_bytes().splitlines(keepends=True))
+        assert index.poll() == 3
+        retained = tuple(source.history)
+        assert tuple(quote.position for quote, _, _ in retained) == (0, 1, 2)
+        assert tuple(payload for _, payload, _ in retained) == original_lines
+        assert tuple(count for _, _, count in retained) == tuple(map(len, original_lines))
+        codec = DomainCodec()
+        for quote, payload, count in retained:
+            delivery = codec.decode_json(payload, SharedBookDelivery)
+            assert delivery.source.book.position == quote.position
+            assert delivery.source.available_at == base + timedelta(milliseconds=quote.position + 1)
+            assert count == len(codec.encode_json(delivery)) + 1
+        before = index.depth(source.name, cutoff_ns=index._unix_ns(base))
+        selected = index.depth(
+            source.name, cutoff_ns=index._unix_ns(base + timedelta(milliseconds=4))
+        )
+        assert before["quote_position"] is None and before["partial_coverage"] is True
+        assert selected["quote_position"] == 2 and selected["partial_coverage"] is False
+        assert (selected["bid_levels"], selected["ask_levels"]) == (1, 1)
+        assert index.replay_parity()[source.name]["matched_deliveries"] == len(retained)
+
+    @pytest.mark.parametrize(
+        ("before", "after"),
+        (
+            (b'"size":"4"', b'"size":"NaN"'),
+            (b'"coordinated_at":null', b'"coordinated_at":"2026-09-27T12:00:00Z"'),
+        ),
+    )
+    def test_index_decode_keeps_native_and_envelope_validation(
+        self, tmp_path: Path, before: bytes, after: bytes
+    ) -> None:
+        """Narrow indexing still rejects malformed full depth and coordination clocks."""
+        index, source, _ = self._index(tmp_path)
+        payload = source.delivery_path.read_bytes()
+        assert before in payload
+        source.delivery_path.write_bytes(payload.replace(before, after))
+        with pytest.raises(ValueError):
+            index.poll()
+
+    def test_read_covers_only_its_captured_prefix_and_keeps_causal_cutoff(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A concurrent append waits for the next read instead of extending the held poll."""
+        index, source, base = self._index(tmp_path)
+        assert index.poll() == 3
+        codec = DomainCodec()
+        latest = codec.decode_json(
+            source.delivery_path.read_bytes().splitlines()[-1], SharedBookDelivery
+        )
+        fourth = replace(
+            latest,
+            source=replace(
+                latest.source,
+                book=replace(latest.source.book, position=3),
+                available_at=base + timedelta(milliseconds=5),
+            ),
+        )
+        fifth = replace(
+            fourth,
+            source=replace(
+                fourth.source,
+                book=replace(fourth.source.book, position=4),
+                available_at=base + timedelta(milliseconds=6),
+            ),
+        )
+        with source.delivery_path.open("ab") as stream:
+            stream.write(codec.encode_json(fourth) + b"\n")
+        required_end = source.delivery_path.stat().st_size
+        original_poll = index._poll_serialized
+        appended = [False]
+
+        def append_after_snapshot(retained_ends: dict[str, int]) -> int:
+            """Add a real typed full boundary after the request captured its byte prefix."""
+            if not appended[0]:
+                with source.delivery_path.open("ab") as stream:
+                    stream.write(codec.encode_json(fifth) + b"\n")
+                appended[0] = True
+            return original_poll(retained_ends)
+
+        monkeypatch.setattr(index, "_poll_serialized", append_after_snapshot)
+        result = index.read(source.name, cutoff_ns=index._unix_ns(base + timedelta(milliseconds=4)))
+        assert result["quote_position"] == 2
+        assert result["delivery_prefix_complete"] is True
+        assert result["depth_index_required_prefix_bytes"] == required_end
+        assert result["depth_index_indexed_prefix_bytes"] == required_end
+        assert source.deliveries == 4
+        next_result = index.read(
+            source.name, cutoff_ns=index._unix_ns(base + timedelta(milliseconds=7))
+        )
+        assert next_result["quote_position"] == 4
+        assert next_result["delivery_prefix_complete"] is True
+        assert source.deliveries == 5
+
+    def test_incomplete_captured_prefix_is_explicit_partial_coverage(self, tmp_path: Path) -> None:
+        """A half-written next boundary cannot pass as an eligible current read."""
+        index, source, base = self._index(tmp_path)
+        assert index.poll() == 3
+        codec = DomainCodec()
+        latest = codec.decode_json(
+            source.delivery_path.read_bytes().splitlines()[-1], SharedBookDelivery
+        )
+        fourth = replace(
+            latest,
+            source=replace(
+                latest.source,
+                book=replace(latest.source.book, position=3),
+                available_at=base + timedelta(milliseconds=5),
+            ),
+        )
+        payload = codec.encode_json(fourth) + b"\n"
+        old_offset = source.offset
+        with source.delivery_path.open("ab") as stream:
+            stream.write(payload[: len(payload) // 2])
+        cutoff = index._unix_ns(base + timedelta(milliseconds=7))
+        result = index.read(source.name, cutoff_ns=cutoff)
+        assert result["delivery_prefix_complete"] is False
+        assert result["partial_coverage"] is True
+        assert result["eligible"] is False
+        assert result["reason"] == "incomplete_retained_delivery_prefix"
+        assert source.offset == old_offset
+        with source.delivery_path.open("ab") as stream:
+            stream.write(payload[len(payload) // 2 :])
+        completed = index.read(source.name, cutoff_ns=cutoff)
+        assert completed["delivery_prefix_complete"] is True
+        assert completed["quote_position"] == 3
+        assert completed["eligible"] is True
+
     def test_native_parity_reports_unattributed_durable_tail(self, tmp_path: Path) -> None:
         """A verified capture tail without delivery cannot count as complete parity."""
         index, source, _ = self._index(tmp_path)
@@ -209,13 +340,23 @@ class TestCapacityReads:
         observer._dashboard_worker("shared", "paper", started, started + 0.01)
         lines = (output / "samples.jsonl").read_bytes().splitlines()
         assert len(lines) == 1
-        sample = msgspec.json.decode(lines[0], type=dict[str, str | int | float | None])
+        sample = msgspec.json.decode(lines[0], type=dict[str, str | int | float | bool | None])
         assert sample["status"] == "ok"
         assert sample["event_count"] == 1
         returned = sample["returned_bytes"]
         assert type(returned) is int and returned > 0
         assert sample["scan_unavailable_reason"] == "telemetry_store_scan_bytes_not_exposed"
         assert hashlib.sha256(lines[0]).hexdigest() != sample["result_sha256"]
+        assert sample["reader_id"] == sample["target"] == "shared"
+        assert sample["request_index"] == sample["slot"] == 0
+        due, began, completed = (
+            sample["scheduled_monotonic_ns"],
+            sample["started_monotonic_ns"],
+            sample["completed_monotonic_ns"],
+        )
+        assert type(due) is int and type(began) is int and type(completed) is int
+        assert due <= began <= completed
+        assert sample["seconds"] == (completed - began) / 1_000_000_000
 
     def test_insufficient_warm_sample_count_has_no_percentiles(self) -> None:
         """Refuse a p99 claim from a short startup or steady observation."""
@@ -227,6 +368,58 @@ class TestCapacityReads:
         assert qualified["p50_seconds"] == 499.0
         assert qualified["p95_seconds"] == 949.0
         assert qualified["p99_seconds"] == 989.0
+
+    @pytest.mark.parametrize("first_service_ns", (250_000_000, 1_000_000_001))
+    def test_due_slots_recover_queue_and_exclude_late_completions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first_service_ns: int
+    ) -> None:
+        """A late reader serves queued due requests and never counts work after the cutoff."""
+        index, source, _ = self._index(tmp_path)
+        assert index.poll() == 3
+        output = tmp_path / "reads"
+        output.mkdir()
+        observer = CapacityReadObserver(output, tmp_path, process_pids=(1,), duration_seconds=1)
+        clocks = [10_000_000_000]
+        polls = [0]
+
+        def advance(seconds: float) -> None:
+            """Advance the synthetic monotonic clock to the next arrival."""
+            clocks[0] += round(seconds * 1_000_000_000)
+
+        original_read = index.read
+
+        def delayed_read(source_name: str, *, cutoff_ns: int) -> dict[str, object]:
+            """Delay only the first native read without changing its retained facts."""
+            if polls[0] == 0:
+                clocks[0] += first_service_ns
+            polls[0] += 1
+            return original_read(source_name, cutoff_ns=cutoff_ns)
+
+        monkeypatch.setattr(time, "monotonic_ns", lambda: clocks[0])
+        monkeypatch.setattr(time, "sleep", advance)
+        monkeypatch.setattr(index, "read", delayed_read)
+        observer._depth_worker(index, source.name, 10.0, 11.0)
+        rows = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in (output / "samples.jsonl").read_bytes().splitlines()
+        ]
+        assert [row["slot"] for row in rows] == list(range(5))
+        assert [row["scheduled_monotonic_ns"] for row in rows] == [
+            10_000_000_000 + slot * 200_000_000 for slot in range(5)
+        ]
+        if first_service_ns == 250_000_000:
+            assert all(row["status"] == "ok" for row in rows)
+            assert rows[1]["queue_delay_seconds"] == 0.05
+            assert rows[1]["response_seconds"] == 0.05
+            assert len(observer._samples["depth_bbo"]) == 5
+            assert observer._failures["depth_bbo"] == 0
+        else:
+            assert rows[0]["status"] == "ok"
+            assert rows[0]["completed_within_interval"] is False
+            assert all(row["status"] == "missed" for row in rows[1:])
+            assert all(row["started_monotonic_ns"] is None for row in rows[1:])
+            assert observer._samples["depth_bbo"] == []
+            assert observer._failures["depth_bbo"] == 5
 
     def test_full_interval_and_callback_failure_keep_steady_evidence(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

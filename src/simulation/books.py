@@ -211,7 +211,7 @@ class BookSimulation:
         self, row: BookObservation, position: int, previous: datetime | None
     ) -> datetime:
         """Require unchanged native L2 boundaries and ordered source milliseconds."""
-        row.__post_init__()
+        BookObservation.__post_init__(row)
         at = BookFeatures.source_at(row)
         if (
             row.position != position

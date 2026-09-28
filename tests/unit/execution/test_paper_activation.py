@@ -28,6 +28,7 @@ from configuration import (
 from execution import (
     AccountControl,
     AccountDecision,
+    AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountQuote,
@@ -837,6 +838,7 @@ class TestPaperActivation:
         clock.at = self._at(15)
         first_market = self._market("partial-book", self._at(15), ask_quantity="1")
         first_trace = worker.match_public_market("shared", first_market, self._scenario())
+        assert worker.paper_market_seen("shared", first_market.identity) is True
         assert len(first_trace.child_fill_events) == 1
         first_fill = first_trace.child_fill_events[0].fill
         assert first_fill is not None
@@ -891,6 +893,8 @@ class TestPaperActivation:
         assert rollback_owner.generation == first_owner.generation + 1
         assert rollback_owner.release_identity == self.rollback_release
         with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
+            worker.paper_market_seen("shared", first_market.identity)
+        with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
             worker.admit(self._decision("stale-owner-buy", self._at(18), self._quote(self._at(17))))
         with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
             worker.match_public_market(
@@ -902,9 +906,22 @@ class TestPaperActivation:
             )
 
         rollback = AccountJournal(path, self._config(), paper_owner=rollback_owner, clock=clock)
+        assert rollback.paper_market_seen("shared", first_market.identity) is True
+        with pytest.raises(ValueError, match="paper_owner_stale_or_absent"):
+            rollback.result_snapshot(
+                AccountExecutionRequest(
+                    action="inspect",
+                    projection="market_membership",
+                    account_id="shared",
+                    query_market=first_market.identity,
+                    paper_owner=first_owner,
+                )
+            )
         clock.at = self._at(19)
         second_market = self._market("remaining-book", self._at(19), ask_quantity="2")
+        assert rollback.paper_market_seen("shared", second_market.identity) is False
         final_trace = rollback.match_public_market("shared", second_market, self._scenario())
+        assert rollback.paper_market_seen("shared", second_market.identity) is True
         assert len(final_trace.child_fill_events) == 1
         final_fill = final_trace.child_fill_events[0].fill
         assert final_fill is not None
@@ -927,6 +944,8 @@ class TestPaperActivation:
             reopened.match_public_market("shared", second_market, self._scenario()) == final_trace
         )
         assert len(reopened.paper_traces("shared")) == 2
+        assert reopened.paper_market_seen("shared", first_market.identity) is True
+        assert reopened.paper_market_seen("shared", second_market.identity) is True
 
     @pytest.mark.parametrize("barrier", ("revoked", "expired"))
     def test_stopped_owner_can_reduce_after_authority_ends(

@@ -31,6 +31,12 @@ to 10,000 facts, permit up to 100,000, and fail on overflow. No truncation is
 hidden in a metric. An absent journal yields no observations, which metrics
 report as missing. A malformed or incompatible journal fails visibly.
 
+A store instance may reuse at most 10,000 decoded, exact payloads for warm
+queries. Every query still reads the current SQLite snapshot and retention
+floor, selects causal revisions, and validates the returned records. Changed
+payload bytes or a mutated previously returned object cannot substitute cached
+facts for the selected bytes.
+
 The default retained capacity is one million revisions. Capacity exhaustion
 rejects the whole append. `store.prune(before_utc)` explicitly removes complete
 event-time samples and advances a persistent retention floor; queries and appends
@@ -63,10 +69,19 @@ retains study and paper views, and exports actual saved predictions/outcomes.
 No collector, shared study runner or dashboard renderer changes for that extension.
 
 `DashboardConfig` selects up to 32 panels (line/bar/table) and 32 alert rules.
-`DashboardBuilder.build` evaluates only the registered definitions. Its retained
-`DashboardSnapshot` contains config, query, selected input bytes, exact results
+`DashboardBuilder.build` evaluates only the registered definitions. Its
+metric batch validates the complete query once, then checks each definition's
+named/versioned inputs, units and selected revisions through `MetricRegistry`.
+The retained `DashboardSnapshot` contains config, query, selected input bytes, exact results
 and alert outcomes. `write(directory)` writes JSON, self-contained HTML and a
 digest manifest; `read(directory)` verifies both data and rendered bytes.
+
+For repeated reads, `DashboardRenderer(config, registry).render(query, events)`
+returns complete HTML and the corresponding snapshot identity. Each call builds
+and validates a fresh snapshot, including metrics, freshness, partial coverage
+and alerts. Its bounded 10,000-entry cache reuses only event provenance rows
+keyed by complete serialized event bytes; it does not reuse query results or
+causal cutoffs. The renderer performs no alert delivery.
 Identical writes are idempotent; conflicting or incomplete outputs fail visibly.
 Preserve incomplete output for diagnosis and regenerate into a fresh directory.
 Charts break at missing points and retain exact tables alongside approximate SVG
