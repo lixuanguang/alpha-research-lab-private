@@ -1,7 +1,8 @@
 # MR15 runtime capacity profile
 
-Owner: quant development. Status: **stage-1 probes and consumers implemented;
-bounded characterization failed unchanged targets; no runtime capacity accepted**. Updated 2026-09-28 (Singapore; observations use UTC)
+Owner: quant development. Status: **bounded stage-1 processing, native/economic
+parity and four-owner recovery qualified; latency, query, feature and public-route
+gaps remain; stage 2 gated**. Updated 2026-09-28 (Singapore; observations use UTC)
 after the bounded [MR14 service record](multi-instance-paper.md). The
 [roadmap](README.md#runtime-operations-and-handoff) owns MR15 delivery status;
 the [runtime design](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices)
@@ -415,7 +416,231 @@ stage-1 load, fixture parity, query, feature and complete recovery failures must
 also be resolved before claiming integrated capacity. Nothing in this record
 qualifies 24 hours of processing or 72 hours of retention.
 
-### Validation of the delivered state
+### Processing, parity and recovery requalification (2026-09-28)
+
+The follow-up keeps every target above unchanged and retains the original
+characterization rather than replacing it. The candidate removes the fixed idle
+sleep after a productive supervisor pass. Cooperative source shutdown drains
+accepted receipts and published deliveries before account services close, with
+explicit terminal records and complete cursor accounting inside the same finite
+lifetime. Forced or incomplete shutdown remains a failure.
+
+The first fresh signed attempt still failed during the declared burst and
+exceeded the supervisor lifetime. Its traces isolated repeated full-depth
+projection in the parent observer. The subsequent candidate retains and validates
+each complete canonical book, derives the exact touch without reconstructing
+unused aggregate depth, and calculates exact imbalance when a decision reads it.
+Eligibility, native depth, clock/provenance semantics and the three-second
+selection interval remain unchanged. The earlier signed attempt and its partial
+delivery tails remain failed evidence.
+
+The second signed attempt retained that quote/input parity and completed the
+supervisor lifetime in 74.399 seconds, but still lost all eight active instances
+during the burst. Its four source queues reached 877–897 records and about
+28 seconds of oldest age. Economic replay matched the delivered prefixes, while
+all four native streams remained incomplete. This remains a failed attempt;
+meeting the process bounds and a prefix oracle does not qualify the load.
+
+Whole-observer profiling then identified repeated validation of the same frozen
+book after typed envelope validation. The next repair keeps checks at public
+entry points and serialized boundaries, and shares internal projection cores
+only after the enclosing delivery has validated its complete native book.
+It also records one confirmed public-input fault per observer lifetime. A
+rejected or uncertain control response is surfaced without setting that latch;
+every subsequent native delivery is still retained. This explicitly changes
+the repeated fault-record amplification described in the original diagnosis,
+while preserving the initial durable protection and owner fencing.
+
+The third signed attempt (`requalification-3`, implementation
+`fe559e3e9f7295a602416dae4704fab363e6d45eb5cd636a919b493cf87a78da`)
+proved complete native and economic parity for all four streams, including all
+declared burst slots and every shutdown delivery. The supervisor exited after
+66.047 seconds and account launchers after 66.812–66.988 seconds. It nevertheless
+failed healthy processing: queue occupancy reached 382–399 records and oldest
+age 6.022–6.256 seconds, and all four owners became protected during the burst.
+The 60.196-second interval is therefore measured load, not sixty healthy seconds.
+Recovery was withheld. Its OKX public route passed the finite health/lifetime
+checks, its Bitfinex route failed final health, and all four explicit fault probes
+completed inside the declared burst window. All 21 observed PIDs per trial were
+absent afterward and the four journals were stopped. These records are retained
+without replacing the earlier failures.
+
+The fourth signed attempt (`requalification-4`, implementation
+`a7206c00c33cab9ece5a3197fb3864dfc6d0455f0c4cf4264e4b1ea4195a5485`)
+separated full read-only diagnostics from synchronous account-phase protection.
+It retained 60.053 healthy seconds and complete native/economic parity, with
+supervisor lifetime 63.610 seconds and account lifetimes 64.491–64.686 seconds.
+Its queue peaks were 312–330 records, but oldest ages were 4.300–4.690 seconds,
+so the unchanged two-second queue budget still failed and recovery was withheld.
+Both public-route observations passed their finite health/lifetime checks. The
+burst request-retention probe remains failed in its original summary. Read-only
+attribution subsequently proved unchanged ledger, orders, fills, costs and final
+checkpoint; one benign trace came from an already retained request between the
+probe reads. The revised probe freezes request bytes at obstruction, requires
+exact economic/checkpoint preservation, and admits only matching pre-obstruction
+trace appends with no economic events. It retains full witnesses before asserting. All 22 observed runtime PIDs per steady/public
+trial and 23 in the source-restart fault trial were absent afterward; all four
+journals were stopped. Its complete repository gate passed 1,864 tests (two
+skipped, three deselected), and all 138 affected checks passed. A passing driver
+health result is not a passing queue or integrated-capacity result.
+
+The version-2 Bitfinex fixture starts with one ask at 100 and the remaining 24
+asks at or above 104. At the original reprice slot it updates that one R0 order
+to 104 atomically. This prevents an intermediate 100.08 touch from supplying a
+second fill while keeping native depth, rates, burst, three-second selection,
+and the independently declared two-unit oracle unchanged. Each closed fixture
+epoch retains its original monotonic schedule anchor, emitted slot indices and
+frame hashes; qualification compares these with the complete durable capture.
+The fixed oracle must also pass against the actual retained selection clocks.
+The atomic update removes the observed intermediate-price race; it does not
+claim that arbitrary timing jitter anywhere inside the queue-age ceiling yields
+the same selection path.
+
+The four independent recovery workflows run concurrently. Within each account,
+stop, cancellation settlement, independent reconciliation, replacement claim,
+fresh restart observations and former-owner fencing retain their original order.
+The first actual replacement claim starts the unchanged forty-second clock;
+the endpoint requires eight live active instances and eight nonempty changed
+checkpoints. Operator preparation is measured separately.
+
+The final repair removes repeated native-book validation inside private delivery
+wrappers after the typed pipe boundary has validated every nested record. Public
+constructors and public observer/replay entry points still validate complete
+books; malformed or mutated wrappers cannot bypass retention checks. The account
+store reuses an immutable state only after its exact serialized bytes commit.
+Every read still checks the current SQLite configuration and payload, and every
+write retains the serialized transaction and schema/activation invariant. Tests
+cover another writer, changed configuration, malformed payload and rollback.
+No owner, grant, risk or selection check moves into an unchecked cache.
+
+Component measurements on the same retained 4,000 burst rows reduced decode plus
+observer time from 11.050 seconds to 9.635 seconds after delivery repair, then
+7.849 seconds with the commit cache. Native, retained-delivery and economic hashes
+matched for all four streams. These diagnostic measurements excluded live IPC
+and did not qualify capacity. The subsequent signed run below supplies that
+evidence; all intermediate profiles and failed checks remain retained.
+
+#### Fresh signed result
+
+The fifth candidate, implementation
+`b0398cf0a17f7f60a607268fac1be3a19f7957fc024977f491d7a0f4a967d73c`,
+ran from four fresh signed account releases under `requalification-5`. All 336
+runtime source files matched each signed archive and the installed identity;
+the maintained consumers matched their retained run copies. Fresh one-hour
+grants were issued after validation, with the same 80-order, 100-unit and
+installed risk limits. Exact release, configuration, authority and fixture
+identities are in the [evidence index](runtime-capacity-evidence.json), under
+`requalification`; its original characterization fields and attempts remain
+historical evidence.
+
+| Bounded measure | Initial run | Replacement-owner run |
+| --- | ---: | ---: |
+| Healthy measured load, four sources/four owners/eight instances | 60.036 s | 60.008 s |
+| Maximum source queue age / occupancy | 1.283 s / 113 records | 1.563 s / 132 records |
+| Supervisor lifetime, 75 s ceiling | 62.846 s | 62.928 s |
+| Account launcher lifetimes, 120 s ceiling | 63.718–63.852 s | 63.975–64.070 s |
+| Complete native streams / shutdown tails | 4 / 0 | 4 / 0 |
+| One-second resource samples | 60 | 60 |
+| Mean / peak sampled CPU, logical cores | 1.983 / 3.194 | 2.125 / 3.166 |
+| Peak sampled RSS, bytes | 3,973,824,512 | 4,018,192,384 |
+| Peak scoped occupied bytes | 280,100,864 | 303,853,568 |
+
+Both runs received every required authored slot, including all 1,000 burst slots
+per source during seconds 40–50, with exact native frame hashes. All sources
+finalized complete manifests, exited cleanly and drained every durable record
+through the supervisor into retained account deliveries. They started after the
+supervisor and exited before it, so their lifetimes also remain below the
+unchanged 100-second capture bound. The initial capture retained 2,287 native
+messages for OKX BTC and 2,286 for each other source; three lifecycle records per
+stream bring complete durable/delivery counts to 2,290 and 2,289 respectively.
+Encoded size and queue budgets passed without relaxing any target.
+
+Complete independent unmanaged replay matched all four initial accounts across
+ledger, child orders, physical orders, fills, costs, paper traces and all eight
+checkpoints. Each account also matched the independent two-unit fixture oracle.
+This comparison was retained before recovery changed the original journals.
+
+All four owners then advanced exactly one generation, with unchanged checkpoint
+bytes at claim and exact stale-owner denials. All eight replacement instances
+produced nonempty changed checkpoints **9.148 seconds after the first actual
+replacement claim**, within 40 seconds; the full operator sequence to that
+endpoint took 21.352 seconds. The exclusive recovery preservation witness links
+the baseline replay hashes to settled and final facts: ledger, fills and costs
+remain exact across settlement; ledger, orders, physical orders, fills and costs
+remain exact after settlement; prior trace bytes remain exact prefixes. Grants,
+deployment, risk, native depth and three-second selection remain unchanged.
+This proves recovery preservation and progress alongside complete native parity;
+it does not claim an independent replay of the recovery trace suffix.
+
+#### Remaining measured gaps and public observations
+
+Processing success does not satisfy every latency target. The initial run had
+at least 2,262 samples at each listed native/BBO boundary:
+
+| Initial-run boundary, p50 / p95 / p99 in ms | BTC | ETH | Result |
+| --- | --- | --- | --- |
+| Bitfinex receipt to durable | 1.43 / 765.54 / 1,036.62 | 1.39 / 766.64 / 1,036.37 | Fail |
+| OKX receipt to durable | 1.67 / 965.73 / 1,200.89 | 1.78 / 968.14 / 1,207.12 | Fail |
+| Bitfinex durable to BBO | 25.11 / 470.58 / 1,020.23 | 25.49 / 472.55 / 1,062.24 | Fail |
+| OKX durable to BBO | 18.54 / 88.76 / 473.98 | 19.14 / 98.09 / 452.45 | Pass |
+
+Recovery receipt and BBO latency distributions also missed their targets. The
+initial depth readers completed **362/1,200** scheduled queries, with maximum
+22.022 seconds; dashboard readers completed **180/1,200**, maximum 9.671 seconds.
+Recovery completed 350 depth and 188 dashboard queries, maxima 18.923 and 7.158
+seconds. Successful calls had no reported exceptions, but the request-rate gate
+failed; fewer than 1,000 samples cannot establish the required percentiles.
+CPU has only 60 samples/run. Each initial account had only two committed
+checkpoint measurements (20–21 selections acknowledged, the remaining decisions
+rejected under the existing account state); recovery had no newly committed
+economic orders. Changed policy checkpoints prove instance progress without
+inventing additional fills or a checkpoint latency distribution.
+
+Integrated versioned feature materialization/retrieval remains absent. Cold
+cache is uncontrolled, process I/O counters are unavailable on this host, and
+no 24-hour replay, continuous capture or 72-hour retention claim is made.
+The resource ceilings pass only for the sampled bounded workload above.
+
+| Fresh public observation | OKX BTC / ETH | Bitfinex BTC / ETH |
+| --- | ---: | ---: |
+| Measured interval | 60.006 s | 60.897 s |
+| Actual steady native arrivals / rate | 510 / 8.50 Hz; 490 / 8.17 Hz | 1,538 / 25.26 Hz; 1,147 / 18.84 Hz |
+| Complete captured native messages | 519 / 501 | 1,574 / 1,159 |
+| Maximum public-source queue age | 0.126 s | 0.573 s |
+| Finite health result | Pass | Fail: ETH account became protected |
+
+All four streams in both public trials retained complete native parity and
+bounded shutdown. The Bitfinex health failure remains a failed observation;
+public activity is not substituted for the declared fixture load. Individual
+resource/query measurements and source-quality facts remain in each collector.
+The retained ETH R0 update at source position 275 deleted its last visible bid.
+The resulting one-sided book triggered the existing `public_input_invalid`
+control, observed as account protection at 04:47:34.321 UTC. Neither public
+stream had a native gap or invalid reconstruction outcome. The exclusive
+attribution record pins the exact frame, delivery and durable control; no risk
+or public-input quality rule was relaxed to turn this into a healthy result.
+
+The final fault trial injected all four probes inside the authored burst.
+Policy death fenced in **0.106 s**; source death protected in **1.012 s** and its
+replacement became usable in **1.046 s** while the account stayed protected;
+request-retention failure fenced in **0.972 s**; owner death protected in
+**0.952 s**. These pass the original 2/8/6-second limits. Retention obstruction
+was restored, with exact economic/checkpoint preservation and a retained frozen
+request witness. The probes are sequential: later probes use the surviving
+topology, not a new all-eight health claim. All 22 observed runtime PIDs per
+steady/recovery/public trial and all 23 in the source-restart fault trial were
+absent afterward; all four final account phases were `stopped`.
+
+The frozen candidate passed **209 affected tests** and the complete `make check`:
+**1,885 passed, two skipped, three deselected** (250.75 seconds for pytest), plus
+strict typing, stubtest, formatting/lint, engineering/dependency/architecture,
+security/secret checks and installed-wheel smoke validation. Earlier failed
+attempts and checks are retained individually. MR15 integrated capacity remains
+open. Stage 2 stays gated on the existing capture-rollover, longer finite
+service/handoff and separately qualified 26-hour authority requirements, as well
+as the remaining latency, query, feature and public-health gaps.
+
+### Validation of the original delivered state
 
 The final `make check` passed with **1,837 tests passed, two skipped and three
 deselected** (265.61 seconds for pytest), plus frozen-lock checks, Ruff, strict

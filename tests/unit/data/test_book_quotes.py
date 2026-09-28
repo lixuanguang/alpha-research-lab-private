@@ -11,7 +11,7 @@ from typing import Literal
 
 # third party library imports
 import pytest
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from configuration import CaptureConfig
@@ -228,6 +228,21 @@ class TestIncrementalBookDepth:
         assert quote.ask == (
             None if not asks else BookQuoteSide(asks[0][0], asks[0][1].size, asks[0][1].order_count)
         )
+        assert BookDepth.touch_quote(
+            row,
+            venue=scenario.config.venue,
+            instrument_id=scenario.config.instrument_id,
+            source_id="saved-native-source",
+            channel=scenario.config.channel,
+            available_ns=None,
+        ) == BookDepth.from_observation(row).quote(
+            row,
+            venue=scenario.config.venue,
+            instrument_id=scenario.config.instrument_id,
+            source_id="saved-native-source",
+            channel=scenario.config.channel,
+            available_ns=None,
+        )
 
     def test_partial_snapshot_gap_and_new_snapshot_hide_unusable_depth(self) -> None:
         """Partial mutation and unknown continuity expose no executable quote."""
@@ -310,24 +325,75 @@ class TestBookQuoteContract:
         assert quote.available_ns is None
         assert quote.state_identity == row.state_identity
         assert quote.market_state == "two_sided"
+        self._assert_touch_matches_depth(scenario, row, None)
 
-        _, quote = scenario.push(
+        row, quote = scenario.push(
             "frame",
             raw=self._okx_frame("update", 10, 11, [["100", "0.2", "0", "1"]], []),
             available_ns=1_000_000_010,
         )
         assert quote.bid == BookQuoteSide(Decimal(100), Decimal("0.2"), 1)
         assert quote.available_ns == 1_000_000_010
-        _, quote = scenario.push(
+        self._assert_touch_matches_depth(scenario, row, 1_000_000_010)
+        row, quote = scenario.push(
             "frame",
             raw=self._okx_frame("update", 11, 12, [], [["101", "0", "0", "0"]]),
         )
         assert quote.market_state == "one_sided" and quote.ask is None
-        _, quote = scenario.push(
+        self._assert_touch_matches_depth(scenario, row, None)
+        row, quote = scenario.push(
             "frame",
             raw=self._okx_frame("update", 12, 13, [["100", "0", "0", "0"]], []),
         )
         assert quote.market_state == "empty" and quote.bid is None and quote.ask is None
+        self._assert_touch_matches_depth(scenario, row, None)
+        row, _ = scenario.push("gap", reason="unknown_loss")
+        self._assert_touch_matches_depth(scenario, row, None)
+
+    def test_public_touch_revalidates_a_mutated_book(self) -> None:
+        """Direct quote callers cannot bypass complete-boundary checks."""
+        scenario = _BookScenario("okx")
+        scenario.push("session")
+        scenario.push("frame", raw=_OKX_ACK)
+        row, _ = scenario.push(
+            "frame",
+            raw=self._okx_frame(
+                "snapshot", -1, 10, [["100", "1", "0", "1"]], [["101", "2", "0", "1"]]
+            ),
+        )
+        force_setattr(row, "state_identity", "bad")
+        with pytest.raises(ValueError, match="book state or quality"):
+            BookDepth.touch_quote(
+                row,
+                venue=scenario.config.venue,
+                instrument_id=scenario.config.instrument_id,
+                source_id="saved-native-source",
+                channel=scenario.config.channel,
+                available_ns=None,
+            )
+
+    @staticmethod
+    def _assert_touch_matches_depth(
+        scenario: _BookScenario, row: BookObservation, available_ns: int | None
+    ) -> None:
+        """Preserve exact complete-boundary quote coordinates and touch amounts."""
+        actual = BookDepth.touch_quote(
+            row,
+            venue=scenario.config.venue,
+            instrument_id=scenario.config.instrument_id,
+            source_id="saved-native-source",
+            channel=scenario.config.channel,
+            available_ns=available_ns,
+        )
+        expected = BookDepth.from_observation(row).quote(
+            row,
+            venue=scenario.config.venue,
+            instrument_id=scenario.config.instrument_id,
+            source_id="saved-native-source",
+            channel=scenario.config.channel,
+            available_ns=available_ns,
+        )
+        assert actual == expected
 
     def test_quote_states_round_trip_and_reject_malformed_fields(self) -> None:
         """Keep locked/crossed states explicit and reject malformed encoded quotes."""

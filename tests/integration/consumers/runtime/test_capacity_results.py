@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
+from uuid import uuid4
 
 # third party library imports
 import pytest
+from capacity_inputs import CapacityWorkload
 from capacity_results import CapacityResultsCollector, _LatencySeries
 
 # project library imports
+from market_data.contracts import CaptureRecord, CaptureRequest
+from market_data.storage import CaptureJournal
 from serialization import DomainCodec
 
 
@@ -31,6 +38,77 @@ class TestCapacityResults:
         for _ in range(11):
             series.add(1_100_000_000)
         assert series.summarize()["status"] == "fail"
+
+    def test_exact_fixture_schedule_rejects_missing_or_changed_native_bytes(
+        self, tmp_path: Path
+    ) -> None:
+        """Require the whole declared burst and every emitted frame, including the tail."""
+        source = (
+            CapacityWorkload(
+                opening_at=datetime(2026, 9, 27, tzinfo=UTC),
+                socket_root=Path("/private/tmp/capacity-schedule-test"),
+            )
+            .service_configuration()
+            .sources[0]
+        )
+        request = CaptureRequest(
+            config=source.capture,
+            recording_id=str(uuid4()),
+            implementation_identity="a" * 64,
+        )
+        trace_root = tmp_path / "fixture-epochs"
+        trace_root.mkdir()
+        reads = tmp_path / "reads"
+        reads.mkdir()
+        anchor = 10_000_000_000
+        codec = DomainCodec()
+        (reads / "summary.json").write_bytes(
+            codec.encode_json(
+                {
+                    "steady_duration_seconds": 60,
+                    "started_monotonic_ns": anchor + 1_000_000_000,
+                    "steady_ended_monotonic_ns": anchor + 61_000_000_000,
+                }
+            )
+        )
+        records = tuple(
+            CaptureRecord(
+                kind="frame", epoch=0, received_ns=anchor + index, raw=str(index).encode()
+            )
+            for index in range(2300)
+        )
+        trace = {
+            "fixture_identity": "b" * 64,
+            "active_identity": "b" * 64,
+            "epoch": 1,
+            "anchor_ns": anchor,
+            "closed_ns": anchor + 62_000_000_000,
+            "emitted": tuple(
+                (
+                    index,
+                    anchor + CapacityResultsCollector._authored_slot_ns(index),
+                    hashlib.sha256(record.raw).hexdigest(),
+                )
+                for index, record in enumerate(records)
+            ),
+        }
+        (trace_root / f"{source.name}.epoch-1-receipts.json").write_bytes(codec.encode_json(trace))
+        collector = CapacityResultsCollector(tmp_path / "operating", tmp_path, reads)
+        with patch.object(CaptureJournal, "records", return_value=iter(records)):
+            result = collector._fixture_schedule(source.name, tmp_path, request)
+        assert result["status"] == "pass"
+        assert result["complete_declared_burst_in_steady_interval"] is True
+        with patch.object(CaptureJournal, "records", return_value=iter(records[:-1])):
+            result = collector._fixture_schedule(source.name, tmp_path, request)
+        assert result["status"] == "fail"
+        assert result["exact_native_bytes"] is False
+        changed = (
+            *records[:-1],
+            CaptureRecord(kind="frame", epoch=0, received_ns=anchor, raw=b"x"),
+        )
+        with patch.object(CaptureJournal, "records", return_value=iter(changed)):
+            result = collector._fixture_schedule(source.name, tmp_path, request)
+        assert result["status"] == "fail"
 
     def test_actual_receipts_expose_burst_shortfall_without_a_false_pass(self) -> None:
         """Count observed socket receipts against each fixed authored phase."""

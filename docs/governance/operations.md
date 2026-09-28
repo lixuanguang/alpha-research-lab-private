@@ -478,7 +478,11 @@ background system daemon or grant private venue authority.
    `monitoring/<account>.json` records those fields with the inspected account
    state; its telemetry database is a projection. A live heartbeat is not a
    current market or economic progress. The installed account journal remains
-   authoritative.
+   authoritative. Check the separate diagnostic process status and actual sample
+   time: full reports run outside the delivery loop, pending diagnostic samples
+   may be coalesced, and a failed or delayed report does not delay the supervisor's
+   account-phase protection checks. The process shares the finite shutdown bound;
+   any forced fence or unfinished diagnostic batch remains visible.
 4. Use `stop_instance` for a selective policy stop. Other strategies retain
    ownership, but cancellation of a shared physical parent can suspend their
    residuals until a fresh complete reconciliation. Inspect terminal outcomes,

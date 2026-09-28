@@ -35,6 +35,19 @@ class _ReadRun(msgspec.Struct, frozen=True):
     steady_duration_seconds: int
     started_at_utc: str | None = None
     steady_ended_at_utc: str | None = None
+    started_monotonic_ns: int | None = None
+    steady_ended_monotonic_ns: int | None = None
+
+
+class _FixtureReceipts(msgspec.Struct, frozen=True):
+    """Bind authored slots to emitted native bytes and the actual first-open clock."""
+
+    fixture_identity: str
+    active_identity: str
+    epoch: int
+    anchor_ns: int
+    closed_ns: int
+    emitted: tuple[tuple[int, int, str], ...]
 
 
 class _TrialContext(msgspec.Struct, frozen=True):
@@ -528,7 +541,7 @@ class CapacityResultsCollector:
             ),
             "stop_reason": end_reason,
             "stop_status": "pass"
-            if completed and end_reason == "duration_limit"
+            if completed and end_reason in ("duration_limit", "supervisor_stop")
             else "fail"
             if end_reason
             in ("message_limit", "storage_limit_unknown_tail", "overload_unknown_loss")
@@ -570,11 +583,81 @@ class CapacityResultsCollector:
             "available_durable_raw_records": len(raw),
             "unmatched_durable_raw_records": len(raw) - matched,
             "unmatched_raw_record_kinds": remaining_kinds,
-            "status": "pass_available_cursor_prefix"
+            "status": "pass_complete_native_stream"
+            if matched == len(raw) and completed
+            else "pass_available_cursor_prefix"
             if matched == len(raw)
             else "unmeasured_unattributed_delivery_tail",
             "capture_finalization": "completed" if completed else "interrupted_prefix_only",
             "trace_identity": replay.summary()["trace_identity"],
+        }
+
+    def _fixture_schedule(
+        self, source_name: str, capture_root: Path, request: CaptureRequest
+    ) -> dict[str, object]:
+        """Compare every emitted byte and required steady slot with the finalized capture."""
+        trace_path = (
+            self.service_root.parent / "fixture-epochs" / f"{source_name}.epoch-1-receipts.json"
+        )
+        if not trace_path.exists() or self.read_root is None:
+            return {"status": "unmeasured", "reason": "no_closed_fixture_schedule_trace"}
+        trace = self.codec.decode_json(trace_path.read_bytes(), _FixtureReceipts)
+        interval = self.codec.decode_json((self.read_root / "summary.json").read_bytes(), _ReadRun)
+        start, end = interval.started_monotonic_ns, interval.steady_ended_monotonic_ns
+        if start is None or end is None:
+            return {"status": "unmeasured", "reason": "no_monotonic_steady_interval"}
+        if trace.epoch != 1 or trace.closed_ns <= trace.anchor_ns or end <= start:
+            raise ValueError("invalid finite fixture schedule clocks")
+        frames = tuple(
+            record
+            for record in CaptureJournal(capture_root, request).records(completed=True)
+            if record.kind in ("frame", "snapshot")
+        )
+        indices = tuple(row[0] for row in trace.emitted)
+        exact_bytes = tuple(hashlib.sha256(row.raw).hexdigest() for row in frames) == tuple(
+            row[2] for row in trace.emitted
+        )
+        contiguous = indices == tuple(range(len(indices)))
+        required = {
+            index
+            for index in range(3250)
+            if start <= trace.anchor_ns + self._authored_slot_ns(index) < end
+        }
+        received_in_interval = {
+            index for index, received_ns, _ in trace.emitted if start <= received_ns < end
+        }
+        # Completion can be late by the unchanged two-second queue-age bound,
+        # but every authored slot due in the required interval must be retained.
+        missing = required - set(indices)
+        late = tuple(
+            index
+            for index, received_ns, _ in trace.emitted
+            if index in required
+            and received_ns - trace.anchor_ns - self._authored_slot_ns(index) > 2_000_000_000
+        )
+        burst = set(range(1000, 2000))
+        complete = (
+            exact_bytes
+            and contiguous
+            and not missing
+            and not late
+            and burst.issubset(required)
+            and end - start >= 60_000_000_000
+        )
+        return {
+            "status": "pass" if complete else "fail",
+            "trace_path": str(trace_path),
+            "trace_sha256": hashlib.sha256(trace_path.read_bytes()).hexdigest(),
+            "fixture_identity": trace.fixture_identity,
+            "emitted_frames": len(indices),
+            "durable_frames": len(frames),
+            "exact_native_bytes": exact_bytes,
+            "contiguous_slots": contiguous,
+            "required_steady_slots": len(required),
+            "received_within_steady_interval": len(received_in_interval),
+            "missing_required_slots": tuple(sorted(missing)),
+            "slots_later_than_two_seconds": late,
+            "complete_declared_burst_in_steady_interval": burst.issubset(required),
         }
 
     def _reads(self) -> dict[str, object]:
@@ -692,6 +775,10 @@ class CapacityResultsCollector:
                 ):
                     raise ValueError(f"capture differs from selected source: {request_path}")
                 capture = self._capture_facts(request_path.parent, request, steady_window, origin)
+                if origin == "base_fixture" and capture["completed_manifest"] is True:
+                    capture["fixture_schedule_proof"] = self._fixture_schedule(
+                        definition.name, request_path.parent, request
+                    )
                 measurement_directory = probe_root / definition.name
                 source_probe, cursors = self._capture_probe(
                     measurement_directory / f"{request.recording_id}.capture.jsonl"

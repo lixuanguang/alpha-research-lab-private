@@ -275,7 +275,7 @@ class AccountOwnerService:
                 self._shutdown_applied = True
                 self._stopping.set()
             else:
-                response = self._apply(retained)
+                response = self._apply(retained, telemetry=request.action != "inspect")
             self._send(connection, b"\x00", self._codec.encode_json(response))
             return response
         except Exception as error:

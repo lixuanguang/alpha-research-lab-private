@@ -17,14 +17,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
+from multiprocessing.synchronize import Event
 from pathlib import Path
 from typing import Literal, cast
 from uuid import uuid4
 
 # project library imports
 from applications.execute.service_inputs import ServiceBookInputs
-from applications.execute.service_monitor import PaperServiceMonitor
-from applications.execute.source_service import SourceDelivery, run_source_service
+from applications.execute.service_monitor import PaperServiceDiagnostics, PaperServiceMonitor
+from applications.execute.source_service import _ReceivedSourceDelivery, run_source_service
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
@@ -37,6 +38,7 @@ from execution import (
     AccountControl,
     AccountExecutionRequest,
     AccountObservation,
+    PaperMarket,
     PaperOwner,
     PortfolioContext,
     SocketPaperAccount,
@@ -44,7 +46,7 @@ from execution import (
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
 from market_data.collection import CaptureTransport
-from market_data.contracts import CaptureRequest
+from market_data.contracts import CaptureCursor, CaptureRequest
 from research.observations import LiveBookDecisionSource
 from runtime import (
     InstalledIdentity,
@@ -129,6 +131,9 @@ class _SourceChild:
     receiver: Connection[bytes, bytes]
     health: HealthMetrics
     observers: dict[str, SharedPaperCaptureObserver]
+    stop: Event | None = None
+    pipe_drained: bool = False
+    received_count: int = 0
 
 
 class PaperServices:
@@ -199,7 +204,10 @@ class PaperServices:
         self.unavailable_accounts: set[str] = set()
         self.failures: list[dict[str, object]] = []
         self.monitor = PaperServiceMonitor(root / "monitoring")
+        self.diagnostics: PaperServiceDiagnostics | None = None
         self.monitoring: dict[str, object] = {}
+        self.account_phases: dict[str, object] = {}
+        self.delivery_accounting: dict[str, object] = {}
         self.is_stopping = False
         self.run_id = uuid4().hex
 
@@ -295,6 +303,7 @@ class PaperServices:
 
     def run(self) -> dict[str, object]:
         """Hold the local launch fence, supervise children and stop services on completion."""
+        service_deadline = time.monotonic() + self.config.duration_seconds
         self.root.mkdir(parents=True, exist_ok=True)
         with ExitStack() as stack:
             self.control_socket.parent.mkdir(parents=True, exist_ok=True)
@@ -339,6 +348,13 @@ class PaperServices:
                     os.fsync(stream.fileno())
             listener = self._listen()
             try:
+                self.diagnostics = PaperServiceDiagnostics(
+                    self.config,
+                    self.owners,
+                    root=self.root / "monitoring",
+                    deadline=service_deadline,
+                )
+                self.diagnostics.start()
                 for name in sorted(self.active):
                     self._start_instance(name)
                 for source in self.config.sources:
@@ -347,27 +363,57 @@ class PaperServices:
                         for item in self.config.instances
                     ):
                         self._start_source(source)
-                deadline, next_sample = time.monotonic() + self.config.duration_seconds, 0.0
-                while not self.is_stopping and time.monotonic() < deadline:
+                drain_reserve = min(10.0, self.config.duration_seconds / 5)
+                active_deadline, next_sample = service_deadline - drain_reserve, 0.0
+                while not self.is_stopping and time.monotonic() < active_deadline:
                     self._control(listener)
-                    self._supervise()
+                    consumed = self._supervise()
                     if time.monotonic() >= next_sample:
                         self._sample()
                         self._write_status()
                         next_sample = time.monotonic() + self.config.poll_seconds
-                    time.sleep(0.02)
+                    if not consumed:
+                        time.sleep(0.02)
             finally:
-                self._shutdown(listener)
+                self._shutdown(listener, deadline=service_deadline)
             return self.status()
 
-    def _shutdown(self, listener: socket.socket) -> None:
+    def _shutdown(self, listener: socket.socket, *, deadline: float | None = None) -> None:
         """Fence every child and request every account stop despite diagnostic close failure."""
         self.is_stopping = True
-        for name, child in self.sources.items():
+        drain_deadline = min(
+            time.monotonic() + 10.0,
+            float("inf") if deadline is None else deadline,
+        )
+        if self.diagnostics is not None:
+            self.diagnostics.request_stop()
+        for child in self.sources.values():
+            if child.stop is not None:
+                child.stop.set()
+        if self.diagnostics is not None:
             try:
-                self._close_source(child)
+                self.diagnostics.close(deadline=min(drain_deadline, time.monotonic() + 2.0))
+            except (OSError, RuntimeError) as error:
+                self._record("diagnostic_close_failed", "monitoring", str(error))
+            self._collect_diagnostics()
+        while (
+            any(
+                child.stop is not None and not child.pipe_drained and not child.receiver.closed
+                for child in self.sources.values()
+            )
+            and time.monotonic() < drain_deadline
+        ):
+            if not self._supervise():
+                time.sleep(0.005)
+        for name, child in self.sources.items():
+            if child.stop is not None and child.pipe_drained and child.process.pid is not None:
+                child.process.join(max(0.0, drain_deadline - time.monotonic()))
+            try:
+                self._close_source(child, deadline=drain_deadline)
             except OSError as error:
                 self._record("source_close_failed", name, str(error))
+            if child.stop is not None:
+                self._account_source_delivery(name, child)
         for name, worker in self.workers.items():
             try:
                 worker.close()
@@ -409,9 +455,13 @@ class PaperServices:
                 for name, worker in self.workers.items()
             },
             "sources": source_states,
+            "source_delivery_accounting": self.delivery_accounting,
             "faulted_accounts": tuple(sorted(self.faulted_accounts)),
             "monitoring": self.monitoring,
-            "diagnostic_failures": self.monitor.failures,
+            "account_phases": self.account_phases,
+            "diagnostics": None if self.diagnostics is None else self.diagnostics.status(),
+            "diagnostic_failures": self.monitor.failures
+            + (0 if self.diagnostics is None else self.diagnostics.failure_count),
             "failures": tuple(self.failures),
             "owners": self.owners,
         }
@@ -509,13 +559,15 @@ class PaperServices:
             recording_id=str(uuid4()),
             implementation_identity=self.implementation,
         )
+        context = multiprocessing.get_context("spawn")
         receiver, sender = cast(
             "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
-            multiprocessing.get_context("spawn").Pipe(duplex=False),
+            context.Pipe(duplex=False),
         )
         health = HealthMetrics()
+        stop = context.Event()
         root = self.root / "runs" / self.run_id / source.name / request.recording_id
-        process = multiprocessing.get_context("spawn").Process(
+        process = context.Process(
             target=run_source_service,
             args=(
                 request,
@@ -531,9 +583,10 @@ class PaperServices:
                     / source.name
                     / f"{request.recording_id}.capture.jsonl"
                 ),
+                stop,
             ),
         )
-        child = _SourceChild(source, request, process, receiver, health, {})
+        child = _SourceChild(source, request, process, receiver, health, {}, stop)
         self.sources[source.name] = child
         self._refresh_observers(source.name)
         process.start()
@@ -620,8 +673,9 @@ class PaperServices:
                 measurements=measurements,
             )
 
-    def _supervise(self) -> None:
-        """Fence failed children before any next cohort and keep independent accounts operating."""
+    def _supervise(self) -> bool:
+        """Fence failed children and consume at most one delivery per source this pass."""
+        consumed = False
         for definition in self.config.accounts:
             if definition.account_id in self.faulted_accounts:
                 continue
@@ -657,28 +711,42 @@ class PaperServices:
             if not worker.is_alive or has_stalled:
                 self._stop_instance(name, "worker_lost")
         for name, child in tuple(sorted(self.sources.items())):
-            if not child.process.is_alive():
+            if child.pipe_drained or child.receiver.closed:
+                continue
+            is_live = child.process.is_alive()
+            if not is_live and not (self.is_stopping and child.stop is not None):
                 self._fault_source(name, "source_lost")
                 continue
             try:
-                policy = HealthPolicy(
-                    heartbeat_seconds=2,
-                    progress_seconds=30,
-                    freshness_seconds=max(1, child.definition.freshness_us // 1_000_000),
-                    max_queue=child.definition.capture.queue_capacity,
-                    max_reconnects=child.definition.capture.retries,
-                    max_invalid=0,
-                    alert_socket=self.config.alert_socket or "/private/tmp/absent-paper-alert.sock",
-                )
-                reason = policy.reason(child.health.snapshot(), now_ns=time.monotonic_ns())
-                if reason:
-                    self._close_source(child)
-                    self._fault_source(name, reason)
-                    continue
-                if child.receiver.poll():
-                    delivery = self.codec.decode_json(
-                        child.receiver.recv_bytes(16_777_216), SourceDelivery
+                if not self.is_stopping:
+                    policy = HealthPolicy(
+                        heartbeat_seconds=2,
+                        progress_seconds=30,
+                        freshness_seconds=max(1, child.definition.freshness_us // 1_000_000),
+                        max_queue=child.definition.capture.queue_capacity,
+                        max_reconnects=child.definition.capture.retries,
+                        max_invalid=0,
+                        alert_socket=self.config.alert_socket
+                        or "/private/tmp/absent-paper-alert.sock",
                     )
+                    reason = policy.reason(child.health.snapshot(), now_ns=time.monotonic_ns())
+                    if reason:
+                        self._close_source(child)
+                        self._fault_source(name, reason)
+                        continue
+                if child.receiver.poll():
+                    try:
+                        payload = child.receiver.recv_bytes(16_777_216)
+                    except EOFError:
+                        if self.is_stopping and child.stop is not None:
+                            child.pipe_drained = True
+                            continue
+                        raise
+                    delivery = self.codec.decode_json(payload, _ReceivedSourceDelivery)
+                    if delivery.book.position != child.received_count:
+                        raise ValueError("source pipe delivery position differs from durable order")
+                    child.received_count += 1
+                    consumed = True
                     for account_id, observer in sorted(child.observers.items()):
                         if account_id in self.unavailable_accounts:
                             continue
@@ -690,7 +758,7 @@ class PaperServices:
                                 child.definition.market_interval_us,
                             )
                         try:
-                            observer.observe(delivery.record, delivery.book)
+                            observer._observe_validated(delivery.record, delivery.book)
                         except PolicyProcessFailure as error:
                             failed_worker = next(
                                 (
@@ -726,6 +794,7 @@ class PaperServices:
             except (OSError, EOFError, ValueError, TimeoutError) as error:
                 self._close_source(child)
                 self._fault_source(name, f"source_failure:{type(error).__name__}")
+        return consumed
 
     def _stop_instance(self, name: str, reason: str) -> None:
         """Stop a policy before durable selective cancellation, preserving every other owner."""
@@ -802,32 +871,121 @@ class PaperServices:
             self.monitor.failures += 1
             self.monitor.last_error = f"event_retention:{type(error).__name__}"
 
-    def _sample(self) -> None:
-        """Refresh diagnostic projections without replaying any account operation."""
-        for account_id, account in self.accounts.items():
-            selected_sources = tuple(
-                item
-                for item in self.config.sources
-                if any(
-                    instance.source == item.name and instance.account_id == account_id
-                    for instance in self.config.instances
-                )
+    def _account_source_delivery(self, name: str, child: _SourceChild) -> None:
+        """Retain constant-cost native and account counts for exact offline parity review."""
+        capture_root = (
+            self.root
+            / "runs"
+            / self.run_id
+            / name
+            / child.request.recording_id
+            / child.request.recording_id
+        )
+        completed = (capture_root / "manifest.json").is_file()
+        result_retained = (capture_root.parent / "source-result.json").is_file()
+        durable_records: int | None = None
+        cursor_sha256: str | None = None
+        error_name: str | None = None
+        try:
+            cursor = self.codec.decode_json(
+                (capture_root / "cursor.json").read_bytes(), CaptureCursor
             )
-            markets = tuple(
+            cursor.__post_init__()
+            if cursor.request_identity != child.request.identity:
+                raise ValueError("source cursor differs from its launched request")
+            durable_records, cursor_sha256 = cursor.records, cursor.sha256
+        except (OSError, ValueError, OverflowError) as error:
+            error_name = type(error).__name__
+        accounts: dict[str, object] = {}
+        for account_id, observer in sorted(child.observers.items()):
+            retained = observer.retained_count
+            accounts[account_id] = {
+                "delivery_path": None
+                if observer.delivery_path is None
+                else str(observer.delivery_path),
+                "retained_deliveries": retained,
+                "observed_deliveries": observer.delivered_count,
+                "complete": (
+                    completed
+                    and result_retained
+                    and child.pipe_drained
+                    and child.process.exitcode == 0
+                    and durable_records is not None
+                    and retained == durable_records == observer.delivered_count
+                ),
+            }
+        is_complete = (
+            completed
+            and result_retained
+            and child.pipe_drained
+            and child.process.exitcode == 0
+            and durable_records is not None
+            and child.received_count == durable_records
+            and all(
+                isinstance(value, dict) and value["complete"] is True for value in accounts.values()
+            )
+        )
+        self.delivery_accounting[name] = {
+            "status": "complete" if is_complete else "incomplete",
+            "capture_finalization": "completed" if completed else "interrupted_prefix",
+            "result_retained": result_retained,
+            "pipe_drained": child.pipe_drained,
+            "source_exitcode": child.process.exitcode,
+            "durable_records": durable_records,
+            "cursor_sha256": cursor_sha256,
+            "pipe_deliveries": child.received_count,
+            "accounts": accounts,
+            "error": error_name,
+        }
+        if not is_complete:
+            self._record(
+                "source_delivery_incomplete",
+                name,
+                f"durable={durable_records} pipe={child.received_count} "
+                f"drained={child.pipe_drained} completed={completed} error={error_name}",
+            )
+
+    def _sample(self) -> None:
+        """Keep protection reads on cadence while full reports run in their own process."""
+        self._collect_diagnostics()
+        latest_markets: dict[str, tuple[PaperMarket, ...]] = {}
+        for account_id, account in self.accounts.items():
+            latest_markets[account_id] = tuple(
                 observer.last_market
                 for child in self.sources.values()
                 for owner, observer in child.observers.items()
                 if owner == account_id and observer.last_market is not None
             )
-            result = self.monitor.sample(account, selected_sources, markets)
-            self.monitoring[account_id] = result
-            if (
-                result.get("phase") in ("stopped", "faulted")
-                and account_id not in self.faulted_accounts
-            ):
-                self.faulted_accounts.add(account_id)
-                self._stop_account_workers(account_id)
-                self._record("account_protected", account_id, str(result["phase"]))
+            try:
+                view = next(
+                    item for item in account.accounts() if item.ledger.account_id == account_id
+                )
+                self.account_phases[account_id] = {
+                    "observed_at": datetime.now(UTC),
+                    "phase": view.phase,
+                    "status": "observed",
+                }
+                if view.phase in ("stopped", "faulted") and account_id not in self.faulted_accounts:
+                    self.faulted_accounts.add(account_id)
+                    self._stop_account_workers(account_id)
+                    self._record("account_protected", account_id, view.phase)
+            except (OSError, ValueError, RuntimeError, TimeoutError, StopIteration) as error:
+                self.monitor.failures += 1
+                self.monitor.last_error = f"account_phase:{type(error).__name__}: {error}"
+                self.account_phases[account_id] = {
+                    "observed_at": datetime.now(UTC),
+                    "status": "failed",
+                    "error": self.monitor.last_error,
+                }
+        if self.diagnostics is not None:
+            self.diagnostics.submit(latest_markets)
+
+    def _collect_diagnostics(self) -> None:
+        """Keep actual compact report receipts separate from synchronous phase protection."""
+        if self.diagnostics is None:
+            return
+        for receipt in self.diagnostics.poll():
+            self.monitoring[receipt.account_id] = receipt
 
     def _write_status(self) -> None:
         """Publish a replaceable liveness view; economic state remains in the account journal."""
@@ -922,15 +1080,19 @@ class PaperServices:
         )
 
     @staticmethod
-    def _close_source(child: _SourceChild) -> None:
+    def _close_source(child: _SourceChild, *, deadline: float | None = None) -> None:
         """Fence a source before releasing its receiver or starting a replacement."""
         if child.process.pid is not None:
             if child.process.is_alive():
                 child.process.terminate()
-            child.process.join(1)
+            child.process.join(
+                1 if deadline is None else max(0.0, min(1.0, deadline - time.monotonic()))
+            )
             if child.process.is_alive():
                 child.process.kill()
-                child.process.join(1)
+                child.process.join(
+                    1 if deadline is None else max(0.0, min(1.0, deadline - time.monotonic()))
+                )
         child.receiver.close()
         failed: list[str] = []
         for account_id, observer in child.observers.items():

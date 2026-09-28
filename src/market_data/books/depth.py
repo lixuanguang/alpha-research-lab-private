@@ -143,3 +143,93 @@ class BookDepth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
             bid=None if bid is None else BookQuoteSide(bid[0], bid[1].size, bid[1].order_count),
             ask=None if ask is None else BookQuoteSide(ask[0], ask[1].size, ask[1].order_count),
         )
+
+    @staticmethod
+    def touch_quote(
+        row: BookObservation,
+        *,
+        venue: str,
+        instrument_id: InstrumentId,
+        source_id: str,
+        channel: str,
+        available_ns: int | None,
+    ) -> BookQuote:
+        """Project only displayed touch liquidity from one validated complete boundary.
+
+        Full depth is needed for research imbalance, but paper matching and quote
+        admission consume only the best price on each side. Native L3 orders at
+        that price retain their exact aggregate size and original order count.
+        """
+        row.__post_init__()
+        return BookDepth._touch_quote_validated(
+            row,
+            venue=venue,
+            instrument_id=instrument_id,
+            source_id=source_id,
+            channel=channel,
+            available_ns=available_ns,
+        )
+
+    @staticmethod
+    def _touch_quote_validated(
+        row: BookObservation,
+        *,
+        venue: str,
+        instrument_id: InstrumentId,
+        source_id: str,
+        channel: str,
+        available_ns: int | None,
+    ) -> BookQuote:
+        """Project the touch after a containing LiveBookDelivery validated the book."""
+        bid: BookQuoteSide | None = None
+        ask: BookQuoteSide | None = None
+        if row.status == "degraded" and row.outcome in ("snapshot", "update"):
+            if row.orders:
+                bid_price = max(
+                    (order.price for order in row.orders if order.side == "buy"), default=None
+                )
+                ask_price = min(
+                    (order.price for order in row.orders if order.side == "sell"), default=None
+                )
+                for side, price in (("buy", bid_price), ("sell", ask_price)):
+                    if price is None:
+                        continue
+                    best_orders = tuple(
+                        order for order in row.orders if order.side == side and order.price == price
+                    )
+                    touch = BookQuoteSide(
+                        price,
+                        DecimalGrid.exact_decimal(
+                            sum((Fraction(order.size) for order in best_orders), Fraction())
+                        ),
+                        len(best_orders),
+                    )
+                    if side == "buy":
+                        bid = touch
+                    else:
+                        ask = touch
+            else:
+                for price, level in row.bids:
+                    if bid is None or price > bid.price:
+                        bid = BookQuoteSide(price, level.size, level.order_count)
+                for price, level in row.asks:
+                    if ask is None or price < ask.price:
+                        ask = BookQuoteSide(price, level.size, level.order_count)
+        return BookQuote(
+            venue=venue,
+            instrument_id=instrument_id,
+            source_id=source_id,
+            channel=channel,
+            position=row.position,
+            epoch=row.epoch,
+            sequence=row.sequence,
+            source_time=row.source_time,
+            received_ns=row.received_ns,
+            available_ns=available_ns,
+            outcome=row.outcome,
+            status=row.status,
+            reason=row.reason,
+            state_identity=row.state_identity,
+            bid=bid,
+            ask=ask,
+        )

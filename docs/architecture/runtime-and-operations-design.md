@@ -56,6 +56,16 @@ owner generation fences replacements; a local account/socket scheduling fence
 rejects duplicate producers. This is a trusted
 single-user topology, not hostile-process isolation or distributed consensus.
 
+Full diagnostic reports run in one bounded child that can inspect accounts but
+cannot submit economic or lifecycle commands. The supervisor still reads account
+phases at the configured protection cadence. The diagnostic channel retains one
+current report batch and only the latest pending batch; skipped diagnostic
+requests and actual report times are visible. Native deliveries and decision
+cohorts never use that replaceable channel. The child shares the supervisor's
+shutdown deadline, and its PID, completion counts and forced fencing are retained
+for resource and cleanup review. Existing report fields and telemetry remain
+available; a delayed diagnostic does not become a fresh account observation.
+
 The supervised native-source definition also binds an explicit selected-book
 paper cadence, `market_interval_us`. It defaults to 3,000,000 microseconds and
 must be positive and no greater than source freshness or capture idle time; the

@@ -21,6 +21,7 @@ from test_paper_activation import TestPaperActivation as _ActivationFixture
 
 # project library imports
 from applications.execute import AccountExecutionApplication
+from applications.execute.account_service import AccountOwnerService
 from configuration import AccountConfiguration
 from execution import (
     AccountControl,
@@ -46,8 +47,75 @@ class _ServiceHealth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     status: str
 
 
+class _RecordingAccountApplication:
+    """Record service telemetry binding without performing account mutations."""
+
+    def __init__(self) -> None:
+        """Retain exact validated requests and diagnostic destination choices."""
+        self.requests: list[tuple[AccountExecutionRequest, Path | None]] = []
+
+    def run(
+        self,
+        *,
+        config_path: Path,
+        journal_path: Path,
+        request_path: Path | None = None,
+        telemetry_path: Path | None = None,
+        release_identity: str | None = None,
+        opened_journal: AccountJournal | None = None,
+    ) -> AccountExecutionResult:
+        """Read the retained typed request and expose the selected telemetry path."""
+        assert request_path is not None and opened_journal is not None
+        request = DomainCodec().decode_json(request_path.read_bytes(), AccountExecutionRequest)
+        self.requests.append((request, telemetry_path))
+        return AccountExecutionResult(accounts=(), orders=())
+
+
 class TestAccountOwnerService:
     """Verify one process owns a retained journal and serves typed account commands."""
+
+    @pytest.mark.parametrize("action", ("inspect", "block"))
+    def test_only_inspection_suppresses_redundant_operation_telemetry(
+        self, tmp_path: Path, action: str
+    ) -> None:
+        """Reads keep exact request retention; mutations retain their configured telemetry."""
+        journal_path = tmp_path / "account.sqlite3"
+        owner = _ActivationFixture._bootstrap(journal_path)[-1]
+        config = _ActivationFixture._config()
+        application = _RecordingAccountApplication()
+        telemetry_path = tmp_path / "telemetry.sqlite3"
+        service = AccountOwnerService(
+            application=application,
+            config=config,
+            config_path=tmp_path / "config.json",
+            journal_path=journal_path,
+            telemetry_path=telemetry_path,
+            release_identity=owner.release_identity,
+            paper_owner=owner,
+            socket_path=tmp_path / "account.sock",
+            duration_seconds=10,
+        )
+        service._owner_journal = AccountJournal(journal_path, config, paper_owner=owner)
+        request = (
+            AccountExecutionRequest(action="inspect", paper_owner=owner)
+            if action == "inspect"
+            else AccountExecutionRequest(
+                action="block",
+                account_id=owner.account_id,
+                reason="explicit protection",
+                paper_owner=owner,
+            )
+        )
+        codec = DomainCodec()
+        payload = codec.encode_json(request)
+        server, client = socket.socketpair()
+        with server, client:
+            client.sendall(struct.pack("!I", len(payload)) + payload)
+            response = service._serve_connection(server)
+            assert response is not None
+        assert application.requests == [(request, None if action == "inspect" else telemetry_path)]
+        retained = tuple(service.requests_path.glob("*.json"))
+        assert len(retained) == 1 and retained[0].read_bytes() == payload
 
     @pytest.mark.parametrize("mismatch", ("path", "owner"))
     def test_opened_journal_cannot_override_request_binding(

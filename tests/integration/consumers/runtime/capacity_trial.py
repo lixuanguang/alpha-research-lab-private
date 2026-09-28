@@ -71,6 +71,7 @@ class _Status(msgspec.Struct, frozen=True):
     sources: dict[str, _Child]
     faulted_accounts: tuple[str, ...]
     stopping: bool
+    diagnostics: _Child | None = None
 
 
 class AlertReceiver:
@@ -148,7 +149,9 @@ class CapacityTrial:
         self.account_pids: dict[str, int] = {}
         self.child_pids: set[int] = set()
         self.failures: list[str] = []
+        self.replacement_checkpoints: dict[str, bytes] = {}
         self.supervisor: subprocess.Popen[bytes] | None = None
+        self.supervisor_started_at: float | None = None
         self.receiver: AlertReceiver | None = None
         self.first_service_at: float | None = None
         self.shutdown_requested = False
@@ -220,6 +223,8 @@ class CapacityTrial:
         err = (self.output / f"{name}.stderr").open("wb")
         self.streams.extend((out, err))
         started = time.monotonic()
+        if name == "supervisor":
+            self.supervisor_started_at = started
         child = subprocess.Popen(args, stdout=out, stderr=err)
         self.processes.append(child)
         watcher = threading.Thread(target=self._watch_lifetime, args=(name, child, started))
@@ -338,6 +343,8 @@ class CapacityTrial:
         for child in (*result.workers.values(), *result.sources.values()):
             if child.pid is not None:
                 self.child_pids.add(child.pid)
+        if result.diagnostics is not None and result.diagnostics.pid is not None:
+            self.child_pids.add(result.diagnostics.pid)
         return result
 
     def _steady_ready(self) -> bool:
@@ -347,11 +354,25 @@ class CapacityTrial:
         if not (self.service_root / "status.json").exists():
             return False
         status = self.status()
-        if len(status.sources) != 4 or len(status.workers) != 8:
+        if not self._healthy_status(status):
             return False
         return all(
             self.clients[item.account_id].checkpoint(item.instance_id) is not None
             for item in self.config.instances
+        )
+
+    def _healthy_status(self, status: _Status) -> bool:
+        """Require every declared source and policy alive under unfaulted owners."""
+        return (
+            not status.stopping
+            and not status.faulted_accounts
+            and set(status.active) == {item.instance_id for item in self.config.instances}
+            and set(status.sources) == {item.name for item in self.config.sources}
+            and set(status.workers) == {item.instance_id for item in self.config.instances}
+            and all(
+                child.pid is not None and child.alive
+                for child in (*status.sources.values(), *status.workers.values())
+            )
         )
 
     def control(
@@ -405,7 +426,7 @@ class CapacityTrial:
                     },
                 },
             )
-            if self.public_venue is None and label == "steady":
+            if self.public_venue is None and label in ("steady", "post_shutdown"):
                 cash, fees, positions = self.workload.first_touch_oracle()[name]
                 if (snapshot.cash, snapshot.fees, snapshot.positions) != (
                     (cash,),
@@ -415,9 +436,23 @@ class CapacityTrial:
                     self.failures.append(f"independent first-touch economics differ: {name}")
 
     def run_faults(self) -> None:
-        """Inject separate faults under native base load and retain each first outcome."""
+        """Inject one-shot protection faults during the declared native burst."""
         recovery = CapacityRecovery(self)
-        time.sleep(1 if self.recover else 7)
+        anchors = tuple(
+            int(
+                (self.output / "fixture-epochs" / f"{source.name}.epoch")
+                .read_bytes()
+                .splitlines()[1]
+            )
+            for source in self.config.sources
+        )
+        burst_start = max(anchors) / 1_000_000_000 + 40
+        burst_end = min(anchors) / 1_000_000_000 + 50
+        time.sleep(max(0, burst_start - time.monotonic()))
+        self.record(
+            "loaded_faults_started",
+            {"burst_start_monotonic": burst_start, "burst_end_monotonic": burst_end},
+        )
         probes: tuple[tuple[str, Callable[[], object]], ...] = (
             ("policy_death", partial(recovery.worker_death, "okx-shared-fixed-btc")),
             ("source_death", partial(recovery.source_death, "okx-eth-book")),
@@ -432,6 +467,10 @@ class CapacityTrial:
             ("owner_death", partial(recovery.account_death, "bitfinex-isolated")),
         )
         for name, probe in probes:
+            within_burst = burst_start <= time.monotonic() < burst_end
+            self.record("fault_window", {"name": name, "within_declared_burst": within_burst})
+            if not within_burst:
+                self.failures.append(f"{name}: injection did not begin inside declared burst")
             try:
                 self.record("fault_result", {"name": name, "result": probe()})
             except Exception as error:
@@ -440,23 +479,77 @@ class CapacityTrial:
         self.control("shutdown")
 
     def _replacement_progressed(self, recovery: CapacityRecovery) -> bool:
-        """Require actual fresh checkpoint progress from every replacement instance."""
-        return all(
-            self.clients[item.account_id].checkpoint(item.instance_id)
-            != recovery.before_checkpoints[item.instance_id]
-            for item in self.config.instances
+        """Require eight live selections and eight nonempty, changed checkpoints."""
+        status = self.status()
+        if not self._healthy_status(status):
+            return False
+        checkpoints: dict[str, bytes] = {}
+        for item in self.config.instances:
+            before = recovery.before_checkpoints.get(item.instance_id)
+            current = self.clients[item.account_id].checkpoint(item.instance_id)
+            if before is None or current is None or current == before:
+                return False
+            checkpoints[item.instance_id] = current
+        self.replacement_checkpoints = checkpoints
+        return True
+
+    def _await_replacement_progress(self, recovery: CapacityRecovery, first_claim: float) -> None:
+        """Measure all eight advances against the first actual claim's fixed deadline."""
+        remaining = max(0.0, 40 - (time.monotonic() - first_claim))
+        try:
+            if not self._replacement_progressed(recovery):
+                self.wait_until(partial(self._replacement_progressed, recovery), remaining)
+        except TimeoutError as error:
+            self.record(
+                "replacement_progress_timeout",
+                {
+                    "first_claim_to_timeout_seconds": time.monotonic() - first_claim,
+                    "status": self.status(),
+                },
+            )
+            raise AssertionError(
+                "four-owner recovery exceeds unchanged 40-second budget"
+            ) from error
+        elapsed = time.monotonic() - first_claim
+        self.record(
+            "all_replacement_instances_progressed",
+            {
+                "first_claim_to_progress_seconds": elapsed,
+                "operator_total_seconds": time.monotonic()
+                - (recovery.operator_started_at or first_claim),
+                "within_40_seconds": elapsed <= 40,
+                "checkpoint_sha256": {
+                    instance_id: hashlib.sha256(checkpoint).hexdigest()
+                    for instance_id, checkpoint in self.replacement_checkpoints.items()
+                },
+            },
         )
+        if elapsed > 40:
+            self.failures.append("four-owner recovery exceeds unchanged 40-second budget")
 
     def finish_interval(self) -> None:
-        """Retain final active state and request shutdown before parity postprocessing."""
+        """Stop at the measured boundary before reading accounts after fence release."""
         final = self.status()
         self.record("steady_completed", final)
-        if final.faulted_accounts or len(final.active) != 8 or final.stopping:
+        if not self._healthy_status(final):
             self.failures.append("steady interval lost active owners, sources or instances")
-        try:
-            self.retain_accounts("steady", sockets=True)
-        finally:
-            self.control("shutdown")
+        self.control("shutdown")
+        if self.supervisor is None or self.supervisor_started_at is None:
+            raise RuntimeError("capacity shutdown lacks a started supervisor")
+        code = self.supervisor.wait(
+            timeout=max(0, self.supervisor_started_at + 75 - time.monotonic())
+        )
+        if code:
+            raise RuntimeError(f"supervisor exited with status {code}")
+        accounts = tuple(process for process in self.processes if process is not self.supervisor)
+        if self.first_service_at is None or len(accounts) != len(self.config.accounts):
+            raise RuntimeError("capacity shutdown lacks every account launcher")
+        deadline = self.first_service_at + 120
+        for process in accounts:
+            code = process.wait(timeout=max(0, deadline - time.monotonic()))
+            if code:
+                raise RuntimeError(f"account launcher {process.pid} exited with status {code}")
+        self.retain_accounts("post_shutdown", sockets=False)
 
     def run(self) -> dict[str, object]:
         """Measure at least 60 seconds, retaining every first failure and final protection."""
@@ -478,19 +571,7 @@ class CapacityTrial:
                 first_claim = recovery.recover_four_owners()
             self.launch()
             if recovery is not None and first_claim is not None:
-                self.wait_until(partial(self._replacement_progressed, recovery), 8)
-                elapsed = time.monotonic() - first_claim
-                self.record(
-                    "all_replacement_instances_progressed",
-                    {
-                        "first_claim_to_progress_seconds": elapsed,
-                        "operator_total_seconds": time.monotonic()
-                        - (recovery.operator_started_at or first_claim),
-                        "within_40_seconds": elapsed <= 40,
-                    },
-                )
-                if elapsed > 40:
-                    self.failures.append("four-owner recovery exceeds unchanged 40-second budget")
+                self._await_replacement_progress(recovery, first_claim)
             if self.faults:
                 self.run_faults()
                 result["faults_only"] = True
@@ -634,6 +715,8 @@ def main() -> None:
     parser.add_argument("--recover", action="store_true")
     parser.add_argument("--faults", action="store_true")
     args = parser.parse_args(namespace=_Arguments())
+    if args.faults and (args.public_venue is not None or args.variant != "base"):
+        parser.error("burst fault drills require four base fixture sources")
     if args.action == "run":
         print(
             DomainCodec()

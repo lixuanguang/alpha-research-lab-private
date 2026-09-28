@@ -208,8 +208,7 @@ class AccountStateStore:
         self.config = config
         self.codec = codec
         self._configuration_payload = codec.encode_json(config)
-        self._cached_payload: bytes | None = None
-        self._cached_state: _FirmState | None = None
+        self._cached_snapshot: tuple[bytes, _FirmState] | None = None
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -296,12 +295,16 @@ class AccountStateStore:
             try:
                 transaction = _AccountTransaction(self._load(connection))
                 yield transaction
+                _FirmState.__post_init__(transaction.state)
                 payload = self.codec.encode_json(transaction.state)
                 connection.execute(
                     "UPDATE firm SET payload=? WHERE id=1",
                     (payload,),
                 )
                 connection.commit()
+                # Reuse only the immutable state whose exact bytes committed.
+                # Every subsequent read still verifies the current SQLite row.
+                self._cached_snapshot = payload, transaction.state
             except BaseException:
                 connection.rollback()
                 raise
@@ -349,8 +352,9 @@ class AccountStateStore:
         if type(row[1]) is not bytes:
             raise ValueError("firm account state is missing or malformed")
         payload = row[1]
-        if payload == self._cached_payload and self._cached_state is not None:
-            return self._cached_state
+        cached = self._cached_snapshot
+        if cached is not None and payload == cached[0]:
+            return cached[1]
         state = self.codec.decode_json(payload, _FirmState)
-        self._cached_payload, self._cached_state = payload, state
+        self._cached_snapshot = payload, state
         return state

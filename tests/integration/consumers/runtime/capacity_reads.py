@@ -910,6 +910,8 @@ class CapacityReadObserver:
                 )
             )
         interval = {
+            "started_monotonic_ns": round(started * 1_000_000_000),
+            "steady_ended_monotonic_ns": round(steady_ended * 1_000_000_000),
             "started_at_utc": started_at_utc.isoformat(),
             "steady_ended_at_utc": steady_ended_at_utc.isoformat(),
             "steady_duration_seconds": self.duration_seconds,

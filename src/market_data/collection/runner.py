@@ -109,12 +109,19 @@ class CaptureRunner:
         self._readers = readers
         self._codec = DomainCodec()
 
-    async def run(self, request: CaptureRequest, output: Path) -> CaptureRunResult:
+    async def run(
+        self,
+        request: CaptureRequest,
+        output: Path,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> CaptureRunResult:
         """Capture a unique request and verify its complete saved replay.
 
         Args:
             request: Explicit prebound recording identity; no ID is regenerated.
             output: Parent directory for this request's new recording directory.
+            stop_requested: Optional finite-service stop signal; accepted receipts drain first.
 
         Returns:
             Completed exact-source summary and recording directory.
@@ -155,6 +162,9 @@ class CaptureRunner:
             queue = CaptureQueue(config.queue_capacity, self._health, self._measurements)
             try:
                 budget = deadline - time.monotonic()
+                if stop_requested is not None and stop_requested():
+                    reason = "supervisor_stop"
+                    break
                 if budget <= 0:
                     reason = "duration_limit"
                     break
@@ -175,6 +185,7 @@ class CaptureRunner:
                             deadline,
                             config.max_messages - replay.messages - (config.venue == "coinbase"),
                             self._health,
+                            stop_requested,
                         )
                     )
                     reason = "message_limit"
@@ -185,9 +196,16 @@ class CaptureRunner:
                     ):
                         record, queued_at_ns = await queue.take()
                         if record.kind == "session_end":
-                            if not replay.invalid or record.reason == "overload_unknown_loss":
+                            if not replay.invalid or record.reason in (
+                                "overload_unknown_loss",
+                                "supervisor_stop",
+                            ):
                                 reason = record.reason
-                            if record.reason in ("duration_limit", "message_limit"):
+                            if record.reason in (
+                                "duration_limit",
+                                "message_limit",
+                                "supervisor_stop",
+                            ):
                                 queue.acknowledged()
                                 continue
                             record = CaptureRecord(
@@ -269,7 +287,15 @@ class CaptureRunner:
                 if socket is not None:
                     await socket.close()
             try:
-                if reason not in ("duration_limit", "message_limit") and not replay.invalid:
+                if (
+                    reason
+                    not in (
+                        "duration_limit",
+                        "message_limit",
+                        "supervisor_stop",
+                    )
+                    and not replay.invalid
+                ):
                     gap = CaptureRecord(
                         kind="gap", epoch=epoch, received_ns=time.time_ns(), reason=reason
                     )
@@ -299,6 +325,7 @@ class CaptureRunner:
             if reason in (
                 "duration_limit",
                 "message_limit",
+                "supervisor_stop",
                 "storage_limit_unknown_tail",
                 "overload_unknown_loss",
             ):

@@ -24,11 +24,17 @@ from msgspec.structs import replace
 from applications.collect import collect, monitored_capture
 from configuration import CaptureConfig
 from market_data.adapters.sources import BookAdapters, SourceAdapters
-from market_data.adapters.transport import VenueTransport
+from market_data.adapters.transport import VenueSubscriptions, VenueTransport
 from market_data.adapters.venues.coinbase import CoinbaseAccessError, CoinbaseCredentials
 from market_data.books import CaptureReplay, NativeBook
-from market_data.collection import ReceiptStream
-from market_data.contracts import CaptureRecord, CaptureRequest, FeedSocket, RawObject
+from market_data.collection import CaptureRunner, ReceiptStream
+from market_data.contracts import (
+    BookObservation,
+    CaptureRecord,
+    CaptureRequest,
+    FeedSocket,
+    RawObject,
+)
 from market_data.datasets import BookDatasetManifest, SnapshotStore
 from market_data.replay import SavedCapture
 from market_data.storage import CaptureJournal, RawStore
@@ -121,6 +127,52 @@ class ScriptedTransport(VenueTransport):
         socket = ScriptedSocket(frames)
         self.sockets.append(socket)
         return socket
+
+
+class HoldingSocket(ScriptedSocket):
+    """Hold a native feed open after accepted frames until its owner requests stop."""
+
+    def __init__(self, frames: tuple[bytes, ...]) -> None:
+        """Expose the point where every authored frame has reached the reader."""
+        super().__init__(frames)
+        self.all_frames_received = asyncio.Event()
+
+    async def recv(self) -> bytes:
+        """Keep the feed quiet after its finite prefix without fabricating disconnect."""
+        await asyncio.sleep(0)
+        result = next(self.frames, None)
+        if result is not None:
+            return result
+        self.all_frames_received.set()
+        await asyncio.Event().wait()
+        raise AssertionError("held source should be cancelled on finite stop")
+
+
+class HoldingTransport(VenueTransport):
+    """Serve one open synthetic feed through the actual capture runner."""
+
+    def __init__(self, config: CaptureConfig, socket: HoldingSocket) -> None:
+        """Bind the configured venue to its retained native message prefix."""
+        super().__init__(config)
+        self.socket = socket
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Return the same bounded source until the cooperative stop closes it."""
+        return self.socket
+
+
+class RecordingObserver:
+    """Retain each live canonical boundary for exact completed replay comparison."""
+
+    def __init__(self) -> None:
+        """Start with no inferred source delivery."""
+        self.records: list[CaptureRecord] = []
+        self.rows: list[BookObservation] = []
+
+    def observe(self, record: CaptureRecord, row: BookObservation) -> None:
+        """Keep only records actually published after their durable append."""
+        self.records.append(record)
+        self.rows.append(row)
 
 
 class StalledSubscriptionSocket(ScriptedSocket):
@@ -280,6 +332,50 @@ class TestCapture:
         assert final[HealthMetric.QUEUE_BYTES] == final[HealthMetric.QUEUE_OLDEST_NS] == 0
         assert final[HealthMetric.DUPLICATES] == result["duplicates"]
         assert final[HealthMetric.GAPS] == 0 and result["gaps"] == []
+
+    def test_cooperative_stop_drains_native_prefix_and_terminal_delivery(
+        self, tmp_path: Path
+    ) -> None:
+        """Every durably completed record reaches the observer before a finite stop exits."""
+        asyncio.run(self._cooperative_stop_drains_native_prefix(tmp_path))
+
+    async def _cooperative_stop_drains_native_prefix(self, tmp_path: Path) -> None:
+        """Signal stop after all frames enter the source queue and compare saved replay."""
+        config = replace(self.config(), max_messages=20, duration_seconds=5)
+        request = CaptureRequest(
+            config=config,
+            recording_id="11111111-1111-4111-8111-111111111111",
+            implementation_identity="a" * 64,
+        )
+        socket = HoldingSocket(_FRAMES)
+        observer = RecordingObserver()
+        stop = Event()
+        runner = CaptureRunner(
+            book_factory=BookAdapters.create,
+            transport=HoldingTransport(config, socket),
+            subscriptions=VenueSubscriptions(),
+            observer=observer,
+        )
+        task = asyncio.create_task(runner.run(request, tmp_path, stop_requested=stop.is_set))
+        try:
+            await asyncio.wait_for(socket.all_frames_received.wait(), 2)
+            stop.set()
+            result = await asyncio.wait_for(task, 3)
+        finally:
+            stop.set()
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        retained = tuple(CaptureJournal(result.root, request).records())
+        assert tuple(observer.records) == retained
+        assert tuple(row.position for row in observer.rows) == tuple(range(len(retained)))
+        assert [record.kind for record in retained[-2:]] == ["session_end", "end"]
+        assert all(record.reason == "supervisor_stop" for record in retained[-2:])
+        assert result.summary["stop_reason"] == "supervisor_stop"
+        assert result.summary["replay_parity"] is True
+        assert result.summary["gaps"] == []
+        assert socket.closed is True
 
     def test_heartbeat_continues_during_offloaded_finalization(self, tmp_path: Path) -> None:
         """Keep process liveness advancing while saved-input replay is deliberately blocked."""

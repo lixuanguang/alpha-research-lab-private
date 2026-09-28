@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import asyncio
 import hashlib
+from collections.abc import Callable
 from dataclasses import replace as replace_dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from decimal import Decimal
@@ -16,7 +17,7 @@ from uuid import UUID
 
 # third party library imports
 import pytest
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from accounting import Ledger, LedgerState
@@ -40,7 +41,7 @@ from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quant
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
 from market_data.collection import CaptureRunner, CaptureRunResult
-from market_data.contracts import CaptureRequest
+from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
 from reference_data.instruments import InstrumentId
 from research.experiments import (
     CandidateArtifact,
@@ -80,6 +81,7 @@ from runtime import (
     PaperCheckpoint,
 )
 from runtime.paper import PaperFaultEvidence
+from runtime.shared_paper import _ObservedLiveBookDelivery
 from serialization import DomainCodec, WireRecord
 from strategies import (
     DecisionContext,
@@ -104,7 +106,13 @@ _CODE = "a" * 64
 class _MalformedCaptureRunner(CaptureRunner):
     """Fail one live capture after the dedicated runtime has opened."""
 
-    async def run(self, request: CaptureRequest, output: Path) -> CaptureRunResult:
+    async def run(
+        self,
+        request: CaptureRequest,
+        output: Path,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> CaptureRunResult:
         """Expose the original protocol failure to workflow fault handling."""
         raise ValueError("malformed capture frame")
 
@@ -112,7 +120,13 @@ class _MalformedCaptureRunner(CaptureRunner):
 class _DisconnectedCaptureRunner(CaptureRunner):
     """Return a completed recording with an unavailable terminal book."""
 
-    async def run(self, request: CaptureRequest, output: Path) -> CaptureRunResult:
+    async def run(
+        self,
+        request: CaptureRequest,
+        output: Path,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> CaptureRunResult:
         """Expose finite connection loss through the capture result contract."""
         return CaptureRunResult(
             request=request,
@@ -973,6 +987,52 @@ class TestPaperCandidateRuntime:
             pytest.raises(ValueError, match="UTC clock regressed"),
         ):
             asyncio.run(observer.timers(asyncio.Event()))
+
+    def test_paper_observer_revalidates_private_wire_before_input_retention(
+        self, tmp_path: Path
+    ) -> None:
+        """Unsafe nested books cannot enter the dedicated runtime's durable input journal."""
+        loaded, request, _ = self._live_fixture(tmp_path)
+        runtime = self._runtime(tmp_path / "untrusted.sqlite3")
+        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        selected = BookSelection.from_capture(
+            request.config,
+            source_id=request.identity,
+            capability=BookAdapters.capability(request.config),
+            max_age_ns=1_000_000_000,
+            allow_degraded=True,
+        )
+        books = BookRegistry(
+            BookRegistryConfiguration(selections=(selected,), equivalences=(), history_capacity=8)
+        )
+        observer = PaperCaptureObserver(source, runtime, books=books)
+        received_ns = int(_AT.timestamp()) * 1_000_000_000
+        delivery = _ObservedLiveBookDelivery(
+            record=CaptureRecord(kind="session", epoch=0, received_ns=received_ns),
+            book=BookObservation(
+                position=0,
+                epoch=0,
+                received_ns=received_ns,
+                source_time=None,
+                sequence=None,
+                outcome="session",
+                status="recovering",
+                reason="new",
+                state_identity="1" * 64,
+            ),
+            available_at=_AT + timedelta(seconds=1),
+        )
+        runtime.open(owner="first", at=_AT)
+        try:
+            prior_steps, prior_checkpoint = runtime.journal.steps(), runtime.checkpoint()
+            force_setattr(delivery.book, "state_identity", "bad")
+            with pytest.raises(ValueError, match="book state or quality"):
+                observer.deliver(delivery)
+            assert runtime.journal.steps() == prior_steps
+            assert runtime.checkpoint() == prior_checkpoint
+            assert source.latest_book is None
+        finally:
+            runtime.release()
 
     def test_paper_shadow_parity_and_restart(self, tmp_path: Path) -> None:
         """Keep decisions identical while only paper posts a single exact modeled fill."""

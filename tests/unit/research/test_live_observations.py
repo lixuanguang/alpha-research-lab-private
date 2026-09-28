@@ -10,7 +10,7 @@ from typing import Literal
 
 # third party library imports
 import pytest
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from configuration import CaptureConfig
@@ -92,6 +92,41 @@ class _LiveScenario:
 
 class TestLiveBookDecisionSource:
     """Exercise exact numeric values, healthy controls, failures and replay recovery."""
+
+    def test_exact_imbalance_is_projected_only_for_selected_cutoff(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every delivered book stays causal without repeating depth arithmetic eagerly."""
+        scenario = _LiveScenario("okx", "event")
+        original = LiveBookDecisionSource._book_value
+        projections = 0
+
+        def counted(row: BookObservation) -> ExactRatio | None:
+            """Count exact projections while preserving the production calculation."""
+            nonlocal projections
+            projections += 1
+            return original(row)
+
+        monkeypatch.setattr(LiveBookDecisionSource, "_book_value", staticmethod(counted))
+        entity = str(scenario.request.config.instrument_id)
+        scenario.push("session", 999_000_000)
+        scenario.push("frame", 999_500_000, raw=_OKX_ACK)
+        market = scenario.push("frame", 1_000_000_001, raw=_OKX_SNAPSHOT)
+        assert (
+            scenario.source.current_book(entity, _EPOCH + timedelta(microseconds=1_000_001))
+            == market
+        )
+        assert projections == 0
+        at = _EPOCH + timedelta(microseconds=1_000_001)
+        selected = scenario.source.read(entity, at)
+        assert selected.observations[0].value == ExactRatio(numerator="1", denominator="3")
+        assert scenario.source.read(entity, at) is selected
+        assert projections == 1
+        scenario.push("frame", 2_000_000_000, raw=b"pong")
+        assert projections == 1
+        carried = scenario.source.read(entity, _EPOCH + timedelta(seconds=2))
+        assert carried.observations[0].value == selected.observations[0].value
+        assert projections == 2
 
     def test_okx_event_clock_identity_receipt_and_frozen_cutoff(self) -> None:
         """A source is bindable before receipt and does not revise an issued cutoff."""
@@ -311,6 +346,18 @@ class TestLiveBookDecisionSource:
         assert scenario.source.read(
             entity, _EPOCH + timedelta(microseconds=1_000_001)
         ).observations[0].value == ExactRatio(numerator="1", denominator="3")
+
+    def test_public_accept_revalidates_a_mutated_book(self) -> None:
+        """Direct callers cannot enter the trusted observer path with invalid depth."""
+        scenario = _LiveScenario("okx", "receipt")
+        scenario.push("session", 999_000_000)
+        scenario.push("frame", 999_500_000, raw=_OKX_ACK)
+        record = CaptureRecord(kind="frame", epoch=0, received_ns=1_000_000_001, raw=_OKX_SNAPSHOT)
+        outcome = scenario.replay.apply(record)
+        row = BookProjection.capture(2, record, outcome, scenario.replay)
+        force_setattr(row, "state_identity", "bad")
+        with pytest.raises(ValueError, match="book state or quality"):
+            scenario.source.accept(record, row)
 
     def test_delivery_availability_and_restart_binding(self) -> None:
         """Delayed durable use cannot revise earlier decisions; a new run keeps its binding."""

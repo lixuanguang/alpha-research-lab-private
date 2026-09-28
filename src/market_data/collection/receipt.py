@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
+from collections.abc import Callable
 from http.client import HTTPException
 
 # third party library imports
@@ -103,6 +104,7 @@ class ReceiptStream:
         deadline: float,
         remaining: int,
         health: HealthMetrics | None = None,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> None:
         """Timestamp receipt independently of persistence; stop visibly on overload or disconnect.
 
@@ -114,34 +116,45 @@ class ReceiptStream:
             deadline: Monotonic receive deadline in seconds.
             remaining: Maximum additional received WebSocket messages.
             health: Optional shared progress observed by an independent supervisor.
+            stop_requested: Optional cooperative stop signal for a finite owner service.
         """
         reason = "message_limit"
         awaiting_pong = False
         received = 0
         queue_peak = 0 if health is None else health.snapshot()[HealthMetric.QUEUE]
+        idle = min(config.idle_seconds, 20) if config.venue == "okx" else config.idle_seconds
+        idle_deadline = time.monotonic() + idle
         try:
             while received < remaining:
+                if stop_requested is not None and stop_requested():
+                    reason = "supervisor_stop"
+                    break
                 budget = deadline - time.monotonic()
                 if budget <= 0:
                     reason = "duration_limit"
                     break
                 try:
-                    idle = (
-                        min(config.idle_seconds, 20)
-                        if config.venue == "okx"
-                        else config.idle_seconds
-                    )
-                    async with asyncio.timeout(min(budget, idle)):
+                    wait_seconds = min(budget, max(0, idle_deadline - time.monotonic()))
+                    if stop_requested is not None:
+                        wait_seconds = min(wait_seconds, 0.1)
+                    async with asyncio.timeout(wait_seconds):
                         message = await socket.recv()
                 except TimeoutError:
+                    if stop_requested is not None and stop_requested():
+                        reason = "supervisor_stop"
+                        break
+                    if time.monotonic() < min(idle_deadline, deadline):
+                        continue
                     if config.venue == "okx" and not awaiting_pong and time.monotonic() < deadline:
                         async with asyncio.timeout(max(0, deadline - time.monotonic())):
                             await socket.send("ping")
                         awaiting_pong = True
+                        idle_deadline = time.monotonic() + idle
                         continue
                     reason = "duration_limit" if time.monotonic() >= deadline else "idle_timeout"
                     break
                 awaiting_pong = False
+                idle_deadline = time.monotonic() + idle
                 received_at_ns = time.monotonic_ns()
                 received += 1
                 record = CaptureRecord(
