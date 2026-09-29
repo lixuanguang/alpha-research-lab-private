@@ -109,6 +109,11 @@ class _SharedFirmHistory:
         """Match one idle market for the busy account."""
         self.tick("busy")
 
+    def busy_report(self) -> int:
+        """Project the busy account's owned fills and their cost links."""
+        fills, costs = self.journal.paper_report_facts("busy")
+        return len(fills) + len(costs)
+
     def quiet_traces(self) -> int:
         """Read every retained trace of the quiet account."""
         return len(self.journal.paper_traces("quiet"))
@@ -229,3 +234,16 @@ class TestAccountHistoryScaling:
         print(f"idle tick at 40/200 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Re-validating every order and event against every order grew about 11x here.
         assert medians[1] < 3 * medians[0]
+
+    @pytest.mark.performance
+    def test_report_facts_grow_no_faster_than_their_fills(self, tmp_path: Path) -> None:
+        """Report projection decodes each trace once and joins through maps, not scans."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        medians: list[float] = []
+        for orders in (40, 200):
+            while history.orders < orders:
+                history.round_trip()
+            medians.append(history.median_seconds(history.busy_report, repeats=9))
+        print(f"report facts at 40/200 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Five times the fills may cost at most about five times as much.
+        assert medians[1] < 7 * medians[0]
