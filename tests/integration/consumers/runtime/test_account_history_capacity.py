@@ -121,9 +121,11 @@ def _report(trial: str, hashes: dict[str, str], *, equal: bool = True) -> dict[s
 
 
 def test_replay_check_requires_equal_facts_and_original_hashes(tmp_path: Path) -> None:
-    """Identity mismatch is ignored; an unequal field or changed hash fails."""
+    """Identity mismatch and older reports are accepted; unequal facts or hashes fail."""
     original = tmp_path / "original.json"
-    original.write_bytes(msgspec.json.encode(_report("initial", {"okx": "a"})))
+    reference = _report("initial", {"okx": "a"})
+    del reference["installed_identity_match"]
+    original.write_bytes(msgspec.json.encode(reference))
     same = tmp_path / "same.json"
     same.write_bytes(msgspec.json.encode(_report("initial", {"okx": "a"})))
     suffix = tmp_path / "suffix.json"

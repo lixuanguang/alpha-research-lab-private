@@ -1,7 +1,8 @@
 # Account journal history storage
 
 Owner: quant development. Status: **storage, governance and deployment implemented
-on branches 2026-09-29, not merged; qualification next**. Policy approved by the
+on branches 2026-09-29, not merged; storage qualification passed, retained replay
+failed, signed stage-1 cohort not run**. Policy approved by the
 owner on 2026-09-29. Baseline: `main` at `9ae6fb1`. This page is a stage-2
 prerequisite for
 [MR15 runtime capacity](runtime-capacity.md#lifecycle-authority-and-acceptance-stages).
@@ -143,3 +144,49 @@ criterion. The single-baseline suffix replay cannot rebuild the chained
 **Not in this run.** Fresh signed releases and deployments, and the stage-1 steady,
 recovery and loaded-fault cohort under the unchanged gates, remain required before
 any stage-2 use and need a separate go-ahead.
+
+## Qualification result (2026-09-29)
+
+One run at the declaration commit `d63f54c` on the declared host, with nothing else
+running. Compact record: [account-journal-history-evidence.json](account-journal-history-evidence.json);
+raw samples stay under ignored `logs/account-history/qualification-1/`.
+
+**Storage: passed.** At the full 24-hour history of one account:
+
+| Measure | p50 | p95 | p99 | Maximum | Target | Result |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| Batch commit (1,000) | 1.54 ms | 1.96 ms | 2.56 ms | 6.20 ms | p99 ≤ 5 ms | pass |
+| Trace commit (1,000) | 2.61 ms | 3.05 ms | 3.39 ms | 7.73 ms | p99 ≤ 5 ms | pass |
+| Cold open (1,000) | 5.03 ms | 5.54 ms | 5.79 ms | 11.57 ms | p99 ≤ 100 ms | pass |
+| Fresh-process open (20) | 8.76 ms | — | — | 19.26 ms | reported | — |
+
+Peak RSS was 53.9–54.1 MB at every level from empty to full history; growth was
+0.25 MiB against the 16 MiB limit. The full-history journal occupies 726 MB, so four
+accounts fit about 44 account-days in the 120 GiB canonical budget. Mean item bytes
+were 9,420 per batch, 2,702 per decision and 5,788 per trace, against reference
+means of 6,574, 2,722 and 2,757: the batch and trace templates are 1.43 and 2.10
+times heavier, so the disk figure is conservative.
+
+`verify()` took 126.2 s at full history because it decodes and validates every row.
+It runs only in workspace backup and restore of stopped accounts, not in live
+recovery or the installer's candidate check, but a 24-hour journal's backup or
+restore now spends about two minutes verifying.
+
+**Retained replay: failed.** No delivery was replayed. Every signed final result of
+the v5 `initial-steady` and `recovery-01` trials records its paper deployment with
+`state_schema: "account-journal-v3"`, which `PaperDeployment` no longer admits, so
+all eight account replays stopped at decoding. This follows from removing every
+earlier journal schema, including from retained result records. The replay checker
+first rejected the original parity report, which predates the
+`installed_identity_match` field; that field was made optional in the checker alone
+and the check was rerun on the same outputs, failing both times.
+
+Equivalence with the earlier format therefore rests on the delivery-step evidence
+taken before it was removed: identical public projections for the same operations,
+byte-identical document reconstruction, and the account-journal suites passing on
+both formats. A retained-delivery replay now needs retained results written by this
+code, which only a new signed cohort produces.
+
+**Not run.** Fresh signed releases and deployments and the stage-1 steady, recovery
+and loaded-fault cohort remain required before any stage-2 use.
+

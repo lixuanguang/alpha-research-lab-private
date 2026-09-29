@@ -1,0 +1,147 @@
+{
+  "schema": "account-journal-history-evidence",
+  "recorded_on": "2026-09-29",
+  "declaration": {
+    "path": "docs/roadmap/account-journal-history.md",
+    "commit": "d63f54c67b2c7bc8d5dd1958aa7c39fe2b3dddfb",
+    "sha256": "d5381cd5b13395f74adb1e72c740150b27a0bd4b12bb2adf82bdb5f6d620527d"
+  },
+  "consumer_sha256_at_run": "9d94601b6dfeff570a00d4775136d989a3b7f0c85ce5e3550132f5afdb118772",
+  "host": {
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "cpu": "Apple M1 Max",
+    "logical_cores": 10,
+    "ram_bytes": 68719476736,
+    "cache": "uncontrolled; warm after first read",
+    "power": "AC power, battery 80% not charging"
+  },
+  "workload": {
+    "batches": 30000,
+    "decisions": 60000,
+    "traces": 30000,
+    "measured_commits_per_kind": 1000,
+    "cold_opens": 1000,
+    "fresh_process_opens": 20,
+    "memory_commits_per_kind": 200,
+    "checkpoint_bytes": 675,
+    "mean_item_bytes": {
+      "portfolio_batches": 9419.8,
+      "decisions": 2702.1,
+      "paper_traces": 5788.3
+    },
+    "reference_mean_item_bytes": {
+      "portfolio_batches": 6574,
+      "decisions": 2722,
+      "paper_traces": 2757
+    },
+    "mean_item_ratio_to_reference": {
+      "portfolio_batches": 1.433,
+      "decisions": 0.993,
+      "paper_traces": 2.099
+    }
+  },
+  "storage": {
+    "latency_ms": {
+      "batch_commit": {
+        "samples": 1000,
+        "p50": 1.543,
+        "p95": 1.962,
+        "p99": 2.564,
+        "maximum": 6.205
+      },
+      "trace_commit": {
+        "samples": 1000,
+        "p50": 2.613,
+        "p95": 3.05,
+        "p99": 3.392,
+        "maximum": 7.729
+      },
+      "cold_open": {
+        "samples": 1000,
+        "p50": 5.032,
+        "p95": 5.541,
+        "p99": 5.792,
+        "maximum": 11.572
+      }
+    },
+    "targets_p99_ms": {
+      "batch_commit": 5,
+      "trace_commit": 5,
+      "cold_open": 100
+    },
+    "fresh_process_open_ms": {
+      "samples": 20,
+      "p50": 8.755,
+      "maximum": 19.257
+    },
+    "memory": {
+      "peak_rss_bytes_by_level_percent": {
+        "0": 53854208,
+        "25": 53936128,
+        "50": 54034432,
+        "75": 53821440,
+        "100": 54116352
+      },
+      "growth_bytes": 262144,
+      "limit_bytes": 16777216
+    },
+    "disk": {
+      "full_history_bytes": 726462464,
+      "four_account_days_in_120_gib": 44.3
+    },
+    "verify_seconds": 126.2,
+    "passed": {
+      "batch_commit": true,
+      "trace_commit": true,
+      "cold_open": true,
+      "memory": true
+    },
+    "qualified": true
+  },
+  "replay": {
+    "passed": false,
+    "trials": [
+      "closure-features-v5/initial-steady",
+      "closure-features-v5/recovery-01 (baseline initial-steady)"
+    ],
+    "accounts_replayed": 0,
+    "failure": "every signed final result decodes paper_activations[0].deployment.state_schema = account-journal-v3, which PaperDeployment no longer admits; no delivery was replayed",
+    "cause": "the approved policy removed all earlier account-journal schemas, including in retained signed result records",
+    "checker_correction": "replay-check first rejected the original parity report for lacking installed_identity_match; that field was made optional in the checker only, and the check was rerun on the same parity outputs; the outcome was failed before and after"
+  },
+  "qualified": false,
+  "raw": [
+    {
+      "path": "logs/account-history/qualification-1/summary.json",
+      "sha256": "13b569a59ee7809c631022113056e22b4cd066d4c4679d73f1159759128fc726",
+      "bytes": 2955
+    },
+    {
+      "path": "logs/account-history/qualification-1/samples.json",
+      "sha256": "bc7de9c118b1973f8072c36842c16b9862549ebb03d26f0c253b9740f2d4ce15",
+      "bytes": 24247
+    },
+    {
+      "path": "logs/account-history/qualification-1/replay-initial-steady.json",
+      "sha256": "0e17ef8afc0de57ca4f6ad07c65cdce8c2e0aa20c691767377f27a3db8bd9d0a",
+      "bytes": 2237
+    },
+    {
+      "path": "logs/account-history/qualification-1/replay-recovery-01.json",
+      "sha256": "2e26a867e9695d0aea1dafd450c702ce66a5078bf8b5e1360cb8987f533fbd02",
+      "bytes": 2420
+    },
+    {
+      "path": "logs/account-history/qualification-1/replay.json",
+      "sha256": "436d1a569634bd079afcff4514f39e332bd876bfde78479f2ba888f890a48f91",
+      "bytes": 3799
+    }
+  ],
+  "limitations": [
+    "Storage transactions only; admission, matching and allocation computation are excluded.",
+    "Application-cold with an uncontrolled warm filesystem cache; not filesystem-cold.",
+    "Batch and trace templates are 1.43x and 2.10x the reference item size, so disk per account-day is conservative.",
+    "verify() takes 126.2 s at full history; it decodes and validates every row.",
+    "No fresh signed releases, deployments or stage-1 cohort were run."
+  ]
+}

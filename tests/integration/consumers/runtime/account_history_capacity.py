@@ -102,8 +102,8 @@ class _ParityReport(msgspec.Struct):
     """Read the parts of a parity report the replay criterion uses."""
 
     signed_trial: str
-    installed_identity_match: bool
     accounts: list[_ParityAccount]
+    installed_identity_match: bool | None = None
 
 
 def _money(value: str) -> Money:
