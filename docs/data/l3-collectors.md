@@ -129,6 +129,13 @@ A recording gets an exclusive UUID directory under the supplied venue output:
   and incremental SHA-256 of that exact prefix. Each append returns only after
   journal fsync, synced `cursor.pending`, atomic replacement and directory fsync.
   New output-directory ancestors are synchronized before the writer starts.
+  An acknowledged append survives a process or kernel crash on every platform.
+  It survives power loss only where `fsync` flushes the device write cache,
+  such as Linux with write barriers; verify this on the production host. On
+  macOS `fsync` does not flush the drive cache, and `F_FULLFSYNC` is not used:
+  measured on an M1 Max, it limits appends to about 47 per second (about 90
+  with a single full flush per append), below full-depth book rates, while
+  `fsync` sustains about 3,000 appends per second.
 - A SHA-256 named `RawStore` object plus `manifest.json`: exact published journal
   and descriptor. Publication verifies bytes, fsyncs files/directories and replaces
   the descriptor only after durable raw publication.
