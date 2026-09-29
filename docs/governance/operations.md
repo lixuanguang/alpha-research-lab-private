@@ -141,19 +141,17 @@ facts. OKX/Bitfinex labels do not certify private venue behavior. The
 owns exact request fields; the [account journal](../../src/execution/README.md#account-operational-recovery)
 owns phase, uncertainty and reconciliation semantics.
 
-The following v2 commands retain the earlier normalized-fact engineering drills.
-For managed public-paper deployment, use the [v3 procedure below](#managed-public-paper-activation-and-recovery)
-with explicit deployment, authorization and owner claim.
-
-For that v2 shared-account installation, select execution `paper` or `shadow`,
-`config_schema=account-runtime-v1`, `state_schema=account-journal-v2`, and admit
-both schemas in the independently provisioned installation policy. The initial
+An installed account target is a signed execution `paper` or `shadow` release with
+`config_schema=account-runtime-v1` and `state_schema=account-journal-v4`, and the
+independently provisioned installation policy admits both schemas. The initial
 empty state creates a journal from signed configuration under the installation
-fence. Upgrade/rollback validates a consistent copy of the latest journal through
-the candidate installed reader before switching the release. A lost journal,
-incompatible config/schema or nonregular state refuses the switch. The previous
-`paper-runtime-v1` dedicated command remains a standalone development interface;
-it is not silently admitted by this account installation contract.
+fence. Upgrade/rollback validates a consistent copy of the latest journal, including
+every history table, through the candidate installed reader before switching the
+release. A lost journal, incompatible config/schema or nonregular state refuses the
+switch. The dedicated `paper-runtime-v1` command remains a standalone development
+interface; it is not admitted by this account installation contract. Activation,
+grants and owner claims follow the
+[managed procedure below](#managed-public-paper-activation-and-recovery).
 
 Every installed account operation uses the same command, with a different typed
 request file. The launcher fixes config and `state/accounts.sqlite3`; request
@@ -168,9 +166,9 @@ uv run --frozen alpha-governance-artifacts run \
 ```
 
 1. **Start:** verify the installed artifact and inspect state. Supply independent
-   `quote` and complete `reconcile` requests, then the initial `control/startup`.
-   Check the returned control status. This opens local admission; starting the
-   selected runtime workload remains explicit. No command creates live authority.
+   `quote` and complete `reconcile` requests, then activate and claim the account
+   through the managed procedure below. Starting the selected runtime workload
+   remains explicit. No command creates live authority.
 2. **Stop or fault:** send `control/stop` or `control/fault` for the affected
    account. It blocks new exposure and retains all current economic state.
    Supply the local `alert_socket` when routing an operator alert. Inspect the
@@ -180,11 +178,11 @@ uv run --frozen alpha-governance-artifacts run \
 3. **Cancel:** separately send `control/cancel`. It records requests and returns
    the physical order IDs. Supply subsequent identified order facts through
    `event`/`net_event`; a cancellation acknowledgement is not a terminal outcome.
-   These actions never imply liquidation. Managed v3 paper reduction uses the
+   These actions never imply liquidation. Managed paper reduction uses the
    separate `reduce_paper` request described below.
 4. **Recover:** replay missing identified fills, fees, transfers and order facts,
    then supply a complete fresh account observation and current marks. A matching
-   observation cannot clear unresolved sends, cancels, contradictions or legacy
+   observation cannot clear unresolved sends, cancels, contradictions or earlier
    operator blocks. `control/restart` must name the current stop identity and
    rechecks freshness, funding and budgets. Selective instance restarts remain
    explicit. Inspect account and strategy attribution before resuming work.
@@ -239,12 +237,11 @@ retains the remaining integrated acceptance boundary.
 ## Managed public-paper activation and recovery
 
 Use a fresh signed execution `paper` target with `config_schema=account-runtime-v1`
-and `state_schema=account-journal-v3`. The independently provisioned policy must
+and `state_schema=account-journal-v4`. The independently provisioned policy must
 admit both schemas. The execution/contracts wheel closure remains independent
 of the collector and research distributions. The signed launcher supplies its
 verified release digest and fixes configuration/state paths; installation grants
-no exposure authority. Existing v2 commands remain engineering/legacy interfaces,
-not a substitute for this managed operating entry point.
+no exposure authority.
 
 The [account command guide](../../src/applications/execute/README.md#managed-paper-activation-requests)
 owns exact typed request fields. Each operation is one retained JSON request:

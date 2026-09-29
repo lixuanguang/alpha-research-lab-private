@@ -36,7 +36,7 @@ The paper destination below remains required at its owning milestones; live
 qualification is deferred under the roadmap's KIV gate.
 
 Managed local paper adds disabled deployment manifests and separate bounded
-operator grants to that installer. Journal v3 owns generation fencing and checks
+operator grants to that installer. The account journal owns generation fencing and checks
 inside serialized economic transactions. The public-input API can use the signed
 account-command adapter; the execution target does not import the research wheel.
 Only the latest journal resumes after reconciliation. Historical restores remain

@@ -458,27 +458,17 @@ class TestAccountOperations:
         wrong = replace(self._config(), opening_at=self.opening_at - timedelta(seconds=1))
         with pytest.raises(ValueError, match="configuration or state schema differs"):
             AccountJournal.verify(path, wrong)
-        with closing(sqlite3.connect(path)) as connection:
-            row = cast(
-                "tuple[bytes]", connection.execute("SELECT payload FROM firm WHERE id=1").fetchone()
-            )
-            legacy = row[0].replace(b',"schema_version":"account-journal-v2"', b"")
-            legacy = legacy.replace(b'"account_controls":[],', b"")
-            connection.execute("UPDATE firm SET payload=? WHERE id=1", (legacy,))
-            connection.commit()
         assert len(AccountJournal.verify(path, self._config())) == 2
-        reopened = AccountJournal(path, self._config())
-        reopened.observe(AccountQuote(price=self._price(), at=self._at(2)))
         with closing(sqlite3.connect(path)) as connection:
             row = cast(
                 "tuple[bytes]", connection.execute("SELECT payload FROM firm WHERE id=1").fetchone()
             )
-            corrupted = row[0].replace(
-                b'"schema_version":"account-journal-v2"',
-                b'"schema_version":"account-journal-v3"',
+            unknown = row[0].replace(
+                b'"schema_version":"account-journal-v4"',
+                b'"schema_version":"unknown-account-journal"',
             )
-            assert corrupted != row[0]
-            connection.execute("UPDATE firm SET payload=? WHERE id=1", (corrupted,))
+            assert unknown != row[0]
+            connection.execute("UPDATE firm SET payload=? WHERE id=1", (unknown,))
             connection.commit()
         with pytest.raises(ValueError):
             AccountJournal(path, self._config())

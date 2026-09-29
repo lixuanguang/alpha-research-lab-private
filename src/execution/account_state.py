@@ -1,4 +1,4 @@
-"""Persist the shared account state and its history under one SQLite transaction."""
+"""Persist the shared account head and its history tables under one SQLite transaction."""
 
 from __future__ import annotations
 
@@ -111,19 +111,12 @@ class _InstanceControl(WireRecord, frozen=True):
             raise ValueError("invalid instance control")
 
 
-_DOCUMENT_SCHEMAS = ("account-journal-v2", "account-journal-v3")
-_TABLES_SCHEMA = "account-journal-v4"
-_HISTORY_FIELDS = ("decisions", "portfolio_batches", "paper_traces")
-# New journals stay single-document until governance admits v4 (plan phase 3).
-_NEW_JOURNAL_HISTORY: Literal["document", "tables"] = "document"
-
-
 class _FirmState(WireRecord, frozen=True):
     """Hold the complete local transaction boundary.
 
-    A v2/v3 document stores every history item in the three history tuples. Under
-    v4 they hold only the items staged by the current transaction; committed items
-    live in their own tables and are reached through the history lookups.
+    The three history tuples hold only the items staged by the current
+    transaction; committed items live in their own tables and are reached through
+    the history lookups.
     """
 
     accounts: tuple[AccountView, ...]
@@ -152,22 +145,6 @@ class _FirmState(WireRecord, frozen=True):
     paper_activations: tuple[PaperActivation, ...] = ()
     paper_reductions: tuple[PaperReductionResult, ...] = ()
     paper_restore_quarantine: bool = False
-    schema_version: Literal["account-journal-v2", "account-journal-v3", "account-journal-v4"] = (
-        "account-journal-v2"
-    )
-
-    def __post_init__(self) -> None:
-        """Reject future or corrupted account-journal state versions.
-
-        v2/v3 record activation in the schema version; v4 records it only as the
-        presence of ``paper_activations``.
-        """
-        if self.schema_version == _TABLES_SCHEMA:
-            return
-        if self.schema_version not in _DOCUMENT_SCHEMAS or (
-            bool(self.paper_activations) != (self.schema_version == "account-journal-v3")
-        ):
-            raise ValueError("unsupported account journal state schema")
 
 
 class _HistoryDigest(WireRecord, frozen=True):
@@ -202,7 +179,7 @@ class _InstanceCheckpoint(WireRecord, frozen=True):
 
 
 class _HistorySummary(WireRecord, frozen=True):
-    """Summarize the v4 history tables committed with one head."""
+    """Summarize the history tables committed with one head."""
 
     decisions: _HistoryDigest
     portfolio_batches: _HistoryDigest
@@ -216,28 +193,24 @@ class _HistorySummary(WireRecord, frozen=True):
 
 
 class _FirmHead(WireRecord, frozen=True):
-    """Persist the v4 live head: current state without history, plus its summary."""
+    """Persist the live head: current state without history, plus its summary.
+
+    Paper activation is recorded only by the presence of ``paper_activations``.
+    """
 
     history: _HistorySummary
     state: _FirmState
     schema_version: Literal["account-journal-v4"] = "account-journal-v4"
 
     def __post_init__(self) -> None:
-        """Keep committed history out of the head and its state on the v4 schema."""
+        """Reject other schemas and keep committed history out of the head."""
         if (
-            self.schema_version != _TABLES_SCHEMA
-            or self.state.schema_version != _TABLES_SCHEMA
+            self.schema_version != "account-journal-v4"
             or self.state.decisions
             or self.state.portfolio_batches
             or self.state.paper_traces
         ):
             raise ValueError("unsupported account journal state schema")
-
-
-class _SchemaProbe(msgspec.Struct, frozen=True):
-    """Read only the top-level schema version of a firm payload."""
-
-    schema_version: str = ""
 
 
 _EMPTY_HISTORY = _HistorySummary(
@@ -283,15 +256,39 @@ def _trace_key(trace: AccountPaperTrace) -> tuple[str, ...]:
     )
 
 
-_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
-    "decisions": ("instance_id", "decision_identity"),
-    "portfolio_batches": ("batch_identity",),
-    "paper_traces": ("account_id", "venue", "instrument_id", "market_identity"),
+# Each table's insert and ordered full read, as (seq, *key columns, payload).
+_TABLE_STATEMENTS: dict[str, tuple[str, str]] = {
+    "decisions": (
+        "INSERT INTO decisions (seq, instance_id, decision_identity, payload) VALUES (?, ?, ?, ?)",
+        "SELECT seq, instance_id, decision_identity, payload FROM decisions ORDER BY seq",
+    ),
+    "portfolio_batches": (
+        "INSERT INTO portfolio_batches (seq, batch_identity, payload) VALUES (?, ?, ?)",
+        "SELECT seq, batch_identity, payload FROM portfolio_batches ORDER BY seq",
+    ),
+    "paper_traces": (
+        "INSERT INTO paper_traces (seq, account_id, venue, instrument_id, market_identity, "
+        "payload) VALUES (?, ?, ?, ?, ?, ?)",
+        "SELECT seq, account_id, venue, instrument_id, market_identity, payload "
+        "FROM paper_traces ORDER BY seq",
+    ),
 }
+# Optional trace keys match any value when their parameter is NULL.
+_FIND_TRACE = (
+    "SELECT payload FROM paper_traces WHERE market_identity=?1 "
+    "AND (?2 IS NULL OR account_id=?2) AND (?3 IS NULL OR venue=?3) "
+    "AND (?4 IS NULL OR instrument_id=?4) ORDER BY seq LIMIT 1"
+)
+_ITER_TRACES = (
+    "SELECT payload FROM paper_traces WHERE (?1 IS NULL OR account_id=?1) "
+    "AND (?2 IS NULL OR instrument_id=?2) ORDER BY seq ASC",
+    "SELECT payload FROM paper_traces WHERE (?1 IS NULL OR account_id=?1) "
+    "AND (?2 IS NULL OR instrument_id=?2) ORDER BY seq DESC",
+)
 
 
 class _HistoryTables:
-    """Read committed v4 history rows inside one open SQLite transaction."""
+    """Read committed history rows inside one open SQLite transaction."""
 
     def __init__(
         self, connection: sqlite3.Connection, codec: DomainCodec, summary: _HistorySummary
@@ -334,12 +331,8 @@ class _HistoryTables:
         instrument_id: InstrumentId | None,
     ) -> AccountPaperTrace | None:
         """Return the earliest committed trace of a market identity within the given keys."""
-        clauses, parameters = self._trace_filter(account_id, venue, instrument_id)
         payload = self._payload(
-            "SELECT payload FROM paper_traces WHERE market_identity=?"
-            + "".join(f" AND {clause}" for clause in clauses)
-            + " ORDER BY seq LIMIT 1",
-            (market_identity, *parameters),
+            _FIND_TRACE, (market_identity, account_id, venue, self._instrument(instrument_id))
         )
         return None if payload is None else self.codec.decode_json(payload, AccountPaperTrace)
 
@@ -347,11 +340,8 @@ class _HistoryTables:
         self, account_id: str | None, instrument_id: InstrumentId | None, *, newest_first: bool
     ) -> Iterator[AccountPaperTrace]:
         """Yield committed traces in commit order, or reversed."""
-        clauses, parameters = self._trace_filter(account_id, None, instrument_id)
-        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        order = "DESC" if newest_first else "ASC"
         cursor = self.connection.execute(
-            f"SELECT payload FROM paper_traces{where} ORDER BY seq {order}", parameters
+            _ITER_TRACES[newest_first], (account_id, self._instrument(instrument_id))
         )
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield self.codec.decode_json(self._blob(row[0]), AccountPaperTrace)
@@ -395,11 +385,6 @@ class _HistoryTables:
         if expected != self.summary.checkpoints:
             raise ValueError("account journal history differs from its head")
 
-    def rows(self, table: str) -> list[bytes]:
-        """Return one table's exact item bytes in commit order."""
-        cursor = self.connection.execute(f"SELECT payload FROM {table} ORDER BY seq")
-        return [self._blob(row[0]) for row in cast(Iterator[tuple[object, ...]], cursor)]
-
     def _insert[T](
         self,
         table: str,
@@ -408,11 +393,7 @@ class _HistoryTables:
         key: Callable[[T], tuple[str, ...]],
     ) -> _HistoryDigest:
         """Append staged items after the committed rows, extending the table's chain."""
-        columns = _TABLE_COLUMNS[table]
-        statement = (
-            f"INSERT INTO {table} (seq, {', '.join(columns)}, payload) "
-            f"VALUES ({', '.join('?' * (len(columns) + 2))})"
-        )
+        statement = _TABLE_STATEMENTS[table][0]
         for item in items:
             payload = self.codec.encode_json(item)
             self.connection.execute(statement, (digest.count, *key(item), payload))
@@ -423,10 +404,7 @@ class _HistoryTables:
         self, table: str, target: type[T], key: Callable[[T], tuple[str, ...]]
     ) -> list[T]:
         """Decode one table in order and compare it with the head's digest."""
-        columns = _TABLE_COLUMNS[table]
-        cursor = self.connection.execute(
-            f"SELECT seq, {', '.join(columns)}, payload FROM {table} ORDER BY seq"
-        )
+        cursor = self.connection.execute(_TABLE_STATEMENTS[table][1])
         digest = _HistoryDigest(count=0, sha256="")
         items: list[T] = []
         for row in cast(Iterator[tuple[object, ...]], cursor):
@@ -442,23 +420,11 @@ class _HistoryTables:
         return items
 
     @staticmethod
-    def _trace_filter(
-        account_id: str | None, venue: str | None, instrument_id: InstrumentId | None
-    ) -> tuple[list[str], list[str]]:
-        """Build equality clauses for the supplied trace keys."""
-        clauses: list[str] = []
-        parameters: list[str] = []
-        for column, value in (
-            ("account_id", account_id),
-            ("venue", venue),
-            ("instrument_id", None if instrument_id is None else str(instrument_id.uuid_value)),
-        ):
-            if value is not None:
-                clauses.append(f"{column}=?")
-                parameters.append(value)
-        return clauses, parameters
+    def _instrument(instrument_id: InstrumentId | None) -> str | None:
+        """Return the stored text of an optional instrument key."""
+        return None if instrument_id is None else str(instrument_id.uuid_value)
 
-    def _payload(self, statement: str, parameters: tuple[str, ...]) -> bytes | None:
+    def _payload(self, statement: str, parameters: tuple[str | None, ...]) -> bytes | None:
         """Fetch one optional payload."""
         row = cast(
             tuple[object, ...] | None, self.connection.execute(statement, parameters).fetchone()
@@ -476,21 +442,19 @@ class _HistoryTables:
 class _AccountSnapshot:
     """Answer history lookups by identity without exposing collection storage.
 
-    Committed v4 rows precede the items staged in ``state``; a v2/v3 document has
-    no tables and keeps all history in ``state``.
+    Committed rows precede the items staged in ``state``.
     """
 
-    def __init__(self, state: _FirmState, tables: _HistoryTables | None = None) -> None:
-        """Retain one immutable state value and its committed history, if separate."""
+    def __init__(self, state: _FirmState, tables: _HistoryTables) -> None:
+        """Retain one immutable state value and its committed history."""
         self.state = state
-        self._tables = tables
+        self.tables = tables
 
     def find_decision(self, instance_id: str, decision_identity: str) -> _SavedDecision | None:
         """Resolve one saved decision by instance and decision identity."""
-        if self._tables is not None:
-            committed = self._tables.find_decision(instance_id, decision_identity)
-            if committed is not None:
-                return committed
+        committed = self.tables.find_decision(instance_id, decision_identity)
+        if committed is not None:
+            return committed
         for saved in self.state.decisions:
             if (saved.request.instance_id, saved.request.decision.identity) == (
                 instance_id,
@@ -504,14 +468,13 @@ class _AccountSnapshot:
         for saved in reversed(self.state.decisions):
             if saved.request.instance_id == instance_id:
                 return saved.request.checkpoint
-        return None if self._tables is None else self._tables.latest_checkpoint(instance_id)
+        return self.tables.latest_checkpoint(instance_id)
 
     def find_batch(self, identity: str) -> _SavedPortfolioBatch | None:
         """Resolve one saved portfolio batch by its stable identity."""
-        if self._tables is not None:
-            committed = self._tables.find_batch(identity)
-            if committed is not None:
-                return committed
+        committed = self.tables.find_batch(identity)
+        if committed is not None:
+            return committed
         for saved in self.state.portfolio_batches:
             if saved.batch.identity == identity:
                 return saved
@@ -526,12 +489,11 @@ class _AccountSnapshot:
         instrument_id: InstrumentId | None = None,
     ) -> AccountPaperTrace | None:
         """Return the earliest trace of one market identity, narrowed by the given keys."""
-        if self._tables is not None:
-            committed = self._tables.find_trace(
-                market_identity, account_id=account_id, venue=venue, instrument_id=instrument_id
-            )
-            if committed is not None:
-                return committed
+        committed = self.tables.find_trace(
+            market_identity, account_id=account_id, venue=venue, instrument_id=instrument_id
+        )
+        if committed is not None:
+            return committed
         for trace in self.state.paper_traces:
             if (
                 trace.market.identity == market_identity
@@ -558,11 +520,7 @@ class _AccountSnapshot:
             if (account_id is None or trace.account_id == account_id)
             and (instrument_id is None or trace.scenario.instrument_id == instrument_id)
         )
-        committed: Iterator[AccountPaperTrace] = (
-            iter(())
-            if self._tables is None
-            else self._tables.iter_traces(account_id, instrument_id, newest_first=newest_first)
-        )
+        committed = self.tables.iter_traces(account_id, instrument_id, newest_first=newest_first)
         if newest_first:
             yield from staged
             yield from committed
@@ -651,11 +609,11 @@ _HEAD_FIELD_KEYS = _field_keys(_FirmHead)
 
 
 class _FirmRow:
-    """Own the single reader of the ``firm`` row and the decoding of its payload."""
+    """Own the single reader of the ``firm`` row."""
 
     @staticmethod
     def payload(connection: sqlite3.Connection, configuration: bytes) -> bytes:
-        """Read the payload pinned to exact configuration bytes."""
+        """Read the head payload pinned to exact configuration bytes."""
         row = cast(
             tuple[object, ...] | None,
             connection.execute("SELECT configuration, payload FROM firm WHERE id=1").fetchone(),
@@ -666,54 +624,22 @@ class _FirmRow:
             raise ValueError("firm account state is missing or malformed")
         return row[1]
 
-    @staticmethod
-    def is_head(payload: bytes) -> bool:
-        """Tell a v4 head from a v2/v3 document by its declared schema version."""
-        probe = msgspec.json.decode(payload, type=_SchemaProbe)
-        return probe.schema_version == _TABLES_SCHEMA
-
-    @staticmethod
-    def decode(
-        codec: DomainCodec, payload: bytes, *, head: bool
-    ) -> tuple[_FirmState, _FirmHead | None]:
-        """Decode a document or a head, never accepting one format as the other."""
-        if head:
-            decoded = codec.decode_json(payload, _FirmHead)
-            return decoded.state, decoded
-        state = codec.decode_json(payload, _FirmState)
-        if state.schema_version not in _DOCUMENT_SCHEMAS:
-            raise ValueError("unsupported account journal state schema")
-        return state, None
-
 
 class AccountStateStore:
     """Own configuration pinning and atomic reads and writes of firm state.
 
-    A v2/v3 journal stores the whole state as one ``firm`` document. A v4 journal
-    stores a head in ``firm`` and decisions, portfolio batches and paper traces in
-    their own tables, so a commit writes the head and new rows and an open decodes
-    only the head. The journal's own payload decides its format; ``history``
-    chooses the format only when this store creates the journal, defaulting to
-    ``_NEW_JOURNAL_HISTORY``.
+    The ``firm`` row holds the head; decisions, portfolio batches and paper traces
+    live in their own tables. A commit writes the head and new rows, and an open
+    decodes only the head.
     """
 
-    def __init__(
-        self,
-        path: Path,
-        config: AccountConfiguration,
-        codec: DomainCodec,
-        *,
-        history: Literal["document", "tables"] | None = None,
-    ) -> None:
-        """Create or reopen the state document pinned to exact configuration bytes."""
-        history = _NEW_JOURNAL_HISTORY if history is None else history
-        if history not in ("document", "tables"):
-            raise ValueError("unknown account journal history storage")
+    def __init__(self, path: Path, config: AccountConfiguration, codec: DomainCodec) -> None:
+        """Create or reopen the journal pinned to exact configuration bytes."""
         self.path = path
         self.config = config
         self.codec = codec
         self._configuration_payload = codec.encode_json(config)
-        self._cached_snapshot: tuple[bytes, _FirmState, _FirmHead | None] | None = None
+        self._cached_snapshot: tuple[bytes, _FirmHead] | None = None
         self._encoded: dict[str, tuple[object, bytes, list[bytes] | None]] = {}
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
@@ -728,27 +654,22 @@ class AccountStateStore:
             )
             payload = self._configuration_payload
             if row is None:
-                self._separate_history = history == "tables"
-                initial = self._initial()
-                if self._separate_history:
-                    for statement in _HISTORY_TABLES:
-                        connection.execute(statement)
-                    state = replace(initial, schema_version=_TABLES_SCHEMA)
-                    content = self._encode_head(_FirmHead(history=_EMPTY_HISTORY, state=state))
-                else:
-                    content = self.codec.encode_json(initial)
-                connection.execute("INSERT INTO firm VALUES (1, ?, ?)", (payload, content))
+                for statement in _HISTORY_TABLES:
+                    connection.execute(statement)
+                head = _FirmHead(history=_EMPTY_HISTORY, state=self._initial())
+                connection.execute(
+                    "INSERT INTO firm VALUES (1, ?, ?)", (payload, self._encode_head(head))
+                )
             elif row[0] != payload:
                 raise ValueError("account configuration or state schema differs")
             else:
-                self._separate_history = _FirmRow.is_head(_FirmRow.payload(connection, payload))
                 self._load(connection)
             connection.commit()
 
     def read(self) -> _FirmState:
-        """Read one atomic firm snapshot; under v4 its history tuples are empty."""
+        """Read one atomic firm snapshot; its history tuples are empty."""
         with closing(self._connect()) as connection:
-            return self._load(connection)[0]
+            return self._load(connection).state
 
     @contextmanager
     def snapshot(self) -> Iterator[_AccountSnapshot]:
@@ -756,8 +677,8 @@ class AccountStateStore:
         with closing(self._connect()) as connection:
             connection.execute("BEGIN")
             try:
-                state, head = self._load(connection)
-                yield _AccountSnapshot(state, self._tables(connection, head))
+                head = self._load(connection)
+                yield _AccountSnapshot(head.state, self._tables(connection, head))
             finally:
                 connection.rollback()
 
@@ -771,50 +692,9 @@ class AccountStateStore:
     ) -> tuple[AccountView, ...]:
         """Check live WAL state or a standalone immutable SQLite backup.
 
-        A v4 journal also checks every history row against the head's counts,
-        digests and checkpoints.
+        Every history row, its key columns and the head's counts, digests and
+        checkpoints must agree.
         """
-        with AccountStateStore._read_only(path, config, storage=storage) as connection:
-            payload = _FirmRow.payload(connection, codec.encode_json(config))
-            state, head = _FirmRow.decode(codec, payload, head=_FirmRow.is_head(payload))
-            if head is not None:
-                _HistoryTables(connection, codec, head.history).verify()
-            return state.accounts
-
-    @staticmethod
-    def materialize(
-        path: Path,
-        config: AccountConfiguration,
-        codec: DomainCodec,
-        *,
-        storage: Literal["wal", "snapshot"] = "wal",
-    ) -> bytes:
-        """Return the complete single-document state bytes of a journal.
-
-        A v2/v3 journal returns its stored document. A v4 journal returns the
-        document a v3 journal would hold, except that ``schema_version`` stays v4.
-        """
-        with AccountStateStore._read_only(path, config, storage=storage) as connection:
-            payload = _FirmRow.payload(connection, codec.encode_json(config))
-            state, head = _FirmRow.decode(codec, payload, head=_FirmRow.is_head(payload))
-            if head is None:
-                return payload
-            tables = _HistoryTables(connection, codec, head.history)
-            fields: list[bytes] = []
-            for name, key in _FIRM_FIELD_KEYS:
-                if name in _HISTORY_FIELDS:
-                    fields.append(key + b"[" + b",".join(tables.rows(name)) + b"]")
-                else:
-                    value: object = getattr(state, name)
-                    fields.append(key + codec.encode_json(value))
-            return b"{" + b",".join(fields) + b"}"
-
-    @staticmethod
-    @contextmanager
-    def _read_only(
-        path: Path, config: AccountConfiguration, *, storage: Literal["wal", "snapshot"]
-    ) -> Iterator[sqlite3.Connection]:
-        """Open an integrity-checked read transaction on a live journal or a snapshot."""
         config.__post_init__()
         if not path.is_file():
             raise ValueError("account journal is missing")
@@ -834,10 +714,13 @@ class AccountStateStore:
                 if integrity != ("ok",):
                     raise ValueError("account journal integrity check failed")
                 connection.execute("BEGIN")
-                yield connection
+                payload = _FirmRow.payload(connection, codec.encode_json(config))
+                head = codec.decode_json(payload, _FirmHead)
+                _HistoryTables(connection, codec, head.history).verify()
                 connection.rollback()
                 if storage == "snapshot":
                     AccountStateStore._require_standalone_snapshot(path)
+                return head.state.accounts
         except sqlite3.DatabaseError as error:
             raise ValueError("account journal is not a valid SQLite database") from error
 
@@ -855,39 +738,28 @@ class AccountStateStore:
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                state, head = self._load(connection)
+                head = self._load(connection)
                 tables = self._tables(connection, head)
-                transaction = _AccountTransaction(state, tables)
+                transaction = _AccountTransaction(head.state, tables)
                 yield transaction
                 staged = transaction.state
-                _FirmState.__post_init__(staged)
-                if (staged.schema_version == _TABLES_SCHEMA) != self._separate_history:
-                    raise ValueError("unsupported account journal state schema")
-                committed: tuple[_FirmState, _FirmHead | None]
-                if tables is None:
-                    payload = self._encode(staged)
-                    committed = staged, None
-                else:
-                    written = _FirmHead(
-                        history=tables.append(staged),
-                        state=replace(staged, decisions=(), portfolio_batches=(), paper_traces=()),
-                    )
-                    payload = self._encode_head(written)
-                    committed = written.state, written
+                written = _FirmHead(
+                    history=tables.append(staged),
+                    state=replace(staged, decisions=(), portfolio_batches=(), paper_traces=()),
+                )
+                payload = self._encode_head(written)
                 connection.execute("UPDATE firm SET payload=? WHERE id=1", (payload,))
                 connection.commit()
-                # Reuse only the immutable state whose exact bytes committed.
+                # Reuse only the immutable head whose exact bytes committed.
                 # Every subsequent read still verifies the current SQLite row.
-                self._cached_snapshot = payload, *committed
+                self._cached_snapshot = payload, written
             except BaseException:
                 connection.rollback()
                 raise
 
-    def _tables(
-        self, connection: sqlite3.Connection, head: _FirmHead | None
-    ) -> _HistoryTables | None:
-        """Bind v4 history lookups to this connection's transaction."""
-        return None if head is None else _HistoryTables(connection, self.codec, head.history)
+    def _tables(self, connection: sqlite3.Connection, head: _FirmHead) -> _HistoryTables:
+        """Bind history lookups to this connection's transaction."""
+        return _HistoryTables(connection, self.codec, head.history)
 
     def _encode_head(self, head: _FirmHead) -> bytes:
         """Return exactly ``codec.encode_json(head)``, reusing the state's field cache."""
@@ -968,12 +840,12 @@ class AccountStateStore:
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
-    def _load(self, connection: sqlite3.Connection) -> tuple[_FirmState, _FirmHead | None]:
+    def _load(self, connection: sqlite3.Connection) -> _FirmHead:
         """Read current bytes and reuse a typed decode only for an identical row."""
         payload = _FirmRow.payload(connection, self._configuration_payload)
         cached = self._cached_snapshot
         if cached is not None and payload == cached[0]:
-            return cached[1], cached[2]
-        state, head = _FirmRow.decode(self.codec, payload, head=self._separate_history)
-        self._cached_snapshot = payload, state, head
-        return state, head
+            return cached[1]
+        head = self.codec.decode_json(payload, _FirmHead)
+        self._cached_snapshot = payload, head
+        return head

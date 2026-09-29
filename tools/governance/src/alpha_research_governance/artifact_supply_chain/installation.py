@@ -450,9 +450,9 @@ class LocalInstallation:
             str(config),
             "--journal",
             str(journal),
+            "--release-identity",
+            hashlib.sha256(manifest_bytes).hexdigest(),
         ]
-        if manifest.runtime.state_schema == "account-journal-v3":
-            arguments.extend(("--release-identity", hashlib.sha256(manifest_bytes).hexdigest()))
         self._run(arguments, cwd=release_slot)
 
     @staticmethod
@@ -464,20 +464,43 @@ class LocalInstallation:
 
     @staticmethod
     def _account_record(journal: Path) -> tuple[bytes, bytes]:
-        """Read the complete saved firm row for interrupted first-install comparison."""
+        """Read the account head payload and a digest of every SQLite table and schema.
+
+        The digest covers the head row and all history tables, so an interrupted
+        first install compares complete account state, not only the head.
+        """
         with closing(sqlite3.connect(journal.as_uri() + "?mode=ro", uri=True)) as connection:
             integrity = cast(
                 tuple[object, ...] | None, connection.execute("PRAGMA quick_check").fetchone()
             )
             if integrity != ("ok",):
                 raise ValueError("account journal failed SQLite integrity check")
+            connection.execute("BEGIN")
             row = cast(
                 tuple[object, ...] | None,
                 connection.execute("SELECT configuration, payload FROM firm WHERE id=1").fetchone(),
             )
-        if row is None or type(row[0]) is not bytes or type(row[1]) is not bytes:
-            raise ValueError("account journal lacks a complete firm state")
-        return row[0], row[1]
+            if row is None or type(row[0]) is not bytes or type(row[1]) is not bytes:
+                raise ValueError("account journal lacks a complete firm state")
+            digest = hashlib.sha256()
+            schema = cast(
+                list[tuple[object, ...]],
+                connection.execute(
+                    "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name"
+                ).fetchall(),
+            )
+            for entry in schema:
+                digest.update(repr(entry).encode())
+                if entry[0] == "table":
+                    table = str(entry[1]).replace('"', '""')
+                    contents = cast(
+                        list[tuple[object, ...]],
+                        connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall(),  # nosec B608  # [owner=platform; rationale=quoted table name read from sqlite_master of a private copy; expires=2027-03-01]
+                    )
+                    for content in contents:
+                        digest.update(repr(content).encode())
+            connection.rollback()
+        return row[1], digest.digest()
 
     def _verify_account_state(
         self, release_slot: Path, journal: Path, *, initial_without_snapshot: bool = False
@@ -487,7 +510,6 @@ class LocalInstallation:
         manifest_bytes = ReleaseRegistry.read_regular(
             release_slot / "bundle/release.json", 4_194_304
         )
-        manifest = ReleaseManifest.model_validate_json(manifest_bytes)
         with TemporaryDirectory(dir=self.root, prefix=".account-state-check-") as temporary:
             checked = Path(temporary) / "accounts.sqlite3"
             with (
@@ -495,11 +517,8 @@ class LocalInstallation:
                 closing(sqlite3.connect(checked)) as target,
             ):
                 source.backup(target)
-            if manifest.runtime.state_schema == "account-journal-v3":
-                _, payload = self._account_record(checked)
-                self._require_paper_release_scope(
-                    payload, hashlib.sha256(manifest_bytes).hexdigest()
-                )
+            payload, _ = self._account_record(checked)
+            self._require_paper_release_scope(payload, hashlib.sha256(manifest_bytes).hexdigest())
             self._run_account_inspect(release_slot, checked)
             if initial_without_snapshot:
                 pristine = Path(temporary) / "pristine.sqlite3"
@@ -510,12 +529,13 @@ class LocalInstallation:
     @staticmethod
     def _require_paper_release_scope(payload: bytes, release_identity: str) -> None:
         """Refuse a candidate code release absent from the durable paper deployment."""
-        state = TypeAdapter(dict[str, object]).validate_json(payload)
+        head = TypeAdapter(dict[str, object]).validate_json(payload)
+        if head.get("schema_version") != "account-journal-v4":
+            raise ValueError("account journal schema is not account-journal-v4")
+        state = TypeAdapter(dict[str, object]).validate_python(head.get("state"))
         activations = TypeAdapter(list[dict[str, object]]).validate_python(
             state.get("paper_activations", [])
         )
-        if activations and state.get("schema_version") != "account-journal-v3":
-            raise ValueError("paper activation requires the managed account journal schema")
         for activation in activations:
             deployment = TypeAdapter(dict[str, object]).validate_python(
                 activation.get("deployment")
@@ -557,9 +577,9 @@ class LocalInstallation:
                 str(configuration),
                 "--journal",
                 str(journal),
+                "--release-identity",
+                release_identity,
             ]
-            if runtime.state_schema == "account-journal-v3":
-                bound.extend(("--release-identity", release_identity))
             return bound
         configured = (
             {"capture", "probe"} if runtime.application == "collector" else {"inspect", "admit"}

@@ -81,7 +81,7 @@ class InstallationScenario:
             ssh_keygen_sha256="0" * 64,
             builders=(builder,),
             config_schemas=("config-v1", "account-runtime-v1"),
-            state_schemas=("state-v1", "state-v2", "account-journal-v2", "account-journal-v3"),
+            state_schemas=("state-v1", "state-v2", "account-journal-v4"),
         )
         self.installation = LocalInstallation(root / "target", self.policy)
         self.candidates: dict[str, VerifiedRelease] = {}
@@ -385,7 +385,7 @@ class TestLocalInstallation:
             application="execution",
             mode="paper",
             config_schema="account-runtime-v1",
-            state_schema="account-journal-v2",
+            state_schema="account-journal-v4",
             initial_state=False,
         )
         second = scenario.candidate(
@@ -394,7 +394,7 @@ class TestLocalInstallation:
             application="execution",
             mode="paper",
             config_schema="account-runtime-v1",
-            state_schema="account-journal-v2",
+            state_schema="account-journal-v4",
             initial_state=False,
         )
         changed = scenario.candidate(
@@ -405,7 +405,7 @@ class TestLocalInstallation:
             application="execution",
             mode="paper",
             config_schema="account-runtime-v1",
-            state_schema="account-journal-v2",
+            state_schema="account-journal-v4",
             initial_state=False,
         )
         application = AccountInstalledApplication()
@@ -437,10 +437,13 @@ class TestLocalInstallation:
 
         assert rolled_back.release == original.release
         assert reopened.accounts[0].operator_block == "operator-stop"
-        assert application.calls[-1][-2:] == ["--journal", str(journal)]
-        assert application.calls[-1][-4:-2] == [
+        assert application.calls[-1][-6:] == [
             "--config",
             str(scenario.installation.root / rolled_back.slot / "bundle/configuration/config.json"),
+            "--journal",
+            str(journal),
+            "--release-identity",
+            rolled_back.release,
         ]
 
     def test_signed_account_run_rejects_overrides_and_lost_journal(self, tmp_path: Path) -> None:
@@ -452,7 +455,7 @@ class TestLocalInstallation:
             application="execution",
             mode="paper",
             config_schema="account-runtime-v1",
-            state_schema="account-journal-v2",
+            state_schema="account-journal-v4",
             initial_state=False,
         )
         application = AccountInstalledApplication()
@@ -477,10 +480,10 @@ class TestLocalInstallation:
                 assert not journal.exists()
 
     @pytest.mark.parametrize("mode", ("paper", "shadow"))
-    def test_signed_v3_account_binds_release_identity_and_refuses_v2_code(
+    def test_signed_account_binds_release_identity_and_refuses_other_state(
         self, tmp_path: Path, mode: Literal["paper", "shadow"]
     ) -> None:
-        """Carry the verified installed digest into v3 without reopening older readers."""
+        """Carry the verified installed digest into activation; refuse another state schema."""
         scenario = InstallationScenario(tmp_path)
         config = DomainCodec().encode_json(replace(self._account_configuration(_NOW), mode=mode))
         current = scenario.candidate(
@@ -489,16 +492,15 @@ class TestLocalInstallation:
             application="execution",
             mode=mode,
             config_schema="account-runtime-v1",
-            state_schema="account-journal-v3",
+            state_schema="account-journal-v4",
             initial_state=False,
         )
-        legacy = scenario.candidate(
-            "legacy-account",
-            config=config,
+        other_state = scenario.candidate(
+            "other-state",
+            config=b"other config\n",
             application="execution",
             mode=mode,
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v2",
+            state_schema="state-v2",
             initial_state=False,
         )
         compatible = scenario.candidate(
@@ -507,7 +509,7 @@ class TestLocalInstallation:
             application="execution",
             mode=mode,
             config_schema="account-runtime-v1",
-            state_schema="account-journal-v3",
+            state_schema="account-journal-v4",
             initial_state=False,
         )
         unlisted = scenario.candidate(
@@ -516,7 +518,7 @@ class TestLocalInstallation:
             application="execution",
             mode=mode,
             config_schema="account-runtime-v1",
-            state_schema="account-journal-v3",
+            state_schema="account-journal-v4",
             initial_state=False,
         )
         application = AccountInstalledApplication()
@@ -580,20 +582,20 @@ class TestLocalInstallation:
                 with closing(
                     sqlite3.connect(scenario.installation.root / "state/accounts.sqlite3")
                 ) as connection:
-                    promoted = cast(
+                    activated_head = cast(
                         tuple[object, ...] | None,
                         connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
                     )
-                assert promoted is not None and type(promoted[0]) is bytes
-                assert b'"schema_version":"account-journal-v3"' in promoted[0]
+                assert activated_head is not None and type(activated_head[0]) is bytes
+                assert b'"schema_version":"account-journal-v4"' in activated_head[0]
                 with pytest.raises(ValueError, match="absolute request path"):
                     scenario.installation.run(
-                        ("account", "--release-identity", legacy.name), now=_NOW
+                        ("account", "--release-identity", other_state.name), now=_NOW
                     )
                 with pytest.raises(ValueError, match="excludes the candidate release"):
                     scenario.installation.install(unlisted, now=_NOW)
                 with pytest.raises(ValueError, match="current state is incompatible"):
-                    scenario.installation.install(legacy, now=_NOW)
+                    scenario.installation.install(other_state, now=_NOW)
                 assert scenario.installation.current() == receipt
                 upgraded = scenario.installation.install(compatible, now=_NOW)
                 assert upgraded.release == scenario.candidates[compatible.name].identity
@@ -601,12 +603,15 @@ class TestLocalInstallation:
                 assert (
                     LocalInstallation._account_record(
                         scenario.installation.root / "state/accounts.sqlite3"
-                    )[1]
-                    == promoted[0]
+                    )[0]
+                    == activated_head[0]
                 )
 
-    def test_account_rollback_rejects_unknown_actual_journal_schema(self, tmp_path: Path) -> None:
-        """A manifest schema label cannot make an unreadable account ledger compatible."""
+    @pytest.mark.parametrize("stored", ("unknown", "single_document"))
+    def test_account_rollback_rejects_unknown_or_single_document_journal(
+        self, tmp_path: Path, stored: Literal["unknown", "single_document"]
+    ) -> None:
+        """A manifest label cannot make an unknown or whole-state document journal compatible."""
         scenario = InstallationScenario(tmp_path)
         config = DomainCodec().encode_json(self._account_configuration(_NOW))
         candidates = tuple(
@@ -616,7 +621,7 @@ class TestLocalInstallation:
                 application="execution",
                 mode="paper",
                 config_schema="account-runtime-v1",
-                state_schema="account-journal-v2",
+                state_schema="account-journal-v4",
                 initial_state=False,
             )
             for name in ("first-account", "second-account")
@@ -633,11 +638,15 @@ class TestLocalInstallation:
                         connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
                     )
                     assert row is not None and type(row[0]) is bytes
-                    state = TypeAdapter(dict[str, object]).validate_json(row[0])
-                    state["schema_version"] = "unknown-account-journal"
+                    head = TypeAdapter(dict[str, object]).validate_json(row[0])
+                    if stored == "unknown":
+                        head["schema_version"] = "unknown-account-journal"
+                        replacement = head
+                    else:
+                        replacement = TypeAdapter(dict[str, object]).validate_python(head["state"])
                     connection.execute(
                         "UPDATE firm SET payload=? WHERE id=1",
-                        (json.dumps(state, separators=(",", ":")).encode(),),
+                        (json.dumps(replacement, separators=(",", ":")).encode(),),
                     )
                     connection.commit()
                 with pytest.raises(ValueError):
@@ -656,7 +665,7 @@ class TestLocalInstallation:
             application="execution",
             mode="paper",
             config_schema="account-runtime-v1",
-            state_schema="account-journal-v2",
+            state_schema="account-journal-v4",
             initial_state=False,
         )
         application = AccountInstalledApplication()

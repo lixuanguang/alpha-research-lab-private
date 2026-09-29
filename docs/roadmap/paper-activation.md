@@ -66,13 +66,13 @@ checks without weakening typing, dependency, numerical or hosted merge gates.
 ## Implementation and validation record
 
 The managed operating boundary is the signed execution `paper` runner using
-`account-runtime-v1` configuration and `account-journal-v3` state. Its admitted
+`account-runtime-v1` configuration and `account-journal-v4` state. Its admitted
 execution/contracts closure owns economics. `InstalledPaperAccount` connects
 the existing public-paper Python workflow to that runner using retained typed
 requests and responses, without installing the research wheel into the target.
 The client collects inputs/evaluates engineering policies; the installed owner
-independently checks grants, generations, risk and reservations. Legacy raw v2
-simulation APIs remain development interfaces and cannot substitute for this
+independently checks grants, generations, risk and reservations. Direct in-process
+journal use remains a development interface and cannot substitute for this
 managed installation contract.
 
 `PaperDeployment` is immutable and disabled. It binds compatible signed release
@@ -218,7 +218,7 @@ contracts wheel `590713d9e12e63d55fc17dc34fe22903483454331186bced32a65b40df049c3
 and execution wheel `051dd64e2ab87187c999378985a5efd18fd8d4438d86f08c7178874bf12a1f5f`.
 Their 326 captured source Python files match the final implementation. These are
 distinct signed release identities with identical code/wheel bytes: the proof is
-compatible signed code selection and preservation, not an old v3 implementation
+compatible signed code selection and preservation, not an older implementation
 or schema migration. The nine-package target contains no research distribution.
 
 The qualified reference consumer SHA-256 is

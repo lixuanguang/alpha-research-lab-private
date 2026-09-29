@@ -1067,7 +1067,7 @@ rate it would reach roughly 300 MB per account per day. A separate commit now
 encodes only changed fields and history items, cutting the median commit on that
 journal from 27.0 to 9.3 ms with byte-identical stored bytes, but whole-document
 writes and full cold decode remain. The
-[account journal v4 plan](account-journal-v4.md) moves the growing history into
+[account journal history plan](account-journal-history.md) moves the growing history into
 indexed tables and is a stage-2 prerequisite.
 
 Local validation: format, lint, strict typing, stubtest and engineering checks

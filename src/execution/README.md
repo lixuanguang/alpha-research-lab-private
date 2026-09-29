@@ -59,19 +59,13 @@ snapshot and transaction history lookups by identity (`find_decision`,
 `latest_checkpoint`, `find_batch`, `find_trace`, `iter_traces`) and written through
 `append_*`, so callers do not depend on where history is stored.
 
-New journals are single `account-journal-v2`/`v3` documents. A commit writes exactly
-the bytes of a full encoding but reuses encoded fields and history items that are the
-same immutable objects, so encoding cost follows what the transaction changed; storage
-still rewrites the whole document, and a fresh process decodes it in full. The
-`account-journal-v4` layout of the [migration plan](../../docs/roadmap/account-journal-v4.md)
-is implemented but is created only by an explicit `AccountStateStore(...,
-history="tables")` until governance admits it. Its `firm` row holds a head: the
-current state without the three history collections, each collection's row count and
-sha256 hash chain, and every instance's latest checkpoint. The collections live in
-their own tables with each item's exact codec bytes. A commit inserts only new rows
-and rewrites the head, and a fresh process decodes only the head. The journal's own
-payload decides its format; v2/v3 readers reject a v4 head. `materialize()` rebuilds
-the v3 document byte for byte except `schema_version`. The journal composes admission and reconciliation from
+The `firm` row holds the journal head: the current state without the three history
+collections, each collection's row count and sha256 hash chain, and every instance's
+latest checkpoint. The collections live in their own tables with each item's exact
+codec bytes ([design](../../docs/roadmap/account-journal-history.md)). A commit inserts
+only new rows and rewrites the head, reusing the encoded bytes of unchanged head fields,
+and a fresh process decodes only the head. Only the `account-journal-v4` schema is
+readable; any other payload, including a whole-state document, fails closed. The journal composes admission and reconciliation from
 [`account_admission.py`](account_admission.py), physical fill and fee attribution
 from [`account_allocation.py`](account_allocation.py), and atomic portfolio order
 formation and instance controls from [`account_portfolio.py`](account_portfolio.py).
@@ -132,7 +126,7 @@ pending reservations. Failed observations are retained. `block(account_id,
 reason)` persists a separate operator stop which successful reconciliation never
 clears. It blocks new exposure; cancellation and accounting remain available.
 Block, cancel and reduce-position are distinct. Managed paper activation and
-local recovery use the separate signed v3 contract documented below; this shared
+local recovery use the signed managed contract documented below; this shared
 account API does not grant live venue authority or submission.
 
 This is an atomic local command service with no venue transport, credential
@@ -140,8 +134,7 @@ resolver or submission. Concurrent calls serialize at SQLite; the separately
 described test-venue gateway owns its executing fence and physical reconciliation.
 State is pinned
 to exact configuration bytes and uses the `account-runtime-v1` and
-`account-postings-v1` contracts. The initial store retains one complete firm
-state document and histories per transaction. It establishes correctness for
+`account-postings-v1` contracts. It establishes correctness for
 the reference workload, not MR15 throughput, bounded retention or deployment
 readiness. Retain the journal with its configuration and compatible artifact;
 never edit accounting history to make a rollback appear compatible.
@@ -389,14 +382,10 @@ to operate when their own state and the aggregate firm valuation remain valid.
 The controls trust the local operator/source boundary; they are not a credential
 or live-capital authorization mechanism.
 
-Unactivated local account journals declare `account-journal-v2`; managed paper
-installation promotes the journal to v3 as described below. V2 journals without
-an explicit version remain readable and acquire v2 on their next write. Unknown
-versions fail. Older artifacts that cannot decode operational state are not
-compatible rollback targets. `AccountJournal.verify(path, config)` performs
-read-only integrity/config/schema validation and sees committed WAL state; for v4 it
-also checks every history row, its key columns and the head's counts, hash chains
-and checkpoints;
+Unknown schemas fail. `AccountJournal.verify(path, config)` performs
+read-only integrity/config/schema validation and sees committed WAL state; it also
+checks every history row, its key columns and the head's counts, hash chains and
+checkpoints;
 `storage="snapshot"` additionally requires no SQLite sidecars and leaves a
 standalone snapshot unchanged. The [workspace recovery owner](../runtime/README.md#account-workspace-recovery)
 uses these checks under backup locks and before restore publication.
@@ -408,11 +397,8 @@ records. The deployment is always disabled. It pins the exact account configurat
 instance/policy/candidate/model/feature identities, input binding, execution
 scenario, compatible signed release digests and `paper-account-state-v1` state ABI.
 `AccountJournal.install_paper` atomically binds matching assumptions, records a
-stop and promotes the journal to `account-journal-v3`; a v4 journal keeps its schema and
-records activation by the activation's presence. It creates no orders.
-An incompatible deployment cannot replace that identity. Pre-activation v2 state
-is supported for a fresh installation; in-place signed v2-to-v3 migration is not
-an admitted installation operation.
+stop and retains the activation, whose presence marks the journal as managed. It
+creates no orders. An incompatible deployment cannot replace that identity.
 
 The separate grant names that deployment digest, instruments, maximum admitted
 buy quantities, per-order notional, order count and a half-open UTC validity
@@ -440,8 +426,9 @@ remain available independently of an exposure grant. A replacement grant can be
 recorded only after the account is stopped and all existing physical order
 outcomes are settled. Prior grant identities remain retained, and an explicit
 fresh owner claim is required before a replacement worker creates exposure.
-Revoked IDs cannot be reused. The existing raw v2 account APIs remain local
-engineering interfaces, outside the signed managed activation contract.
+Revoked IDs cannot be reused. Direct in-process `AccountJournal` use without an
+installed release identity remains a local development interface, outside the signed
+managed activation contract.
 
 `control/stop` is the reversible block-new-exposure action. `control/cancel`
 records cancellation requests, preserving reservations until the matching model

@@ -264,8 +264,7 @@ is not an installed activation path. A developer environment or input producer
 has no authority to override the signed target's risk, release or deployment.
 
 The maintained [public-paper consumer](../../../tests/integration/consumers/runtime/public_paper.py)
-and [signed installation consumer](../../../tests/integration/consumers/deployment/account_installation.py)
-exercise this interface. A process timeout has an uncertain outcome: inspect
+exercises this interface. A process timeout has an uncertain outcome: inspect
 retained journal facts and exact request identity before recovery. Monitoring
 failure is diagnostic and must never cause a committed matching/admission request
 to be rerun.

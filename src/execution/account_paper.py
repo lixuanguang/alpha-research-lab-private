@@ -129,7 +129,7 @@ class AccountPaperMatching:
         if snapshot is None:
             with self.store.snapshot() as fresh:
                 return self.market_seen(account_id, market_identity, snapshot=fresh)
-        transaction = _AccountTransaction(snapshot.state)
+        transaction = _AccountTransaction(snapshot.state, snapshot.tables)
         transaction.account(account_id)
         if self.owner is not None:
             self.owner.__post_init__()

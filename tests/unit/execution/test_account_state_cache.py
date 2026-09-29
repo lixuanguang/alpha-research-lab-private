@@ -16,7 +16,7 @@ from test_account_journal import TestAccountJournal as _AccountFixture
 
 # project library imports
 from execution import AccountJournal
-from execution.account_state import AccountStateStore
+from execution.account_state import AccountStateStore, _FirmHead
 from serialization import DomainCodec
 
 
@@ -98,30 +98,8 @@ def test_rolled_back_stage_never_becomes_cached_state(tmp_path: Path) -> None:
     assert committed is store.read()
 
 
-def test_invalid_staged_schema_preserves_durable_and_cached_state(tmp_path: Path) -> None:
-    """A staged activation/schema mismatch cannot become a committed cached value."""
-    path = tmp_path / "invalid-stage.sqlite3"
-    codec = DomainCodec()
-    store = AccountStateStore(path, _AccountFixture._config(), codec)
-    original = store.read()
-    payload = codec.encode_json(original)
-
-    with pytest.raises(ValueError, match="unsupported account journal state schema"):
-        with store.write() as transaction:
-            transaction.state = replace(transaction.state, schema_version="account-journal-v3")
-
-    assert store.read() is original
-    with closing(sqlite3.connect(path)) as connection:
-        row = cast(
-            tuple[object, ...] | None,
-            connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
-        )
-    assert row == (payload,)
-    assert AccountStateStore(path, _AccountFixture._config(), codec).read() == original
-
-
 def _stored_payload(path: Path) -> bytes:
-    """Read the exact committed firm document."""
+    """Read the exact committed firm head."""
     with closing(sqlite3.connect(path)) as connection:
         row = cast(
             tuple[object, ...] | None,
@@ -131,8 +109,8 @@ def _stored_payload(path: Path) -> bytes:
     return row[0]
 
 
-def test_incremental_encoding_commits_exact_full_document_bytes(tmp_path: Path) -> None:
-    """Reused history bytes never diverge from encoding the complete committed state."""
+def test_incremental_encoding_commits_exact_full_head_bytes(tmp_path: Path) -> None:
+    """Reused field bytes never diverge from encoding the complete committed head."""
     fixture = _AccountFixture
     config = fixture._config()
     path = tmp_path / "incremental.sqlite3"
@@ -143,8 +121,9 @@ def test_incremental_encoding_commits_exact_full_document_bytes(tmp_path: Path) 
     def require_exact() -> None:
         """Compare stored bytes with an independent full encoding and fresh decode."""
         payload = _stored_payload(path)
-        assert payload == codec.encode_json(store.read())
-        assert codec.encode_json(AccountStateStore(path, config, codec).read()) == payload
+        head = codec.decode_json(payload, _FirmHead)
+        assert codec.encode_json(head) == payload
+        assert head.state == store.read() == AccountStateStore(path, config, codec).read()
 
     assert journal.reconcile(
         fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())

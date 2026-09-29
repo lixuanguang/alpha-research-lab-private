@@ -314,8 +314,8 @@ installed commands. It is quant-development software evidence, not a venue test.
 
 ## Managed paper activation requests
 
-The signed v3 target uses execution `paper`, `account-runtime-v1` configuration
-and `account-journal-v3` state. `AccountExecutionRequest` and
+The signed target uses execution `paper`, `account-runtime-v1` configuration
+and `account-journal-v4` state. `AccountExecutionRequest` and
 `AccountExecutionResult` are execution-owned public wire APIs. The existing
 `alpha-execute account` command accepts these additional actions:
 

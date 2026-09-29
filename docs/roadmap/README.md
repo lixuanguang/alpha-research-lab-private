@@ -450,10 +450,12 @@ by local fixtures. Commands and outcomes are retained under ignored `logs/mr10/`
 Ownership is incremental: signed account state validation extends MR06; bounded
 local alert routing is an MR12 prerequisite; explicit recovery checks and
 compatible rollback are MR13 prerequisites; shared reference consumers reuse
-MR09 and are incorporated into bounded MR14 service evidence. The
-[signed account consumer](../../tests/integration/consumers/deployment/account_installation.py)
-checks actual isolated installation, current late postings/stops across code
-upgrade/rollback, and refusal of caller config/journal overrides.
+MR09 and are incorporated into bounded MR14 service evidence. The signed account
+consumer used for this record checked actual isolated installation, current late
+postings/stops across code upgrade/rollback, and refusal of caller config/journal
+overrides; it was retired with single-document account journals, and the
+[installation tests](../../tests/engineering/test_release_installation.py) retain
+those installer checks.
 
 Local validation on 2026-09-26 passed the focused operational tests and complete
 `make check`, including installed research-wheel smoke. The real signed account

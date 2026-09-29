@@ -77,7 +77,7 @@ class PaperDeployment(WireRecord, frozen=True):
     state_identity: str
     enabled: bool = False
     submission_authority: Literal["paper", "shadow"] = "paper"
-    state_schema: Literal["account-journal-v3"] = "account-journal-v3"
+    state_schema: Literal["account-journal-v4"] = "account-journal-v4"
     schema_version: Literal["paper-deployment-v1"] = "paper-deployment-v1"
     additional_sources: tuple[PaperSourceBinding, ...] | msgspec.UnsetType = msgspec.UNSET
 
@@ -86,7 +86,7 @@ class PaperDeployment(WireRecord, frozen=True):
         if (
             self.enabled is not False
             or self.submission_authority not in ("paper", "shadow")
-            or self.state_schema != "account-journal-v3"
+            or self.state_schema != "account-journal-v4"
             or self.schema_version != "paper-deployment-v1"
             or type(self.account_id) is not str
             or not self.account_id
