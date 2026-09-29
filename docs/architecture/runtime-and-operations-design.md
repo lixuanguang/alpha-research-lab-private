@@ -89,7 +89,9 @@ retained and validated in order. The first eligible market, then eligible market
 at least one interval after the last selected market, can match outstanding paper
 orders and evaluate active policies. Intermediate eligible books advance the freshest
 monitoring mark without modeled fills or policy checkpoints; invalid source
-input still faults promptly. The retained `SharedBookDelivery.market_effects=false`
+input still faults promptly. A valid but momentarily one-sided or crossed book
+is unpriced and faults only if no eligible market follows within the smaller of
+source freshness and capture idle time. The retained `SharedBookDelivery.market_effects=false`
 marks skipped economics for exact replay, while legacy envelopes omitting that
 optional field preserve the earlier per-book behavior. This is a declared paper
 market model rather than native-feed downsampling or MR15 throughput evidence.

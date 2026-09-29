@@ -3,7 +3,9 @@
 Owner: quant development. Status: **bounded stage-1 processing, native/economic
 parity, four-owner recovery, receipt/BBO latency and warm queries qualified;
 feature serving implemented with partial qualification; cold-cache, public-route,
-checkpoint/CPU sampling and sustained-operation gaps remain; stage 2 gated**. Updated 2026-09-29 (Singapore; observations use UTC)
+checkpoint/CPU sampling and sustained-operation gaps remain; stage 2 gated; the
+retained Bitfinex one-sided fault is reattributed to a transient per-order state,
+with its unsigned correction pending requalification**. Updated 2026-09-29 (Singapore; observations use UTC)
 after the bounded [MR14 service record](multi-instance-paper.md). The
 [roadmap](README.md#runtime-operations-and-handoff) owns MR15 delivery status;
 the [runtime design](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices)
@@ -620,6 +622,8 @@ control, observed as account protection at 04:47:34.321 UTC. Neither public
 stream had a native gap or invalid reconstruction outcome. The exclusive
 attribution record pins the exact frame, delivery and durable control; no risk
 or public-input quality rule was relaxed to turn this into a healthy result.
+The [2026-09-29 reattribution](#reattribution-and-harness-corrections-2026-09-29) shows this was a sub-millisecond intermediate
+per-order state rather than a one-sided market.
 
 The final fault trial injected all four probes inside the authored burst.
 Policy death fenced in **0.106 s**; source death protected in **1.012 s** and its
@@ -879,7 +883,8 @@ the unchanged 5,000-message ceiling after 59.313604 seconds (84.30 messages/s),
 ending before a healthy minute was complete. Its last observed book was two-sided;
 this is a finite source-envelope incompatibility, not the earlier one-sided case.
 All trial PIDs are absent and all four accounts stopped after both attempts.
-Keep the prior one-sided Bitfinex ETH protection proof. Another healthy public
+Keep the prior one-sided Bitfinex ETH protection proof as historical evidence; the
+[2026-09-29 reattribution](#reattribution-and-harness-corrections-2026-09-29) replaces its protection claim. Another healthy public
 Bitfinex trial requires a specific source-budget decision or qualifying observed
 rate; no cap is silently increased and no failed attempt is discarded.
 
@@ -941,7 +946,8 @@ filesystem-cold protocol as separate evidence. The current paper workload
 yields only two committed checkpoints/account; identify a compatible finite
 workload/authority decision before checkpoint percentile sampling. Healthy
 Bitfinex public operation needs a specific source-envelope decision or an actual
-qualifying lower rate; retain the previous one-sided protection case.
+qualifying lower rate, plus fresh signed releases covering the
+[2026-09-29 reattribution](#reattribution-and-harness-corrections-2026-09-29); retain the previous one-sided case as reattributed evidence.
 
 At acquisition completion, follow the exact R1 continuation in
 [research capacity](research-capacity.md#armed-acquisition-and-continuation).
@@ -997,3 +1003,66 @@ final installed real sample cover those changes. The new feature consumer's
 passing and failing loaded intervals are separately retained. Existing protection,
 processing, native/economic parity and recovery evidence is reused only within
 its original scope, not promoted to full feature or sustained acceptance.
+
+### Reattribution and harness corrections (2026-09-29)
+
+Recorded after the stop decision above. No signed run, grant, budget, target or
+historical value changes; every earlier result keeps its original scope.
+
+**Bitfinex one-sided fault.** The `public_input_invalid` control retained on the
+requalification-5 public Bitfinex ETH route was not a one-sided market. R0 at
+length 25 sends one WebSocket message per order change. By source position 275
+a sweep had removed all 25 visible bids as separate deletions; four ask deletions
+followed, then Bitfinex's refill inserts restored a bid 0.169 ms of receipt time
+later and all 25 bids within about one millisecond. The same journal holds two more
+such episodes (positions 334–340 and 869–877, 0.258 and 0.320 ms); none was
+crossed. Other retained public ETH journals dip to 5 and 10 visible bids. The
+observer evaluated every intermediate message and treated the first unpriceable
+book as invalid input.
+
+`SharedPaperCaptureObserver` now treats a valid (`degraded`) snapshot or update
+whose visible book is one-sided or crossed, and the heartbeats or controls that
+follow it, as having no eligible market. It faults only when the delivery clock
+exceeds the last eligible market by more than the smaller of source freshness and
+capture idle time, the tolerance already applied at a finite session end. Gaps,
+session loss, stale or invalid rows and other ineligible books still fault
+immediately. The rule reads retained delivery clocks, so replay stays deterministic.
+Regressions cover transient one-sided and crossed rows, a persistent one-sided book
+reaching a stale heartbeat, and a gap during an episode.
+
+Replaying the retained 1,162 deliveries through the corrected observer leaves the
+account unblocked. Its economic facts hash, `c05bc64a…`, equals the original
+protection replay's, so only the protection decision changes. The compact record
+is `logs/runtime-capacity/bounded-evidence/bitfinex-one-sided-reattribution.json`.
+The earlier `latency-query-10/one_sided_replay.py` asserts the old fault and now
+fails by design; it remains evidence of the previous rule, not a requirement for
+later candidates.
+
+This correction changes installed runtime bytes, which candidate-10's signed
+releases do not cover. Fresh Bitfinex public health still needs new signed
+releases and a new public trial; the 5,000-message ETH source-envelope decision
+remains open.
+
+**Collector receiver failure.** A receipt task that raised an exception outside
+the handled transport errors ended without its terminal `session_end`. The durable
+consumer could then wait indefinitely, including a finite rollover collection past
+its fixed stop. Receipt now ends such a session with `receiver_failed_unknown_loss`,
+retained as an ordinary visible gap before the existing bounded reconnect or run
+end. Regressions cover failure before and after the first snapshot. Running and
+retained collections keep their original implementation identities.
+
+**Resource sampler.** The two missing fifth-recovery slots came mainly from
+whole-host process discovery (0.823 and 0.704 seconds at slots 22 and 25, against
+about 0.06 seconds typically); disk scans took 0.194 and 0.430 seconds. The
+consumer sampler now refreshes process-tree membership every five seconds or after
+a tracked process exits, reads CPU/RSS counters for every tracked process each
+second and retains `process_tree_age_seconds` per sample. The occupied-disk walk
+stays one-second and uses one directory scan per entry. A process started less
+than five seconds before a sample may be absent until the next refresh. The
+retained 58-row interval is unchanged.
+
+Local validation: format, lint, strict typing, stubtest and engineering checks
+passed; `make test` passed 1,991 tests with two optional skips and three
+performance deselections. Three alert-socket tests first failed only because the
+session's temporary path exceeded the Unix socket path limit and passed with a
+short base directory. No hosted CI or signed run occurred.

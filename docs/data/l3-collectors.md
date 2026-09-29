@@ -272,7 +272,10 @@ requests cannot overlap. The configured `retries` gives at most `retries + 1`
 connections and snapshots (maximum six); retry delays are 1, 2, 4, 8 and 16 seconds,
 capped by the remaining receive interval. Existing fixed endpoints, connection and
 HTTP timeouts remain. Rate-limit and protocol failures retain an invalid gap and
-consume the same finite budget. These are per-invocation ceilings; there is no
+consume the same finite budget. An unexpected receiver exception ends its session
+with `receiver_failed_unknown_loss`, retained as a visible gap before the same
+bounded reconnect or finite stop, so durable consumption never waits on a dead
+receiver. These are per-invocation ceilings; there is no
 shared-IP limiter within this recovery loop. Coinbase reserves one message slot per
 epoch for the independent REST response, preserving `max_messages` across retries;
 an unused reservation is not filled by additional stream messages.
