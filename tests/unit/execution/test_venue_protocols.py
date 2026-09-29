@@ -505,6 +505,78 @@ class TestBitfinexSpotProtocol:
             adapter.decode_private(b'[0,"hb",9]', received_at=self.at).kind == "recovery_required"
         )
 
+    def _authenticated(self) -> BitfinexSpotAdapter:
+        """Qualify, configure and authenticate a paper private session at sequence zero."""
+        adapter = BitfinexSpotAdapter(
+            VenueCredentials("key", "secret"), ScriptedVenueTransport(self._paper_info())
+        )
+        adapter.qualify_account(at=self.at, nonce=1)
+        adapter.private_login(at=self.at, nonce=2)
+        adapter.decode_private(b'{"event":"conf","status":"OK","flags":65536}', received_at=self.at)
+        authenticated = adapter.decode_private(
+            b'{"event":"auth","status":"OK","userId":7788}', received_at=self.at
+        )
+        assert authenticated.kind == "authenticated"
+        return adapter
+
+    @staticmethod
+    def _snapshot_entry(kind: str, amount: str) -> list[object]:
+        """Build one position or funding entry with its documented amount slot."""
+        values: list[object] = [None] * 22
+        index = {"ps": 2, "fos": 4, "fcs": 5, "fls": 5}[kind]
+        values[0] = "tETHUSD" if kind == "ps" else 55
+        values[index] = amount
+        return values
+
+    def test_flat_account_snapshots_and_valuations_are_heartbeats(self) -> None:
+        """Documented post-auth snapshots of a spot-only account keep the session."""
+        adapter = self._authenticated()
+        frames: list[list[object]] = [
+            [0, "ps", []],
+            [0, "ps", [self._snapshot_entry("ps", "0")]],
+            [0, "fos", []],
+            [0, "fcs", [self._snapshot_entry("fcs", "0")]],
+            [0, "fls", []],
+            [0, "bu", ["10000.5", "10000.5"]],
+        ]
+        for sequence, frame in enumerate(frames, start=1):
+            numbered: list[object] = [*frame, sequence]
+            event = adapter.decode_private(msgspec.json.encode(numbered), received_at=self.at)
+            assert event.kind == "heartbeat", frame[1]
+
+    def test_wallet_frames_accept_unknown_availability(self) -> None:
+        """A null available balance is unknown, while the exact total is retained."""
+        adapter = self._authenticated()
+        snapshot = adapter.decode_private(
+            b'[0,"ws",[["exchange","USD",10000.5,0,null],["margin","USD",0,0,null]],1]',
+            received_at=self.at,
+        )
+        assert snapshot.kind == "balance"
+        assert [(item.currency, item.total, item.available) for item in snapshot.balances] == [
+            ("USD", Decimal("10000.5"), None)
+        ]
+        update = adapter.decode_private(
+            b'[0,"wu",["exchange","ETH",0.5,0,null],2]', received_at=self.at
+        )
+        assert [(item.total, item.available) for item in update.balances] == [
+            (Decimal("0.5"), None)
+        ]
+        wallets: list[object] = [["exchange", "USD", "10000.5", 0, None]]
+        transport = ScriptedVenueTransport(self._paper_info(), msgspec.json.encode(wallets))
+        rest = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
+        rest.qualify_account(at=self.at, nonce=1)
+        with pytest.raises(VenueProtocolError, match="availability"):
+            rest.balances(at=self.at, nonce=2)
+
+    @pytest.mark.parametrize("kind", ["ps", "fos", "fcs", "fls"])
+    def test_margin_or_funding_exposure_requires_recovery(self, kind: str) -> None:
+        """A nonzero position or funding entry cannot be absorbed as a heartbeat."""
+        adapter = self._authenticated()
+        entries: list[object] = [self._snapshot_entry(kind, "0"), self._snapshot_entry(kind, "0.5")]
+        frame: list[object] = [0, kind, entries, 1]
+        event = adapter.decode_private(msgspec.json.encode(frame), received_at=self.at)
+        assert event.kind == "recovery_required"
+
     def test_private_auth_rejects_another_physical_account(self) -> None:
         """A paper socket for a different user cannot inherit REST qualification."""
         adapter = BitfinexSpotAdapter(

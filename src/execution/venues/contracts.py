@@ -189,17 +189,25 @@ class VenueFillFact(msgspec.Struct, frozen=True):
 
 
 class VenueBalance(msgspec.Struct, frozen=True):
-    """Retain one observed physical currency balance and its availability."""
+    """Retain one observed physical currency balance and its availability.
+
+    ``available`` is None when the venue reported availability as not yet
+    calculated. The exact total is always known.
+    """
 
     currency: str
     total: Decimal
-    available: Decimal
+    available: Decimal | None
     received_at: datetime
     raw: bytes
 
     def __post_init__(self) -> None:
         """Keep signed balances exact and the receipt clock explicit."""
-        if not self.currency or not self.total.is_finite() or not self.available.is_finite():
+        if (
+            not self.currency
+            or not self.total.is_finite()
+            or (self.available is not None and not self.available.is_finite())
+        ):
             raise ValueError("invalid venue balance")
         if self.received_at.tzinfo is None or self.received_at.utcoffset() != UTC.utcoffset(None):
             raise ValueError("venue balance receipt must be UTC")

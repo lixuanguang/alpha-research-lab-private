@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha384
 from hmac import new
 from itertools import pairwise
+from typing import ClassVar
 
 # project library imports
 from configuration import CapabilityProfile
@@ -37,6 +38,10 @@ from execution.venues.throttle import VenueRateLimiter
 
 class BitfinexSpotAdapter:
     """Translate admitted orders into exchange-wallet paper account operations."""
+
+    # Documented amount slot of each position (ps) and funding offer (fos),
+    # credit (fcs) and loan (fls) snapshot entry.
+    _EXPOSURE_AMOUNT_INDEX: ClassVar[dict[str, int]] = {"ps": 2, "fos": 4, "fcs": 5, "fls": 5}
 
     def __init__(self, credentials: VenueCredentials, transport: VenueHttpTransport) -> None:
         """Bind caller-resolved subaccount credentials and one REST transport."""
@@ -336,6 +341,8 @@ class BitfinexSpotAdapter:
             result.append(self._wallet_fact(wallet, response.body, response.received_at))
         if len({balance.currency for balance in result}) != len(result):
             raise VenueProtocolError("Bitfinex exchange wallet repeats currency")
+        if any(balance.available is None for balance in result):
+            raise VenueProtocolError("Bitfinex wallet availability is unknown")
         return tuple(result)
 
     def private_configuration(self) -> tuple[bytes, ...]:
@@ -422,9 +429,25 @@ class BitfinexSpotAdapter:
         self.private_sequence = sequence
         kind = VenueJson.text(VenueJson.indexed(frame, 1))
         response = VenueHttpResponse(status=200, body=raw, received_at=received_at)
-        if kind in ("hb", "te"):
-            # A te lacks its final fee. The matching tu carries complete economics.
+        if kind in ("hb", "te", "bu"):
+            # A te lacks its final fee; the matching tu carries complete economics.
+            # A bu is a periodic total valuation; REST reconciliation owns balances.
             return VenueStreamEvent(kind="heartbeat", received_at=received_at, raw=raw)
+        if kind in self._EXPOSURE_AMOUNT_INDEX:
+            # Authentication snapshots positions and funding even for a spot-only
+            # account. Only a flat snapshot is harmless; any exposure needs recovery.
+            index = self._EXPOSURE_AMOUNT_INDEX[kind]
+            if all(
+                VenueJson.decimal(VenueJson.indexed(VenueJson.array(item), index)) == 0
+                for item in VenueJson.array(VenueJson.indexed(frame, 2))
+            ):
+                return VenueStreamEvent(kind="heartbeat", received_at=received_at, raw=raw)
+            return VenueStreamEvent(
+                kind="recovery_required",
+                received_at=received_at,
+                raw=raw,
+                reason="Bitfinex margin or funding exposure",
+            )
         if kind == "os":
             orders = tuple(
                 self._order_fact(VenueJson.array(item), response)
@@ -715,13 +738,18 @@ class BitfinexSpotAdapter:
 
     @staticmethod
     def _wallet_fact(item: list[object], raw: bytes, received_at: datetime) -> VenueBalance:
-        """Normalize a complete exchange wallet with known available balance."""
+        """Normalize an exchange wallet; a null available balance stays unknown.
+
+        Bitfinex sends null availability until it is calculated, as it usually is
+        in private wallet frames. The exact total is always required.
+        """
         if VenueJson.text(VenueJson.indexed(item, 0)) != "exchange":
             raise VenueProtocolError("Bitfinex wallet is not exchange spot wallet")
+        available = VenueJson.indexed(item, 4)
         return VenueBalance(
             currency=VenueJson.text(VenueJson.indexed(item, 1)),
             total=VenueJson.decimal(VenueJson.indexed(item, 2)),
-            available=VenueJson.decimal(VenueJson.indexed(item, 4)),
+            available=None if available is None else VenueJson.decimal(available),
             received_at=received_at,
             raw=raw,
         )

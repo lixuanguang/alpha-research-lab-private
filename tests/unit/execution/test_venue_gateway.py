@@ -299,6 +299,38 @@ class BrokenSession:
         self.closed = True
 
 
+class ScriptedPrivateSession:
+    """Deliver exact private frames once, recording subscriptions and cleanup."""
+
+    def __init__(self, clock: AdvancingClock, frames: tuple[bytes, ...]) -> None:
+        """Bind a finite native frame script and its receipt clock."""
+        self.clock = clock
+        self.frames = frames
+        self.received = 0
+        self.sent: list[bytes] = []
+        self.closed = False
+
+    def open(self, login: bytes, *, configuration: tuple[bytes, ...] = ()) -> None:
+        """Accept the signed login and configuration without network access."""
+        assert login and configuration
+
+    def send(self, frame: bytes) -> None:
+        """Record one subscription frame."""
+        self.sent.append(frame)
+
+    def receive(self) -> tuple[bytes, datetime]:
+        """Return the next scripted frame at the current receipt clock."""
+        if self.received >= len(self.frames):
+            raise VenueOutcomeUnknownError("scripted private session is exhausted")
+        frame = self.frames[self.received]
+        self.received += 1
+        return frame, self.clock.now()
+
+    def close(self) -> None:
+        """Record deterministic socket cleanup."""
+        self.closed = True
+
+
 class NativeExecution(msgspec.Struct, frozen=True):
     """Describe one venue-identified execution of the simulated physical order."""
 
@@ -795,10 +827,10 @@ class TestVenueGateway:
         assert admitted.status == "committed", admitted.reason
         return admitted.orders[0].identity
 
-    def _native(
+    def _native_gateway(
         self, tmp_path: Path, venue: Literal["okx", "bitfinex"]
-    ) -> tuple[AccountJournal, VenueGateway, NativeVenueAccount, AdvancingClock, str]:
-        """Reconcile and send one reference order through a real adapter and native account."""
+    ) -> tuple[AccountJournal, VenueGateway, NativeVenueAccount, AdvancingClock]:
+        """Reconcile an empty account through a real adapter and simulated native venue."""
         config = self._config(venue)
         clock = AdvancingClock(self.at + timedelta(seconds=10))
         instrument = config.instruments[0]
@@ -813,10 +845,41 @@ class TestVenueGateway:
         journal = AccountJournal(tmp_path / "account.sqlite3", config.account)
         gateway = VenueGateway(journal, config, adapter, clock=clock)
         assert not gateway.reconcile().recovery_required
-        order_id = self._admit(journal, config, clock)
-        authorization = self._authorization(config, enabled=True)
+        return journal, gateway, account, clock
+
+    def _native(
+        self, tmp_path: Path, venue: Literal["okx", "bitfinex"]
+    ) -> tuple[AccountJournal, VenueGateway, NativeVenueAccount, AdvancingClock, str]:
+        """Reconcile and send one reference order through a real adapter and native account."""
+        journal, gateway, account, clock = self._native_gateway(tmp_path, venue)
+        order_id = self._admit(journal, gateway.config, clock)
+        authorization = self._authorization(gateway.config, enabled=True)
         assert gateway.submit(order_id, authorization).submission_attempted
         return journal, gateway, account, clock, order_id
+
+    def test_bitfinex_private_session_survives_flat_account_snapshots(self, tmp_path: Path) -> None:
+        """Documented snapshots after authentication neither end nor break the session."""
+        _, gateway, account, clock = self._native_gateway(tmp_path, "bitfinex")
+        frames = (
+            b'{"event":"info","version":2,"platform":{"status":1}}',
+            b'{"event":"conf","status":"OK","flags":65536}',
+            b'{"event":"auth","status":"OK","userId":42}',
+            b'[0,"ps",[],1]',
+            b'[0,"ws",[["exchange","USD",10000,0,null],["exchange","ETH",0,0,null]],2]',
+            b'[0,"os",[],3]',
+            b'[0,"fos",[],4]',
+            b'[0,"fcs",[],5]',
+            b'[0,"fls",[],6]',
+            b'[0,"bu",[10000,10000],7]',
+            b'[0,"hb",8]',
+        )
+        session = ScriptedPrivateSession(clock, frames)
+        requests = len(account.requests)
+        view = gateway.stream(session, max_messages=len(frames), duration_seconds=3600)
+        assert session.received == len(frames) and session.closed
+        assert view.reason == "private_stream_closed"
+        # Authentication, wallet and order snapshots each triggered REST reconciliation.
+        assert sum(item.path == "/v2/auth/r/wallets" for item in account.requests[requests:]) == 3
 
     @staticmethod
     def _order_state(journal: AccountJournal, order_id: str) -> OrderState:

@@ -337,7 +337,11 @@ transport diagnostic is saved. Operator stops are never cleared by reconciliatio
 
 Private WebSocket sessions authenticate explicitly and retain received frames;
 Bitfinex sequence gaps and either venue's malformed/control/loss events require
-recovery. Economic notifications trigger the same authoritative REST reconciliation.
+recovery. Bitfinex follows authentication with position and funding snapshots and
+sends periodic balance valuations (`bu`); these are heartbeats while flat, and any
+position or funding exposure requires recovery. Private wallet frames may report
+availability as not yet calculated (unknown), while REST wallets must report it.
+Economic notifications trigger the same authoritative REST reconciliation.
 The bounded session closes and invalidates account freshness on exit. Reopening a
 session does not itself resume submission. This correctness-first implementation
 does not qualify low-latency streaming or MR15 runtime budgets.
