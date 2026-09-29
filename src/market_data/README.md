@@ -73,7 +73,10 @@ service without importing that application.
 `CaptureRunRunner` supplies the separate finite public collection path with
 fixed UTC start/readiness/stop and durable segment lineage. Storage rollover
 preserves the open socket and native state; explicit resume retains an
-interruption gap before acquiring a fresh native snapshot. `BookInput` and
+interruption gap before acquiring a fresh native snapshot. A segment whose
+provisioning died before its first cursor commit holds no acknowledged record;
+resume moves it to `interrupted-segments/` rather than failing, and refuses any
+other segment that lacks a cursor. `BookInput` and
 `SourceAdapters` reconstruct suffix segments from their original predecessors,
 while `SavedCaptureRun` independently verifies the completed live trace. The
 [collector guide](../../docs/data/l3-collectors.md#finite-public-collection-with-segment-rollover)
