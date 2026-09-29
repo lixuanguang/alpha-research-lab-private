@@ -288,6 +288,9 @@ class VenueAdapter(Protocol):
     def capability_profiles(self) -> tuple[CapabilityProfile, ...]:
         """Declare fixture-qualified registry support without external claims."""
 
+    def wait_for_request_slot(self) -> None:
+        """Wait until the next request can go out without a local throttle sleep."""
+
     def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
         """Send once; uncertain outcome raises VenueOutcomeUnknownError."""
 

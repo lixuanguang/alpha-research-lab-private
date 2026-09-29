@@ -101,6 +101,10 @@ class OKXSpotAdapter:
         self.account_verified = True
         return profile
 
+    def wait_for_request_slot(self) -> None:
+        """Wait for local request capacity so a dispatch fence never holds a sleep."""
+        self.throttle.wait()
+
     def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
         """Submit one limit, IOC, or post-only cash spot order once."""
         del nonce

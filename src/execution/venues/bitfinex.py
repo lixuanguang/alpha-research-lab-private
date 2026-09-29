@@ -108,6 +108,10 @@ class BitfinexSpotAdapter:
         self.account_identity = profile.account_identity
         return profile
 
+    def wait_for_request_slot(self) -> None:
+        """Wait for local request capacity so a dispatch fence never holds a sleep."""
+        self.throttle.wait()
+
     def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
         """Submit one exchange-wallet spot order with the durable int45 CID."""
         del at

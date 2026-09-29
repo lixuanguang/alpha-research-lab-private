@@ -203,6 +203,8 @@ class VenueGateway:
                 )
                 self._event(order_id, "unknown", at, f"send:{client_id}")
                 try:
+                    # Throttle sleeps happen here, never under the journal write fence.
+                    adapter.wait_for_request_slot()
                     with self.journal.execution_guard(
                         self.config.account_id, order_id, at, clock=self.clock.now
                     ):
@@ -285,6 +287,7 @@ class VenueGateway:
             if not order.cancel_requested:
                 self._event(order_id, "cancel_requested", at, f"cancel:{dispatch.client_id}")
             try:
+                adapter.wait_for_request_slot()
                 with self.journal.execution_guard(
                     self.config.account_id, order_id, at, cancel=True
                 ):

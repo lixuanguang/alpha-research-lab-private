@@ -313,7 +313,9 @@ Each physical order must already be reserved through direct admission or MR09
 portfolio coordination. The gateway stores its client identity and uncertain
 attempt before I/O. A kernel lock excludes another sending owner while the first
 can still use its connection; a bounded account write lock protects the final
-independent risk/stop check. Lost acknowledgements, restart and absent order lookup
+independent risk/stop check. The adapter's local request budget is waited out
+before that lock is taken, so a throttle sleep never holds the shared journal; the
+network request itself still runs under the lock. Lost acknowledgements, restart and absent order lookup
 never authorize another submit for that identity. Request acknowledgement is not
 acceptance. Cancellation acknowledgement is not terminal cancellation. A further
 explicit cancel requires successful reconciliation confirming the order is still

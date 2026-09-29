@@ -52,6 +52,7 @@ from execution.venues.contracts import (
     VenueRejectedError,
     VenueStreamEvent,
 )
+from execution.venues.throttle import VenueRateLimiter
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.catalogs import InstrumentDefinition, ReferenceHistory, VenueSpecification
 from reference_data.instruments import InstrumentId
@@ -128,6 +129,9 @@ class ObservedVenue:
             account_verified=True,
             account_identity="42",
         )
+
+    def wait_for_request_slot(self) -> None:
+        """This fixture has no local request budget."""
 
     def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
         """Accept once, optionally losing the response after the venue effect."""
@@ -331,6 +335,33 @@ class ScriptedPrivateSession:
         self.closed = True
 
 
+class GuardProbingPause:
+    """Advance a fake throttle clock, recording whether the account journal is writable."""
+
+    def __init__(self, journal_path: Path) -> None:
+        """Bind the account journal whose write lock each pause probes."""
+        self.journal_path = journal_path
+        self.now = 0.0
+        self.locked = 0
+        self.free = 0
+
+    def clock(self) -> float:
+        """Expose monotonic seconds that advance only through pauses."""
+        return self.now
+
+    def pause(self, seconds: float) -> None:
+        """Probe the journal write lock without waiting, then advance the clock."""
+        with closing(sqlite3.connect(self.journal_path, timeout=0)) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError:
+                self.locked += 1
+            else:
+                connection.rollback()
+                self.free += 1
+        self.now += seconds
+
+
 class NativeExecution(msgspec.Struct, frozen=True):
     """Describe one venue-identified execution of the simulated physical order."""
 
@@ -388,6 +419,7 @@ class NativeVenueAccount:
         self.created_at: datetime | None = None
         self.quantity = Decimal(0)
         self.price = Decimal(0)
+        self.cancelled = False
         self.executions: list[NativeExecution] = []
         self.requests: list[VenueHttpRequest] = []
 
@@ -438,7 +470,7 @@ class NativeVenueAccount:
     @property
     def is_active(self) -> bool:
         """Report whether the submitted order still rests on the venue."""
-        return self.client_id is not None and self.filled < self.quantity
+        return self.client_id is not None and not self.cancelled and self.filled < self.quantity
 
     @staticmethod
     def _execution_identity(execution: NativeExecution) -> int:
@@ -472,6 +504,12 @@ class NativeVenueAccount:
             submit = msgspec.json.decode(request.body, type=BitfinexSubmitBody)
             self._submit(str(submit.cid), quantity=submit.amount, price=submit.price)
             notice = [0, "on-req", None, None, [self._bitfinex_order()], None, "SUCCESS", ""]
+            return msgspec.json.encode(notice)
+        if path == "/v2/auth/w/order/cancel":
+            if not self.is_active:
+                raise AssertionError("simulated Bitfinex cancel requires an active order")
+            self.cancelled = True
+            notice = [0, "oc-req", None, None, self._bitfinex_order(), None, "SUCCESS", ""]
             return msgspec.json.encode(notice)
         if path == "/v2/auth/r/orders":
             query = msgspec.json.decode(request.body, type=BitfinexOrderQuery)
@@ -508,7 +546,9 @@ class NativeVenueAccount:
             raise AssertionError("simulated Bitfinex order is absent")
         remaining = self.quantity - self.filled
         status = (
-            "ACTIVE"
+            "CANCELED"
+            if self.cancelled
+            else "ACTIVE"
             if not self.filled
             else f"PARTIALLY FILLED @ {self.price}({self.filled})"
             if remaining
@@ -856,6 +896,25 @@ class TestVenueGateway:
         authorization = self._authorization(gateway.config, enabled=True)
         assert gateway.submit(order_id, authorization).submission_attempted
         return journal, gateway, account, clock, order_id
+
+    def test_throttle_waits_outside_the_account_write_fence(self, tmp_path: Path) -> None:
+        """A full local request budget never sleeps while dispatch holds the account journal."""
+        journal, gateway, _, clock = self._native_gateway(tmp_path, "bitfinex")
+        adapter = gateway.adapter
+        assert isinstance(adapter, BitfinexSpotAdapter)
+        probe = GuardProbingPause(journal.path)
+        # One request per window: every request, including the send, needs a wait.
+        adapter.throttle = VenueRateLimiter(
+            requests=1, seconds=60.0, clock=probe.clock, pause=probe.pause
+        )
+        order_id = self._admit(journal, gateway.config, clock)
+        authorization = self._authorization(gateway.config, enabled=True)
+        assert gateway.submit(order_id, authorization).submission_attempted
+        assert probe.free > 0 and probe.locked == 0
+        submitted = probe.free
+        gateway.cancel(order_id, authorization)
+        assert self._order_state(journal, order_id).status == "cancel_ack"
+        assert probe.free > submitted and probe.locked == 0
 
     def test_bitfinex_private_session_survives_flat_account_snapshots(self, tmp_path: Path) -> None:
         """Documented snapshots after authentication neither end nor break the session."""
