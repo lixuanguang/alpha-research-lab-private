@@ -25,6 +25,16 @@ class TestCapacityHistoryQueries:
         assert warm["status"] == "pass"
         assert complete["status"] == "fail"
 
+    def test_dashboard_readers_are_joined_by_their_own_schedule(self) -> None:
+        """Waiting follows each reader's paced budget, not the depth readers' finish."""
+        start = 1_000_000_000
+        cold = CapacityHistoryQueries._reader_deadline_ns(start, 250, "application_cold")
+        warm = CapacityHistoryQueries._reader_deadline_ns(start, 250, "warm")
+        assert cold - start == 250 * 3_000_000_000 + 30_000_000_000
+        assert warm - start == 250 * 1_000_000_000 + 30_000_000_000
+        # The stopped cohort's slowest cold dashboard request took 0.956 s.
+        assert cold - start > 250 * 956_000_000
+
     def test_missing_identity_and_invented_duration_fail(self) -> None:
         """Neither changed result bytes nor a missing monotonic duration can be counted."""
         with pytest.raises(ValueError, match="exact result identity"):

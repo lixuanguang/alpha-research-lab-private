@@ -1165,3 +1165,18 @@ and `make check` did not run. A read-only cleanup audit run afterwards found eve
 observed process absent and all four accounts stopped in each completed trial. A new
 measurement needs a corrected consumer and a fresh declaration.
 
+#### Residual continuation declaration (2026-09-29)
+
+Owner-approved, declared before running, and limited to **one attempt**: whatever the
+outcome, no further attempt follows without new owner approval, and the driver refuses a
+second invocation. The consumer now joins each dashboard reader process by its own
+schedule, `samples × max(200 ms slot, per-request budget) + 30 s` (780 s cold, 280 s warm),
+instead of 30 s after the depth readers finish; a reader that overruns it still fails.
+The signed runtime and releases are unchanged, so nothing is rebuilt.
+
+1. Populated-history queries again on the residual steady trial, all four classes, into a
+   new output directory, with the criteria of step 5 above.
+2. The public Bitfinex route of step 6, on a new route root with freshly issued ordinary
+   one-hour grants for the same releases and the 12,000-message cap, with the same criteria.
+3. Cleanup audit of the new trial, then `make check` on the unchanged frozen source.
+
