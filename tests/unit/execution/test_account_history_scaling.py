@@ -109,6 +109,10 @@ class _SharedFirmHistory:
         """Match one idle market for the busy account."""
         self.tick("busy")
 
+    def rebind(self) -> None:
+        """Repeat the busy account's existing scenario binding, which stages nothing."""
+        self.journal.bind_paper_scenario("busy", self.scenario)
+
     def busy_report(self) -> int:
         """Project the busy account's owned fills and their cost links."""
         fills, costs = self.journal.paper_report_facts("busy")
@@ -262,3 +266,16 @@ class TestAccountHistoryScaling:
         print(f"round trip at 40/200 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Replaying and re-validating every posting per ledger grew quadratically here.
         assert medians[1] < 8 * medians[0]
+
+    @pytest.mark.performance
+    def test_unchanged_write_does_not_rewrite_the_account_head(self, tmp_path: Path) -> None:
+        """A write transaction that stages nothing leaves the growing head unwritten."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        medians: list[float] = []
+        for orders in (40, 400):
+            while history.orders < orders:
+                history.round_trip()
+            medians.append(history.median_seconds(history.rebind))
+        print(f"unchanged write at 40/400 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Re-encoding and fsyncing the whole head grew with every retained fact.
+        assert medians[1] < 3 * medians[0]

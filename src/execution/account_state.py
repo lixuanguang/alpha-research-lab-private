@@ -760,6 +760,11 @@ class AccountStateStore:
                 transaction = _AccountTransaction(head.state, tables)
                 yield transaction
                 staged = transaction.state
+                if staged is head.state:
+                    # Nothing was staged (a guard or an idempotent request): keep the
+                    # committed head instead of re-encoding and rewriting its bytes.
+                    connection.commit()
+                    return
                 written = _FirmHead(
                     history=tables.append(staged),
                     state=replace(staged, decisions=(), portfolio_batches=(), paper_traces=()),
