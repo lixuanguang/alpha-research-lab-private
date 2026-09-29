@@ -60,7 +60,7 @@ class TestEconomicReplay(ReplayInputs):
                     assert fills[0].fee.value == Decimal("0.00011101")
                     assert fills[1].fee.value == Decimal("0.00010399")
                     assert result.terminal.gross.value == Decimal("-0.007")
-            flat = run_backtest(reader, replace(spec, rule="no-trade-v1"))
+            flat = run_backtest(reader, replace(spec, rule="no-trade"))
             assert isinstance(flat, EconomicResult)
             assert flat.terminal.nav.value == 1000 and not flat.checkpoint.state.ledger.fills
 
@@ -132,7 +132,7 @@ class TestEconomicReplay(ReplayInputs):
         assert result.orders[0].executed_at == _START + timedelta(seconds=121)
         assert _CODEC.decode_json(_CODEC.encode_json(result), VectorbtResult) == result
         reader, spec = self._inputs(self.rows)
-        flat = run_backtest(reader, replace(spec, rule="no-trade-v1"))
+        flat = run_backtest(reader, replace(spec, rule="no-trade"))
         assert isinstance(flat, EconomicResult)
         assert VectorbtAdapter.run(flat).nav == (1000.0,)
         gapped = self._run((*self.rows[:3], (150, 150, None), *self.rows[3:]))
@@ -289,7 +289,7 @@ class TestEconomicReplay(ReplayInputs):
             annual_risk_free=zero,
         )
         selected = BacktestRun(
-            schema_version="configured-engineering-sample-v1",
+            schema_version="configured-engineering-sample",
             family="engineering-replay",
             snapshot_id=reader.identity,
             economics=spec,

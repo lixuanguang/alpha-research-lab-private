@@ -142,7 +142,7 @@ class SharedAccountConsumer:
         limit: str = "100",
         quote_at: datetime | None = None,
         fee: str = "0",
-        checkpoint: bytes = b"reference-candidate-v1",
+        checkpoint: bytes = b"reference-candidate",
         form: Literal["order", "target"] = "order",
     ) -> AccountDecision:
         """Submit one portable order intent through independent account authority."""

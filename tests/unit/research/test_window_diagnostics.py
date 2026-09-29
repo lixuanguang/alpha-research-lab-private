@@ -137,7 +137,7 @@ class TestWindowDiagnostics:
             rationale="Fixed diagnostic, disjoint untouched holdout",
         )
         payload = FeatureStudyResult(
-            schema_version="feature-study-result-v1",
+            schema_version="feature-study-result",
             selection_identity="a" * 64,
             feature_definition=feature_definition,
             label_definition=label_definition,

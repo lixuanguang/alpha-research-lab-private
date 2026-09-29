@@ -534,7 +534,7 @@ report and saved checkpoint to resume.
 the authored archive job. It binds the filename and SHA-256 sidecar, validates a
 single-member unencrypted deflate ZIP/CRC and sends no credentials. The supported
 combination is `binance-archive/binance/spot/raw/trade`,
-`historical/acquisition.fetch`, `utc-day`, `exchange-time-only-v1`, with a
+`historical/acquisition.fetch`, `utc-day`, `exchange-time-only`, with a
 minute-aligned nonempty selection inside one UTC day. Each selected instrument
 uses a full-day request; cross-midnight/Tardis policies fail before HTTP.
 
@@ -600,7 +600,7 @@ merged.
 
 `DatasetManifest.read` verifies manifest identity, raw/canonical bytes, source
 readers and admission before returning. Trade manifests name their evidence
-`tier`; book publication uses the separate `book-dataset-v2` format. A
+`tier`; book publication uses the separate `book-dataset` format. A
 manifest path or `latest` alias is never a substitute for an explicit identity.
 
 ## Publish and reopen an atomic snapshot
@@ -683,7 +683,7 @@ availability or terminal. Equal-time callbacks run `source`, `expiry`, `fill`,
 availability is unschedulable, and phase callbacks are not orders or fills.
 
 `ReplayCursor` binds the query, consumer configuration and
-`reference-replay-v1` ordering policy. Restore it with consumer observations,
+`reference-replay` ordering policy. Restore it with consumer observations,
 pending intents, schedules, applied fills and ledger state; identity, clock and
 source-prefix checks must agree. A callback failure poisons the instance until
 restoration. Replay owns event stepping; later consumers own risk, fills,
@@ -732,7 +732,7 @@ and [research study protocol](../../examples/study-protocol.md#research-ticket).
 `DatasetPublication.publish_books` accepts completed Bitfinex R0, Coinbase
 Exchange L3 or OKX native capture/archive directories, an existing `RawStore`,
 an existing snapshot directory and explicit `max_records`/`max_bytes`. The
-`book-dataset-v2` format writes a typed source header followed by one exact
+`book-dataset` format writes a typed source header followed by one exact
 `BookObservation` JSON line per original raw position. Publication keeps one
 observation plus the native visible state in memory, then independently replays
 the retained raw input against every staged line before the directory is made

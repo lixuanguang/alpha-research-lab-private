@@ -33,9 +33,9 @@
       "mode": "fixture",
       "pipeline": "dataset.inspect",
       "partition": "utc-minute",
-      "capture_policy": "source-capture-v1",
-      "source_revision": "synthetic-frames-v1",
-      "rights_reference": "synthetic-local-fixtures-v1",
+      "capture_policy": "source-capture",
+      "source_revision": "synthetic-frames",
+      "rights_reference": "synthetic-local-fixtures",
       "start": "2024-06-01T00:00:00Z",
       "end": "2024-06-01T01:00:00Z"
     },
@@ -50,9 +50,9 @@
       "mode": "fixture",
       "pipeline": "dataset.inspect",
       "partition": "utc-minute",
-      "capture_policy": "source-capture-v1",
-      "source_revision": "synthetic-frames-v1",
-      "rights_reference": "synthetic-local-fixtures-v1",
+      "capture_policy": "source-capture",
+      "source_revision": "synthetic-frames",
+      "rights_reference": "synthetic-local-fixtures",
       "start": "2024-06-01T00:00:00Z",
       "end": "2024-06-01T01:00:00Z"
     },
@@ -67,9 +67,9 @@
       "mode": "fixture",
       "pipeline": "dataset.inspect",
       "partition": "utc-minute",
-      "capture_policy": "source-capture-v1",
-      "source_revision": "synthetic-frames-v1",
-      "rights_reference": "synthetic-local-fixtures-v1",
+      "capture_policy": "source-capture",
+      "source_revision": "synthetic-frames",
+      "rights_reference": "synthetic-local-fixtures",
       "start": "2024-06-01T00:00:00Z",
       "end": "2024-06-01T01:00:00Z"
     }

@@ -34,11 +34,11 @@ class CandidateDeployment(WireRecord, frozen=True):
     selections: tuple[CapabilitySelection, ...]
     universes: UniverseSelection
     feature_version: str | None = None
-    schema_version: Literal["candidate-deployment-v1"] = "candidate-deployment-v1"
+    schema_version: Literal["candidate-deployment"] = "candidate-deployment"
 
     def __post_init__(self) -> None:
         """Reject ambiguous placement, unsupported modes and implicit store versions."""
-        if self.schema_version != "candidate-deployment-v1":
+        if self.schema_version != "candidate-deployment":
             raise ValueError("unsupported candidate deployment schema")
         for value in (self.name, self.instance, self.entity, self.source_identity):
             if type(value) is not str or not value or value != value.strip():

@@ -558,15 +558,15 @@ class TestPaperMonitoring:
             strategies=(
                 PaperStrategyIdentity(
                     instance_id="alpha",
-                    policy_identity="rule-v1",
-                    candidate_identity="candidate-v1",
+                    policy_identity="rule",
+                    candidate_identity="candidate",
                     model_identity="none",
-                    feature_identity="features-v1",
+                    feature_identity="features",
                 ),
             ),
-            input_identity="public-book-v1",
+            input_identity="public-book",
             scenario=self._scenario(),
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
         )
         pending_order = self._monitoring_reduction_order("pending-reduction-order", observed_at)
         terminal_order = self._monitoring_reduction_order("terminal-reduction-order", observed_at)

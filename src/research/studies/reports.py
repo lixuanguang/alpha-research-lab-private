@@ -46,12 +46,12 @@ class ReportPolicy(WireRecord, frozen=True):
     timezone: str = "UTC"
     return_convention: str = "simple-net-nav"
     missing_policy: str = "preserve-and-withhold-aggregates"
-    schema_version: str = "economic-report-policy-v1"
+    schema_version: str = "economic-report-policy"
 
     def __post_init__(self) -> None:
         """Require immutable aligned observations and explicitly bounded assumptions."""
         if (
-            self.schema_version != "economic-report-policy-v1"
+            self.schema_version != "economic-report-policy"
             or self.timezone != "UTC"
             or self.return_convention != "simple-net-nav"
             or self.missing_policy != "preserve-and-withhold-aggregates"
@@ -112,7 +112,7 @@ class EconomicReport(WireRecord, frozen=True):
     fees: str
     adverse_slippage: str
     net_profit: str
-    schema_version: str = "economic-report-v1"
+    schema_version: str = "economic-report"
 
 
 class QuantStatsReport:

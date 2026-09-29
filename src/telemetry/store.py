@@ -191,7 +191,7 @@ class TelemetryStore:
                 tuple[object, ...] | None, connection.execute("SELECT 1 FROM metadata").fetchone()
             )
             if existing is None:
-                connection.execute("INSERT INTO metadata VALUES ('telemetry-store-v1', NULL)")
+                connection.execute("INSERT INTO metadata VALUES ('telemetry-store', NULL)")
             self._floor(connection)
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS events (scope TEXT, mode TEXT, name TEXT, "
@@ -248,7 +248,7 @@ class TelemetryStore:
             list[tuple[object, ...]],
             connection.execute("SELECT version, floor FROM metadata").fetchall(),
         )
-        if len(rows) != 1 or len(rows[0]) != 2 or rows[0][0] != "telemetry-store-v1":
+        if len(rows) != 1 or len(rows[0]) != 2 or rows[0][0] != "telemetry-store":
             raise ValueError("unsupported telemetry store schema")
         value = rows[0][1]
         if value is None:

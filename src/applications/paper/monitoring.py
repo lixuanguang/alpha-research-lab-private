@@ -50,14 +50,11 @@ class PaperMonitoringInput(WireRecord, frozen=True):
     events: tuple[MonitoringEvent, ...]
     source_clocks: tuple[PaperSourceClock, ...]
     artifacts: tuple[tuple[str, str], ...]
-    schema_version: str = "paper-monitoring-input-v1"
+    schema_version: str = "paper-monitoring-input"
 
     def __post_init__(self) -> None:
         """Reject incompatible or unbounded input envelopes and invalid facts."""
-        if (
-            self.schema_version != "paper-monitoring-input-v1"
-            or not 1 <= len(self.events) <= 100_000
-        ):
+        if self.schema_version != "paper-monitoring-input" or not 1 <= len(self.events) <= 100_000:
             raise ValueError("paper monitoring requires bounded versioned facts")
         for event in self.events:
             event.__post_init__()

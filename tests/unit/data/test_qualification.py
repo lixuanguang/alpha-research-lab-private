@@ -286,7 +286,7 @@ class TestSourceQualification:
                 assert isinstance(event, ArchiveTrade)
                 assert event.ts_source_received is None and event.ts_knowledge is None
         economic = _CODEC.decode_json(
-            (_ROOT / "configs/backtests/p1-btcusdt-return-v1.json").read_bytes(), BacktestSpec
+            (_ROOT / "configs/backtests/p1-btcusdt-return.json").read_bytes(), BacktestSpec
         )
         result = run_backtest(reader, economic)
         assert isinstance(result, EconomicResult)

@@ -125,7 +125,7 @@ class _LiveCandidateConsumer:
                     name=f"fixture-{requirement.name}",
                     kind=requirement.kind,
                     implementation_identity=(
-                        f"native-{self.config.venue}-public-book-v1"
+                        f"native-{self.config.venue}-public-book"
                         if requirement.kind == "market_data"
                         else f"installed-fixture-{requirement.kind}"
                     ),

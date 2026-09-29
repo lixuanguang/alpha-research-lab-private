@@ -52,7 +52,7 @@ class VenueState(WireRecord, frozen=True):
     mark keeps the full opening window.
     """
 
-    schema_version: str = "venue-journal-v2"
+    schema_version: str = "venue-journal"
     nonce: int = 0
     last_request_at: datetime | None = None
     dispatches: tuple[VenueDispatch, ...] = ()
@@ -64,7 +64,7 @@ class VenueState(WireRecord, frozen=True):
 
     def __post_init__(self) -> None:
         """Refuse incompatible state rather than guessing a recovery migration."""
-        if self.schema_version != "venue-journal-v2":
+        if self.schema_version != "venue-journal":
             raise ValueError("unsupported venue journal schema")
         if self.nonce < 0:
             raise ValueError("unsupported venue journal state")

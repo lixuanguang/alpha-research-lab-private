@@ -49,7 +49,7 @@ class SharedBookDelivery(WireRecord, frozen=True):
     source: LiveBookDelivery
     inputs: tuple[SharedStrategyInput, ...]
     coordinated_at: datetime | None
-    schema_version: str = "shared-book-delivery-v1"
+    schema_version: str = "shared-book-delivery"
     market_effects: bool = True
 
     def __post_init__(self) -> None:
@@ -59,7 +59,7 @@ class SharedBookDelivery(WireRecord, frozen=True):
 
     def _require_coordination(self) -> None:
         """Validate newly constructed selection and coordination after native validation."""
-        if self.schema_version != "shared-book-delivery-v1" or type(self.inputs) is not tuple:
+        if self.schema_version != "shared-book-delivery" or type(self.inputs) is not tuple:
             raise ValueError("invalid shared book delivery")
         if type(self.market_effects) is not bool:
             raise ValueError("invalid shared market selection")

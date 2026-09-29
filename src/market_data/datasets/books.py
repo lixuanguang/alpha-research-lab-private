@@ -270,7 +270,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
 class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Expose typed message boundaries only with their complete input and degraded scope."""
 
-    schema: Literal["canonical-book-prefix-v1"] = "canonical-book-prefix-v1"
+    schema: Literal["canonical-book-prefix"] = "canonical-book-prefix"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
     input: BookInput
     observations: tuple[BookObservation, ...]
@@ -278,7 +278,7 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
     def __post_init__(self) -> None:
         """Retain an explicit version and reject empty or malformed canonical histories."""
         if (
-            self.schema != "canonical-book-prefix-v1"
+            self.schema != "canonical-book-prefix"
             or self.scope != "exploratory_degraded"
             or type(self.input) is not BookInput
             or type(self.observations) is not tuple
@@ -295,13 +295,13 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
 class BookStreamHeader(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Identify a line-delimited native history by its complete source selection."""
 
-    schema: Literal["canonical-book-stream-v2"] = "canonical-book-stream-v2"
+    schema: Literal["canonical-book-stream"] = "canonical-book-stream"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
     input: BookInput
 
     def __post_init__(self) -> None:
         """Reject changed scope, schema or source evidence."""
-        if self.schema != "canonical-book-stream-v2" or self.scope != "exploratory_degraded":
+        if self.schema != "canonical-book-stream" or self.scope != "exploratory_degraded":
             raise ValueError("unsupported canonical book stream")
         if type(self.input) is not BookInput:
             raise ValueError("book stream requires a typed input")
@@ -562,14 +562,14 @@ class BookDatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
     """Version exploratory book publication separately from the unchanged trade format."""
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    schema_version: str = "book-dataset-v2"
+    schema_version: str = "book-dataset"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
     normalization_identity: str
     partitions: tuple[BookPartition, ...]
 
     def __post_init__(self) -> None:
         """Require unique complete book selections and an identified normalizer."""
-        if self.schema_version != "book-dataset-v2":
+        if self.schema_version != "book-dataset":
             raise ValueError("unsupported book dataset schema")
         if (
             self.scope != "exploratory_degraded"

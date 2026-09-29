@@ -31,11 +31,11 @@ class DecisionRun(WireRecord, frozen=True):
     output: Literal["target", "exposure", "order", "quote"]
     decisions: tuple[datetime, ...]
     required_capabilities: tuple[str, ...]
-    schema_version: Literal["decision-run-v1"] = "decision-run-v1"
+    schema_version: Literal["decision-run"] = "decision-run"
 
     def __post_init__(self) -> None:
         """Reject missing bindings and non-increasing schedules before any work."""
-        if self.schema_version != "decision-run-v1" or self.output not in (
+        if self.schema_version != "decision-run" or self.output not in (
             "target",
             "exposure",
             "order",

@@ -199,7 +199,7 @@ class CapacityHistoryQueries:
         self.config, index = observer._discover()
         self.sources = index.sources
         plan: dict[str, object] = {
-            "schema_version": "retained-history-query-sampling-v1",
+            "schema_version": "retained-history-query-sampling",
             "trial": str(self.trial),
             "configuration": self.config.identity,
             "consumer_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -515,7 +515,7 @@ class CapacityHistoryQueries:
                     }
                 )
         result: dict[str, object] = {
-            "schema_version": "retained-history-query-results-v1",
+            "schema_version": "retained-history-query-results",
             "evidence_class": "independent_completed_history_query_path",
             "trial": str(self.trial),
             "prepared_history": prepared,

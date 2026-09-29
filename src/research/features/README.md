@@ -271,7 +271,7 @@ It runs through the integration test and isolated wheel smoke, without network
 or live-source evidence. The ordinary unknown-availability archive path remains
 missing; correction fixtures do not establish historical source knowability.
 
-The result uses `feature-study-result-v1`, with separate ordered `features` and
+The result uses `feature-study-result`, with separate ordered `features` and
 `labels` arrays sharing stable row IDs, full definitions, selection/split identities
 and generated `SampleInterval` records. In-process `NamedTuple` values serialize
 as arrays in their declared field order; the exported types own those layouts.
@@ -339,7 +339,7 @@ schemas and values. No model is fitted or inferred for this rule-only consumer.
 
 `ScheduledFeatureSpec` pins an instance, source/stream/instrument, price dimensions,
 sample, cadence and maximum event age. Its version fixes the
-`completed-price-return-v1` formula and the existing observation policy. The first
+`completed-price-return` formula and the existing observation policy. The first
 close is `start + cadence`; closes are strictly before `end`, with at most 8,192
 closes in a sample of at most 8,193 cadences. `ScheduledFeatures.evaluate(t)` accepts
 only the next scheduled UTC close. Skipped/repeated/reversed/end clocks fail;
@@ -372,9 +372,7 @@ evaluation discards partially advanced replay state and leaves the last committe
 checkpoint unchanged. Restore with the same `QueryReader`, definition and
 serialized checkpoint; changing batch size is allowed. The digest detects
 corruption, not hostile forgery. Independent instances have independent frozen
-state; no account or order recovery is provided. Older installed readers that
-reject unknown fields may refuse checkpoints carrying the new optional cursor
-fields despite the retained v1 schema; deploy matching readers with new writers.
+state; no account or order recovery is provided.
 The full frozen trace remains a tuple and its append/serialization cost grows
 with the number of completed closes; measure that residual cost at the planned
 8,192-close ceiling.

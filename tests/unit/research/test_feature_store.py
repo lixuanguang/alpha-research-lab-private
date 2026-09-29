@@ -42,7 +42,7 @@ class TestVersionedFeatureStore:
             name="mid-source", family="book", clock="event", field=field, max_age_us=600_000_000
         )
         return FeatureSchema(
-            implementation="named-projection-v1" if mode == "batch" else "running-mean-v1",
+            implementation="named-projection" if mode == "batch" else "running-mean",
             inputs=(requirement,),
             outputs=(NumericField(name="signal", units="quote/base"),),
             parameters=(),

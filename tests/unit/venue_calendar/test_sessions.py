@@ -130,7 +130,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
             kind=ClosureKind.HOLIDAY,
             name=raw_holiday["name"],
             source="fixture.exchange",
-            source_revision="holiday-v1",
+            source_revision="holiday",
         )
         snapshot = ExchangeCalendarsAdapter().build_snapshot(
             venue=self._venue(),
@@ -157,7 +157,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
                         kind=ClosureKind.AD_HOC,
                         name="Invalid collision",
                         source="fixture.exchange",
-                        source_revision="collision-v1",
+                        source_revision="collision",
                     ),
                 ),
             )
@@ -192,7 +192,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
                     session_label=date(2024, 3, 8),
                     reason="Synthetic emergency closure",
                     source="fixture.overrides",
-                    source_revision="override-v1",
+                    source_revision="override",
                 ),
                 SessionOverride(
                     override_id="add-2024-03-09",
@@ -201,7 +201,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
                     replacement=saturday,
                     reason="Synthetic special session",
                     source="fixture.overrides",
-                    source_revision="override-v1",
+                    source_revision="override",
                 ),
                 SessionOverride(
                     override_id="replace-2024-03-11",
@@ -210,7 +210,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
                     replacement=replacement,
                     reason="Synthetic shortened session",
                     source="fixture.overrides",
-                    source_revision="override-v1",
+                    source_revision="override",
                 ),
             ),
         )
@@ -254,7 +254,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
             replacement=replacement,
             reason="Synthetic invalid target",
             source="fixture.overrides",
-            source_revision="override-v1",
+            source_revision="override",
         )
         with pytest.raises(VenueCalendarValidationError, match=message):
             ExchangeCalendarsAdapter().build_snapshot(
@@ -279,7 +279,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
             session_label=session.session_label,
             reason="Synthetic inconsistent retained record",
             source="fixture.overrides",
-            source_revision="override-v1",
+            source_revision="override",
             replacement=None if action is SessionOverrideAction.REMOVE else session,
         )
         with pytest.raises(VenueCalendarValidationError, match=r"applied .* override must"):
@@ -311,7 +311,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
             ends_at=self._instant(raw_halt[1]),
             reason="Synthetic volatility halt",
             source="fixture.market",
-            source_revision="market-v1",
+            source_revision="market",
         )
         price_limit = PriceLimitWindow(
             limit_id="synthetic-limit-1",
@@ -319,7 +319,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
             starts_at=self._instant(raw_limit[0]),
             ends_at=self._instant(raw_limit[1]),
             source="fixture.market",
-            source_revision="market-v1",
+            source_revision="market",
         )
         snapshot = VenueCalendarSnapshot(
             venue=self._venue(
@@ -452,13 +452,13 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
         raw_dates = raw_calendar["settlement_dates"]
         calendar = SettlementCalendar(
             calendar_id="synthetic-usd-settlement",
-            calendar_version="settlement-v1",
+            calendar_version="settlement",
             timezone_name="America/New_York",
             covered_from=date.fromisoformat(raw_range[0]),
             covered_through=date.fromisoformat(raw_range[1]),
             settlement_dates=tuple(date.fromisoformat(item) for item in raw_dates),
             source="fixture.settlement",
-            source_revision="settlement-v1",
+            source_revision="settlement",
         )
 
         assert calendar.is_settlement_day(date(2024, 11, 28)) is False
@@ -496,7 +496,7 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
                 starts_at=datetime(2024, 3, 11, 2, 0, tzinfo=UTC),
                 ends_at=datetime(2024, 3, 11, 2, 1, tzinfo=UTC),
                 source="fixture.market",
-                source_revision="market-v1",
+                source_revision="market",
             )
 
     @pytest.mark.parametrize(

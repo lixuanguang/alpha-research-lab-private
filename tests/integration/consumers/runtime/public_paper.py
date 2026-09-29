@@ -301,9 +301,7 @@ class PublicPaperWorkload:
     def identity(self) -> str:
         """Pin this pure book-feature binding separately from the selected policies."""
         return hashlib.sha256(
-            self.codec.encode_json(
-                ("public-paper-features-v1", self.fields, self.reference_identity)
-            )
+            self.codec.encode_json(("public-paper-features", self.fields, self.reference_identity))
         ).hexdigest()
 
     def money(self, value: str) -> Money:
@@ -372,7 +370,7 @@ class PublicPaperWorkload:
         configuration = self.codec.encode_json(config)
         bindings = self.bindings()
         preparation: dict[str, object] = {
-            "schema_version": "public-paper-installed-preparation-v1",
+            "schema_version": "public-paper-installed-preparation",
             "account_id": "paper",
             "configuration_sha256": hashlib.sha256(configuration).hexdigest(),
             "capture_sha256": hashlib.sha256(self.codec.encode_json(self.capture)).hexdigest(),
@@ -385,7 +383,7 @@ class PublicPaperWorkload:
                 PaperStrategyIdentity(
                     instance_id=binding.instance_id,
                     policy_identity=binding.policy.identity,
-                    candidate_identity="public-paper-reference-v1",
+                    candidate_identity="public-paper-reference",
                     model_identity=binding.context.model_revision,
                     feature_identity=self.identity,
                 )
@@ -409,7 +407,7 @@ class PublicPaperWorkload:
                     portfolio_id="reference",
                     strategy_id=name,
                     model_revision="rule-only",
-                    config_revision="public-paper-v1",
+                    config_revision="public-paper",
                     horizon="capture",
                     reason="engineering-reference",
                     venue=self.capture.venue,
@@ -835,7 +833,7 @@ class PublicPaperWorkload:
                 PaperStrategyIdentity(
                     instance_id=binding.instance_id,
                     policy_identity=binding.policy.identity,
-                    candidate_identity="public-paper-reference-v1",
+                    candidate_identity="public-paper-reference",
                     model_identity=binding.context.model_revision,
                     feature_identity=self.identity,
                 )
@@ -1323,7 +1321,7 @@ class PublicPaperWorkload:
         (output / "monitoring-reconciliation.json").write_bytes(
             self.codec.encode_json(
                 {
-                    "schema_version": "paper-dashboard-reconciliation-v1",
+                    "schema_version": "paper-dashboard-reconciliation",
                     "venue": self.capture.venue,
                     "expected": {
                         name: ExactRatio.from_fraction(amount) for name, amount in expected.items()
@@ -1359,7 +1357,7 @@ class PublicPaperWorkload:
                 "strategies",
                 "opening_observations",
             }
-            or manifest["schema_version"] != "public-paper-run-v1"
+            or manifest["schema_version"] != "public-paper-run"
         ):
             raise ValueError("retained public paper manifest has unexpected fields or schema")
 
@@ -1391,7 +1389,7 @@ class PublicPaperWorkload:
             or requirement != self.requirement
             or manifest["account_id"] != "paper"
             or manifest["input_binding"] != self.identity
-            or manifest["paper_mark_policy"] != "last_eligible_bid_v1"
+            or manifest["paper_mark_policy"] != "last_eligible_bid"
             or self.codec.encode_json(manifest["strategies"]) != self.codec.encode_json(strategies)
         ):
             raise ValueError(
@@ -1456,7 +1454,7 @@ class PublicPaperWorkload:
                 output / "run/monitoring" / name
             ) == DashboardSnapshot.read(output / "monitoring-reopened" / name)
         verification: dict[str, object] = {
-            "schema_version": "public-paper-replay-v1",
+            "schema_version": "public-paper-replay",
             "equal": True,
             "monitoring_equal": True,
             "monitoring_inserted": recovered.inserted,

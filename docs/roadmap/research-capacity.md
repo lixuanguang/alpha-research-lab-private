@@ -355,7 +355,7 @@ store contract; returned records and provenance are isolated, and changed
 canonical files are refused. A session does not re-read original raw bytes on
 every query; callers must keep both stores and their ancestors protected.
 Streamed replay retains a lookahead and delivery batch and reads only
-`book-dataset-v2` snapshots. Close an unfinished
+`book-dataset` snapshots. Close an unfinished
 stepping replay with `close()` to release its file stream and any tie spill;
 separately obtained batch iterators must be exhausted or closed by their caller.
 Resume using a completed cursor and independently retained consumer state.

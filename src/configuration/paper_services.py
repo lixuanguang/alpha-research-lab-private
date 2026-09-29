@@ -127,12 +127,12 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
     poll_seconds: int = 1
     worker_timeout_seconds: int = 2
     alert_socket: str | None = None
-    schema_version: Literal["paper-services-v1"] = "paper-services-v1"
+    schema_version: Literal["paper-services"] = "paper-services"
 
     def __post_init__(self) -> None:
         """Validate all definitions, budgets and scheduling bounds before spawning work."""
         if (
-            self.schema_version != "paper-services-v1"
+            self.schema_version != "paper-services"
             or any(
                 type(items) is not tuple or not items
                 for items in (self.accounts, self.sources, self.instances, self.active)

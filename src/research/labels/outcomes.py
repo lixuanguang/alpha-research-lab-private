@@ -130,7 +130,7 @@ class NumericDifference:
             feature_identity=row.identity,
             definition=hashlib.sha256(
                 DomainCodec().encode_json(
-                    ("numeric-difference-v1", base.input, future.event_at - row.decision_at)
+                    ("numeric-difference", base.input, future.event_at - row.decision_at)
                 )
             ).hexdigest(),
             field=NumericField(name="difference", units=base.input.field.units),

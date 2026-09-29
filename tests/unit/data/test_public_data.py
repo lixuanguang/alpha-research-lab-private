@@ -288,7 +288,7 @@ class TestPublicData:
             )
             source = SavedDecisionSource(reader, selection, requirements)
             schema = FeatureSchema(
-                implementation="named-projection-v1",
+                implementation="named-projection",
                 inputs=requirements,
                 outputs=(
                     NumericField(name="size", units=instrument.base_currency),

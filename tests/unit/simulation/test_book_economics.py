@@ -31,7 +31,7 @@ class _Case:
 
     def __init__(self) -> None:
         """Bind the maintained configuration to a small independently calculated order envelope."""
-        original = BookRun.read(Path("configs/backtests/okx-eth-usdt-book-v1.json"))
+        original = BookRun.read(Path("configs/backtests/okx-eth-usdt-book.json"))
         instance = original.instances[0]
         self.dimension = instance.quantity.dimension
         self.currency = Currency(code="USDT", minor_unit=Decimal("0.0001"))
@@ -314,7 +314,7 @@ class TestBookRecoveryAndConfiguration:
         rows = (case.row(0, 0),)
         partial = case.simulate(rows, stop_ms=1500)
         with pytest.raises(ValueError, match="unsupported book checkpoint"):
-            replace(partial, schema_version="l2-ioc-checkpoint-v0")
+            replace(partial, schema_version="l2-ioc-checkpoint-unsupported")
         with pytest.raises(ValueError, match="digest mismatch"):
             replace(partial, state_sha256="0" * 64)
         with pytest.raises(ValueError, match="identity"):
@@ -354,7 +354,7 @@ class TestBookRecoveryAndConfiguration:
         result = case.simulate((case.row(0, 0),), run=second)
         assert result.state.valuations[-1].balance.cash.value == Decimal("796.80")
         assert result.state.ledger.dimension == other_dimension
-        control = replace(case.instance, instance="control", rule="book-no-trade-v1")
+        control = replace(case.instance, instance="control", rule="book-no-trade")
         smaller = replace(case.instance, instance="smaller", quantity=case.quantity("0.5"))
         selected = replace(case.run, instances=(case.instance, control, smaller))
         results = tuple(
@@ -383,7 +383,7 @@ class TestBookRecoveryAndConfiguration:
         with pytest.raises(ValueError, match="duplicate"):
             replace(case.run, instances=(case.instance, case.instance))
         with pytest.raises(ValueError, match="unsupported book rule"):
-            BookRules().resolve("maker-v1")
+            BookRules().resolve("maker")
         with pytest.raises(ValueError, match="timing"):
             replace(case.run.timing, entry_us=0)
         feature = BookFeatures.inspect(case.row(0, 0), 2)

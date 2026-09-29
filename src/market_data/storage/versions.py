@@ -52,12 +52,12 @@ class DatasetVersion(WireRecord, frozen=True):
     repository: str
     commit_id: str
     objects: tuple[VersionedObject, ...]
-    schema_version: str = "lakefs-dataset-version-v1"
+    schema_version: str = "lakefs-dataset-version"
 
     def __post_init__(self) -> None:
         """Require a bounded unique inventory containing raw, snapshot and feature objects."""
         if (
-            self.schema_version != "lakefs-dataset-version-v1"
+            self.schema_version != "lakefs-dataset-version"
             or re.fullmatch(r"[a-z0-9][a-z0-9-]{2,62}", self.repository) is None
             or re.fullmatch(r"[0-9a-f]{64}", self.commit_id) is None
             or type(self.objects) is not tuple

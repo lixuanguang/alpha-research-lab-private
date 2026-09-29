@@ -300,7 +300,7 @@ def inspect_decisions(
         (config, feature.schema, model_version, transform_version, capabilities)
     )
     spec = ExperimentSpec(
-        schema_version="experiment-engineering-sample-v1",
+        schema_version="experiment-engineering-sample",
         family=family,
         inputs=(Fingerprint(name="source", sha256=config.source_identity),),
         components=(

@@ -66,7 +66,7 @@ checks without weakening typing, dependency, numerical or hosted merge gates.
 ## Implementation and validation record
 
 The managed operating boundary is the signed execution `paper` runner using
-`account-runtime-v1` configuration and `account-journal-v4` state. Its admitted
+`account-runtime` configuration and `account-journal` state. Its admitted
 execution/contracts closure owns economics. `InstalledPaperAccount` connects
 the existing public-paper Python workflow to that runner using retained typed
 requests and responses, without installing the research wheel into the target.

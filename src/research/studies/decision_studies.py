@@ -87,12 +87,12 @@ class DecisionStudy(WireRecord, frozen=True, kw_only=True):
     extensions: tuple[Fingerprint, ...] = ()
     parameters: tuple[tuple[str, str], ...] = ()
     seeds: tuple[tuple[str, int], ...] = ()
-    schema_version: Literal["decision-study-v1"] = "decision-study-v1"
+    schema_version: Literal["decision-study"] = "decision-study"
 
     def __post_init__(self) -> None:
         """Validate complete selections and nonoverlapping folds before creating attempts."""
         if (
-            self.schema_version != "decision-study-v1"
+            self.schema_version != "decision-study"
             or self.partition not in ("validation", "holdout")
             or self.output not in ("target", "exposure", "order", "quote")
         ):
@@ -249,12 +249,12 @@ class DecisionComparison(WireRecord, frozen=True):
     seed: int
     minimum_return: ExactRatio
     prune_below: ExactRatio | None = None
-    schema_version: Literal["decision-comparison-v1"] = "decision-comparison-v1"
+    schema_version: Literal["decision-comparison"] = "decision-comparison"
 
     def __post_init__(self) -> None:
         """Refuse holdout search, changed samples/report objectives and unbounded grids."""
         if (
-            self.schema_version != "decision-comparison-v1"
+            self.schema_version != "decision-comparison"
             or type(self.name) is not str
             or not self.name
         ):

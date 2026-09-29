@@ -179,7 +179,7 @@ class CaptureRunJournal:
             previous.update(msgspec.json.decode(progress.read_bytes(), type=dict[str, msgspec.Raw]))
         payload: dict[str, object] = {
             **previous,
-            "schema": "capture-run-progress-v1",
+            "schema": "capture-run-progress",
             "run_identity": self.request.identity,
             "pid": os.getpid(),
             "updated_ns": time.time_ns(),

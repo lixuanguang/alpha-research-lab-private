@@ -492,7 +492,7 @@ class CapacityRecovery:
             and attributed
         )
         return passed, {
-            "schema_version": "request-retention-witness-v1",
+            "schema_version": "request-retention-witness",
             "passed": passed,
             "comparisons": comparisons,
             "trace_prefix_equal": prefix_equal,

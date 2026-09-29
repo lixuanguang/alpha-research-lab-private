@@ -44,7 +44,7 @@ class ServiceBookInputs:
     def identity(self) -> str:
         """Identify the pure feature formula independently of active consumers."""
         definition = (
-            "service-book-features-v1",
+            "service-book-features",
             self.fields,
             self.freshness_us,
             self.market_interval_us,

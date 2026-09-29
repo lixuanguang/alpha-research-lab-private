@@ -170,7 +170,7 @@ class _ReferencePolicy:
     @property
     def identity(self) -> str:
         """Identify this fixed test decision rule."""
-        return f"reference-{self._output}-v1"
+        return f"reference-{self._output}"
 
     @property
     def output(self) -> Literal["target", "order"]:
@@ -244,7 +244,7 @@ class TestCandidateSession:
     def _schema(*, incremental: bool = True, ttl_us: int = 10_000_000) -> FeatureSchema:
         """Choose the installed exact mean or projection reference kernel."""
         return FeatureSchema(
-            implementation="running-mean-v1" if incremental else "named-projection-v1",
+            implementation="running-mean" if incremental else "named-projection",
             inputs=(_INPUT,),
             outputs=(_FIELD,),
             parameters=(),
@@ -341,7 +341,7 @@ class TestCandidateSession:
             CandidateComponent(
                 role=role,
                 factory_key=f"reference-{role}",
-                identity=f"reference-{role}-v1",
+                identity=f"reference-{role}",
                 implementation_sha256=_CODE,
                 parameters=artifacts[f"{role}-parameters"],
             )
@@ -374,10 +374,10 @@ class TestCandidateSession:
             state=CandidateStateContract(
                 feature_mode="incremental" if incremental else "batch",
                 warmup_observations=warmup,
-                checkpoint_schema="candidate-checkpoint-v1" if on_restart == "restore" else None,
+                checkpoint_schema="candidate-checkpoint" if on_restart == "restore" else None,
                 on_gap=on_gap,
                 on_restart=on_restart,
-                policy_state_schema="reference-policy-state-v1",
+                policy_state_schema="reference-policy-state",
             ),
             metrics=(
                 CandidateMetricContract(
@@ -422,7 +422,7 @@ class TestCandidateSession:
         ttl_us: int = 10_000_000,
         freshness_us: int = 1_000_000,
         input_mode: Literal["source", "offline_features", "online_features"] = "source",
-        source_identity: str = "authored-source-v1",
+        source_identity: str = "authored-source",
         feature_version: str | None = None,
         starts_at: datetime = _AT,
     ) -> LoadedCandidate:
@@ -460,7 +460,7 @@ class TestCandidateSession:
             CapabilityProfile(
                 name=f"fixture-{r.name}",
                 kind=r.kind,
-                implementation_identity=f"installed-{r.kind}-v1",
+                implementation_identity=f"installed-{r.kind}",
                 version="1",
                 products=("spot",),
                 venues=("synthetic",),

@@ -190,7 +190,7 @@ class BookQueryReader:
         identity = hashlib.sha256(
             DomainCodec().encode_json(
                 (
-                    "book-query-v1",
+                    "book-query",
                     query.snapshot_id,
                     query.request_identity,
                     query.instrument,

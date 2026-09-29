@@ -134,7 +134,7 @@ class TestParameterComparison:
             split=split,
         )
         second = replace(
-            first, economics=replace(economics, instance="flat-control", rule="no-trade-v1")
+            first, economics=replace(economics, instance="flat-control", rule="no-trade")
         )
         selection = ResearchSelection(
             inputs=(

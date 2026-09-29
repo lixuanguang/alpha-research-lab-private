@@ -16,7 +16,7 @@ from alpha_research_governance.artifact_supply_chain.records import TrustedBuild
 class ReleaseSignatures:
     """Bind OpenSSH signatures to the release namespace and a provisioned public key."""
 
-    namespace = "alpha-research-release-v1"
+    namespace = "alpha-research-release"
 
     def __init__(self, executable: Path, sha256: str) -> None:
         """Bind an absolute tool path and its independently provisioned digest."""

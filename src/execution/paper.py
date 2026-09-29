@@ -459,7 +459,7 @@ class PaperMatchEvaluator:
         return hashlib.sha256(
             self._codec.encode_json(
                 (
-                    "paper-match-v2",
+                    "paper-match",
                     account_id,
                     self._scenario_identity,
                     market.identity,

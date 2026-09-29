@@ -17,12 +17,12 @@ class CompletedReturn(WireRecord, frozen=True):
     """Version the P1 completed-close formula separately from observed-trade windows."""
 
     cadence_seconds: int
-    schema_version: Literal["completed-price-return-v1"] = "completed-price-return-v1"
+    schema_version: Literal["completed-price-return"] = "completed-price-return"
 
     def __post_init__(self) -> None:
         """Reject unsupported formula versions and nonpositive cadence."""
         if (
-            self.schema_version != "completed-price-return-v1"
+            self.schema_version != "completed-price-return"
             or type(self.cadence_seconds) is not int
             or self.cadence_seconds <= 0
         ):

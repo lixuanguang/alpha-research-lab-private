@@ -89,7 +89,7 @@ class PaperOrderJournal:
         self._ledger_cache: tuple[bytes, Ledger] | None = None
         self._binding = self._codec.encode_json(
             (
-                "paper-order-journal-v1",
+                "paper-order-journal",
                 account,
                 instance,
                 binding_identity,
@@ -840,7 +840,7 @@ class PaperOrderJournal:
             identity = hashlib.sha256(
                 self._codec.encode_json(
                     (
-                        "paper-child-order-v1",
+                        "paper-child-order",
                         self.account,
                         self.instance,
                         self.binding_identity,

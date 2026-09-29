@@ -196,7 +196,7 @@ def main() -> None:
         ),
         take_fraction=Decimal("1"),
     )
-    control = replace(instance, instance="control", rule="book-no-trade-v1")
+    control = replace(instance, instance="control", rule="book-no-trade")
     smaller = replace(
         instance,
         instance="smaller",

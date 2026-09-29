@@ -42,11 +42,11 @@ class FeatureStoreDefinition(WireRecord, frozen=True, kw_only=True):
     instance: str | None = None
     transform_identity: str | None = None
     output_fields: tuple[NumericField, ...] | None = None
-    schema_version: Literal["feature-store-definition-v1"] = "feature-store-definition-v1"
+    schema_version: Literal["feature-store-definition"] = "feature-store-definition"
 
     def __post_init__(self) -> None:
         """Refuse unnamed, unversioned or incompatible serving definitions."""
-        if self.schema_version != "feature-store-definition-v1":
+        if self.schema_version != "feature-store-definition":
             raise ValueError("unsupported feature-store definition schema")
         for value in (self.name, self.entity_type):
             if type(value) is not str or not value or value != value.strip():
@@ -101,11 +101,11 @@ class StoredFeature(WireRecord, frozen=True, kw_only=True):
     dataset_version: str
     dataset_sha256: str
     revision_identity: str
-    schema_version: Literal["stored-feature-v1"] = "stored-feature-v1"
+    schema_version: Literal["stored-feature"] = "stored-feature"
 
     def __post_init__(self) -> None:
         """Keep immutable lineage, exact values and source clocks verifiable."""
-        if self.schema_version != "stored-feature-v1":
+        if self.schema_version != "stored-feature":
             raise ValueError("unsupported stored-feature schema")
         for digest in (
             self.definition_identity,
@@ -140,11 +140,11 @@ class FeatureStoreResult(WireRecord, frozen=True, kw_only=True):
     feature: StoredFeature | None
     version: str | None = None
     materialized_at: datetime | None = None
-    schema_version: Literal["feature-store-result-v1"] = "feature-store-result-v1"
+    schema_version: Literal["feature-store-result"] = "feature-store-result"
 
     def __post_init__(self) -> None:
         """Reject result metadata that could disguise incompatible or future values."""
-        if self.schema_version != "feature-store-result-v1":
+        if self.schema_version != "feature-store-result":
             raise ValueError("unsupported feature-store result schema")
         if (
             type(self.definition_identity) is not str
@@ -241,11 +241,11 @@ class FeatureMaterialization(WireRecord, frozen=True, kw_only=True):
     version: str
     at: datetime
     rows: tuple[FeatureStoreResult, ...]
-    schema_version: Literal["feature-materialization-v1"] = "feature-materialization-v1"
+    schema_version: Literal["feature-materialization"] = "feature-materialization"
 
     def __post_init__(self) -> None:
         """Require a complete, unique entity set at one causal cutoff."""
-        if self.schema_version != "feature-materialization-v1":
+        if self.schema_version != "feature-materialization":
             raise ValueError("unsupported feature materialization schema")
         if type(self.definition) is not FeatureStoreDefinition:
             raise TypeError("materialization requires FeatureStoreDefinition")

@@ -17,12 +17,12 @@ class FeatureStudyResult(WireRecord, frozen=True, kw_only=True):
     """Decode and verify the retained feature/label result contract.
 
     The producer, model admission boundary and reporting adapters share this
-    closed ``feature-study-result-v1`` schema.  Model-specific checks remain at
+    closed ``feature-study-result`` schema.  Model-specific checks remain at
     the model boundary; this class only owns the common wire shape and
     feature/label/sample invariants. One to 16,384 aligned feature rows may be retained.
     """
 
-    schema_version: Literal["feature-study-result-v1"]
+    schema_version: Literal["feature-study-result"]
     selection_identity: str
     feature_definition: TrailingReturn
     label_definition: ForwardReturn | None
@@ -36,7 +36,7 @@ class FeatureStudyResult(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Verify definitions, clocks and aligned row identities before use."""
         if (
-            self.schema_version != "feature-study-result-v1"
+            self.schema_version != "feature-study-result"
             or self.scope != "exploratory_degraded"
             or type(self.fitting) is not str
             or not self.fitting.strip()
@@ -93,7 +93,7 @@ class FeatureStudyResult(WireRecord, frozen=True, kw_only=True):
         """Decode one retained result through the repository's strict JSON codec.
 
         Args:
-            payload: Complete UTF-8 ``feature-study-result-v1`` bytes.
+            payload: Complete UTF-8 ``feature-study-result`` bytes.
 
         Returns:
             A verified immutable feature/label payload.

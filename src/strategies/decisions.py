@@ -150,7 +150,7 @@ class ConfirmedSignal:
         """Bind formula, named feature, quantity dimensions and confirmation count."""
         return hashlib.sha256(
             self._codec.encode_json(
-                ("confirmed-signal-v1", self._field, self._quantity, self._confirmations)
+                ("confirmed-signal", self._field, self._quantity, self._confirmations)
             )
         ).hexdigest()
 

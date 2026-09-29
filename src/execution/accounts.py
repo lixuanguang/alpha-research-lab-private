@@ -1070,7 +1070,7 @@ class AccountJournal:
             child = transaction.order(child_id)
             signed = portion if request.fee.value > 0 else portion.copy_negate()
             posting_id = hashlib.sha256(
-                self._codec.encode_json(("native-fee-v1", request.identity, child_id))
+                self._codec.encode_json(("native-fee", request.identity, child_id))
             ).hexdigest()
             cash_value = signed.copy_negate()
             ledger.post(

@@ -267,7 +267,7 @@ class PaperServices:
                 portfolio_id="reference",
                 strategy_id=instance.instance_id,
                 model_revision="rule-only",
-                config_revision="paper-services-v1",
+                config_revision="paper-services",
                 horizon="capture",
                 reason="engineering-reference",
                 venue=source.capture.venue,
@@ -483,7 +483,7 @@ class PaperServices:
                 "markets": tuple(observer.last_market for observer in child.observers.values()),
             }
         return {
-            "schema_version": "paper-service-status-v1",
+            "schema_version": "paper-service-status",
             "configuration": self.config.identity,
             "run_id": self.run_id,
             "observed_at": datetime.now(UTC),

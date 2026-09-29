@@ -25,7 +25,7 @@ class PaperExecutionScenario(WireRecord, frozen=True):
     fee_rate: Decimal
     take_fraction: Decimal
     gas_inapplicable_reason: str
-    schema_version: Literal["paper-execution-v1"] = "paper-execution-v1"
+    schema_version: Literal["paper-execution"] = "paper-execution"
 
     def __post_init__(self) -> None:
         """Require exact supported off-chain costs and bounded modeled delays."""
@@ -33,7 +33,7 @@ class PaperExecutionScenario(WireRecord, frozen=True):
         DecimalGrid.require_decimal(self.fee_rate)
         DecimalGrid.require_decimal(self.take_fraction)
         if (
-            self.schema_version != "paper-execution-v1"
+            self.schema_version != "paper-execution"
             or self.venue not in ("okx", "bitfinex")
             or type(self.instrument_id) is not InstrumentId
             or self.adverse.per.instrument_id != self.instrument_id
@@ -75,12 +75,12 @@ class PaperConfiguration(WireRecord, frozen=True):
     fee_rate: Decimal
     market_max_age_us: int
     execution: PaperExecutionScenario
-    schema_version: Literal["paper-runtime-v1"] = "paper-runtime-v1"
+    schema_version: Literal["paper-runtime"] = "paper-runtime"
 
     def __post_init__(self) -> None:
         """Reject executable modes, incompatible units and unbounded market freshness."""
         if (
-            self.schema_version != "paper-runtime-v1"
+            self.schema_version != "paper-runtime"
             or self.mode not in ("paper", "shadow")
             or type(self.account) is not str
             or not self.account.strip()

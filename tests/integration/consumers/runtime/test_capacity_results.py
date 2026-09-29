@@ -161,7 +161,7 @@ class TestCapacityResults:
         receipt = 1_000_000_000
         durable = receipt + 10_000_000
         capture = {
-            "schema_version": "runtime-measurement-v1",
+            "schema_version": "runtime-measurement",
             "kind": "capture_boundary",
             "cursor": 3,
             "record_kind": "frame",
@@ -178,7 +178,7 @@ class TestCapacityResults:
             "durable_to_reconstructed_ns": 2_000_000,
         }
         queue = {
-            "schema_version": "runtime-measurement-v1",
+            "schema_version": "runtime-measurement",
             "kind": "queue",
             "phase": "durable_ready",
             "at_ns": durable,
@@ -189,7 +189,7 @@ class TestCapacityResults:
         }
         self._write_rows(capture_path, (capture, queue))
         paper = {
-            "schema_version": "runtime-measurement-v1",
+            "schema_version": "runtime-measurement",
             "kind": "paper_book",
             "position": 2,
             "outcome": "snapshot",
@@ -423,7 +423,7 @@ class TestCapacityResults:
             durable = receipt + 10_000
             captures.append(
                 {
-                    "schema_version": "runtime-measurement-v1",
+                    "schema_version": "runtime-measurement",
                     "kind": "capture_boundary",
                     "cursor": position + 1,
                     "record_kind": "frame",
@@ -442,7 +442,7 @@ class TestCapacityResults:
             )
             books.append(
                 {
-                    "schema_version": "runtime-measurement-v1",
+                    "schema_version": "runtime-measurement",
                     "kind": "paper_book",
                     "position": position,
                     "outcome": "update",

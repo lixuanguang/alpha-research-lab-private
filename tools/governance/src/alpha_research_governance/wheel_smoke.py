@@ -107,7 +107,7 @@ class _InstalledWheelCheck:
         inputs = smoke_root / "inputs"
         inputs.mkdir()
         for relative, name in (
-            ("configs/backtests/okx-eth-usdt-book-v1.json", "book-config.json"),
+            ("configs/backtests/okx-eth-usdt-book.json", "book-config.json"),
             ("tests/integration/consumers/backtest/book_workflow.py", "book_workflow.py"),
             ("tests/integration/consumers/wheel_layout.py", "wheel_layout.py"),
         ):

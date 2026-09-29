@@ -164,7 +164,7 @@ class TestPaperSourceScopes:
             strategies=(cls._strategy("alpha"), cls._strategy("beta")),
             input_identity="okx-first-book",
             scenario=cls._scenario(cls.first, "okx"),
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
             submission_authority="shadow" if config.mode == "shadow" else "paper",
             additional_sources=(
                 PaperSourceBinding(

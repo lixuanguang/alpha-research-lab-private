@@ -82,7 +82,7 @@ class TestPaperOrderJournal:
             path,
             account="paper-account",
             instance="signal-a",
-            binding_identity="candidate-and-config-v1",
+            binding_identity="candidate-and-config",
             mode="paper",
             limits=cls._limits(),
             ledger_state=cls._state(with_holding=with_holding),

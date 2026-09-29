@@ -1,6 +1,6 @@
 """Run bounded Alphalens diagnostics over a verified MR3 result payload.
 
-The adapter consumes the existing ``feature-study-result-v1`` wire contract.
+The adapter consumes the existing ``feature-study-result`` wire contract.
 It never calculates a label from prices and never treats a pending label as an
 observation.  Alphalens Reloaded and pandas are pinned core dependencies; they
 are imported only when a report is run to keep experiment identity and
@@ -30,10 +30,10 @@ if TYPE_CHECKING:
 
 
 type FactorDirection = Literal["ascending", "descending"]
-type QuantileRule = Literal["equal-frequency-qcut-v1"]
-type PriceConvention = Literal["forward-last-over-frozen-base-v1"]
+type QuantileRule = Literal["equal-frequency-qcut"]
+type PriceConvention = Literal["forward-last-over-frozen-base"]
 
-_PRICE_CONVENTION: PriceConvention = "forward-last-over-frozen-base-v1"
+_PRICE_CONVENTION: PriceConvention = "forward-last-over-frozen-base"
 
 
 class DiagnosticDrop(WireRecord, frozen=True, kw_only=True):
@@ -85,7 +85,7 @@ class DiagnosticMetric(WireRecord, frozen=True, kw_only=True):
 class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
     """Declare one bounded cross-sectional Alphalens comparison."""
 
-    schema_version: Literal["alphalens-study-v1"] = "alphalens-study-v1"
+    schema_version: Literal["alphalens-study"] = "alphalens-study"
     selection_identity: str
     universe: tuple[str, ...] = ()
     factor_direction: FactorDirection = "ascending"
@@ -93,7 +93,7 @@ class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
     price_convention: PriceConvention = _PRICE_CONVENTION
     groups: tuple[tuple[str, str], ...] = ()
     quantiles: int = 5
-    quantile_rule: QuantileRule = "equal-frequency-qcut-v1"
+    quantile_rule: QuantileRule = "equal-frequency-qcut"
     demeaned: bool = True
     group_adjust: bool = False
     known_at: datetime | None = None
@@ -101,7 +101,7 @@ class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Validate source, universe, factor, horizon and quantile choices."""
         if (
-            self.schema_version != "alphalens-study-v1"
+            self.schema_version != "alphalens-study"
             or not FeatureStudyResult.is_fingerprint(self.selection_identity)
             or self.factor_direction not in ("ascending", "descending")
             or type(self.horizon_us) is not int
@@ -109,7 +109,7 @@ class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
             or self.price_convention != _PRICE_CONVENTION
             or type(self.quantiles) is not int
             or not 2 <= self.quantiles <= 20
-            or self.quantile_rule != "equal-frequency-qcut-v1"
+            or self.quantile_rule != "equal-frequency-qcut"
             or type(self.demeaned) is not bool
             or type(self.group_adjust) is not bool
         ):
@@ -146,7 +146,7 @@ class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
 class AlphalensReport(WireRecord, frozen=True, kw_only=True):
     """Retain Alphalens metrics, exclusions and ClearML-ready report bytes."""
 
-    schema_version: Literal["alphalens-report-v1"] = "alphalens-report-v1"
+    schema_version: Literal["alphalens-report"] = "alphalens-report"
     selection_identity: str
     universe: tuple[str, ...]
     factor_direction: FactorDirection
@@ -171,7 +171,7 @@ class AlphalensReport(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Validate immutable metadata, metrics and nonempty report artifacts."""
         if (
-            self.schema_version != "alphalens-report-v1"
+            self.schema_version != "alphalens-report"
             or not FeatureStudyResult.is_fingerprint(self.selection_identity)
             or type(self.report_json) is not bytes
             or not self.report_json
@@ -181,7 +181,7 @@ class AlphalensReport(WireRecord, frozen=True, kw_only=True):
             or self.horizon_us < 0
             or type(self.quantiles) is not int
             or self.quantiles < 2
-            or self.quantile_rule != "equal-frequency-qcut-v1"
+            or self.quantile_rule != "equal-frequency-qcut"
             or type(self.demeaned) is not bool
             or type(self.group_adjust) is not bool
             or self.price_convention != _PRICE_CONVENTION
@@ -783,7 +783,7 @@ class AlphalensDiagnostics:
     ) -> AlphalensReport:
         """Materialize a typed summary and deterministic ClearML-ready artifacts."""
         summary = {
-            "schema_version": "alphalens-report-v1",
+            "schema_version": "alphalens-report",
             "selection_identity": study.selection_identity,
             "universe": universe,
             "factor_direction": study.factor_direction,

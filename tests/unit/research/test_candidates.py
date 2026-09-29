@@ -114,8 +114,8 @@ class TestCandidateBundles:
         selected_chart = Fingerprint(name="ledger-curve", sha256=_CHART_SHA256)
         feature_schema = codec.encode_json(
             {
-                "schema_version": "feature-schema-v1",
-                "implementation": "feature-algorithm-v1",
+                "schema_version": "feature-schema",
+                "implementation": "feature-algorithm",
                 "mode": "batch",
                 "inputs": (market_input,),
             }
@@ -124,19 +124,19 @@ class TestCandidateBundles:
         payloads: dict[str, bytes] = {
             "dataset-selection": codec.encode_json(
                 {
-                    "schema_version": "decision-study-v1",
+                    "schema_version": "decision-study",
                     "family": "candidate-reference",
-                    "source_identity": "saved-okx-decision-source-v1",
+                    "source_identity": "saved-okx-decision-source",
                     "feature_identity": feature_identity,
-                    "policy_identity": "policy-v1",
-                    "model_identity": "nearest-example-v1" if learned else None,
-                    "transform_identity": "fitted-center-v1" if learned else None,
+                    "policy_identity": "policy",
+                    "model_identity": "nearest-example" if learned else None,
+                    "transform_identity": "fitted-center" if learned else None,
                     "output": "target",
                     "calendar": "always-open",
                     "economics": {
-                        "schema_version": "offline-intent-simulation-v1",
+                        "schema_version": "offline-intent-simulation",
                         "entity": "ETH-USDT",
-                        "source_identity": "saved-okx-execution-market-v1",
+                        "source_identity": "saved-okx-execution-market",
                     },
                     "metrics": (selected_metric,),
                     "charts": (selected_chart,),
@@ -151,8 +151,8 @@ class TestCandidateBundles:
         if learned:
             payloads.update(
                 {
-                    "transform-version": b'{"implementation":"fitted-center-v1"}',
-                    "estimator-version": b'{"implementation":"nearest-example-v1"}',
+                    "transform-version": b'{"implementation":"fitted-center"}',
+                    "estimator-version": b'{"implementation":"nearest-example"}',
                     "transform-parameters": b'{"kind":"center"}',
                     "estimator-parameters": b'{"k":"1"}',
                 }
@@ -174,9 +174,7 @@ class TestCandidateBundles:
             else None
         )
         spec = ExperimentSpec(
-            schema_version=(
-                "experiment-spec-v1" if empirical else "experiment-engineering-sample-v1"
-            ),
+            schema_version=("experiment-spec" if empirical else "experiment-engineering-sample"),
             family="candidate-reference",
             inputs=(
                 Fingerprint(
@@ -195,7 +193,7 @@ class TestCandidateBundles:
         )
         payloads["study-report"] = codec.encode_json(
             {
-                "schema_version": "study-report-v1",
+                "schema_version": "study-report",
                 "study_identity": spec.identity,
                 "selected_metrics": (selected_metric,),
                 "selected_charts": (selected_chart,),
@@ -246,7 +244,7 @@ class TestCandidateBundles:
             CandidateComponent(
                 role="policy",
                 factory_key="policy-reference",
-                identity="policy-v1",
+                identity="policy",
                 implementation_sha256=_CODE_SHA256,
                 parameters=artifacts["policy-parameters"],
             ),
@@ -271,14 +269,14 @@ class TestCandidateBundles:
                     CandidateComponent(
                         role="transform",
                         factory_key="fitted-center",
-                        identity="fitted-center-v1",
+                        identity="fitted-center",
                         implementation_sha256=_CODE_SHA256,
                         parameters=artifacts["transform-parameters"],
                     ),
                     CandidateComponent(
                         role="estimator",
                         factory_key="nearest-example",
-                        identity="nearest-example-v1",
+                        identity="nearest-example",
                         implementation_sha256=_CODE_SHA256,
                         parameters=artifacts["estimator-parameters"],
                     ),
@@ -286,7 +284,7 @@ class TestCandidateBundles:
             )
         manifest = CandidateManifest(
             name="candidate-reference",
-            version="reference-v1",
+            version="reference",
             qualification="empirical" if empirical else "engineering",
             code_sha256=_CODE_SHA256,
             environment_sha256=_ENVIRONMENT_SHA256,
@@ -314,7 +312,7 @@ class TestCandidateBundles:
                 checkpoint_schema=None,
                 on_gap="pause",
                 on_restart="reset",
-                policy_state_schema="policy-state-v1",
+                policy_state_schema="policy-state",
             ),
             metrics=(
                 CandidateMetricContract(
@@ -395,7 +393,7 @@ class TestCandidateBundles:
         """Valid JSON parameters cannot rewrite selected decision or report definitions."""
         manifest, payloads = self._bundle_inputs(tmp_path)
         policy_components = tuple(
-            replace(component, identity="unselected-policy-v1")
+            replace(component, identity="unselected-policy")
             if component.role == "policy"
             else component
             for component in manifest.components

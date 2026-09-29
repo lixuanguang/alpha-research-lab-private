@@ -523,7 +523,7 @@ class TestPaperExecutionApplication:
         monkeypatch.setattr(sys, "argv", ["alpha-execute", "inspect", "--config", str(config)])
         execute_main()
         inspection = self._json_object(capsys.readouterr().out)
-        assert inspection["schema_version"] == "execution-admission-v1"
+        assert inspection["schema_version"] == "execution-admission"
         assert inspection["submission_available"] is False
         monkeypatch.setattr(
             sys,

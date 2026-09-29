@@ -37,14 +37,14 @@ class ComparisonStudy(WireRecord, frozen=True):
     seed: int
     minimum_return: ExactRatio
     prune_below: ExactRatio | None = None
-    objective: str = "exact-net-return-v1"
-    schema_version: str = "research-comparison-v1"
+    objective: str = "exact-net-return"
+    schema_version: str = "research-comparison"
 
     def __post_init__(self) -> None:
         """Refuse incompatible inputs, changed partitions and unsupported unbounded searches."""
         if (
-            self.schema_version != "research-comparison-v1"
-            or self.objective != "exact-net-return-v1"
+            self.schema_version != "research-comparison"
+            or self.objective != "exact-net-return"
             or type(self.name) is not str
             or not self.name.strip()
             or type(self.variants) is not tuple

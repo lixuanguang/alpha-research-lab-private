@@ -25,14 +25,14 @@ class ModelSignature(WireRecord, frozen=True, kw_only=True):
     feature_identity: str
     label_identity: str
     units: Literal["dimensionless"] = "dimensionless"
-    numerical_contract: Literal["exact-rational-v1"] = "exact-rational-v1"
+    numerical_contract: Literal["exact-rational"] = "exact-rational"
 
     def __post_init__(self) -> None:
         """Reject incompatible order, units, definitions and numerical representation."""
         if (
             self.feature_order != ("trailing_return",)
             or self.units != "dimensionless"
-            or self.numerical_contract != "exact-rational-v1"
+            or self.numerical_contract != "exact-rational"
         ):
             raise ValueError("unsupported model feature order, units or numerical contract")
         Fingerprint(name="feature", sha256=self.feature_identity)

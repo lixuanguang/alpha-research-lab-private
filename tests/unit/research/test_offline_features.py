@@ -68,10 +68,10 @@ class TestOfflineFeatureAccess:
             units="dimensionless",
             ttl_us=ttl_us,
             sdk_version="0.66.0",
-            definition_version="trailing-return-v1",
+            definition_version="trailing-return",
             definition_bytes=b"feature definition bytes v1",
             registry_bytes=b"registry bytes v1",
-            source_version="source-snapshot-v1",
+            source_version="source-snapshot",
             source_sha256=_SOURCE_SHA256,
         )
 
@@ -221,7 +221,7 @@ class TestFeastWorkerRows:
         return {
             "feature_name": "trailing_return",
             "feature_ref": "trailing_return:trailing_return",
-            "source_version": "source-v1",
+            "source_version": "source",
             "source_sha256": "a" * 64,
             "ttl_us": 1_000_000,
             "units": "dimensionless",
@@ -251,9 +251,9 @@ class TestFeastWorkerRows:
 
         assert rows == [
             {
-                "schema_version": "feature-observation-v1",
+                "schema_version": "feature-observation",
                 "definition_identity": "b" * 64,
-                "source_version": "source-v1",
+                "source_version": "source",
                 "source_sha256": "a" * 64,
                 "feature_name": "trailing_return",
                 "entity_type": "instrument",

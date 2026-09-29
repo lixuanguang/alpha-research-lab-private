@@ -23,12 +23,12 @@ class FeatureSchema(WireRecord, frozen=True):
     parameters: tuple[tuple[str, str], ...]
     mode: Literal["batch", "incremental"]
     ttl_us: int
-    schema_version: Literal["feature-schema-v1"] = "feature-schema-v1"
+    schema_version: Literal["feature-schema"] = "feature-schema"
 
     def __post_init__(self) -> None:
         """Refuse ambiguous signatures, unsupported lifecycle and implicit freshness."""
         if (
-            self.schema_version != "feature-schema-v1"
+            self.schema_version != "feature-schema"
             or not isinstance(self.implementation, str)
             or not self.implementation.strip()
         ):
@@ -188,11 +188,11 @@ class FeatureCheckpoint(WireRecord, frozen=True):
     information_start: datetime | None
     state: bytes
     sha256: str
-    schema_version: Literal["feature-checkpoint-v1"] = "feature-checkpoint-v1"
+    schema_version: Literal["feature-checkpoint"] = "feature-checkpoint"
 
     def __post_init__(self) -> None:
         """Detect corrupted or unsafe copied state; this is integrity, not authentication."""
-        if self.schema_version != "feature-checkpoint-v1" or type(self.state) is not bytes:
+        if self.schema_version != "feature-checkpoint" or type(self.state) is not bytes:
             raise ValueError("invalid feature checkpoint schema/state")
         if any(type(v) is not str or not v for v in (self.definition, self.instance, self.entity)):
             raise ValueError("checkpoint requires definition, instance and entity")
@@ -331,7 +331,7 @@ class ProjectionFeature:
         """Require an explicit one-to-one mapping with matching units and no parameters."""
         schema.__post_init__()
         if (
-            schema.implementation != "named-projection-v1"
+            schema.implementation != "named-projection"
             or schema.mode != "batch"
             or schema.parameters
             or tuple(r.field.units for r in schema.inputs) != tuple(f.units for f in schema.outputs)
@@ -370,7 +370,7 @@ class RunningMeanFeature:
         """Require the explicit incremental mean definition and unchanged units."""
         schema.__post_init__()
         if (
-            schema.implementation != "running-mean-v1"
+            schema.implementation != "running-mean"
             or schema.mode != "incremental"
             or schema.parameters
             or tuple(r.field.units for r in schema.inputs) != tuple(f.units for f in schema.outputs)

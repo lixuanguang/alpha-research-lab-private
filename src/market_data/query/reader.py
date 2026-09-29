@@ -227,7 +227,7 @@ class QueryReader:
         identity = hashlib.sha256(
             self._codec.encode_json(
                 (
-                    "reference-query-v1",
+                    "reference-query",
                     self._identity,
                     self._precedence,
                     tuple(sorted(map(str, instruments))),

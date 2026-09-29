@@ -28,11 +28,11 @@ class PortfolioContext(WireRecord, frozen=True):
     settlement: str
     risk_bucket: str
     authority_scope: str
-    schema_version: Literal["portfolio-context-v1"] = "portfolio-context-v1"
+    schema_version: Literal["portfolio-context"] = "portfolio-context"
 
     def __post_init__(self) -> None:
         """Reject missing or unbounded attribution and authority metadata."""
-        if self.schema_version != "portfolio-context-v1":
+        if self.schema_version != "portfolio-context":
             raise ValueError("unsupported portfolio context schema")
         for value in (
             self.portfolio_id,

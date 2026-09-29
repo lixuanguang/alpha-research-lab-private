@@ -131,7 +131,7 @@ def _payload(
                 )
             )
     return FeatureStudyResult(
-        schema_version="feature-study-result-v1",
+        schema_version="feature-study-result",
         selection_identity=_SELECTION,
         feature_definition=feature_definition,
         label_definition=label_definition,
@@ -149,8 +149,8 @@ def _study(
     direction: str = "ascending",
     known_at: datetime | None = _START + timedelta(seconds=31),
     assets: tuple[InstrumentId, ...] = _ASSETS,
-    quantile_rule: str = "equal-frequency-qcut-v1",
-    price_convention: str = "forward-last-over-frozen-base-v1",
+    quantile_rule: str = "equal-frequency-qcut",
+    price_convention: str = "forward-last-over-frozen-base",
     demeaned: bool = True,
     group_adjust: bool = False,
 ) -> AlphalensStudy:
@@ -218,9 +218,9 @@ class TestAlphalensDiagnostics:
         assert report.inapplicable_reason == "the selected quantile rule produced no eligible rows"
         assert {drop.reason for drop in report.dropped_rows} == {"quantile unavailable"}
         with pytest.raises(ValueError, match="invalid Alphalens"):
-            _study(quantile_rule="rank-first-v1")
+            _study(quantile_rule="rank-first")
         with pytest.raises(ValueError, match="invalid Alphalens"):
-            _study(price_convention="spot-close-v1")
+            _study(price_convention="spot-close")
 
     def test_daily_membership_swap_has_native_turnover(self) -> None:
         """A daily quantile membership swap produces concrete native turnover values."""

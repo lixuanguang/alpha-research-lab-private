@@ -219,7 +219,7 @@ class _Run:
                     name="retained-prediction-error",
                     version="1",
                     implementation_sha256=hashlib.sha256(
-                        b"installed-delayed-label-error-v1"
+                        b"installed-delayed-label-error"
                     ).hexdigest(),
                     inputs=(
                         MetricInput(

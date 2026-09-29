@@ -572,7 +572,7 @@ class TestFeatureStudies:
         payload = study.evaluate(_AdmittedPrices(reader, request))
         result = FeatureStudyResult.decode(payload)
         expected_fields = {
-            "schema_version": "feature-study-result-v1",
+            "schema_version": "feature-study-result",
             "selection_identity": study.selection.identity,
             "feature_definition": study.feature,
             "label_definition": study.label,
@@ -604,7 +604,7 @@ class TestFeatureStudies:
 
     def test_formal_inspector_passes_registered_feature_engine(self, tmp_path: Path) -> None:
         """Resolve an injected feature engine through the formal retained workflow."""
-        study = replace(self._study(), feature_implementation="delegating-trailing-v1")
+        study = replace(self._study(), feature_implementation="delegating-trailing")
         config = tmp_path / "study.json"
         config.write_bytes(_CODEC.encode_json(study))
         request = TestPriceDiagnostics._request()
@@ -635,7 +635,7 @@ class TestFeatureStudies:
             return _DelegatingFeature(definition)
 
         registry = FeatureRegistry()
-        registry.register("delegating-trailing-v1", factory)
+        registry.register("delegating-trailing", factory)
         with (
             patch("applications.explore.workflow.ResearchReader", return_value=reader),
             patch(

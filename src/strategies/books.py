@@ -73,8 +73,8 @@ class BookRules:
     def __init__(self) -> None:
         """Install the bounded L2 rule and no-trade control."""
         self._types: dict[str, type[BookRule]] = {
-            "book-imbalance-v1": BookImbalance,
-            "book-no-trade-v1": BookNoTrade,
+            "book-imbalance": BookImbalance,
+            "book-no-trade": BookNoTrade,
         }
 
     def register(self, identity: str, rule: type[BookRule]) -> None:

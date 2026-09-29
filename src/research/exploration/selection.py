@@ -69,13 +69,13 @@ class ResearchSelection(WireRecord, frozen=True, kw_only=True):
     occurs. The sum of declared byte caps bounds canonical inputs, not total RSS.
     """
 
-    schema_version: Literal["research-selection-v1"] = "research-selection-v1"
+    schema_version: Literal["research-selection"] = "research-selection"
     inputs: tuple[TradeSelection | BookSelection | PublicTradeSelection | ReferenceSelection, ...]
 
     def __post_init__(self) -> None:
         """Reject ambiguous names, unsupported input types and mixed knowledge cutoffs."""
         if (
-            self.schema_version != "research-selection-v1"
+            self.schema_version != "research-selection"
             or type(self.inputs) is not tuple
             or not self.inputs
             or any(

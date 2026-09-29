@@ -38,12 +38,12 @@ It is available in the independently installed execution wheel without research
 dependencies. The programmatic `MonitoringApplication` is exported with the
 other execution application APIs.
 
-`ExecutionConfiguration` (`execution-admission-v1`) binds the environment,
+`ExecutionConfiguration` (`execution-admission`) binds the environment,
 research/paper/shadow mode, mode-scoped credential reference, execution capability
 profile, reference history, maximum quantity and quote currency. Credential
 values never appear in the configuration. A production mode, executable profile,
 foreign environment or mismatched credential mode fails before reading an intent.
-The admission state schema is `none-v1`; admission requests do not mutate the
+The admission state schema is `none`; admission requests do not mutate the
 paper order journal.
 
 `ExecutionRequest` separately supplies an `OrderIntent`, account cash/holdings,
@@ -69,7 +69,7 @@ alpha-execute paper --config /absolute/paper-config.json \
 ```
 
 The last form inspects the local paper account without a request. `paper` loads
-`PaperConfiguration` (`paper-runtime-v1`) with a dedicated flat initial account,
+`PaperConfiguration` (`paper-runtime`) with a dedicated flat initial account,
 fixed spot tick/lot/holding limits, bounded fee and market scenario. The journal
 binds the full configuration identity and explicit instance; changing either
 cannot reopen the same state. Fixed authored grids have `qualification=fixture`
@@ -157,7 +157,7 @@ alpha-execute account --config /absolute/accounts.json \
   --journal /absolute/accounts.sqlite3
 ```
 
-`AccountConfiguration` pins `account-runtime-v1`, local `paper`/`shadow` mode,
+`AccountConfiguration` pins `account-runtime`, local `paper`/`shadow` mode,
 opening currency funding, spot instrument mechanics and a `BudgetPolicy`.
 `AccountExecutionRequest` selects exactly one action: `quote` records the
 independent market observation; `admit` submits an attributable `AccountDecision`;
@@ -205,7 +205,7 @@ observations or venue-rule qualification.
 
 ## Test-venue commands
 
-`alpha-execute venue` uses `VenueExecutionConfiguration` (`venue-execution-v1`),
+`alpha-execute venue` uses `VenueExecutionConfiguration` (`venue-execution`),
 an `AccountConfiguration` in explicit `venue_test` mode and the existing account
 journal. The configuration includes the expected physical `venue_account_id`,
 canonical/native instrument mapping, current reference history and credential
@@ -314,8 +314,8 @@ installed commands. It is quant-development software evidence, not a venue test.
 
 ## Managed paper activation requests
 
-The signed target uses execution `paper`, `account-runtime-v1` configuration
-and `account-journal-v4` state. `AccountExecutionRequest` and
+The signed target uses execution `paper`, `account-runtime` configuration
+and `account-journal` state. `AccountExecutionRequest` and
 `AccountExecutionResult` are execution-owned public wire APIs. The existing
 `alpha-execute account` command accepts these additional actions:
 

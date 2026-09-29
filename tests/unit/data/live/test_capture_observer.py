@@ -166,7 +166,7 @@ class TestCaptureObserver:
         boundaries = tuple(row for row in rows if row["kind"] == "capture_boundary")
         queues = tuple(row for row in rows if row["kind"] == "queue")
         assert len(boundaries) == 2
-        assert all(row["schema_version"] == "runtime-measurement-v1" for row in rows)
+        assert all(row["schema_version"] == "runtime-measurement" for row in rows)
         assert [row["cursor"] for row in boundaries] == [2, 3]
         assert [row["outcome"] for row in boundaries] == ["acknowledgement", "snapshot"]
         for row in boundaries:

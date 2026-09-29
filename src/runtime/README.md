@@ -172,7 +172,7 @@ each policy in its own `DecisionSession`. Session identity binds the selected
 account configuration, instance, entity, policy, portfolio context and fee
 reserve. Target/exposure and order/quote decisions both pass through the same
 independent account admission. Policy continuations use the
-`shared-decision-v1` checkpoint and are committed with their portfolio batch.
+`shared-decision` checkpoint and are committed with their portfolio batch.
 Each request carries the digest of the previously saved instance checkpoint;
 the account transaction checks that precondition before committing, so a stale
 concurrent decision cannot overwrite a newer policy state. Exact batch retries

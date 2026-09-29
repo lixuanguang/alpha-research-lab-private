@@ -57,7 +57,7 @@ def main() -> None:
         timezone_name="America/New_York",
     )
     version_info = CalendarSourceVersion(
-        calendar_version="smoke-v1",
+        calendar_version="smoke",
         base_source="exchange_calendars",
         base_source_revision="4.13.2",
         adapter_name="exchange_calendars",

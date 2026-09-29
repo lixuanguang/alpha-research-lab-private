@@ -92,7 +92,7 @@ class MonitoringEvent(WireRecord, frozen=True):
     revision: int = 0
     clock_quality: Literal["observed", "modeled", "unknown"] = "observed"
     sensitivity: Literal["public", "internal"] = "internal"
-    schema_version: Literal["monitoring-event-v1"] = "monitoring-event-v1"
+    schema_version: Literal["monitoring-event"] = "monitoring-event"
 
     def __post_init__(self) -> None:
         """Enforce exact values, causal clocks and immutable versioned sample semantics."""
@@ -116,7 +116,7 @@ class MonitoringEvent(WireRecord, frozen=True):
         else:
             self.value.__post_init__()
         if (
-            self.schema_version != "monitoring-event-v1"
+            self.schema_version != "monitoring-event"
             or self.clock_quality not in ("observed", "modeled", "unknown")
             or self.sensitivity not in ("public", "internal")
         ):

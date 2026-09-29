@@ -58,7 +58,7 @@ class _Feature:
     def __init__(self, requirement: InputRequirement) -> None:
         """Bind the exact input and output signatures."""
         self._schema = FeatureSchema(
-            implementation="installed-square-signal-v1",
+            implementation="installed-square-signal",
             inputs=(requirement,),
             outputs=(
                 NumericField(name="signal", units="dimensionless"),
@@ -105,7 +105,7 @@ class _Labels:
     @property
     def identity(self) -> str:
         """Pin this synthetic one-second outcome definition."""
-        return "installed-next-value-label-v1"
+        return "installed-next-value-label"
 
     def read(self, row: FeatureVector, *, as_of: datetime) -> Outcome:
         """Retain a separately available label without presenting it to the policy."""
@@ -132,7 +132,7 @@ class _Estimator:
     @property
     def identity(self) -> str:
         """Identify the installed external estimator contract."""
-        return "installed-training-only-estimator-v1"
+        return "installed-training-only-estimator"
 
     def fit(self, rows: tuple[FeatureVector, ...], outcomes: tuple[ExactRatio, ...]) -> bytes:
         """Reject validation or holdout values in the fit call."""
@@ -154,7 +154,7 @@ class _ShiftTransform:
     @property
     def identity(self) -> str:
         """Pin the external exact-shift implementation."""
-        return "installed-train-only-shift-v1"
+        return "installed-train-only-shift"
 
     def fit(self, rows: tuple[FeatureVector, ...]) -> bytes:
         """Reject validation and holdout rows before persisting an exact mean."""
@@ -192,7 +192,7 @@ class _ShiftedEstimator:
     @property
     def identity(self) -> str:
         """Pin a separate transformed estimator implementation."""
-        return "installed-shifted-estimator-v1"
+        return "installed-shifted-estimator"
 
     def fit(self, rows: tuple[FeatureVector, ...], outcomes: tuple[ExactRatio, ...]) -> bytes:
         """Check the exact centered training values and aligned outcomes."""
@@ -247,7 +247,7 @@ class _TargetPolicy:
     @property
     def identity(self) -> str:
         """Pin behavior and authored parameter choice."""
-        return f"installed-target-{self._threshold}-{'fail' if self._fail else 'run'}-v1"
+        return f"installed-target-{self._threshold}-{'fail' if self._fail else 'run'}"
 
     @property
     def output(self) -> Literal["target"]:
@@ -302,7 +302,7 @@ class _OrderPolicy:
     @property
     def identity(self) -> str:
         """Pin the selected passive order rule."""
-        return "installed-passive-bid-99-v1"
+        return "installed-passive-bid-99"
 
     @property
     def output(self) -> Literal["order"]:
@@ -351,7 +351,7 @@ class _Market:
     @property
     def identity(self) -> str:
         """Identify the authored source and clock interpretation."""
-        return "installed-synthetic-l2-passive-v1" if self._passive else "installed-synthetic-l2-v1"
+        return "installed-synthetic-l2-passive" if self._passive else "installed-synthetic-l2"
 
     def read(self, window: TimeWindow) -> tuple[IntentMarket, ...]:
         """Supply pre-window touch and terminal valuation without inventing fills."""
@@ -446,7 +446,7 @@ class _FillCountMetric:
         """Identify this custom report computation."""
         return Fingerprint(
             name="installed-fill-count",
-            sha256=hashlib.sha256(b"installed-fill-count-v1").hexdigest(),
+            sha256=hashlib.sha256(b"installed-fill-count").hexdigest(),
         )
 
     def evaluate(self, context: ReportContext) -> MetricValue:
@@ -481,7 +481,7 @@ class _ProfitChart:
         """Identify this custom selected chart."""
         return Fingerprint(
             name="installed-fold-profit",
-            sha256=hashlib.sha256(b"installed-fold-profit-v1").hexdigest(),
+            sha256=hashlib.sha256(b"installed-fold-profit").hexdigest(),
         )
 
     def evaluate(self, context: ReportContext) -> ChartSpec:

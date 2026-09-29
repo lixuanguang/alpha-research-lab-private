@@ -99,7 +99,7 @@ def main() -> int:
     codec = evidence.codec
     spec = codec.decode_json(args.spec.read_bytes(), BacktestSpec)
     control = codec.decode_json(args.control.read_bytes(), BacktestSpec)
-    assert control.rule == "no-trade-v1"
+    assert control.rule == "no-trade"
     assert replace(control, instance=spec.instance, rule=spec.rule) == spec
     manifest = codec.decode_json(args.manifest.read_bytes(), AcquisitionManifest)
     raw = RawStore(args.raw)

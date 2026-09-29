@@ -46,7 +46,7 @@ class MetricSpec(WireRecord, frozen=True):
     aggregation: Literal["last", "sum", "mean", "maximum", "custom"]
     missingness: str
     stale_after_seconds: int | None = None
-    schema_version: Literal["metric-spec-v1"] = "metric-spec-v1"
+    schema_version: Literal["metric-spec"] = "metric-spec"
 
     def __post_init__(self) -> None:
         """Reject ambiguous input names, missing units and unsupported schemas."""
@@ -81,7 +81,7 @@ class MetricSpec(WireRecord, frozen=True):
             or not 1 <= self.stale_after_seconds <= 31_536_000
         ):
             raise ValueError("metric freshness budget must be bounded")
-        if self.schema_version != "metric-spec-v1":
+        if self.schema_version != "metric-spec":
             raise ValueError("unsupported metric schema")
 
     @property
@@ -122,7 +122,7 @@ class MetricResult(WireRecord, frozen=True):
     reason: str | None
     input_ids: tuple[str, ...]
     points: tuple[MetricPoint, ...] = ()
-    schema_version: Literal["metric-result-v1"] = "metric-result-v1"
+    schema_version: Literal["metric-result"] = "metric-result"
 
     def __post_init__(self) -> None:
         """Reject incompatible output, ambiguous missingness and unbounded references."""
@@ -163,7 +163,7 @@ class MetricResult(WireRecord, frozen=True):
                 raise ValueError("metric points must be distinct and ordered within the query")
             seen.add(point.sample)
             previous = point.at
-        if self.schema_version != "metric-result-v1":
+        if self.schema_version != "metric-result":
             raise ValueError("unsupported metric result schema")
 
 

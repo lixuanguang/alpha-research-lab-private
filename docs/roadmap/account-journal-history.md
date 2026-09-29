@@ -41,7 +41,7 @@ for an instance, and to produce reports. None needs the full history in memory.
 
 ## Policy
 
-- `account-journal-v4` is the only account state schema. Code, governance records,
+- `account-journal` is the only account state schema. Code, governance records,
   installation policy and `PaperDeployment.state_schema` admit nothing else, and no
   earlier journal format is read, converted or migrated.
 - Every installed account release is managed: the installer passes its release
@@ -83,7 +83,7 @@ hashes every table.
 3. **Governance and deployment.** Release records, installation policy, the
    installer's paper-scope and pristine-state checks, `PaperDeployment` and the
    [operations runbook](../governance/operations.md) admit only
-   `account-journal-v4`; unmanaged installed account releases and the signed account
+   `account-journal`; unmanaged installed account releases and the signed account
    installation consumer were removed.
 
 ## Qualification declaration (2026-09-29)
@@ -220,8 +220,8 @@ no historical one-sided replay (superseded by the
 and an added recovery-suffix parity.
 
 **Candidate and authority.** Four signed execution `paper` targets (OKX shared and
-isolated, Bitfinex shared and isolated) with `account-runtime-v1` configuration and
-`account-journal-v4` state. They are built by a new ephemeral local builder,
+isolated, Bitfinex shared and isolated) with `account-runtime` configuration and
+`account-journal` state. They are built by a new ephemeral local builder,
 `local-account-history`, whose private key is mode 0600 outside the repository; the
 earlier builder key did not survive a host restart. Its installation policy trusts
 only that builder for seven days and admits only those two schemas. Dependencies are

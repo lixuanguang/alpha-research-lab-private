@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "fixture_id": "c02-calendar-golden-v1",
+  "fixture_id": "c02-calendar-golden",
   "synthetic": true,
   "authority": "synthetic_fixture",
   "adapter_name": "exchange_calendars",

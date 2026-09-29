@@ -63,7 +63,7 @@ class TestRawObject:
         return RawFiles.describe(
             path,
             request=source_request.binding,
-            retrieval_reference="synthetic:raw-object-v1",
+            retrieval_reference="synthetic:raw-object",
             ts_received=_RECEIVED,
             ts_ingested=_INGESTED,
         )
@@ -87,7 +87,7 @@ class TestRawObject:
             )
         assert restored.ts_received == _RECEIVED
         assert restored.ts_ingested == _INGESTED
-        assert restored.retrieval_reference == "synthetic:raw-object-v1"
+        assert restored.retrieval_reference == "synthetic:raw-object"
         assert _CODEC.encode_json(restored) == encoded
         with pytest.raises(AttributeError):
             setattr(restored, "size_bytes", 0)
@@ -103,7 +103,7 @@ class TestRawObject:
         descriptor = RawFiles.describe(
             path,
             request=source_request.binding,
-            retrieval_reference="synthetic:gzip-fixture-v1",
+            retrieval_reference="synthetic:gzip-fixture",
             ts_received=_RECEIVED,
             ts_ingested=_INGESTED,
         )

@@ -1104,8 +1104,8 @@ The owner decided the three remaining stage-1 gaps after their costs were report
 the commit adding this section, frozen by hash, with drivers and evidence under ignored
 `logs/runtime-capacity/stage1-residual/`, ported from the
 [account journal stage-1 drivers](account-journal-history.md#signed-stage-1-declaration-2026-09-29).
-Four signed `paper` targets with `account-runtime-v1` configuration and
-`account-journal-v4` state, built by the ephemeral local builder key with a new
+Four signed `paper` targets with `account-runtime` configuration and
+`account-journal` state, built by the ephemeral local builder key with a new
 seven-day policy trusting only it; fresh journals, disabled deployments and ordinary
 one-hour grants; no grant, lifetime, budget or risk limit changes. Each step runs once
 and the cohort stops at the first failure.

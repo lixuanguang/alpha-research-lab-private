@@ -224,7 +224,7 @@ The consumer reconstructs separate native books, compares every boundary with th
 original decoder/projection, checks old cutoffs after later input and verifies a
 fresh rebuild. It retains selected/eligible coverage and original source identities.
 The native journals supply receipt only; the saved query workload explicitly uses
-`receipt-clock-as-availability-v1`. Original delivery is unknown in this workload.
+`receipt-clock-as-availability`. Original delivery is unknown in this workload.
 USD/USDT recordings remain separate. Authored comparable quotes demonstrate tied
 BBO and a paper fill at the selected venue even when another venue has a better
 ask. Paper restart cannot duplicate those modeled effects. This explicit retained

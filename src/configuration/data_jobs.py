@@ -69,7 +69,7 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
     mode: Literal["fixture", "historical"]
     pipeline: Literal["dataset.inspect", "acquisition.fetch"]
     partition: Literal["utc-minute", "utc-day"]
-    capture_policy: Literal["source-capture-v1", "exchange-time-only-v1"]
+    capture_policy: Literal["source-capture", "exchange-time-only"]
     source_revision: str
     rights_reference: str
     start: datetime
@@ -93,7 +93,7 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
             self.capture_policy,
         )
         if selection not in {
-            ("tardis", "binance", "spot", "raw", "trade", "utc-minute", "source-capture-v1"),
+            ("tardis", "binance", "spot", "raw", "trade", "utc-minute", "source-capture"),
             (
                 "binance-archive",
                 "binance",
@@ -101,7 +101,7 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
                 "raw",
                 "trade",
                 "utc-day",
-                "exchange-time-only-v1",
+                "exchange-time-only",
             ),
         }:
             raise ValueError("unsupported source/product/mode/pipeline or partition/capture policy")

@@ -21,7 +21,7 @@ class MonitoringConfiguration(WireRecord, frozen=True):
     query: MonitoringQuery
     metrics: tuple[MetricSpec, ...]
     dashboard: DashboardConfig
-    schema_version: Literal["monitoring-configuration-v1"] = "monitoring-configuration-v1"
+    schema_version: Literal["monitoring-configuration"] = "monitoring-configuration"
 
     def __post_init__(self) -> None:
         """Require every selected panel/rule to resolve to exactly one declared definition."""
@@ -40,7 +40,7 @@ class MonitoringConfiguration(WireRecord, frozen=True):
             self.dashboard.metric_identities
         ):
             raise ValueError("monitoring definitions differ from selected panels and alerts")
-        if self.schema_version != "monitoring-configuration-v1":
+        if self.schema_version != "monitoring-configuration":
             raise ValueError("unsupported monitoring configuration schema")
 
     @classmethod

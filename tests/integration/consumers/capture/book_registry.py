@@ -304,7 +304,7 @@ class _SelectedVenuePaperAcceptance:
         )
         group = BookEquivalence(
             name="synthetic-btc-usd",
-            reference="synthetic:authored-comparability-v1",
+            reference="synthetic:authored-comparability",
             members=tuple(source.key for source in synthetic),
             known_ns=0,
             valid_from_ns=0,
@@ -382,7 +382,7 @@ class _SelectedVenuePaperAcceptance:
             admitted = journal.commit_step(
                 epoch=epoch,
                 step_id="synthetic-buy",
-                checkpoint=b"selected-venue-paper-v1",
+                checkpoint=b"selected-venue-paper",
                 decision=OrderDecision(
                     identity="selected-venue-buy",
                     at=decision_at,
@@ -486,7 +486,7 @@ def main() -> None:
     synthetic = _SelectedVenuePaperAcceptance(output, sources).run()
     report: dict[str, object] = {
         "installed_package": str(installed),
-        "native_clock_assumption": "receipt-clock-as-availability-v1; original delivery unknown",
+        "native_clock_assumption": "receipt-clock-as-availability; original delivery unknown",
         "native_scope": "exploratory_degraded_per_venue_public_spot_books",
         "configuration_identity": config.identity,
         "inputs": [

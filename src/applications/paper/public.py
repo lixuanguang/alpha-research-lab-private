@@ -175,7 +175,7 @@ async def run_live_shared_paper(
         output.mkdir(parents=True, exist_ok=False)
         owns_output = True
         manifest = {
-            "schema_version": "public-paper-run-v1",
+            "schema_version": "public-paper-run",
             "account_configuration": config,
             "account_id": account_id,
             "execution_scenario": scenario,
@@ -183,7 +183,7 @@ async def run_live_shared_paper(
             "book_registry": books.config,
             "requirement": requirement,
             "input_binding": inputs.identity,
-            "paper_mark_policy": "last_eligible_bid_v1",
+            "paper_mark_policy": "last_eligible_bid",
             "strategies": tuple(
                 (binding.instance_id, binding.policy.identity, binding.context, binding.maximum_fee)
                 for binding in bindings

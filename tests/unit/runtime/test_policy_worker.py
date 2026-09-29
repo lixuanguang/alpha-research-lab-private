@@ -66,7 +66,7 @@ class TestPolicyWorker:
                 information_start=cls.at,
                 available_at=cls.at,
                 expires_at=cls.at + timedelta(seconds=1),
-                definition="reference-book-v1",
+                definition="reference-book",
                 fields=ReferenceClipPolicy.fields,
                 values=(
                     ExactRatio.from_fraction(ask_ratio),

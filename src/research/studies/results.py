@@ -19,13 +19,13 @@ class RunCheckpoint(WireRecord, frozen=True):
 
     run_identity: str
     economic: EconomicCheckpoint
-    schema_version: str = "configured-checkpoint-v1"
+    schema_version: str = "configured-checkpoint"
 
     def __post_init__(self) -> None:
         """Validate schema and complete economic state before resumption."""
         Fingerprint(name="run", sha256=self.run_identity)
         if (
-            self.schema_version != "configured-checkpoint-v1"
+            self.schema_version != "configured-checkpoint"
             or type(self.economic) is not EconomicCheckpoint
         ):
             raise ValueError("unsupported configured checkpoint")
@@ -36,12 +36,12 @@ class ResultManifest(WireRecord, frozen=True):
     """Commit exact artifact identities as the successful attempt's result."""
 
     artifacts: tuple[Fingerprint, ...]
-    schema_version: str = "research-result-v1"
+    schema_version: str = "research-result"
 
     def __post_init__(self) -> None:
         """Reject empty, duplicate or unsupported committed artifact inventories."""
         if (
-            self.schema_version != "research-result-v1"
+            self.schema_version != "research-result"
             or type(self.artifacts) is not tuple
             or not self.artifacts
         ):

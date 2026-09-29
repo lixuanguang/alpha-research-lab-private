@@ -36,7 +36,7 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
     The generated decision/instrument grid is limited to 16,384 rows.
     """
 
-    schema_version: Literal["feature-study-v1"] = "feature-study-v1"
+    schema_version: Literal["feature-study"] = "feature-study"
     family: str
     question: str
     selection: ResearchSelection
@@ -45,11 +45,11 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
     decisions: TimeWindow
     feature: TrailingReturn
     label: ForwardReturn | None
-    feature_implementation: str = "trailing-return-v1"
+    feature_implementation: str = "trailing-return"
 
     def __post_init__(self) -> None:
         """Reject unsupported sources, temporal leakage and unbounded materialized studies."""
-        if self.schema_version != "feature-study-v1":
+        if self.schema_version != "feature-study":
             raise ValueError("unsupported feature study schema")
         for text in (self.family, self.question):
             if type(text) is not str or not text.strip():
@@ -258,7 +258,7 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
             decision += timedelta(microseconds=definition.cadence_us)
         return codec.encode_json(
             FeatureStudyResult(
-                schema_version="feature-study-result-v1",
+                schema_version="feature-study-result",
                 selection_identity=self.selection.identity,
                 feature_definition=self.feature,
                 label_definition=self.label,

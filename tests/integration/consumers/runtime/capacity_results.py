@@ -317,7 +317,7 @@ class CapacityResultsCollector:
         queue_age_peak_ns = 0
         for line in self._read_lines(path):
             kind = msgspec.json.decode(line, type=_MeasurementKind)
-            if kind.schema_version != "runtime-measurement-v1":
+            if kind.schema_version != "runtime-measurement":
                 raise ValueError(f"unsupported capacity measurement schema: {path}")
             if kind.kind == "capture_boundary":
                 row = msgspec.json.decode(line, type=_CaptureBoundary)
@@ -420,7 +420,7 @@ class CapacityResultsCollector:
         for line in self._read_lines(path):
             row = msgspec.json.decode(line, type=_PaperBook)
             if (
-                row.schema_version != "runtime-measurement-v1"
+                row.schema_version != "runtime-measurement"
                 or row.kind != "paper_book"
                 or row.position <= previous_position
                 or row.book_started_ns < 0
@@ -1137,7 +1137,7 @@ class CapacityResultsCollector:
                 "status": "measured" if recordings else "unmeasured_no_recording",
             }
         return {
-            "schema_version": "runtime-capacity-result-v1",
+            "schema_version": "runtime-capacity-result",
             "evidence_class": "bounded_local_stage_1",
             "run_id": run.run_id,
             "public_venue": trial.public_venue,

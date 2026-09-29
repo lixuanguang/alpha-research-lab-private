@@ -43,7 +43,7 @@ class _AccumulatingOrder:
     @property
     def identity(self) -> str:
         """Pin this workload formula and its complete economic parameters."""
-        return DomainCodec().encode_json(("accumulating-order-v1", self.quantity, self.price)).hex()
+        return DomainCodec().encode_json(("accumulating-order", self.quantity, self.price)).hex()
 
     @property
     def output(self) -> Literal["order"]:
@@ -153,7 +153,7 @@ class TestSharedDecisions:
                     portfolio_id="cash-spot",
                     strategy_id=name,
                     model_revision="rule-only",
-                    config_revision="reference-v1",
+                    config_revision="reference",
                     horizon="short",
                     reason="reference-decision",
                     venue="fixture",
@@ -182,7 +182,7 @@ class TestSharedDecisions:
             information_start=at,
             available_at=at,
             expires_at=at + timedelta(seconds=1),
-            definition="signal-v1",
+            definition="signal",
             fields=(cls.field,),
             values=(ExactRatio(numerator="1", denominator="1"),),
             reasons=("authored",),

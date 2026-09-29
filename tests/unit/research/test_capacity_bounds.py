@@ -200,7 +200,7 @@ class TestResearchCapacityBounds:
             for index in range(row_count)
         )
         return FeatureStudyResult(
-            schema_version="feature-study-result-v1",
+            schema_version="feature-study-result",
             selection_identity="a" * 64,
             feature_definition=definition,
             label_definition=None,

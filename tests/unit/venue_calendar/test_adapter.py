@@ -74,7 +74,7 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
                         session_label=date(2024, 3, 11),
                         reason="Invalid unattributed override",
                         source="fixture.overrides",
-                        source_revision="override-v1",
+                        source_revision="override",
                     ),
                 ),
             )
@@ -92,7 +92,7 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
                         session_label=date(2024, 3, 11),
                         reason="Invalid mismatched override attribution",
                         source="fixture.other",
-                        source_revision="override-v1",
+                        source_revision="override",
                     ),
                 ),
             )

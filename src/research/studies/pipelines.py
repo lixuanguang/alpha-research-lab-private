@@ -37,7 +37,7 @@ class PipelineRun(WireRecord, frozen=True):
     dataset_version: DatasetVersion | None = None
     lakefs_endpoint: str | None = None
     comparison: ComparisonStudy | None = None
-    schema_version: str = "research-pipeline-v1"
+    schema_version: str = "research-pipeline"
 
     def __post_init__(self) -> None:
         """Refuse relative paths, missing identities and unsupported execution definitions."""
@@ -57,7 +57,7 @@ class PipelineRun(WireRecord, frozen=True):
         for digest in (self.implementation_sha256, self.environment_sha256, self.artifact_sha256):
             Fingerprint(name="pipeline", sha256=digest)
         if (
-            self.schema_version != "research-pipeline-v1"
+            self.schema_version != "research-pipeline"
             or type(self.max_bytes) is not int
             or self.max_bytes <= 0
             or not self.queue

@@ -256,7 +256,7 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
         "qualified": "qualified-provider-reviewed",
     }
     tier: Literal["exploratory", "witnessed", "qualified"]
-    correction_policy: Literal["evidenced-v1"] = "evidenced-v1"
+    correction_policy: Literal["evidenced"] = "evidenced"
     scope: Literal["exploratory_degraded", "causal_witnessed", "causal_qualified"] = (
         "exploratory_degraded"
     )
@@ -271,7 +271,7 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
         """
         if (
             self.tier not in self._availability
-            or self.correction_policy != "evidenced-v1"
+            or self.correction_policy != "evidenced"
             or self.scope not in ("exploratory_degraded", "causal_witnessed", "causal_qualified")
             or type(self.normalization_identity) is not str
             or re.fullmatch(r"[0-9a-f]{64}", self.normalization_identity) is None

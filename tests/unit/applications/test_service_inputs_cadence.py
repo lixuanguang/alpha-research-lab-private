@@ -20,7 +20,7 @@ def test_zero_cadence_is_part_of_feature_identity() -> None:
         every_book.identity
         == hashlib.sha256(
             DomainCodec().encode_json(
-                ("service-book-features-v1", ServiceBookInputs.fields, 30_000_000, 0)
+                ("service-book-features", ServiceBookInputs.fields, 30_000_000, 0)
             )
         ).hexdigest()
     )

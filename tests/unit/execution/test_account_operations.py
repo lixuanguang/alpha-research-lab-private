@@ -464,7 +464,7 @@ class TestAccountOperations:
                 "tuple[bytes]", connection.execute("SELECT payload FROM firm WHERE id=1").fetchone()
             )
             unknown = row[0].replace(
-                b'"schema_version":"account-journal-v4"',
+                b'"schema_version":"account-journal"',
                 b'"schema_version":"unknown-account-journal"',
             )
             assert unknown != row[0]

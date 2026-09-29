@@ -234,14 +234,14 @@ class _CalendarTestData:
             Source version bound to the pinned exchange-calendars adapter version.
         """
         return CalendarSourceVersion(
-            calendar_version="c02-fixture-v1",
+            calendar_version="c02-fixture",
             base_source="exchange_calendars",
             base_source_revision=EXCHANGE_CALENDARS_VERSION,
             adapter_name="exchange_calendars",
             adapter_version=EXCHANGE_CALENDARS_VERSION,
             authority=CalendarAuthority.SYNTHETIC_FIXTURE,
             override_source="fixture.overrides" if overridden else None,
-            override_revision="override-v1" if overridden else None,
+            override_revision="override" if overridden else None,
         )
 
     @staticmethod

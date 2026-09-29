@@ -157,7 +157,7 @@ class TestEligibilitySelection:
             original,
             ts_knowledge=correction.ts_knowledge + timedelta(hours=1),
             supersedes=correction.identity,
-            evidence=replace(correction.evidence, identity="synthetic:mr12:restored-v3"),
+            evidence=replace(correction.evidence, identity="synthetic:mr12:restored"),
         )
         latest = history.append(restored)
         for cutoff, expected in (

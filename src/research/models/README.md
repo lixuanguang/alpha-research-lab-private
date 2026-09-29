@@ -14,7 +14,7 @@ Models emit dimensionless predictions, never orders, positions or economic P&L.
 
 `EstimatorRegistry` now selects compatible implementations through typed factories
 over `LinearDefinition`. `ModelStudy.estimator_implementation` defaults to
-`linear-return-v1`; an explicitly supplied registry can construct a compatible
+`linear-return`; an explicitly supplied registry can construct a compatible
 `LinearModel` subclass. The implementation ID enters the retained study identity.
 The existing construction, evaluation, fitting boundaries and `ModelVersion`
 contract remain authoritative. Unregistered/duplicate IDs fail explicitly.

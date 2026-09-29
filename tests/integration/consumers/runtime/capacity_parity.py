@@ -175,7 +175,7 @@ class CapacityEconomicParity:
                 portfolio_id="reference",
                 strategy_id=instance.instance_id,
                 model_revision="rule-only",
-                config_revision="paper-services-v1",
+                config_revision="paper-services",
                 horizon="capture",
                 reason="engineering-reference",
                 venue=source.capture.venue,
@@ -517,7 +517,7 @@ class CapacityEconomicParity:
                     }
                 )
         report: dict[str, object] = {
-            "schema_version": "runtime-capacity-economic-parity-v1",
+            "schema_version": "runtime-capacity-economic-parity",
             "evidence_class": "unmanaged_software_replay_of_signed_deliveries",
             "signed_trial": str(self.trial),
             "prepared_selection": self.prepared.identity,
@@ -767,7 +767,7 @@ class CapacityRecoveryEconomicParity(CapacityEconomicParity):
                     }
                 )
         report: dict[str, object] = {
-            "schema_version": "runtime-capacity-recovery-suffix-parity-v1",
+            "schema_version": "runtime-capacity-recovery-suffix-parity",
             "evidence_class": "independent_unmanaged_baseline_operator_and_suffix_replay",
             "signed_trial": str(self.trial),
             "baseline_trial": str(self.baseline.trial),

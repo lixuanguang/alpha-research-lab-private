@@ -65,7 +65,7 @@ collections, each collection's row count and sha256 hash chain, and every instan
 latest checkpoint. The collections live in their own tables with each item's exact
 codec bytes ([design](../../docs/roadmap/account-journal-history.md)). A commit inserts
 only new rows and rewrites the head, reusing the encoded bytes of unchanged head fields,
-and a fresh process decodes only the head. Only the `account-journal-v4` schema is
+and a fresh process decodes only the head. Only the `account-journal` schema is
 readable; any other payload, including a whole-state document, fails closed. The journal composes admission and reconciliation from
 [`account_admission.py`](account_admission.py), physical fill and fee attribution
 from [`account_allocation.py`](account_allocation.py), and atomic portfolio order
@@ -134,8 +134,8 @@ This is an atomic local command service with no venue transport, credential
 resolver or submission. Concurrent calls serialize at SQLite; the separately
 described test-venue gateway owns its executing fence and physical reconciliation.
 State is pinned
-to exact configuration bytes and uses the `account-runtime-v1` and
-`account-postings-v1` contracts. It establishes correctness for
+to exact configuration bytes and uses the `account-runtime` and
+`account-postings` contracts. It establishes correctness for
 the reference workload, not MR15 throughput, bounded retention or deployment
 readiness. Retain the journal with its configuration and compatible artifact;
 never edit accounting history to make a rollback appear compatible.
@@ -367,7 +367,7 @@ quarantine is described below.
 Recovery is deliberately bounded by source history retention, pagination and
 configured resource limits. An empty unavailable historical window is not proof of
 no fills. Fill history starts at the account opening until a reconciliation
-matches the physical account. The venue journal (`venue-journal-v2`) then retains
+matches the physical account. The venue journal (`venue-journal`) then retains
 that window's end, and later reads restart one hour before it so late-published or
 clock-skewed executions are still read; a physical break leaves the mark in place.
 Repeated executions apply once by fill identity. The Bitfinex reader pages trades
@@ -416,7 +416,7 @@ uses these checks under backup locks and before restore publication.
 `PaperDeployment` and `PaperAuthorization` are separate versioned configuration
 records. The deployment is always disabled. It pins the exact account configuration,
 instance/policy/candidate/model/feature identities, input binding, execution
-scenario, compatible signed release digests and `paper-account-state-v1` state ABI.
+scenario, compatible signed release digests and `paper-account-state` state ABI.
 `AccountJournal.install_paper` atomically binds matching assumptions, records a
 stop and retains the activation, whose presence marks the journal as managed. It
 creates no orders. An incompatible deployment cannot replace that identity.

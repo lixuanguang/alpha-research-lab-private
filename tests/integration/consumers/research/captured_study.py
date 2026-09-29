@@ -78,7 +78,7 @@ class _BuyThenFlat:
     def identity(self) -> str:
         """Pin the two-decision rule, quantity and all consumed named fields."""
         return hashlib.sha256(
-            DomainCodec().encode_json(("saved-buy-then-flat-v1", self._quantity, self._fields))
+            DomainCodec().encode_json(("saved-buy-then-flat", self._quantity, self._fields))
         ).hexdigest()
 
     @property
@@ -170,7 +170,7 @@ class _CapturedScenario:
             RawStore(capture_directory),
             readers=self._adapters,
             max_bytes=32_000_000,
-            clock_assumption="receipt-as-matching-v1",
+            clock_assumption="receipt-as-matching",
         )
         quality = captured.admit(
             RawStore(capture_directory), readers=self._adapters, max_bytes=32_000_000
@@ -245,7 +245,7 @@ class _CapturedScenario:
         )
         source = SavedDecisionSource(self._reader, chosen, requirements)
         schema = FeatureSchema(
-            implementation="named-projection-v1",
+            implementation="named-projection",
             inputs=requirements,
             outputs=(
                 NumericField(name="trade_size", units=instrument.base_currency),
@@ -321,7 +321,7 @@ class _CapturedScenario:
                 ("original-selection", self._selection.identity),
                 ("source-selection", chosen.identity),
                 ("captured-request", captured.request.identity),
-                ("receipt-clock-assumption", "receipt-as-matching-v1"),
+                ("receipt-clock-assumption", "receipt-as-matching"),
                 ("order-grid-assumption", grid_assumption),
                 ("source-scope", "offline research; no venue execution authority"),
                 ("holdout-status", "later unobserved window; never evaluated"),
@@ -399,9 +399,7 @@ class _CapturedScenario:
         lot = Decimal("0.00001")
         tick = Decimal("0.01")
         identity = hashlib.sha256(
-            self._codec.encode_json(
-                ("authored-bitfinex-grid-v1", specification.identity, lot, tick)
-            )
+            self._codec.encode_json(("authored-bitfinex-grid", specification.identity, lot, tick))
         ).hexdigest()
         return (
             SpotLimits(
@@ -493,7 +491,7 @@ def main() -> None:
                 "report_identity": report.study_identity,
                 "grid_assumption": grid_assumption,
                 "scope": (
-                    "offline research; receipt-as-matching-v1; "
+                    "offline research; receipt-as-matching; "
                     "no passive-fill or venue execution claim"
                 ),
             }

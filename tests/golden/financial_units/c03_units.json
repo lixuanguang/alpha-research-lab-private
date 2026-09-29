@@ -1,6 +1,6 @@
 {
   "fixture_kind": "synthetic_hand_calculated",
-  "convention_revision": "c03-v1",
+  "convention_revision": "c03",
   "quantlib_version": "1.43",
   "tolerance": {"absolute_years": "1e-12", "relative": "2e-15", "rationale": "Native double division across at most 299 years, plus rounding to 1e-15 years; monetary operations remain exact until explicit grid rounding."},
   "day_counts": [

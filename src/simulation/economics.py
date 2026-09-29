@@ -35,14 +35,14 @@ class BacktestSpec(WireRecord, frozen=True):
     cadence_seconds: int
     delay_seconds: int
     max_age_seconds: int
-    schema_version: str = "spot-backtest-v1"
+    schema_version: str = "spot-backtest"
 
     def __post_init__(self) -> None:
         """Reject unsupported products, timing, grids and unbounded decision schedules."""
         self._require_utc(self.start, field_name="start")
         self._require_utc(self.end, field_name="end")
         if (
-            self.schema_version != "spot-backtest-v1"
+            self.schema_version != "spot-backtest"
             or type(self.instance) is not str
             or not self.instance
             or type(self.rule) is not str
@@ -213,14 +213,14 @@ class EconomicCheckpoint(WireRecord, frozen=True):
     cursor: ReplayCursor
     state: EconomicState
     state_sha256: str
-    schema_version: str = "economic-checkpoint-v1"
+    schema_version: str = "economic-checkpoint"
 
     def __post_init__(self) -> None:
         """Reject altered, incompatible or partial completed-step state."""
         self.cursor.__post_init__()
         self.state.__post_init__()
         if (
-            self.schema_version != "economic-checkpoint-v1"
+            self.schema_version != "economic-checkpoint"
             or self.state.clock != self.cursor.clock
             or self.state_sha256
             != hashlib.sha256(DomainCodec().encode_json(self.state)).hexdigest()

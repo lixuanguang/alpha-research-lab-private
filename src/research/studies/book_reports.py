@@ -32,11 +32,11 @@ class _BookReportManifest(WireRecord, frozen=True):
     features_sha256: str
     accounts_sha256: tuple[str, ...]
     limitations: tuple[str, ...]
-    schema_version: str = "l2-book-report-v2"
+    schema_version: str = "l2-book-report"
 
     def __post_init__(self) -> None:
         """Reject unsupported versions and malformed content references."""
-        if self.schema_version != "l2-book-report-v2":
+        if self.schema_version != "l2-book-report":
             raise ValueError("unsupported book report schema")
         if not self.accounts_sha256 or any(
             type(value) is not str or not re.fullmatch(r"[a-f0-9]{64}", value)
@@ -181,7 +181,7 @@ class BookReport(WireRecord, frozen=True):
         payload = path.read_bytes()
         fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
         version = msgspec.json.decode(fields.get("schema_version", b'""'), type=str)
-        if version != "l2-book-report-v2":
+        if version != "l2-book-report":
             raise ValueError("unsupported book report schema")
         return DomainCodec().decode_json(payload, _BookReportManifest).resolve(path.parent)
 

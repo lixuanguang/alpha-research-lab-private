@@ -187,7 +187,7 @@ def test_whole_state_documents_and_document_readers_fail_closed(tmp_path: Path) 
     path, config, codec = tmp_path / "document.sqlite3", _Matching._config(), DomainCodec()
     store = AccountStateStore(path, config, codec)
     head = _payload(path)
-    assert b'"schema_version":"account-journal-v4"' in head
+    assert b'"schema_version":"account-journal"' in head
     with pytest.raises(ValueError):
         codec.decode_json(head, _FirmState)
 

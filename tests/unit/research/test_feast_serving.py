@@ -45,7 +45,7 @@ class _OnlineWorker:
         payload = cast(dict[str, object], cast(object, decoded))
         values = [self._row.values[0] if self._value is None else self._value]
         response: dict[str, object] = {
-            "schema_version": "feast-online-response-v1",
+            "schema_version": "feast-online-response",
             "snapshot_identity": payload["snapshot_identity"],
             "entity": payload["entity"],
             "row_identity": self._row.identity,
@@ -67,7 +67,7 @@ class TestFeastServing:
         """Describe a reusable named exact signal and its source requirement."""
         field = NumericField(name="mid", units="quote/base")
         schema = FeatureSchema(
-            implementation="named-projection-v1",
+            implementation="named-projection",
             inputs=(
                 InputRequirement(
                     name="mid-source",

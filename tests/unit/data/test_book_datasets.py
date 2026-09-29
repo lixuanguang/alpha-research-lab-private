@@ -336,7 +336,9 @@ class TestBookDatasets:
             normalization_identity="a" * 64,
             partitions=(BookPartition("b" * 64, selected),),
         )
-        payload = _CODEC.encode_json(manifest).replace(b'"book-dataset-v2"', b'"book-dataset-v1"')
+        payload = _CODEC.encode_json(manifest).replace(
+            b'"book-dataset"', b'"book-dataset-envelope"'
+        )
         with pytest.raises(ValueError, match="unsupported book dataset schema"):
             _CODEC.decode_json(payload, BookDatasetManifest)
 

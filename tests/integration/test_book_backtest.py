@@ -18,7 +18,7 @@ class TestInstalledBookBacktest:
         """Retain three isolated accounts and recover every instance from an unseen-update fill."""
         root = Path(__file__).parents[2]
         for source, name in (
-            ("configs/backtests/okx-eth-usdt-book-v1.json", "book-config.json"),
+            ("configs/backtests/okx-eth-usdt-book.json", "book-config.json"),
             ("configs/history/okx-btc-usdt.json", "btc-history.json"),
             ("tests/integration/consumers/backtest/book_workflow.py", "book_workflow.py"),
         ):

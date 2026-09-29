@@ -74,8 +74,8 @@ class PaperDeployment(WireRecord, frozen=True):
     state_identity: str
     enabled: bool = False
     submission_authority: Literal["paper", "shadow"] = "paper"
-    state_schema: Literal["account-journal-v4"] = "account-journal-v4"
-    schema_version: Literal["paper-deployment-v1"] = "paper-deployment-v1"
+    state_schema: Literal["account-journal"] = "account-journal"
+    schema_version: Literal["paper-deployment"] = "paper-deployment"
     additional_sources: tuple[PaperSourceBinding, ...] = ()
 
     def __post_init__(self) -> None:
@@ -83,13 +83,13 @@ class PaperDeployment(WireRecord, frozen=True):
         if (
             self.enabled is not False
             or self.submission_authority not in ("paper", "shadow")
-            or self.state_schema != "account-journal-v4"
-            or self.schema_version != "paper-deployment-v1"
+            or self.state_schema != "account-journal"
+            or self.schema_version != "paper-deployment"
             or type(self.account_id) is not str
             or not self.account_id
             or type(self.input_identity) is not str
             or not self.input_identity
-            or self.state_identity != "paper-account-state-v1"
+            or self.state_identity != "paper-account-state"
             or type(self.releases) is not tuple
             or not self.releases
             or len(set(self.releases)) != len(self.releases)
@@ -229,7 +229,7 @@ class PaperAuthorization(WireRecord, frozen=True):
     maximum_order_notional: Money
     maximum_orders: int
     submission_authority: Literal["paper", "shadow"] = "paper"
-    schema_version: Literal["paper-authorization-v1"] = "paper-authorization-v1"
+    schema_version: Literal["paper-authorization"] = "paper-authorization"
 
     def __post_init__(self) -> None:
         """Require explicit positive bounds and a half-open UTC validity interval."""
@@ -240,7 +240,7 @@ class PaperAuthorization(WireRecord, frozen=True):
             type(self.identity) is not str
             or not self.identity
             or self.submission_authority not in ("paper", "shadow")
-            or self.schema_version != "paper-authorization-v1"
+            or self.schema_version != "paper-authorization"
             or self.expires_at <= self.valid_from
             or type(self.quantities) is not tuple
             or not self.quantities

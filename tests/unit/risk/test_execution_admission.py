@@ -41,7 +41,7 @@ class TestExecutionAdmission:
         assert decision.specification_identity == (
             "3837bf935938de124bb7edc9d66cded62a03219b14af91c3161b8807ab368322"
         )
-        assert config.inspect().state_schema == "none-v1"
+        assert config.inspect().state_schema == "none"
 
     @pytest.mark.parametrize("mode", ("research", "paper", "shadow"))
     def test_credential_scope_cannot_be_promoted(self, mode: str) -> None:

@@ -93,12 +93,12 @@ class SharedDecisionCheckpoint(WireRecord, frozen=True):
     expected_checkpoint_sha256: str
     decision: DecisionRecord
     policy: DecisionState
-    schema_version: Literal["shared-decision-v1"] = "shared-decision-v1"
+    schema_version: Literal["shared-decision"] = "shared-decision"
 
     def __post_init__(self) -> None:
         """Require attributable immutable state and agreement on the committed cutoff."""
         if (
-            self.schema_version != "shared-decision-v1"
+            self.schema_version != "shared-decision"
             or type(self.batch_identity) is not str
             or not self.batch_identity
             or type(self.input_identity) is not str

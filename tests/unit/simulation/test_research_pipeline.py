@@ -65,7 +65,7 @@ class TestResearchPipeline:
         )
         second = replace(
             first,
-            economics=replace(economics, instance="flat-control", rule="no-trade-v1"),
+            economics=replace(economics, instance="flat-control", rule="no-trade"),
         )
         return first, ComparisonStudy(
             name="pipeline-comparison",

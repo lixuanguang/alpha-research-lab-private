@@ -224,7 +224,7 @@ class TestSharedPublicPaper:
                 portfolio_id="test-portfolio",
                 strategy_id="alpha",
                 model_revision="rule-only",
-                config_revision="test-v1",
+                config_revision="test",
                 horizon="short",
                 reason="public-paper-test",
                 venue="okx",
@@ -627,7 +627,7 @@ class TestSharedPublicPaper:
             ),
             input_identity="test",
             scenario=self._scenario(),
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
         )
         admin.install_paper(deployment)
         admin.authorize_paper(
@@ -1128,7 +1128,7 @@ class TestSharedPublicPaper:
                 PaperStrategyIdentity(
                     instance_id=binding.instance_id,
                     policy_identity=binding.policy.identity,
-                    candidate_identity="reference-policy-v1",
+                    candidate_identity="reference-policy",
                     model_identity="changed-model" if changed == "model" else "rule-only",
                     feature_identity="changed-feature" if changed == "feature" else inputs.identity,
                 ),
@@ -1137,7 +1137,7 @@ class TestSharedPublicPaper:
                 codec.encode_json((request.config, requirement, inputs.identity))
             ).hexdigest(),
             scenario=self._scenario(),
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
         )
         path = tmp_path / "managed.sqlite3"
         admin = AccountJournal(path, config)

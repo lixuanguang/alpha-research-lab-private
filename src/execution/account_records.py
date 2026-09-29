@@ -267,7 +267,7 @@ class PortfolioBatch(WireRecord, frozen=True):
     at: datetime
     decisions: tuple[PortfolioDecision, ...]
     crossing: str = "reject"
-    schema_version: Literal["portfolio-batch-v1"] = "portfolio-batch-v1"
+    schema_version: Literal["portfolio-batch"] = "portfolio-batch"
 
     def __post_init__(self) -> None:
         """Require immutable unique decisions and a later UTC coordination clock."""
@@ -278,7 +278,7 @@ class PortfolioBatch(WireRecord, frozen=True):
             or type(self.decisions) is not tuple
             or not self.decisions
             or self.crossing not in ("reject", "internal_at_quote")
-            or self.schema_version != "portfolio-batch-v1"
+            or self.schema_version != "portfolio-batch"
         ):
             raise ValueError("invalid portfolio batch")
         keys: set[tuple[str, str]] = set()
@@ -327,7 +327,7 @@ class NetOrder(WireRecord, frozen=True):
     order: OrderState
     allocations: tuple[NetAllocation, ...]
     context: PortfolioContext
-    allocation_version: Literal["pro-rata-exact-v1"] = "pro-rata-exact-v1"
+    allocation_version: Literal["pro-rata-exact"] = "pro-rata-exact"
 
     def __post_init__(self) -> None:
         """Reconcile every physical unit to one reserved strategy child."""
@@ -337,7 +337,7 @@ class NetOrder(WireRecord, frozen=True):
             type(self.account_id) is not str
             or not self.account_id
             or not self.allocations
-            or self.allocation_version != "pro-rata-exact-v1"
+            or self.allocation_version != "pro-rata-exact"
         ):
             raise ValueError("net order requires account and children")
         for allocation in self.allocations:

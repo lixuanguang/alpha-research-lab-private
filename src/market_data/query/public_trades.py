@@ -64,7 +64,7 @@ class PublicTradeQuery(WireRecord, frozen=True, kw_only=True):
         return hashlib.sha256(
             DomainCodec().encode_json(
                 (
-                    "public-trade-query-v1",
+                    "public-trade-query",
                     self.snapshot_id,
                     self.instruments,
                     self.start,

@@ -105,7 +105,7 @@ class _FeatureCandidateAcceptance:
                 revision_identity=_CandidateAcceptance._sha(DomainCodec().encode_json(vector)),
             ),
         )
-        version = f"{name}-selected-v1"
+        version = f"{name}-selected"
         snapshot = self.store.materialize(definition, version, vector.decision_at, (vector.entity,))
         self.store.activate(definition, version)
         offline = replace(
@@ -201,7 +201,7 @@ class _FeatureCandidateAcceptance:
         assert lost_step.status == "paused" and lost_step.reason == "feature-service-unavailable"
         assert lost_paper.orders == () and lost_paper.ledger.fills == ()
         assert lost_paper.checkpoint.candidate.policy.last_at is None
-        changed_version = f"{name}-changed-v2"
+        changed_version = f"{name}-changed"
         self.store.materialize(definition, changed_version, vector.decision_at, (vector.entity,))
         self.store.activate(definition, changed_version)
         changed_session = CandidateSession(loader.load(bundle, online))

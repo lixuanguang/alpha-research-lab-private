@@ -91,12 +91,12 @@ class CandidateStateContract(WireRecord, frozen=True, kw_only=True):
     on_gap: Literal["pause", "reset"]
     on_restart: Literal["reset", "restore"]
     policy_state_schema: str
-    schema_version: Literal["candidate-state-v1"] = "candidate-state-v1"
+    schema_version: Literal["candidate-state"] = "candidate-state"
 
     def __post_init__(self) -> None:
         """Require an explicit portable state version for replay/runtime parity."""
         if (
-            self.schema_version != "candidate-state-v1"
+            self.schema_version != "candidate-state"
             or self.feature_mode not in ("batch", "incremental")
             or type(self.warmup_observations) is not int
             or not 0 <= self.warmup_observations <= 1_000_000
@@ -125,12 +125,12 @@ class CandidateMetricContract(WireRecord, frozen=True, kw_only=True):
     applies_to: tuple[Literal["research", "runtime"], ...]
     warning_below: ExactRatio | None = None
     warning_above: ExactRatio | None = None
-    schema_version: Literal["candidate-metric-v1"] = "candidate-metric-v1"
+    schema_version: Literal["candidate-metric"] = "candidate-metric"
 
     def __post_init__(self) -> None:
         """Reject unnamed, dimensionless, ambiguous or inverted diagnostics."""
         if (
-            self.schema_version != "candidate-metric-v1"
+            self.schema_version != "candidate-metric"
             or self.kind not in ("metric", "chart")
             or type(self.name) is not str
             or not self.name.strip()
@@ -171,12 +171,12 @@ class CandidateAssessment(WireRecord, frozen=True, kw_only=True):
     decision: Literal["accepted", "rejected"]
     rationale: str
     limitations: tuple[str, ...]
-    schema_version: Literal["candidate-assessment-v1"] = "candidate-assessment-v1"
+    schema_version: Literal["candidate-assessment"] = "candidate-assessment"
 
     def __post_init__(self) -> None:
         """Require a specific assessed report without conferring operating authority."""
         if (
-            self.schema_version != "candidate-assessment-v1"
+            self.schema_version != "candidate-assessment"
             or type(self.report_sha256) is not str
             or _SHA256.fullmatch(self.report_sha256) is None
             or self.decision not in ("accepted", "rejected")
@@ -224,12 +224,12 @@ class CandidateManifest(WireRecord, frozen=True, kw_only=True):
     metrics: tuple[CandidateMetricContract, ...]
     artifacts: tuple[CandidateArtifact, ...]
     limitations: tuple[str, ...] = ()
-    schema_version: Literal["candidate-manifest-v1"] = "candidate-manifest-v1"
+    schema_version: Literal["candidate-manifest"] = "candidate-manifest"
 
     def __post_init__(self) -> None:
         """Validate direct construction and all cross-references before artifact I/O."""
         if (
-            self.schema_version != "candidate-manifest-v1"
+            self.schema_version != "candidate-manifest"
             or type(self.name) is not str
             or _NAME.fullmatch(self.name) is None
             or type(self.version) is not str
@@ -409,11 +409,11 @@ class _ResultInventory(WireRecord, frozen=True):
     """Read only the lightweight successful-result inventory owned by study reports."""
 
     artifacts: tuple[Fingerprint, ...]
-    schema_version: Literal["research-result-v1"] = "research-result-v1"
+    schema_version: Literal["research-result"] = "research-result"
 
     def __post_init__(self) -> None:
         """Reject unsupported, empty or duplicate completed-result references."""
-        if self.schema_version != "research-result-v1" or not self.artifacts:
+        if self.schema_version != "research-result" or not self.artifacts:
             raise ValueError("candidate requires a completed research result inventory")
         names: set[str] = set()
         for artifact in self.artifacts:
@@ -533,7 +533,7 @@ class CandidateBundle:
             if manifest.assessment is not None:
                 raise ValueError("engineering candidate cannot carry empirical acceptance")
         else:
-            if specification.schema_version != "experiment-spec-v1" or manifest.assessment is None:
+            if specification.schema_version != "experiment-spec" or manifest.assessment is None:
                 raise ValueError(
                     "empirical candidate requires a temporal evaluation and assessment"
                 )
@@ -560,16 +560,16 @@ class CandidateBundle:
         report = self._json_object(artifacts[manifest.report.name], name="study report")
         schema = self._json_object(artifacts[manifest.feature_schema.name], name="feature schema")
         if (
-            selection.get("schema_version") != "decision-study-v1"
-            or report.get("schema_version") != "study-report-v1"
-            or schema.get("schema_version") != "feature-schema-v1"
+            selection.get("schema_version") != "decision-study"
+            or report.get("schema_version") != "study-report"
+            or schema.get("schema_version") != "feature-schema"
         ):
             raise ValueError("candidate requires supported completed decision-study records")
         economics = self._object_field(selection, "economics")
         self._text_field(selection, "source_identity")
         self._text_field(economics, "source_identity")
         if (
-            economics.get("schema_version") != "offline-intent-simulation-v1"
+            economics.get("schema_version") != "offline-intent-simulation"
             or manifest.product != "spot"
             or manifest.entities != (self._text_field(economics, "entity"),)
             or self._text_field(selection, "family") != specification.family

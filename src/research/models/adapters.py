@@ -55,7 +55,7 @@ class EstimatorVersion(WireRecord, frozen=True):
     available_at: datetime
     state: bytes
     state_sha256: str
-    schema_version: Literal["estimator-version-v1"] = "estimator-version-v1"
+    schema_version: Literal["estimator-version"] = "estimator-version"
 
     def __post_init__(self) -> None:
         """Reject changed state, absent provenance and impossible historical availability."""
@@ -64,7 +64,7 @@ class EstimatorVersion(WireRecord, frozen=True):
         self._require_utc(self.fit_cutoff, field_name="fit_cutoff")
         self._require_utc(self.available_at, field_name="available_at")
         if (
-            self.schema_version != "estimator-version-v1"
+            self.schema_version != "estimator-version"
             or type(self.state) is not bytes
             or hashlib.sha256(self.state).hexdigest() != self.state_sha256
             or self.available_at < self.fit_cutoff
@@ -203,7 +203,7 @@ class NearestExample:
     @property
     def identity(self) -> str:
         """Version exact one-nearest-example prediction and first-row tie handling."""
-        return "nearest-example-v1"
+        return "nearest-example"
 
     def fit(self, rows: tuple[FeatureVector, ...], outcomes: tuple[ExactRatio, ...]) -> bytes:
         """Save complete exact training rows; reject mixed distance units."""

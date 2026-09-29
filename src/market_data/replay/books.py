@@ -115,7 +115,7 @@ class BookReplay:
         identity = hashlib.sha256(
             DomainCodec().encode_json(
                 (
-                    "book-replay-stream-v2",
+                    "book-replay-stream",
                     snapshot.identity,
                     snapshot.partition(request_identity).sha256,
                     terminal,

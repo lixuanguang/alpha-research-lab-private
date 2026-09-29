@@ -146,7 +146,7 @@ class PublicDataJob(WireRecord, frozen=True, kw_only=True):
     venue history. All definitions and all four memberships are pinned in the job.
     """
 
-    schema_version: Literal["public-data-job-v1"] = "public-data-job-v1"
+    schema_version: Literal["public-data-job"] = "public-data-job"
     name: str
     instruments: tuple[InstrumentDefinition, ...]
     universes: UniverseSelection
@@ -162,7 +162,7 @@ class PublicDataJob(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Resolve selected definitions and hard budgets without importing source adapters."""
-        if self.schema_version != "public-data-job-v1" or self.mode not in ("backfill", "capture"):
+        if self.schema_version != "public-data-job" or self.mode not in ("backfill", "capture"):
             raise ValueError("unsupported public data job")
         if type(self.name) is not str or re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", self.name) is None:
             raise ValueError("invalid public job name")

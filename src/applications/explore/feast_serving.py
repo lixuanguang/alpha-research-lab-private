@@ -172,9 +172,9 @@ class FeastServingWorkerCommand:
         decoded: object = json.loads(payload.decode("utf-8"))
         request = self._mapping(decoded, "serving request")
         schema_version = request.get("schema_version")
-        if schema_version == "feast-materialize-request-v1":
+        if schema_version == "feast-materialize-request":
             result = self._materialize(request)
-        elif schema_version == "feast-serve-request-v1":
+        elif schema_version == "feast-serve-request":
             result = self._serve(request)
         else:
             raise ValueError("unsupported Feast serving worker request")
@@ -183,7 +183,7 @@ class FeastServingWorkerCommand:
     def _materialize(self, request: Mapping[str, object]) -> dict[str, object]:
         """Build a complete generation in staging before atomic directory publication."""
         snapshot = self._mapping(request.get("snapshot"), "snapshot")
-        if snapshot.get("schema_version") != "feast-serving-snapshot-v1":
+        if snapshot.get("schema_version") != "feast-serving-snapshot":
             raise ValueError("unsupported Feast serving snapshot")
         snapshot_identity = self._digest(request.get("snapshot_identity"), "snapshot_identity")
         sdk = self._sdk(self._text(snapshot.get("sdk_version"), "sdk_version"))
@@ -365,7 +365,7 @@ class FeastServingWorkerCommand:
     def _serve(self, request: Mapping[str, object]) -> dict[str, object]:
         """Verify pinned generation files and read an exact Feast online record."""
         generation = self._mapping(request.get("generation"), "generation")
-        if generation.get("schema_version") != "feast-generation-v1":
+        if generation.get("schema_version") != "feast-generation":
             raise ValueError("unsupported Feast generation")
         identity = self._digest(request.get("snapshot_identity"), "snapshot_identity")
         if identity != generation.get("snapshot_identity"):
@@ -381,7 +381,7 @@ class FeastServingWorkerCommand:
         row_identity, values = self._online(store, entity, len(fields))
         self._verify_generation(path, identity, sdk.__version__, generation)
         return {
-            "schema_version": "feast-online-response-v1",
+            "schema_version": "feast-online-response",
             "snapshot_identity": identity,
             "entity": entity,
             "row_identity": row_identity,
@@ -412,7 +412,7 @@ class FeastServingWorkerCommand:
     def _receipt(self, repository: Path, identity: str, sdk_version: str) -> dict[str, object]:
         """Hash exactly the local registry, source and SQLite bytes Feast uses."""
         return {
-            "schema_version": "feast-generation-v1",
+            "schema_version": "feast-generation",
             "snapshot_identity": identity,
             "sdk_version": sdk_version,
             "config_sha256": self._file_digest(repository / "feature_store.yaml"),

@@ -167,7 +167,7 @@ class AccountAdmission:
             identity = hashlib.sha256(
                 self.codec.encode_json(
                     (
-                        "account-child-v1",
+                        "account-child",
                         request.account_id,
                         request.instance_id,
                         request.decision.identity,

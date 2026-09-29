@@ -389,7 +389,7 @@ wall clocks and local paths are caller metadata outside the manifest. Original r
 receipt/ingestion and reference/evidence clocks remain semantic provenance. JSON
 whitespace and relocating saved files do not change identity. Reordering partitions,
 changing resolved references, code or admission policy does change identity. Every
-tier uses `evidenced-v1` corrections; a new tier requires implementation and cannot
+tier uses `evidenced` corrections; a new tier requires implementation and cannot
 be accepted by changing a label.
 
 `DatasetPublication.assemble` consumes ordered, complete daily Binance acquisitions

@@ -379,7 +379,7 @@ class TestAccountPaperMatching:
         physical_fill_id = hashlib.sha256(
             codec.encode_json(
                 (
-                    "paper-match-v2",
+                    "paper-match",
                     "shared",
                     scenario.identity,
                     market.identity,
@@ -391,7 +391,7 @@ class TestAccountPaperMatching:
         child_fill_ids = tuple(
             hashlib.sha256(
                 codec.encode_json(
-                    ("allocated-physical-fill-v1", physical_fill_id, item.child_order_id)
+                    ("allocated-physical-fill", physical_fill_id, item.child_order_id)
                 )
             ).hexdigest()
             for item in parent.allocations

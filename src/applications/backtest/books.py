@@ -53,7 +53,7 @@ def run_books(
     implementation = ImplementationIdentity.sha256()
     environment = ExperimentSpec.installed_environment()
     spec = ExperimentSpec(
-        schema_version="experiment-engineering-sample-v1",
+        schema_version="experiment-engineering-sample",
         family=f"l2-book-{selected.history.instrument_id}-{selected.history.day}",
         inputs=(
             Fingerprint(name="native-archive", sha256=source.raw.sha256),

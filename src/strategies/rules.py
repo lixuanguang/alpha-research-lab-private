@@ -67,7 +67,7 @@ class Momentum:
         Returns:
             Versioned rule identity.
         """
-        return "completed-price-momentum-v1"
+        return "completed-price-momentum"
 
     def target(
         self,
@@ -111,7 +111,7 @@ class Reversal:
         Returns:
             Versioned rule identity.
         """
-        return "completed-price-reversal-v1"
+        return "completed-price-reversal"
 
     def target(
         self,
@@ -155,7 +155,7 @@ class NoTrade:
         Returns:
             Versioned control identity.
         """
-        return "no-trade-v1"
+        return "no-trade"
 
     def target(
         self,

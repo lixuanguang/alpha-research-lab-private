@@ -113,7 +113,7 @@ class _OffsetEstimator:
     @property
     def identity(self) -> str:
         """Version the external implementation and all fixed formula choices."""
-        return "example-offset-estimator-v1"
+        return "example-offset-estimator"
 
     def fit(self, rows: tuple[FeatureVector, ...], outcomes: tuple[ExactRatio, ...]) -> bytes:
         """Assert only two admitted rows reached this fresh estimator, then fit their mean."""
@@ -152,7 +152,7 @@ class _FutureLevel:
             raise ValueError("future label still pending")
         return Outcome(
             feature_identity=row.identity,
-            definition="example-future-level-v1",
+            definition="example-future-level",
             field=NumericField(name="level", units="dimensionless"),
             information_start=base.event_at,
             information_end=future.event_at,
@@ -169,7 +169,7 @@ class _QuotePolicy:
     @property
     def identity(self) -> str:
         """Version the reference price rule, spread and unit quantity."""
-        return "example-forecast-quote-v1"
+        return "example-forecast-quote"
 
     @property
     def output(self) -> Literal["quote"]:
@@ -272,7 +272,7 @@ class _Inputs:
         """Select a custom implementation/schema independent of maintained feature defaults."""
         return _SignalFeature(
             FeatureSchema(
-                implementation="example-square-feature-v1",
+                implementation="example-square-feature",
                 inputs=source.requirements,
                 outputs=(
                     NumericField(name="level", units="dimensionless"),

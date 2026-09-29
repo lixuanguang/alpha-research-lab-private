@@ -1137,7 +1137,7 @@ class TestVenueGateway:
         codec = DomainCodec()
         with store.claim():
             old = codec.encode_json(VenueState(nonce=7)).replace(
-                b'"schema_version":"venue-journal-v2"', b'"schema_version":"venue-journal-v1"'
+                b'"schema_version":"venue-journal"', b'"schema_version":"venue-journal-unsupported"'
             )
             with closing(sqlite3.connect(store.path)) as connection, connection:
                 connection.execute("UPDATE state SET payload=? WHERE id=1", (old,))

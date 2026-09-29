@@ -80,8 +80,8 @@ class InstallationScenario:
             ssh_keygen_executable="/pinned/ssh-keygen",
             ssh_keygen_sha256="0" * 64,
             builders=(builder,),
-            config_schemas=("config-v1", "account-runtime-v1"),
-            state_schemas=("state-v1", "state-v2", "account-journal-v4"),
+            config_schemas=("config", "account-runtime"),
+            state_schemas=("state", "other-state", "account-journal"),
         )
         self.installation = LocalInstallation(root / "target", self.policy)
         self.candidates: dict[str, VerifiedRelease] = {}
@@ -92,9 +92,9 @@ class InstallationScenario:
         name: str,
         *,
         config: bytes,
-        state_schema: str = "state-v1",
+        state_schema: str = "state",
         application: Literal["collector", "execution"] = "collector",
-        config_schema: str = "config-v1",
+        config_schema: str = "config",
         mode: Literal["collection", "research", "paper", "shadow"] | None = None,
         initial_state: bool = True,
     ) -> Path:
@@ -309,8 +309,8 @@ class PinnedToolProbe:
             contract_version="1",
             application="collector",
             mode="collection",
-            config_schema="config-v1",
-            state_schema="state-v1",
+            config_schema="config",
+            state_schema="state",
         )
         self.python_facts: tuple[str, ...] = (
             "cpython",
@@ -384,8 +384,8 @@ class TestLocalInstallation:
             config=config,
             application="execution",
             mode="paper",
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v4",
+            config_schema="account-runtime",
+            state_schema="account-journal",
             initial_state=False,
         )
         second = scenario.candidate(
@@ -393,8 +393,8 @@ class TestLocalInstallation:
             config=config,
             application="execution",
             mode="paper",
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v4",
+            config_schema="account-runtime",
+            state_schema="account-journal",
             initial_state=False,
         )
         changed = scenario.candidate(
@@ -404,8 +404,8 @@ class TestLocalInstallation:
             ),
             application="execution",
             mode="paper",
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v4",
+            config_schema="account-runtime",
+            state_schema="account-journal",
             initial_state=False,
         )
         application = AccountInstalledApplication()
@@ -454,8 +454,8 @@ class TestLocalInstallation:
             config=DomainCodec().encode_json(self._account_configuration(_NOW)),
             application="execution",
             mode="paper",
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v4",
+            config_schema="account-runtime",
+            state_schema="account-journal",
             initial_state=False,
         )
         application = AccountInstalledApplication()
@@ -491,8 +491,8 @@ class TestLocalInstallation:
             config=config,
             application="execution",
             mode=mode,
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v4",
+            config_schema="account-runtime",
+            state_schema="account-journal",
             initial_state=False,
         )
         other_state = scenario.candidate(
@@ -500,7 +500,7 @@ class TestLocalInstallation:
             config=b"other config\n",
             application="execution",
             mode=mode,
-            state_schema="state-v2",
+            state_schema="other-state",
             initial_state=False,
         )
         compatible = scenario.candidate(
@@ -508,8 +508,8 @@ class TestLocalInstallation:
             config=config,
             application="execution",
             mode=mode,
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v4",
+            config_schema="account-runtime",
+            state_schema="account-journal",
             initial_state=False,
         )
         unlisted = scenario.candidate(
@@ -517,8 +517,8 @@ class TestLocalInstallation:
             config=config,
             application="execution",
             mode=mode,
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v4",
+            config_schema="account-runtime",
+            state_schema="account-journal",
             initial_state=False,
         )
         application = AccountInstalledApplication()
@@ -565,7 +565,7 @@ class TestLocalInstallation:
                         take_fraction=Decimal("1"),
                         gas_inapplicable_reason="off-chain spot simulation",
                     ),
-                    state_identity="paper-account-state-v1",
+                    state_identity="paper-account-state",
                     submission_authority=mode,
                 )
                 request = tmp_path / "paper-deployment.json"
@@ -587,7 +587,7 @@ class TestLocalInstallation:
                         connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
                     )
                 assert activated_head is not None and type(activated_head[0]) is bytes
-                assert b'"schema_version":"account-journal-v4"' in activated_head[0]
+                assert b'"schema_version":"account-journal"' in activated_head[0]
                 with pytest.raises(ValueError, match="absolute request path"):
                     scenario.installation.run(
                         ("account", "--release-identity", other_state.name), now=_NOW
@@ -620,8 +620,8 @@ class TestLocalInstallation:
                 config=config,
                 application="execution",
                 mode="paper",
-                config_schema="account-runtime-v1",
-                state_schema="account-journal-v4",
+                config_schema="account-runtime",
+                state_schema="account-journal",
                 initial_state=False,
             )
             for name in ("first-account", "second-account")
@@ -664,8 +664,8 @@ class TestLocalInstallation:
             config=DomainCodec().encode_json(self._account_configuration(_NOW)),
             application="execution",
             mode="paper",
-            config_schema="account-runtime-v1",
-            state_schema="account-journal-v4",
+            config_schema="account-runtime",
+            state_schema="account-journal",
             initial_state=False,
         )
         application = AccountInstalledApplication()
@@ -802,7 +802,7 @@ class TestLocalInstallation:
         scenario = InstallationScenario(tmp_path)
         first = scenario.candidate("first-release", config=b"first config\n")
         incompatible = scenario.candidate(
-            "incompatible-release", config=b"other config\n", state_schema="state-v2"
+            "incompatible-release", config=b"other config\n", state_schema="other-state"
         )
         with scenario.isolated_installation():
             selected = scenario.installation.install(first, now=_NOW)
@@ -1008,8 +1008,8 @@ class TestLocalInstallation:
                     contract_version="1",
                     application="execution",
                     mode="research",
-                    config_schema="config-v1",
-                    state_schema="state-v1",
+                    config_schema="config",
+                    state_schema="state",
                 ),
                 previous_release=selected.previous_release,
                 files=selected.files,

@@ -153,7 +153,7 @@ class ReplayInputs:
                 product="spot",
             ),
             costs=SpotCosts(adverse=tick, fee_rate=Decimal("0.001"), rounding="half_even"),
-            rule="completed-price-momentum-v1",
+            rule="completed-price-momentum",
             cadence_seconds=60,
             delay_seconds=1,
             max_age_seconds=30,

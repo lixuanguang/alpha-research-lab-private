@@ -70,8 +70,8 @@ class ReleaseRuntime(ImmutableModel):
         """Keep collector and intent-only execution placement modes distinct."""
         if (self.application == "collector") != (self.mode == "collection"):
             raise ValueError("application and operating mode are incompatible")
-        account_configuration = self.config_schema == "account-runtime-v1"
-        account_state = self.state_schema == "account-journal-v4"
+        account_configuration = self.config_schema == "account-runtime"
+        account_state = self.state_schema == "account-journal"
         if account_configuration != account_state or (
             account_configuration
             and (self.application != "execution" or self.mode not in ("paper", "shadow"))
@@ -83,7 +83,7 @@ class ReleaseRuntime(ImmutableModel):
 class ReleaseManifest(ImmutableModel):
     """Authenticate source, admission, complete payload and compatibility together."""
 
-    schema_version: Literal["signed-release-v1"] = "signed-release-v1"
+    schema_version: Literal["signed-release"] = "signed-release"
     name: Identity
     builder: Identity
     origin: str
@@ -180,7 +180,7 @@ class InstallationPolicy(ImmutableModel):
     Release bytes cannot replace it, add keys or authorize trading.
     """
 
-    schema_version: Literal["installation-policy-v1"] = "installation-policy-v1"
+    schema_version: Literal["installation-policy"] = "installation-policy"
     target: Literal["darwin_arm64", "linux_x86_64"]
     python_executable: str
     python_sha256: Digest

@@ -48,7 +48,7 @@ class PendingResponse(WireRecord, frozen=True, kw_only=True):
 class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
     """Pin job, installed implementation, retained responses and explicit completion state."""
 
-    schema_version: Literal["public-acquisition-v1"] = "public-acquisition-v1"
+    schema_version: Literal["public-acquisition"] = "public-acquisition"
     job: PublicDataJob
     implementation_identity: str
     receipts: tuple[PublicReceipt, ...] = ()
@@ -59,7 +59,7 @@ class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Check source membership, response budgets and immutable request linkage."""
         if (
-            self.schema_version != "public-acquisition-v1"
+            self.schema_version != "public-acquisition"
             or type(self.job) is not PublicDataJob
             or type(self.complete) is not bool
         ):

@@ -37,11 +37,11 @@ class CapturedStudyMarket:
         *,
         readers: DatasetReaders,
         max_bytes: int,
-        clock_assumption: Literal["receipt-as-matching-v1"],
+        clock_assumption: Literal["receipt-as-matching"],
     ) -> None:
         """Bind bounded native provenance and an explicit simulation-clock assumption."""
         source.__post_init__()
-        if source.capture is None or clock_assumption != "receipt-as-matching-v1":
+        if source.capture is None or clock_assumption != "receipt-as-matching":
             raise ValueError(
                 "captured study market requires original receipts and explicit scenario"
             )
