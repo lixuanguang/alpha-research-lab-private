@@ -189,24 +189,36 @@ class VenueFillFact(msgspec.Struct, frozen=True):
 
 
 class VenueBalance(msgspec.Struct, frozen=True):
-    """Retain one observed physical currency balance and its availability."""
+    """Retain one observed physical currency balance and its availability.
+
+    ``available`` is None when the venue reported availability as not yet
+    calculated. The exact total is always known.
+    """
 
     currency: str
     total: Decimal
-    available: Decimal
+    available: Decimal | None
     received_at: datetime
     raw: bytes
 
     def __post_init__(self) -> None:
         """Keep signed balances exact and the receipt clock explicit."""
-        if not self.currency or not self.total.is_finite() or not self.available.is_finite():
+        if (
+            not self.currency
+            or not self.total.is_finite()
+            or (self.available is not None and not self.available.is_finite())
+        ):
             raise ValueError("invalid venue balance")
         if self.received_at.tzinfo is None or self.received_at.utcoffset() != UTC.utcoffset(None):
             raise ValueError("venue balance receipt must be UTC")
 
 
 class VenueFillPage(msgspec.Struct, frozen=True):
-    """Expose bounded history and refuse to call a truncated window complete."""
+    """Expose bounded history and refuse to call a truncated window complete.
+
+    A continuation may repeat executions at its page boundary; callers apply
+    each fill identity once and refuse a repeat with different economics.
+    """
 
     fills: tuple[VenueFillFact, ...]
     next_cursor: str | None
@@ -276,6 +288,9 @@ class VenueAdapter(Protocol):
     def capability_profiles(self) -> tuple[CapabilityProfile, ...]:
         """Declare fixture-qualified registry support without external claims."""
 
+    def wait_for_request_slot(self) -> None:
+        """Wait until the next request can go out without a local throttle sleep."""
+
     def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
         """Send once; uncertain outcome raises VenueOutcomeUnknownError."""
 
@@ -317,7 +332,7 @@ class VenueAdapter(Protocol):
         at: datetime,
         nonce: int,
     ) -> VenueFillPage:
-        """Read one bounded history page with an explicit continuation."""
+        """Read one bounded history page with an explicit, possibly overlapping continuation."""
 
     def balances(self, *, at: datetime, nonce: int) -> tuple[VenueBalance, ...]:
         """Read account physical balances without inferring strategy ownership."""

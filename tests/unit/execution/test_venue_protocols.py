@@ -20,6 +20,7 @@ from execution.venues import (
     VenueOrderRequest,
     VenueOutcomeUnknownError,
     VenueProtocolError,
+    VenueRejectedError,
 )
 
 
@@ -164,6 +165,35 @@ class TestOKXSpotProtocol:
         assert page.fills[0].fee == Decimal("0.000000000000000001")
         assert page.fills[0].fee_currency == "ETH"
         assert page.fills[0].quantity == Decimal("0.000000000000000003")
+
+    def test_unknown_order_lookup_is_absent_and_other_codes_reject(self) -> None:
+        """OKX's documented 51603 means absent; any other nonzero code stays a rejection."""
+        transport = ScriptedVenueTransport(
+            self._envelope([{"acctLv": "1", "uid": "4455"}]),
+            b'{"code":"51603","data":[],"msg":"Order does not exist"}',
+            b'{"code":"51000","data":[],"msg":"Parameter ordId error"}',
+        )
+        adapter = OKXSpotAdapter(VenueCredentials("key", "secret", "pass"), transport)
+        adapter.qualify_account(at=self.recent, nonce=1)
+        submitted_at = datetime(2026, 9, 26, 11, tzinfo=UTC)
+        absent = adapter.order(
+            "ETH-USDT",
+            "abc123",
+            submitted_at=submitted_at,
+            venue_order_id=None,
+            at=self.recent,
+            nonce=2,
+        )
+        assert absent is None
+        with pytest.raises(VenueRejectedError, match="51000"):
+            adapter.order(
+                "ETH-USDT",
+                "abc123",
+                submitted_at=submitted_at,
+                venue_order_id=None,
+                at=self.recent,
+                nonce=3,
+            )
 
     def test_account_wide_orders_reject_other_products(self) -> None:
         """A non-spot pending order cannot disappear behind a spot filter."""
@@ -376,6 +406,90 @@ class TestBitfinexSpotProtocol:
             )
         assert page.fills[0].fill_id == "bitfinex:55"
 
+    @staticmethod
+    def _trade(identity: int, milliseconds: int) -> list[object]:
+        """Build one documented native trade array at an exact source millisecond."""
+        return [
+            identity,
+            "tETHUSD",
+            milliseconds,
+            987,
+            "0.01",
+            "125.12",
+            "EXCHANGE LIMIT",
+            "125.12",
+            1,
+            "-0.01",
+            "USD",
+            1234,
+        ]
+
+    def test_trade_history_continues_from_the_last_page_millisecond(self) -> None:
+        """A full page restarts inside its last millisecond instead of dropping fills."""
+        start = 1790424000000
+        pages: list[list[object]] = [
+            [self._trade(1, start), self._trade(2, start + 1), self._trade(3, start + 1)],
+            [self._trade(2, start + 1), self._trade(3, start + 1), self._trade(4, start + 2)],
+            [self._trade(4, start + 2)],
+        ]
+        transport = ScriptedVenueTransport(
+            self._paper_info(), *(msgspec.json.encode(page) for page in pages)
+        )
+        adapter = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
+        adapter.qualify_account(at=self.at, nonce=1)
+        cursor: str | None = None
+        identities: list[str] = []
+        for nonce in (2, 3, 4):
+            page = adapter.fills(
+                symbol="tETHUSD",
+                start_ms=start,
+                end_ms=start + 5,
+                limit=3,
+                cursor=cursor,
+                at=self.at,
+                nonce=nonce,
+            )
+            identities.extend(fill.fill_id for fill in page.fills)
+            cursor = page.next_cursor
+        assert page.complete and cursor is None
+        assert identities == [f"bitfinex:{item}" for item in (1, 2, 3, 2, 3, 4, 4)]
+        bodies = [
+            msgspec.json.decode(request.body, type=dict[str, int])
+            for request in transport.requests[1:]
+        ]
+        assert [body["start"] for body in bodies] == [start, start + 1, start + 2]
+        assert all(body["sort"] == 1 and body["end"] == start + 5 for body in bodies)
+        for invalid in ("01790424000001", "later", str(start - 1), str(start + 6)):
+            with pytest.raises(ValueError, match="cursor"):
+                adapter.fills(
+                    symbol="tETHUSD",
+                    start_ms=start,
+                    end_ms=start + 5,
+                    limit=3,
+                    cursor=invalid,
+                    at=self.at,
+                    nonce=5,
+                )
+        assert len(transport.requests) == 4
+
+    def test_trade_history_page_must_ascend_within_its_window(self) -> None:
+        """A descending or out-of-window native page cannot become a continuation."""
+        start = 1790424000000
+        descending: list[object] = [self._trade(2, start + 1), self._trade(1, start)]
+        transport = ScriptedVenueTransport(self._paper_info(), msgspec.json.encode(descending))
+        adapter = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
+        adapter.qualify_account(at=self.at, nonce=1)
+        with pytest.raises(VenueProtocolError, match="ascending"):
+            adapter.fills(
+                symbol="tETHUSD",
+                start_ms=start,
+                end_ms=start + 5,
+                limit=3,
+                cursor=None,
+                at=self.at,
+                nonce=2,
+            )
+
     def test_derivative_symbol_is_rejected_before_send_and_on_account_read(self) -> None:
         """A shared native endpoint cannot admit perpetual-futures symbols as spot."""
         derivative = self._order()
@@ -420,6 +534,78 @@ class TestBitfinexSpotProtocol:
         assert (
             adapter.decode_private(b'[0,"hb",9]', received_at=self.at).kind == "recovery_required"
         )
+
+    def _authenticated(self) -> BitfinexSpotAdapter:
+        """Qualify, configure and authenticate a paper private session at sequence zero."""
+        adapter = BitfinexSpotAdapter(
+            VenueCredentials("key", "secret"), ScriptedVenueTransport(self._paper_info())
+        )
+        adapter.qualify_account(at=self.at, nonce=1)
+        adapter.private_login(at=self.at, nonce=2)
+        adapter.decode_private(b'{"event":"conf","status":"OK","flags":65536}', received_at=self.at)
+        authenticated = adapter.decode_private(
+            b'{"event":"auth","status":"OK","userId":7788}', received_at=self.at
+        )
+        assert authenticated.kind == "authenticated"
+        return adapter
+
+    @staticmethod
+    def _snapshot_entry(kind: str, amount: str) -> list[object]:
+        """Build one position or funding entry with its documented amount slot."""
+        values: list[object] = [None] * 22
+        index = {"ps": 2, "fos": 4, "fcs": 5, "fls": 5}[kind]
+        values[0] = "tETHUSD" if kind == "ps" else 55
+        values[index] = amount
+        return values
+
+    def test_flat_account_snapshots_and_valuations_are_heartbeats(self) -> None:
+        """Documented post-auth snapshots of a spot-only account keep the session."""
+        adapter = self._authenticated()
+        frames: list[list[object]] = [
+            [0, "ps", []],
+            [0, "ps", [self._snapshot_entry("ps", "0")]],
+            [0, "fos", []],
+            [0, "fcs", [self._snapshot_entry("fcs", "0")]],
+            [0, "fls", []],
+            [0, "bu", ["10000.5", "10000.5"]],
+        ]
+        for sequence, frame in enumerate(frames, start=1):
+            numbered: list[object] = [*frame, sequence]
+            event = adapter.decode_private(msgspec.json.encode(numbered), received_at=self.at)
+            assert event.kind == "heartbeat", frame[1]
+
+    def test_wallet_frames_accept_unknown_availability(self) -> None:
+        """A null available balance is unknown, while the exact total is retained."""
+        adapter = self._authenticated()
+        snapshot = adapter.decode_private(
+            b'[0,"ws",[["exchange","USD",10000.5,0,null],["margin","USD",0,0,null]],1]',
+            received_at=self.at,
+        )
+        assert snapshot.kind == "balance"
+        assert [(item.currency, item.total, item.available) for item in snapshot.balances] == [
+            ("USD", Decimal("10000.5"), None)
+        ]
+        update = adapter.decode_private(
+            b'[0,"wu",["exchange","ETH",0.5,0,null],2]', received_at=self.at
+        )
+        assert [(item.total, item.available) for item in update.balances] == [
+            (Decimal("0.5"), None)
+        ]
+        wallets: list[object] = [["exchange", "USD", "10000.5", 0, None]]
+        transport = ScriptedVenueTransport(self._paper_info(), msgspec.json.encode(wallets))
+        rest = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
+        rest.qualify_account(at=self.at, nonce=1)
+        with pytest.raises(VenueProtocolError, match="availability"):
+            rest.balances(at=self.at, nonce=2)
+
+    @pytest.mark.parametrize("kind", ["ps", "fos", "fcs", "fls"])
+    def test_margin_or_funding_exposure_requires_recovery(self, kind: str) -> None:
+        """A nonzero position or funding entry cannot be absorbed as a heartbeat."""
+        adapter = self._authenticated()
+        entries: list[object] = [self._snapshot_entry(kind, "0"), self._snapshot_entry(kind, "0.5")]
+        frame: list[object] = [0, kind, entries, 1]
+        event = adapter.decode_private(msgspec.json.encode(frame), received_at=self.at)
+        assert event.kind == "recovery_required"
 
     def test_private_auth_rejects_another_physical_account(self) -> None:
         """A paper socket for a different user cannot inherit REST qualification."""

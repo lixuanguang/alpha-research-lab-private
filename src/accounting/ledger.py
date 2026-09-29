@@ -7,6 +7,9 @@ from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
 
+# third party library imports
+from msgspec.structs import force_setattr
+
 # project library imports
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity
 from serialization import WireRecord
@@ -202,7 +205,11 @@ class Ledger:
         state.__post_init__()
         self._initial = state.initial_cash.model_copy()
         self._dimension = state.dimension.model_copy()
-        self._fills: tuple[Fill, ...] = ()
+        # Applied fills in order, their identities for constant-time duplicate
+        # refusal, and the last state built from them (cleared on every apply).
+        self._fills: list[Fill] = []
+        self._fill_ids: set[str] = set()
+        self._state: LedgerState | None = None
         zero = Money(value=Decimal(0), currency=self._initial.currency)
         ratio = RationalMoney.create(Fraction(0), self._initial.currency)
         self._balance = LedgerBalance(
@@ -223,10 +230,31 @@ class Ledger:
     def state(self) -> LedgerState:
         """Return complete economic restart state.
 
+        Every fill was validated, and its identity and order checked, when it was
+        applied, so the state attaches them without validating each fill again;
+        that repeated check made every read linear in the retained fill count.
+
         Returns:
             Immutable capital, dimension and applied postings.
         """
-        return LedgerState(initial_cash=self._initial, dimension=self._dimension, fills=self._fills)
+        if self._state is None:
+            state = LedgerState(initial_cash=self._initial, dimension=self._dimension)
+            fills: tuple[Fill, ...] = tuple(self._fills)
+            force_setattr(state, "fills", fills)
+            self._state = state
+        return self._state
+
+    def copy(self) -> Ledger:
+        """Return an independent ledger with the same validated postings, without replay.
+
+        Returns:
+            A ledger whose later postings do not affect this one.
+        """
+        duplicate = Ledger.__new__(Ledger)
+        duplicate._initial, duplicate._dimension = self._initial, self._dimension
+        duplicate._fills, duplicate._fill_ids = list(self._fills), set(self._fill_ids)
+        duplicate._state, duplicate._balance = self._state, self._balance
+        return duplicate
 
     @property
     def balance(self) -> LedgerBalance:
@@ -254,7 +282,7 @@ class Ledger:
         if (
             fill.quantity.dimension != self._dimension
             or fill.fee.currency != self._initial.currency
-            or any(item.identity == fill.identity for item in self._fills)
+            or fill.identity in self._fill_ids
             or (self._fills and fill.filled_at < self._fills[-1].filled_at)
         ):
             raise ValueError("duplicate, incompatible or out-of-order fill")
@@ -287,7 +315,9 @@ class Ledger:
             turnover=before.turnover + Money(value=notional.value.copy_abs(), currency=currency),
         )
         self._balance = after
-        self._fills += (fill,)
+        self._fills.append(fill)
+        self._fill_ids.add(fill.identity)
+        self._state = None
         return after
 
     @staticmethod

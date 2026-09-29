@@ -150,6 +150,12 @@ model invents no intervening exchange event or response clock. A quote can fill
 only an older order. The modeled fill retains both observed touch reference and
 adverse effective price, with exact quote-currency fee rounding. A limit or fee
 reservation that cannot cover those economics cannot silently become a fill.
+`PaperFeeSchedule` takes only the whole lots whose fee, both exact and rounded on
+that fill, fits the order's remaining `maximum_fee`. A sell filling above its limit
+or fees rounding up on every partial fill can therefore leave the rest of an order
+resting (or cancelled, for IOC), but never fault the account. The account lifecycle
+still refuses an unaffordable fill and rolls the whole market back. Size the
+reserve for the worst execution price plus one minor unit per possible fill.
 
 `PaperMatchEvaluator` is the shared deterministic projection for the dedicated
 and account journals. The account journal supplies physical orders in decision
@@ -307,7 +313,9 @@ Each physical order must already be reserved through direct admission or MR09
 portfolio coordination. The gateway stores its client identity and uncertain
 attempt before I/O. A kernel lock excludes another sending owner while the first
 can still use its connection; a bounded account write lock protects the final
-independent risk/stop check. Lost acknowledgements, restart and absent order lookup
+independent risk/stop check. The adapter's local request budget is waited out
+before that lock is taken, so a throttle sleep never holds the shared journal; the
+network request itself still runs under the lock. Lost acknowledgements, restart and absent order lookup
 never authorize another submit for that identity. Request acknowledgement is not
 acceptance. Cancellation acknowledgement is not terminal cancellation. A further
 explicit cancel requires successful reconciliation confirming the order is still
@@ -327,14 +335,21 @@ Before each first submit and after uncertain outcomes, the gateway checks native
 account mode/UID, retained individual fills, order details, wallet totals and
 stable opening/closing open-order snapshots. It checks every configured instrument
 and refuses unknown orders, inconsistent cumulative fills, nonzero unmapped wallets,
-borrowed funds, history truncation or changed economic identity. Local unsent intents
+borrowed funds, history truncation or changed economic identity. An order whose
+terminal outcome is already journaled is not looked up again: later fills still
+arrive through fill history and a reopened order through the open-order snapshots,
+so venue lookup retention no longer limits account age. Local unsent intents
 remain reserved and are not represented as venue-observed orders. A broken or
 unavailable observation invalidates independent account readiness before the
 transport diagnostic is saved. Operator stops are never cleared by reconciliation.
 
 Private WebSocket sessions authenticate explicitly and retain received frames;
 Bitfinex sequence gaps and either venue's malformed/control/loss events require
-recovery. Economic notifications trigger the same authoritative REST reconciliation.
+recovery. Bitfinex follows authentication with position and funding snapshots and
+sends periodic balance valuations (`bu`); these are heartbeats while flat, and any
+position or funding exposure requires recovery. Private wallet frames may report
+availability as not yet calculated (unknown), while REST wallets must report it.
+Economic notifications trigger the same authoritative REST reconciliation.
 The bounded session closes and invalidates account freshness on exit. Reopening a
 session does not itself resume submission. This correctness-first implementation
 does not qualify low-latency streaming or MR15 runtime budgets.
@@ -350,8 +365,13 @@ quarantine is described below.
 
 Recovery is deliberately bounded by source history retention, pagination and
 configured resource limits. An empty unavailable historical window is not proof of
-no fills. The current Bitfinex fill reader refuses a full ambiguous timestamp page;
-larger recovery workloads require the MR15 capacity extension before admission.
+no fills. Fill history starts at the account opening until a reconciliation
+matches the physical account. The venue journal (`venue-journal-v2`) then retains
+that window's end, and later reads restart one hour before it so late-published or
+clock-skewed executions are still read; a physical break leaves the mark in place.
+Repeated executions apply once by fill identity. The Bitfinex reader pages trades
+forward by time and restarts each continuation inside the last millisecond of a
+full page; a full page that stays within one millisecond fails closed.
 No borrowing, derivatives, third-currency fee conversion, production activation or
 venue-execution fidelity is claimed. The
 [MR11 roadmap record](../../docs/roadmap/README.md#mr11-delivery-and-acceptance)

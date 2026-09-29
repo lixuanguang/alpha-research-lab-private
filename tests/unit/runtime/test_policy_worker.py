@@ -7,6 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 
 # third party library imports
 import pytest
@@ -52,8 +53,11 @@ class TestPolicyWorker:
         return Quantity(value=Decimal(value), dimension=cls.dimension)
 
     @classmethod
-    def _context(cls, *, ask_size: str = "2") -> DecisionContext:
-        """Supply one causal uncrossed public-book feature vector."""
+    def _context(
+        cls, *, ask: str = "101", bid: str = "100", ask_size: str = "2"
+    ) -> DecisionContext:
+        """Supply one causal uncrossed public-book feature vector of exact ratios."""
+        ask_ratio, bid_ratio = Fraction(ask), Fraction(bid)
         return DecisionContext(
             features=FeatureVector(
                 entity=str(cls.dimension.instrument_id),
@@ -65,8 +69,8 @@ class TestPolicyWorker:
                 definition="reference-book-v1",
                 fields=ReferenceClipPolicy.fields,
                 values=(
-                    ExactRatio(numerator="101", denominator="1"),
-                    ExactRatio(numerator="100", denominator="1"),
+                    ExactRatio.from_fraction(ask_ratio),
+                    ExactRatio.from_fraction(bid_ratio),
                     ExactRatio(numerator=ask_size, denominator="1"),
                 ),
                 reasons=("observed", "observed", "observed"),
@@ -76,13 +80,19 @@ class TestPolicyWorker:
         )
 
     @classmethod
-    def _policy(cls, kind: str = "fixed") -> ReferenceClipPolicy:
+    def _price(cls, value: str) -> Price:
+        """Create an exact quote price per base unit."""
+        return Price(value=Decimal(value), currency=cls.currency, per=cls.dimension)
+
+    @classmethod
+    def _policy(cls, kind: str = "fixed", *, tick: str = "0.01") -> ReferenceClipPolicy:
         """Bind one complete policy formula to the same installed digest."""
         policy = LiquidityClipPolicy if kind == "liquidity" else ReferenceClipPolicy
         return policy(
             cls._quantity("2"),
             cls.currency,
             cls._quantity("1"),
+            tick=cls._price(tick),
             implementation="a" * 64,
         )
 
@@ -96,15 +106,30 @@ class TestPolicyWorker:
         first = policy.decide(self._context(), policy.initial_state())
         assert type(first.intent) is OrderIntent
         assert first.intent.quantity == self._quantity(expected_quantity)
-        assert first.intent.limit == Price(
-            value=Decimal("103"), currency=self.currency, per=self.dimension
-        )
+        # Two ticks through the 101 ask, then one tick below the 100 bid.
+        assert first.intent.limit == self._price("101.02")
         assert first.state == b"1"
         second = policy.decide(self._context(), first.state)
         assert type(second.intent) is OrderIntent
-        assert second.intent.limit.value == Decimal("99")
+        assert second.intent.limit.value == Decimal("99.99")
         assert second.state == b"2"
         assert policy.identity != self._policy("liquidity" if kind == "fixed" else "fixed").identity
+
+    def test_clip_prices_scale_with_a_low_priced_book(self) -> None:
+        """Tick offsets keep prices positive and near the touch below one quote unit."""
+        policy = self._policy(tick="0.0001")
+        context = self._context(ask="0.05", bid="0.04")
+        first = policy.decide(context, policy.initial_state())
+        assert type(first.intent) is OrderIntent
+        assert first.intent.limit == self._price("0.0502")
+        resting = policy.decide(context, first.state)
+        assert type(resting.intent) is OrderIntent
+        assert resting.intent.limit == self._price("0.0399")
+        # A one-tick bid cannot rest a tick lower, so the interest joins the bid.
+        joined = policy.decide(self._context(ask="0.0003", bid="0.0001"), b"1")
+        assert type(joined.intent) is OrderIntent
+        assert joined.intent.limit == self._price("0.0001")
+        assert policy.identity != self._policy(tick="0.001").identity
 
     def test_reference_policy_rejects_foreign_signature_state_and_parameters(self) -> None:
         """Malformed book inputs cannot silently become an executable order."""
@@ -118,6 +143,15 @@ class TestPolicyWorker:
                 self._quantity("2"),
                 self.currency,
                 self._quantity("3"),
+                tick=self._price("0.01"),
+                implementation="a" * 64,
+            )
+        with pytest.raises(ValueError, match="parameters"):
+            ReferenceClipPolicy(
+                self._quantity("2"),
+                self.currency,
+                self._quantity("1"),
+                tick=self._price("0"),
                 implementation="a" * 64,
             )
         with pytest.raises(ValueError, match="positive visible size"):
@@ -154,6 +188,7 @@ class TestPolicyWorker:
                 self._quantity("2"),
                 self.currency,
                 self._quantity("1"),
+                tick=self._price("0.01"),
                 implementation="a" * 64,
             ),
             timeout_seconds=1,

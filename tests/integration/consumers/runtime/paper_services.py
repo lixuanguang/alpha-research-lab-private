@@ -357,7 +357,12 @@ class PaperServiceWorkload:
             alert_socket=initial.alert_socket,
         )
 
-    def policy_identity(self, instance: PaperServiceInstance, source: PaperServiceSource) -> str:
+    def policy_identity(
+        self,
+        service: PaperServiceConfiguration,
+        instance: PaperServiceInstance,
+        source: PaperServiceSource,
+    ) -> str:
         """Match the installed service's selected policy constructor exactly."""
         if self.implementation is None:
             raise ValueError("policy identity requires the installed release")
@@ -366,6 +371,7 @@ class PaperServiceWorkload:
             instance.quantity,
             source.scenario.adverse.currency,
             instance.lot,
+            tick=service.instance_limits(instance).tick,
             implementation=self.implementation,
         ).identity
 
@@ -391,7 +397,7 @@ class PaperServiceWorkload:
         strategies = tuple(
             PaperStrategyIdentity(
                 instance_id=item.instance_id,
-                policy_identity=self.policy_identity(item, sources[item.source]),
+                policy_identity=self.policy_identity(service, item, sources[item.source]),
                 candidate_identity="paper-services-reference-v1",
                 model_identity="rule-only",
                 feature_identity=ServiceBookInputs(

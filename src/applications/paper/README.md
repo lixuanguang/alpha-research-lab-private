@@ -280,7 +280,9 @@ selects its source and installed reference policy. The supported local envelope 
 at most four accounts, eight source processes and sixteen policy instances, with
 bounded 1–120 second invocations. These resource ceilings are not MR15 throughput
 qualification. `fixed_clip` and `liquidity_clip` are different engineering formulas,
-not profitability recommendations.
+not profitability recommendations. Both price in ticks of the instrument limits in the
+instance's installed account: the opening clip bids two ticks through the ask, and later
+interests rest one tick below the best bid, or at a bid of a single tick.
 
 The interval is positive and no larger than source freshness or capture idle time.
 It is part of the signed input identity. All native books are retained and validated;

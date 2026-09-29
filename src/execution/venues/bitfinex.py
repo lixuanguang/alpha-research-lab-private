@@ -6,6 +6,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from hashlib import sha384
 from hmac import new
+from itertools import pairwise
+from typing import ClassVar
 
 # project library imports
 from configuration import CapabilityProfile
@@ -36,6 +38,10 @@ from execution.venues.throttle import VenueRateLimiter
 
 class BitfinexSpotAdapter:
     """Translate admitted orders into exchange-wallet paper account operations."""
+
+    # Documented amount slot of each position (ps) and funding offer (fos),
+    # credit (fcs) and loan (fls) snapshot entry.
+    _EXPOSURE_AMOUNT_INDEX: ClassVar[dict[str, int]] = {"ps": 2, "fos": 4, "fcs": 5, "fls": 5}
 
     def __init__(self, credentials: VenueCredentials, transport: VenueHttpTransport) -> None:
         """Bind caller-resolved subaccount credentials and one REST transport."""
@@ -101,6 +107,10 @@ class BitfinexSpotAdapter:
         self.account_verified = True
         self.account_identity = profile.account_identity
         return profile
+
+    def wait_for_request_slot(self) -> None:
+        """Wait for local request capacity so a dispatch fence never holds a sleep."""
+        self.throttle.wait()
 
     def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
         """Submit one exchange-wallet spot order with the durable int45 CID."""
@@ -262,18 +272,26 @@ class BitfinexSpotAdapter:
         at: datetime,
         nonce: int,
     ) -> VenueFillPage:
-        """Read a bounded complete window; reject a full ambiguous timestamp page."""
+        """Read one ascending time page, continuing a full page from its last millisecond.
+
+        Bitfinex pages trade history by timestamp only, and a full page can stop
+        inside a millisecond whose later trades it omitted. The continuation
+        cursor is that millisecond, so the next page repeats its trades and the
+        caller drops repeated fill identities. A full page that never leaves its
+        first millisecond cannot advance and fails closed.
+        """
         del at
         self._require_verified()
         self._validate_symbol(symbol)
-        if cursor is not None or not (0 <= start_ms <= end_ms) or not (1 <= limit <= 2500):
+        page_start = start_ms if cursor is None else self._cursor_milliseconds(cursor)
+        if not (0 <= start_ms <= page_start <= end_ms) or not (1 <= limit <= 2500):
             raise ValueError("invalid Bitfinex fill window, limit, or cursor")
         path = "/v2/auth/r/trades/" + symbol + "/hist"
         response = self._request(
             path,
             VenueJson.encode(
                 {
-                    "start": start_ms,
+                    "start": page_start,
                     "end": end_ms,
                     "limit": limit,
                     "sort": 1,
@@ -282,19 +300,31 @@ class BitfinexSpotAdapter:
             nonce=nonce,
         )
         items = VenueJson.array(VenueJson.parse(response.body))
-        if len(items) >= limit:
-            raise VenueProtocolError("Bitfinex trade page may omit same-millisecond fills")
+        if len(items) > limit:
+            raise VenueProtocolError("Bitfinex trade page exceeds its requested limit")
         facts = tuple(self._fill_fact(VenueJson.array(item), response) for item in items)
-        if any(
-            fact.symbol != symbol
-            or fact.source_at is None
-            or not (start_ms <= VenueJson.epoch_milliseconds(fact.source_at) <= end_ms)
+        times = tuple(
+            None if fact.source_at is None else VenueJson.epoch_milliseconds(fact.source_at)
             for fact in facts
+        )
+        if any(
+            fact.symbol != symbol or time is None or not (page_start <= time <= end_ms)
+            for fact, time in zip(facts, times, strict=True)
         ):
             raise VenueProtocolError("Bitfinex fill outside requested interval")
+        if any(
+            later is None or earlier is None or later < earlier
+            for earlier, later in pairwise(times)
+        ):
+            raise VenueProtocolError("Bitfinex trade page is not in ascending time order")
         if len({fact.fill_id for fact in facts}) != len(facts):
             raise VenueProtocolError("Bitfinex trade page repeats an identity")
-        return VenueFillPage(fills=facts, next_cursor=None, complete=True)
+        if len(items) < limit:
+            return VenueFillPage(fills=facts, next_cursor=None, complete=True)
+        last = times[-1]
+        if last is None or last == page_start:
+            raise VenueProtocolError("Bitfinex trade page may omit same-millisecond fills")
+        return VenueFillPage(fills=facts, next_cursor=str(last), complete=False)
 
     def balances(self, *, at: datetime, nonce: int) -> tuple[VenueBalance, ...]:
         """Read complete exchange-wallet currency balances; null availability fails."""
@@ -315,6 +345,8 @@ class BitfinexSpotAdapter:
             result.append(self._wallet_fact(wallet, response.body, response.received_at))
         if len({balance.currency for balance in result}) != len(result):
             raise VenueProtocolError("Bitfinex exchange wallet repeats currency")
+        if any(balance.available is None for balance in result):
+            raise VenueProtocolError("Bitfinex wallet availability is unknown")
         return tuple(result)
 
     def private_configuration(self) -> tuple[bytes, ...]:
@@ -401,9 +433,25 @@ class BitfinexSpotAdapter:
         self.private_sequence = sequence
         kind = VenueJson.text(VenueJson.indexed(frame, 1))
         response = VenueHttpResponse(status=200, body=raw, received_at=received_at)
-        if kind in ("hb", "te"):
-            # A te lacks its final fee. The matching tu carries complete economics.
+        if kind in ("hb", "te", "bu"):
+            # A te lacks its final fee; the matching tu carries complete economics.
+            # A bu is a periodic total valuation; REST reconciliation owns balances.
             return VenueStreamEvent(kind="heartbeat", received_at=received_at, raw=raw)
+        if kind in self._EXPOSURE_AMOUNT_INDEX:
+            # Authentication snapshots positions and funding even for a spot-only
+            # account. Only a flat snapshot is harmless; any exposure needs recovery.
+            index = self._EXPOSURE_AMOUNT_INDEX[kind]
+            if all(
+                VenueJson.decimal(VenueJson.indexed(VenueJson.array(item), index)) == 0
+                for item in VenueJson.array(VenueJson.indexed(frame, 2))
+            ):
+                return VenueStreamEvent(kind="heartbeat", received_at=received_at, raw=raw)
+            return VenueStreamEvent(
+                kind="recovery_required",
+                received_at=received_at,
+                raw=raw,
+                reason="Bitfinex margin or funding exposure",
+            )
         if kind == "os":
             orders = tuple(
                 self._order_fact(VenueJson.array(item), response)
@@ -491,6 +539,17 @@ class BitfinexSpotAdapter:
                 raise ValueError("Bitfinex order exceeds eight decimal places")
             if is_price and len(significant) > 5:
                 raise ValueError("Bitfinex price exceeds five significant digits")
+
+    @staticmethod
+    def _cursor_milliseconds(cursor: str) -> int:
+        """Read a canonical epoch-millisecond continuation without lossy coercion."""
+        if (
+            not cursor.isascii()
+            or not cursor.isdigit()
+            or (cursor.startswith("0") and cursor != "0")
+        ):
+            raise ValueError("invalid Bitfinex fill cursor")
+        return int(cursor)
 
     @staticmethod
     def _venue_order_number(order_id: str) -> int:
@@ -683,13 +742,18 @@ class BitfinexSpotAdapter:
 
     @staticmethod
     def _wallet_fact(item: list[object], raw: bytes, received_at: datetime) -> VenueBalance:
-        """Normalize a complete exchange wallet with known available balance."""
+        """Normalize an exchange wallet; a null available balance stays unknown.
+
+        Bitfinex sends null availability until it is calculated, as it usually is
+        in private wallet frames. The exact total is always required.
+        """
         if VenueJson.text(VenueJson.indexed(item, 0)) != "exchange":
             raise VenueProtocolError("Bitfinex wallet is not exchange spot wallet")
+        available = VenueJson.indexed(item, 4)
         return VenueBalance(
             currency=VenueJson.text(VenueJson.indexed(item, 1)),
             total=VenueJson.decimal(VenueJson.indexed(item, 2)),
-            available=VenueJson.decimal(VenueJson.indexed(item, 4)),
+            available=None if available is None else VenueJson.decimal(available),
             received_at=received_at,
             raw=raw,
         )

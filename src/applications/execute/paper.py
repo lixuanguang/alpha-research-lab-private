@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 # project library imports
-from accounting import Ledger, LedgerBalance, LedgerState
+from accounting import LedgerBalance, LedgerState
 from configuration import PaperConfiguration
 from execution import (
     AccountReservations,
@@ -352,7 +352,7 @@ class PaperExecutionApplication:
             binding_identity=journal.binding_identity,
             qualification=journal.qualification,
             orders=journal.orders(),
-            balance=Ledger(journal.ledger_state()).balance,
+            balance=journal.ledger_balance(),
             reservations=journal.reservations(),
             last_event_sequence=0 if not events else events[-1].sequence,
             blocked_reason=journal.blocked_reason(),

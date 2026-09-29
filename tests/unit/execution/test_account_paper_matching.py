@@ -6,7 +6,9 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
+from typing import Literal
 
 # third party library imports
 import pytest
@@ -27,17 +29,29 @@ from execution import (
     NetFeeCorrection,
     OrderDecision,
     OrderEvent,
+    OrderState,
     PaperMarket,
     PortfolioBatch,
     PortfolioCommit,
     PortfolioContext,
     PortfolioDecision,
 )
+from execution.paper import PaperFeeSchedule
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from serialization import DomainCodec
 from strategies import OrderIntent
+
+
+class _ReserveBlindFeeSchedule(PaperFeeSchedule):
+    """Model a defective fee schedule that ignores each order's remaining fee reserve."""
+
+    def affordable(
+        self, order: OrderState, size: Fraction, price: Price, lot: Fraction
+    ) -> Fraction:
+        """Return every whole lot, as a model without the reserve bound would."""
+        return (size // lot) * lot
 
 
 class TestAccountPaperMatching:
@@ -179,6 +193,37 @@ class TestAccountPaperMatching:
                     quantity=cls._quantity("3"),
                     limit=cls._price(limit),
                     time_in_force="gtc",
+                ),
+            ),
+            quote=AccountQuote(price=cls._price("1.00"), at=at),
+            maximum_fee=cls._money(maximum_fee),
+            checkpoint=identity.encode(),
+        )
+
+    @classmethod
+    def _order(
+        cls,
+        identity: str,
+        at: datetime,
+        *,
+        side: Literal["buy", "sell"],
+        quantity: str,
+        limit: str,
+        time_in_force: Literal["gtc", "ioc"],
+        maximum_fee: str,
+    ) -> AccountDecision:
+        """Build one owned alpha order with an explicit side, lifetime and fee reserve."""
+        return AccountDecision(
+            account_id="shared",
+            instance_id="alpha",
+            decision=OrderDecision(
+                identity=identity,
+                at=at,
+                intent=OrderIntent(
+                    side=side,
+                    quantity=cls._quantity(quantity),
+                    limit=cls._price(limit),
+                    time_in_force=time_in_force,
                 ),
             ),
             quote=AccountQuote(price=cls._price("1.00"), at=at),
@@ -452,10 +497,95 @@ class TestAccountPaperMatching:
         )
         assert reopened.paper_traces("shared")[-1] == due
 
-    def test_fee_cap_failure_blocks_without_partial_lifecycle_or_economics(
+    def test_capped_ioc_buy_fills_only_what_its_fee_reserve_pays(self, tmp_path: Path) -> None:
+        """An admitted buy whose full fill costs more than its reserve fills the affordable lots."""
+        scenario = self._scenario(fee_rate="0.10")
+        journal = self._ready(tmp_path / "capped-buy.sqlite3", scenario)
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("1.00"), at=decision_at))
+        admitted = journal.admit(
+            self._order(
+                "capped-buy",
+                decision_at,
+                side="buy",
+                quantity="3",
+                limit="1.10",
+                time_in_force="ioc",
+                maximum_fee="0.21",
+            )
+        )
+        assert admitted.status == "committed"
+        # At 1.01 after adverse cost each unit pays 0.101, so 0.21 covers two units.
+        market = self._market("capped-book", decision_at + timedelta(seconds=1))
+        trace = journal.match_public_market("shared", market, scenario)
+        assert trace.status == "committed"
+        fills = [event.fill for event in trace.physical_events if event.fill is not None]
+        assert [(fill.quantity.value, fill.fee.value) for fill in fills] == [
+            (Decimal("2"), Decimal("0.202"))
+        ]
+        order = journal.orders()[0].order
+        assert (order.status, order.filled.value) == ("cancelled", Decimal("2"))
+        assert order.paid_fee.value <= order.maximum_fee.value
+        assert journal.accounts()[0].fault is None
+
+    def test_sell_filling_above_its_limit_stays_within_its_fee_reserve(
         self, tmp_path: Path
     ) -> None:
-        """One unaffordable modeled fill retains source evidence and reservations."""
+        """A reserve sized at the sell limit caps a fill priced above that limit."""
+        scenario = self._scenario(fee_rate="0.10")
+        journal = self._ready(tmp_path / "capped-sell.sqlite3", scenario)
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("1.00"), at=decision_at))
+        bought = journal.admit(
+            self._order(
+                "inventory",
+                decision_at,
+                side="buy",
+                quantity="3",
+                limit="1.10",
+                time_in_force="ioc",
+                maximum_fee="0.50",
+            )
+        )
+        assert bought.status == "committed"
+        inventory = self._market("inventory-book", decision_at + timedelta(seconds=1))
+        journal.match_public_market("shared", inventory, scenario)
+        sell_at = decision_at + timedelta(seconds=2)
+        journal.observe(AccountQuote(price=self._price("1.00"), at=sell_at))
+        # Two units at the 0.85 limit cost exactly 0.17 in fees.
+        sold = journal.admit(
+            self._order(
+                "limit-sized-sell",
+                sell_at,
+                side="sell",
+                quantity="2",
+                limit="0.85",
+                time_in_force="gtc",
+                maximum_fee="0.17",
+            )
+        )
+        assert sold.status == "committed"
+        # The 0.90 bid fills at 0.89 after adverse cost: 0.089 per unit, so one unit fits.
+        market = self._market("sell-book", sell_at + timedelta(seconds=1))
+        trace = journal.match_public_market("shared", market, scenario)
+        fills = [event.fill for event in trace.physical_events if event.fill is not None]
+        assert [(fill.quantity.value, fill.fee.value) for fill in fills] == [
+            (Decimal("-1"), Decimal("0.089"))
+        ]
+        order = next(
+            item.order
+            for item in journal.orders()
+            if item.order.decision_identity == "limit-sized-sell"
+        )
+        assert (order.status, order.filled.value) == ("partial", Decimal("1"))
+        assert order.paid_fee.value <= order.maximum_fee.value
+        assert journal.accounts()[0].fault is None
+
+    def test_fee_cap_failure_blocks_without_partial_lifecycle_or_economics(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A reserve-blind model's unaffordable fill is refused and rolled back whole."""
+        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _ReserveBlindFeeSchedule)
         scenario = self._scenario(fee_rate="0.10")
         journal = self._ready(tmp_path / "fee-cap.sqlite3", scenario)
         decision_at = self.opening_at + timedelta(seconds=1)

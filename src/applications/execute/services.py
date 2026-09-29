@@ -10,6 +10,7 @@ import hashlib
 import multiprocessing
 import os
 import socket
+import sqlite3
 import stat
 import time
 from collections.abc import Mapping
@@ -247,6 +248,7 @@ class PaperServices:
             instance.quantity,
             source.scenario.adverse.currency,
             instance.lot,
+            tick=self.config.instance_limits(instance).tick,
             implementation=self.implementation,
         )
 
@@ -1305,13 +1307,19 @@ class PaperServices:
         child.receiver.close()
         failed: list[str] = []
         for account_id, observer in child.observers.items():
+            if observer.index is not None:
+                # Release the delivery index writer and its WAL; rows stay readable.
+                try:
+                    observer.index.close()
+                except sqlite3.Error as error:
+                    failed.append(f"{account_id}:{type(error).__name__}")
             if observer.measurements is not None:
                 try:
                     observer.measurements.close()
                 except OSError as error:
                     failed.append(f"{account_id}:{type(error).__name__}")
         if failed:
-            raise OSError("measurement close failed: " + ", ".join(failed))
+            raise OSError("observer close failed: " + ", ".join(failed))
 
 
 def run_paper_services(

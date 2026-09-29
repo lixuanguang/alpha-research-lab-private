@@ -16,7 +16,12 @@ from strategies.intents import OrderIntent
 
 
 class ReferenceClipPolicy:
-    """Buy one fixed opening clip, then leave nonmarketable book interests."""
+    """Buy one fixed opening clip, then leave nonmarketable book interests.
+
+    Prices move in ticks of the admitted grid, so they scale with the price level:
+    the opening clip bids two ticks through the ask, and later interests rest one
+    tick below the best bid, or at it when the bid is a single tick.
+    """
 
     fields = (
         NumericField(name="ask", units="quote/base"),
@@ -30,21 +35,27 @@ class ReferenceClipPolicy:
         currency: Currency,
         lot: Quantity,
         *,
+        tick: Price,
         implementation: str,
     ) -> None:
-        """Bind exact spot units and the complete installed implementation digest."""
+        """Bind exact spot units, the admitted price tick and the installed implementation."""
         if (
             type(quantity) is not Quantity
             or type(currency) is not Currency
             or type(lot) is not Quantity
+            or type(tick) is not Price
         ):
-            raise TypeError("reference clip requires quantity, currency and lot")
+            raise TypeError("reference clip requires quantity, currency, lot and tick")
         quantity.model_copy()
         currency.model_copy()
         lot.model_copy()
+        tick.model_copy()
         if (
             quantity.value <= 0
             or lot.value <= 0
+            or tick.value <= 0
+            or tick.currency != currency
+            or tick.per != quantity.dimension
             or quantity.dimension != lot.dimension
             or Fraction(quantity.value) % Fraction(lot.value)
             or type(implementation) is not str
@@ -52,7 +63,7 @@ class ReferenceClipPolicy:
             or any(character not in "0123456789abcdef" for character in implementation)
         ):
             raise ValueError("invalid reference clip parameters")
-        self.quantity, self.currency, self.lot = quantity, currency, lot
+        self.quantity, self.currency, self.lot, self.tick = quantity, currency, lot, tick
         self.implementation = implementation
 
     @property
@@ -60,7 +71,14 @@ class ReferenceClipPolicy:
         """Bind policy formula, exact parameters and installed implementation."""
         return hashlib.sha256(
             DomainCodec().encode_json(
-                (self.implementation, type(self).__name__, self.quantity, self.currency, self.lot)
+                (
+                    self.implementation,
+                    type(self).__name__,
+                    self.quantity,
+                    self.currency,
+                    self.lot,
+                    self.tick,
+                )
             )
         ).hexdigest()
 
@@ -84,7 +102,7 @@ class ReferenceClipPolicy:
             raise ValueError("invalid reference clip state")
 
     def decide(self, context: DecisionContext, state: bytes) -> DecisionTransition:
-        """Take the first displayed ask and place later bids below the touch."""
+        """Take the first displayed ask and place later bids at or below the touch."""
         context.__post_init__()
         self.validate_state(state)
         self.admit(
@@ -98,7 +116,11 @@ class ReferenceClipPolicy:
         bid_value = Fraction(int(bid.numerator), int(bid.denominator))
         if bid_value <= 0 or ask_value <= bid_value:
             raise ValueError("reference clip requires positive uncrossed prices")
-        raw = ask_value + 2 if state == b"0" else bid_value - 1
+        tick = Fraction(self.tick.value)
+        if state == b"0":
+            raw = ask_value + 2 * tick
+        else:
+            raw = bid_value - tick if bid_value > tick else bid_value
         price = Price(
             value=DecimalGrid.exact_decimal(raw),
             currency=self.currency,

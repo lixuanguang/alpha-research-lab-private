@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 # standard library imports
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
+from urllib.parse import parse_qsl
 
 # third party library imports
+import msgspec
 import pytest
 from msgspec.structs import replace
 
@@ -23,24 +27,37 @@ from configuration import (
     VenueExecutionConfiguration,
     VenueInstrument,
 )
-from execution import AccountDecision, AccountJournal, AccountQuote, OrderDecision, VenueGateway
-from execution.venue_state import VenueStateStore
+from execution import (
+    AccountDecision,
+    AccountJournal,
+    AccountQuote,
+    OrderDecision,
+    OrderState,
+    VenueGateway,
+)
+from execution.venue_state import VenueState, VenueStateStore
+from execution.venues import BitfinexSpotAdapter, OKXSpotAdapter, VenueCredentials
 from execution.venues.contracts import (
+    VenueAdapter,
     VenueBalance,
     VenueCapabilityProfile,
     VenueCommandAck,
     VenueFillFact,
     VenueFillPage,
+    VenueHttpRequest,
+    VenueHttpResponse,
     VenueOrderFact,
     VenueOrderRequest,
     VenueOutcomeUnknownError,
     VenueRejectedError,
     VenueStreamEvent,
 )
+from execution.venues.throttle import VenueRateLimiter
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.catalogs import InstrumentDefinition, ReferenceHistory, VenueSpecification
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
+from serialization import DomainCodec
 from strategies import OrderIntent
 
 
@@ -112,6 +129,9 @@ class ObservedVenue:
             account_verified=True,
             account_identity="42",
         )
+
+    def wait_for_request_slot(self) -> None:
+        """This fixture has no local request budget."""
 
     def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
         """Accept once, optionally losing the response after the venue effect."""
@@ -283,6 +303,373 @@ class BrokenSession:
         self.closed = True
 
 
+class ScriptedPrivateSession:
+    """Deliver exact private frames once, recording subscriptions and cleanup."""
+
+    def __init__(self, clock: AdvancingClock, frames: tuple[bytes, ...]) -> None:
+        """Bind a finite native frame script and its receipt clock."""
+        self.clock = clock
+        self.frames = frames
+        self.received = 0
+        self.sent: list[bytes] = []
+        self.closed = False
+
+    def open(self, login: bytes, *, configuration: tuple[bytes, ...] = ()) -> None:
+        """Accept the signed login and configuration without network access."""
+        assert login and configuration
+
+    def send(self, frame: bytes) -> None:
+        """Record one subscription frame."""
+        self.sent.append(frame)
+
+    def receive(self) -> tuple[bytes, datetime]:
+        """Return the next scripted frame at the current receipt clock."""
+        if self.received >= len(self.frames):
+            raise VenueOutcomeUnknownError("scripted private session is exhausted")
+        frame = self.frames[self.received]
+        self.received += 1
+        return frame, self.clock.now()
+
+    def close(self) -> None:
+        """Record deterministic socket cleanup."""
+        self.closed = True
+
+
+class GuardProbingPause:
+    """Advance a fake throttle clock, recording whether the account journal is writable."""
+
+    def __init__(self, journal_path: Path) -> None:
+        """Bind the account journal whose write lock each pause probes."""
+        self.journal_path = journal_path
+        self.now = 0.0
+        self.locked = 0
+        self.free = 0
+
+    def clock(self) -> float:
+        """Expose monotonic seconds that advance only through pauses."""
+        return self.now
+
+    def pause(self, seconds: float) -> None:
+        """Probe the journal write lock without waiting, then advance the clock."""
+        with closing(sqlite3.connect(self.journal_path, timeout=0)) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError:
+                self.locked += 1
+            else:
+                connection.rollback()
+                self.free += 1
+        self.now += seconds
+
+
+class NativeExecution(msgspec.Struct, frozen=True):
+    """Describe one venue-identified execution of the simulated physical order."""
+
+    identity: int
+    at: datetime
+    quantity: Decimal
+    price: Decimal
+    fee: Decimal
+
+
+class BitfinexSubmitBody(msgspec.Struct, frozen=True):
+    """Read the native Bitfinex submit fields the simulated account needs."""
+
+    symbol: str
+    amount: str
+    price: str
+    cid: int
+
+
+class BitfinexOrderQuery(msgspec.Struct, frozen=True):
+    """Read an active-order selector by native ID, client ID/date or everything."""
+
+    id: int | None = None
+    cid: int | None = None
+    cid_date: str | None = None
+
+
+class BitfinexTradeQuery(msgspec.Struct, frozen=True):
+    """Read the documented trade history time window and ordering."""
+
+    start: int
+    end: int
+    limit: int
+    sort: int
+
+
+class NativeVenueAccount:
+    """Answer documented native REST requests for one simulated test account.
+
+    The account holds one physical buy order and its individually identified
+    executions. Fill history applies the venue's own ordering, time window and
+    page limit, so paging and retention behavior come from the real adapters.
+    """
+
+    order_number = 9001
+
+    def __init__(
+        self, venue: Literal["okx", "bitfinex"], clock: AdvancingClock, symbol: str, quote: str
+    ) -> None:
+        """Start a funded account with no physical order."""
+        self.venue, self.clock, self.symbol, self.quote = venue, clock, symbol, quote
+        self.cash = Decimal("10000")
+        self.base = Decimal(0)
+        self.client_id: str | None = None
+        self.created_at: datetime | None = None
+        self.quantity = Decimal(0)
+        self.price = Decimal(0)
+        self.cancelled = False
+        self.executions: list[NativeExecution] = []
+        self.requests: list[VenueHttpRequest] = []
+
+    def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
+        """Record one signed request and answer it from native account state."""
+        self.requests.append(request)
+        body = self._okx(request) if self.venue == "okx" else self._bitfinex(request)
+        return VenueHttpResponse(status=200, body=body, received_at=self.clock.now())
+
+    def execute(self, count: int, *, quantity: str, fee: str, per_millisecond: int) -> None:
+        """Fill the order with executions that share each millisecond in fixed groups."""
+        if self.created_at is None:
+            raise AssertionError("simulated execution requires a submitted order")
+        first = (
+            self.executions[-1].at + timedelta(milliseconds=1)
+            if self.executions
+            else self.created_at + timedelta(seconds=1)
+        )
+        for index in range(count):
+            execution = NativeExecution(
+                identity=7000 + len(self.executions),
+                at=first + timedelta(milliseconds=index // per_millisecond),
+                quantity=Decimal(quantity),
+                price=self.price,
+                fee=Decimal(fee),
+            )
+            self.executions.append(execution)
+            self.cash -= execution.quantity * execution.price + execution.fee
+            self.base += execution.quantity
+
+    def fill_windows(self) -> tuple[tuple[int, int], ...]:
+        """Return each requested fill-history window as inclusive epoch milliseconds."""
+        windows: list[tuple[int, int]] = []
+        for request in self.requests:
+            if self.venue == "bitfinex" and request.path.startswith("/v2/auth/r/trades/"):
+                query = msgspec.json.decode(request.body, type=BitfinexTradeQuery)
+                windows.append((query.start, query.end))
+            elif request.path.startswith("/api/v5/trade/fills-history?"):
+                fields = dict(parse_qsl(request.path.partition("?")[2]))
+                windows.append((int(fields["begin"]), int(fields["end"])))
+        return tuple(windows)
+
+    @property
+    def filled(self) -> Decimal:
+        """Return the cumulative executed quantity."""
+        return sum((item.quantity for item in self.executions), Decimal(0))
+
+    @property
+    def is_active(self) -> bool:
+        """Report whether the submitted order still rests on the venue."""
+        return self.client_id is not None and not self.cancelled and self.filled < self.quantity
+
+    @staticmethod
+    def _execution_identity(execution: NativeExecution) -> int:
+        """Order OKX bills by their native identity."""
+        return execution.identity
+
+    @staticmethod
+    def milliseconds(at: datetime) -> int:
+        """Encode a UTC instant as integer epoch milliseconds."""
+        delta = at - datetime(1970, 1, 1, tzinfo=UTC)
+        return delta.days * 86_400_000 + delta.seconds * 1000 + delta.microseconds // 1000
+
+    def _submit(self, client_id: str, *, quantity: str, price: str) -> None:
+        """Accept exactly one order at a venue clock no earlier than the local send."""
+        if self.client_id is not None:
+            raise AssertionError("duplicate physical submit reached the simulated venue")
+        now = self.clock.now()
+        created = self.milliseconds(now) + (1 if now.microsecond % 1000 else 0)
+        self.client_id = client_id
+        self.created_at = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=created)
+        self.quantity, self.price = Decimal(quantity), Decimal(price)
+
+    def _bitfinex(self, request: VenueHttpRequest) -> bytes:
+        """Serve paper account info, exchange orders, ascending trades and wallets."""
+        path = request.path
+        if path == "/v2/auth/r/info/user":
+            info: list[object] = [None] * 22
+            info[0], info[21] = 42, 1
+            return msgspec.json.encode(info)
+        if path == "/v2/auth/w/order/submit":
+            submit = msgspec.json.decode(request.body, type=BitfinexSubmitBody)
+            self._submit(str(submit.cid), quantity=submit.amount, price=submit.price)
+            notice = [0, "on-req", None, None, [self._bitfinex_order()], None, "SUCCESS", ""]
+            return msgspec.json.encode(notice)
+        if path == "/v2/auth/w/order/cancel":
+            if not self.is_active:
+                raise AssertionError("simulated Bitfinex cancel requires an active order")
+            self.cancelled = True
+            notice = [0, "oc-req", None, None, self._bitfinex_order(), None, "SUCCESS", ""]
+            return msgspec.json.encode(notice)
+        if path == "/v2/auth/r/orders":
+            query = msgspec.json.decode(request.body, type=BitfinexOrderQuery)
+            is_selected = query.id in (None, self.order_number) and query.cid in (
+                None,
+                None if self.client_id is None else int(self.client_id),
+            )
+            active = [self._bitfinex_order()] if self.is_active and is_selected else []
+            return msgspec.json.encode(active)
+        if path == "/v2/auth/r/orders/hist":
+            closed = [self._bitfinex_order()] if self.client_id and not self.is_active else []
+            return msgspec.json.encode(closed)
+        if path == f"/v2/auth/r/trades/{self.symbol}/hist":
+            window = msgspec.json.decode(request.body, type=BitfinexTradeQuery)
+            if window.sort != 1:
+                raise AssertionError("simulated venue serves ascending trade history only")
+            rows = [
+                self._bitfinex_trade(item)
+                for item in self.executions
+                if window.start <= self.milliseconds(item.at) <= window.end
+            ]
+            return msgspec.json.encode(rows[: window.limit])
+        if path == "/v2/auth/r/wallets":
+            wallets = [
+                ["exchange", self.quote, str(self.cash), 0, str(self.cash)],
+                ["exchange", "ETH", str(self.base), 0, str(self.base)],
+            ]
+            return msgspec.json.encode(wallets)
+        raise AssertionError(f"unexpected Bitfinex request: {path}")
+
+    def _bitfinex_order(self) -> list[object]:
+        """Describe the order in the documented 32-field native array."""
+        if self.client_id is None or self.created_at is None:
+            raise AssertionError("simulated Bitfinex order is absent")
+        remaining = self.quantity - self.filled
+        status = (
+            "CANCELED"
+            if self.cancelled
+            else "ACTIVE"
+            if not self.filled
+            else f"PARTIALLY FILLED @ {self.price}({self.filled})"
+            if remaining
+            else f"EXECUTED @ {self.price}({self.filled})"
+        )
+        values: list[object] = [None] * 32
+        values[0] = self.order_number
+        values[2] = int(self.client_id)
+        values[3] = self.symbol
+        values[4] = values[5] = self.milliseconds(self.created_at)
+        values[6] = str(remaining)
+        values[7] = str(self.quantity)
+        values[8] = "EXCHANGE LIMIT"
+        values[12] = 0
+        values[13] = status
+        values[16] = str(self.price)
+        return values
+
+    def _bitfinex_trade(self, execution: NativeExecution) -> list[object]:
+        """Describe one execution with its native negative quote fee."""
+        if self.client_id is None:
+            raise AssertionError("simulated Bitfinex trade lacks a client identity")
+        return [
+            execution.identity,
+            self.symbol,
+            self.milliseconds(execution.at),
+            self.order_number,
+            str(execution.quantity),
+            str(execution.price),
+            "EXCHANGE LIMIT",
+            str(self.price),
+            1,
+            str(execution.fee.copy_negate()),
+            self.quote,
+            int(self.client_id),
+        ]
+
+    def _okx(self, request: VenueHttpRequest) -> bytes:
+        """Serve demo account mode, orders, newest-first fills and balances."""
+        path, _, query_text = request.path.partition("?")
+        fields = dict(parse_qsl(query_text))
+        data: list[object]
+        if path == "/api/v5/account/config":
+            data = [{"acctLv": "1", "uid": "42"}]
+        elif path == "/api/v5/trade/order" and request.method == "POST":
+            submit = msgspec.json.decode(request.body, type=dict[str, str])
+            self._submit(submit["clOrdId"], quantity=submit["sz"], price=submit["px"])
+            data = [{"sCode": "0", "clOrdId": submit["clOrdId"], "ordId": str(self.order_number)}]
+        elif path == "/api/v5/trade/order":
+            if self.client_id is None:
+                missing = {"code": "51603", "data": [], "msg": "Order does not exist"}
+                return msgspec.json.encode(missing)
+            data = [self._okx_order()]
+        elif path == "/api/v5/trade/orders-pending":
+            data = [self._okx_order()] if self.is_active else []
+        elif path == "/api/v5/trade/fills-history":
+            begin, end, limit = int(fields["begin"]), int(fields["end"]), int(fields["limit"])
+            rows = sorted(
+                (item for item in self.executions if begin <= self.milliseconds(item.at) <= end),
+                key=self._execution_identity,
+                reverse=True,
+            )
+            if "after" in fields:
+                rows = [item for item in rows if item.identity < int(fields["after"])]
+            data = [self._okx_fill(item) for item in rows[:limit]]
+        elif path == "/api/v5/account/balance":
+            details: list[object] = []
+            for currency, total in ((self.quote, self.cash), ("ETH", self.base)):
+                amount = str(total)
+                details.append(
+                    {"ccy": currency, "cashBal": amount, "availBal": amount, "liab": "0"}
+                )
+            data = [{"details": details}]
+        else:
+            raise AssertionError(f"unexpected OKX request: {path}")
+        envelope: dict[str, object] = {"code": "0", "data": data, "msg": ""}
+        return msgspec.json.encode(envelope)
+
+    def _okx_order(self) -> dict[str, object]:
+        """Describe cumulative order state in OKX cash-spot fields."""
+        if self.client_id is None or self.created_at is None:
+            raise AssertionError("simulated OKX order is absent")
+        state = (
+            "live"
+            if not self.filled
+            else "partially_filled"
+            if self.filled < self.quantity
+            else "filled"
+        )
+        return {
+            "instType": "SPOT",
+            "tdMode": "cash",
+            "instId": self.symbol,
+            "ordId": str(self.order_number),
+            "clOrdId": self.client_id,
+            "side": "buy",
+            "ordType": "limit",
+            "sz": str(self.quantity),
+            "accFillSz": str(self.filled),
+            "px": str(self.price),
+            "state": state,
+            "cTime": str(self.milliseconds(self.created_at)),
+        }
+
+    def _okx_fill(self, execution: NativeExecution) -> dict[str, object]:
+        """Describe one bill-identified execution with its native negative fee."""
+        return {
+            "instType": "SPOT",
+            "instId": self.symbol,
+            "ordId": str(self.order_number),
+            "clOrdId": self.client_id,
+            "billId": str(execution.identity),
+            "side": "buy",
+            "fillSz": str(execution.quantity),
+            "fillPx": str(execution.price),
+            "fee": str(execution.fee.copy_negate()),
+            "feeCcy": self.quote,
+            "fillTime": str(self.milliseconds(execution.at)),
+        }
+
+
 class TestVenueGateway:
     """Verify economic safety at uncertain external boundaries."""
 
@@ -436,6 +823,19 @@ class TestVenueGateway:
         journal = AccountJournal(tmp_path / "account.sqlite3", config.account)
         gateway = VenueGateway(journal, config, adapter, clock=clock)
         assert not gateway.reconcile().recovery_required
+        return (
+            journal,
+            gateway,
+            adapter,
+            clock,
+            self._authorization(config, enabled=True),
+            self._admit(journal, config, clock),
+        )
+
+    def _admit(
+        self, journal: AccountJournal, config: VenueExecutionConfiguration, clock: AdvancingClock
+    ) -> str:
+        """Reserve one independently quoted two-unit buy and return its order identity."""
         quote = AccountQuote(
             price=Price(
                 value=Decimal("100"),
@@ -465,14 +865,143 @@ class TestVenueGateway:
             )
         )
         assert admitted.status == "committed", admitted.reason
-        return (
-            journal,
-            gateway,
-            adapter,
-            clock,
-            self._authorization(config, enabled=True),
-            admitted.orders[0].identity,
+        return admitted.orders[0].identity
+
+    def _native_gateway(
+        self, tmp_path: Path, venue: Literal["okx", "bitfinex"]
+    ) -> tuple[AccountJournal, VenueGateway, NativeVenueAccount, AdvancingClock]:
+        """Reconcile an empty account through a real adapter and simulated native venue."""
+        config = self._config(venue)
+        clock = AdvancingClock(self.at + timedelta(seconds=10))
+        instrument = config.instruments[0]
+        account = NativeVenueAccount(
+            venue, clock, instrument.native_symbol, instrument.quote_currency.code
         )
+        adapter: VenueAdapter = (
+            BitfinexSpotAdapter(VenueCredentials("key", "secret"), account)
+            if venue == "bitfinex"
+            else OKXSpotAdapter(VenueCredentials("key", "secret", "pass"), account)
+        )
+        journal = AccountJournal(tmp_path / "account.sqlite3", config.account)
+        gateway = VenueGateway(journal, config, adapter, clock=clock)
+        assert not gateway.reconcile().recovery_required
+        return journal, gateway, account, clock
+
+    def _native(
+        self, tmp_path: Path, venue: Literal["okx", "bitfinex"]
+    ) -> tuple[AccountJournal, VenueGateway, NativeVenueAccount, AdvancingClock, str]:
+        """Reconcile and send one reference order through a real adapter and native account."""
+        journal, gateway, account, clock = self._native_gateway(tmp_path, venue)
+        order_id = self._admit(journal, gateway.config, clock)
+        authorization = self._authorization(gateway.config, enabled=True)
+        assert gateway.submit(order_id, authorization).submission_attempted
+        return journal, gateway, account, clock, order_id
+
+    def test_throttle_waits_outside_the_account_write_fence(self, tmp_path: Path) -> None:
+        """A full local request budget never sleeps while dispatch holds the account journal."""
+        journal, gateway, _, clock = self._native_gateway(tmp_path, "bitfinex")
+        adapter = gateway.adapter
+        assert isinstance(adapter, BitfinexSpotAdapter)
+        probe = GuardProbingPause(journal.path)
+        # One request per window: every request, including the send, needs a wait.
+        adapter.throttle = VenueRateLimiter(
+            requests=1, seconds=60.0, clock=probe.clock, pause=probe.pause
+        )
+        order_id = self._admit(journal, gateway.config, clock)
+        authorization = self._authorization(gateway.config, enabled=True)
+        assert gateway.submit(order_id, authorization).submission_attempted
+        assert probe.free > 0 and probe.locked == 0
+        submitted = probe.free
+        gateway.cancel(order_id, authorization)
+        assert self._order_state(journal, order_id).status == "cancel_ack"
+        assert probe.free > submitted and probe.locked == 0
+
+    def test_bitfinex_private_session_survives_flat_account_snapshots(self, tmp_path: Path) -> None:
+        """Documented snapshots after authentication neither end nor break the session."""
+        _, gateway, account, clock = self._native_gateway(tmp_path, "bitfinex")
+        frames = (
+            b'{"event":"info","version":2,"platform":{"status":1}}',
+            b'{"event":"conf","status":"OK","flags":65536}',
+            b'{"event":"auth","status":"OK","userId":42}',
+            b'[0,"ps",[],1]',
+            b'[0,"ws",[["exchange","USD",10000,0,null],["exchange","ETH",0,0,null]],2]',
+            b'[0,"os",[],3]',
+            b'[0,"fos",[],4]',
+            b'[0,"fcs",[],5]',
+            b'[0,"fls",[],6]',
+            b'[0,"bu",[10000,10000],7]',
+            b'[0,"hb",8]',
+        )
+        session = ScriptedPrivateSession(clock, frames)
+        requests = len(account.requests)
+        view = gateway.stream(session, max_messages=len(frames), duration_seconds=3600)
+        assert session.received == len(frames) and session.closed
+        assert view.reason == "private_stream_closed"
+        # Authentication, wallet and order snapshots each triggered REST reconciliation.
+        assert sum(item.path == "/v2/auth/r/wallets" for item in account.requests[requests:]) == 3
+
+    @staticmethod
+    def _order_state(journal: AccountJournal, order_id: str) -> OrderState:
+        """Read one direct order's current lifecycle state."""
+        return next(item.order for item in journal.orders() if item.order.identity == order_id)
+
+    def test_bitfinex_fill_history_pages_past_one_hundred_executions(self, tmp_path: Path) -> None:
+        """Executions beyond one page, split inside a millisecond, post exactly once."""
+        journal, gateway, account, clock, order_id = self._native(tmp_path, "bitfinex")
+        # Seven executions share each millisecond, so the first full page of one
+        # hundred ends inside a millisecond whose last executions it omits.
+        account.execute(150, quantity="0.01", fee="0.01", per_millisecond=7)
+        clock.sleep(60)
+        assert not gateway.reconcile().recovery_required
+        assert self._order_state(journal, order_id).filled.value == Decimal("1.50")
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        assert snapshot.positions[0].value == Decimal("1.50")
+        assert next(fee.value for fee in snapshot.fees if fee.currency.code == "USD") == Decimal(
+            "1.50"
+        )
+        windows = account.fill_windows()
+        boundary = account.milliseconds(account.executions[99].at)
+        assert windows[-2][0] < boundary and windows[-1][0] == boundary
+
+    @pytest.mark.parametrize("venue", ["okx", "bitfinex"])
+    def test_terminal_history_outlives_lookup_and_fill_retention(
+        self, tmp_path: Path, venue: Literal["okx", "bitfinex"]
+    ) -> None:
+        """A dispatch past 13 days and an account past 89 days still reconcile."""
+        journal, gateway, account, clock, order_id = self._native(tmp_path, venue)
+        account.execute(1, quantity="2", fee="0.01", per_millisecond=1)
+        clock.sleep(60)
+        assert not gateway.reconcile().recovery_required
+        assert self._order_state(journal, order_id).status == "filled"
+        # Bitfinex closed-order lookups cannot prove outcomes older than 13 days.
+        clock.sleep(14 * 86_400)
+        assert not gateway.reconcile().recovery_required
+        # OKX fill history refuses windows reaching back more than 89 days.
+        clock.sleep(76 * 86_400)
+        assert not gateway.reconcile().recovery_required
+        start, end = account.fill_windows()[-1]
+        opening = account.milliseconds(gateway.config.account.opening_at)
+        assert end - opening > 89 * 86_400_000 > end - start
+        assert self._order_state(journal, order_id).status == "filled"
+
+    def test_fill_history_resumes_from_the_last_matched_window(self, tmp_path: Path) -> None:
+        """A durable mark bounds later fill reads and advances only on a matched account."""
+        journal, gateway, account, clock, _ = self._native(tmp_path, "okx")
+        account.execute(1, quantity="0.5", fee="0.01", per_millisecond=1)
+        clock.sleep(5 * 3600)
+        assert not gateway.reconcile().recovery_required
+        matched_end = account.fill_windows()[-1][1]
+        clock.sleep(5 * 3600)
+        # An unexplained physical deposit is a break, so its window proves nothing new.
+        account.cash += Decimal("1")
+        assert gateway.reconcile().recovery_required
+        account.cash -= Decimal("1")
+        clock.sleep(5 * 3600)
+        restarted = VenueGateway(journal, gateway.config, gateway.adapter, clock=clock)
+        assert not restarted.reconcile().recovery_required
+        assert account.fill_windows()[-1][0] == matched_end - 3_600_000
+        opening = account.milliseconds(gateway.config.account.opening_at)
+        assert all(start > opening for start, _ in account.fill_windows()[-2:])
 
     @pytest.mark.parametrize("venue", ["okx", "bitfinex"])
     def test_lost_ack_recovery_never_resubmits_and_posts_base_fee_once(
@@ -601,6 +1130,29 @@ class TestVenueGateway:
         second = VenueStateStore(path, "account", b"scope")
         with first.claim(), pytest.raises(ValueError, match="already active"), second.claim():
             pytest.fail("second sender acquired the live owner fence")
+
+    def test_version_one_venue_state_reads_as_unproven_fill_history(self, tmp_path: Path) -> None:
+        """Earlier state has no fill mark, and a version 1 payload cannot carry one."""
+        store = VenueStateStore(tmp_path / "account.sqlite3", "account", b"scope")
+        codec = DomainCodec()
+        with store.claim():
+            legacy = VenueState(schema_version="venue-journal-v1", nonce=7)
+            with closing(sqlite3.connect(store.path)) as connection, connection:
+                connection.execute(
+                    "UPDATE state SET payload=? WHERE id=1", (codec.encode_json(legacy),)
+                )
+            upgraded = store.read()
+            assert upgraded.schema_version == "venue-journal-v2"
+            assert (upgraded.nonce, upgraded.fills_complete_through) == (7, None)
+            forged = codec.encode_json(legacy).replace(
+                b'"schema_version":"venue-journal-v1"',
+                b'"schema_version":"venue-journal-v1","fills_complete_through":'
+                b'"2026-09-26T12:00:00Z"',
+            )
+            with closing(sqlite3.connect(store.path)) as connection, connection:
+                connection.execute("UPDATE state SET payload=? WHERE id=1", (forged,))
+            with pytest.raises(ValueError, match="unsupported venue journal state"):
+                store.read()
 
     def test_same_physical_wallet_cannot_fund_two_local_accounts(self, tmp_path: Path) -> None:
         """Independent aliases cannot duplicate one authenticated account's funding."""

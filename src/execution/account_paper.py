@@ -208,20 +208,24 @@ class AccountPaperMatching:
             posting.identity: posting
             for posting in AccountLedger(account.ledger).effective_postings()
         }
-        trace_events = tuple(
-            event
-            for trace in snapshot.iter_traces(account_id)
-            if trace.status == "committed"
-            for event in trace.child_fill_events
-        )
+        # One pass over the traces, each of which decodes and validates a whole
+        # market; lookups use maps built once instead of per-fill scans.
+        trace_events: list[OrderEvent] = []
+        physical_fill_ids: set[str] = set()
+        for trace in snapshot.iter_traces(account_id):
+            if trace.status != "committed":
+                continue
+            trace_events.extend(trace.child_fill_events)
+            physical_fill_ids.update(
+                event.fill.identity for event in trace.physical_events if event.fill is not None
+            )
+        orders = {item.order.identity: item for item in state.orders}
         fills: list[AccountPaperFill] = []
         for event in trace_events:
             fill = event.fill
             if fill is None:
                 raise AssertionError("paper trace child fill is missing")
-            tagged = next(
-                (item for item in state.orders if item.order.identity == event.order_id), None
-            )
+            tagged = orders.get(event.order_id)
             posted = effective.get(fill.identity)
             if (
                 tagged is None
@@ -241,21 +245,19 @@ class AccountPaperMatching:
             )
         costs: list[AccountPaperCost] = []
         linked_fills: set[str] = set()
-        physical_fill_ids = {
-            event.fill.identity
-            for trace in snapshot.iter_traces(account_id)
-            if trace.status == "committed"
-            for event in trace.physical_events
-            if event.fill is not None
+        fill_orders = {
+            item.event.fill.identity: item.event.order_id
+            for item in state.events
+            if item.event.fill is not None
         }
         for saved in state.net_events:
             physical_fill = saved.event.fill
             if physical_fill is None or physical_fill.identity not in physical_fill_ids:
                 continue
             child_by_order = {
-                item.event.order_id: item.event.fill.identity
-                for item in state.events
-                if item.event.fill is not None and item.event.fill.identity in saved.child_fill_ids
+                fill_orders[fill_id]: fill_id
+                for fill_id in saved.child_fill_ids
+                if fill_id in fill_orders
             }
             for allocation in saved.fee_allocations:
                 source_id = child_by_order.get(allocation.child_order_id, physical_fill.identity)
@@ -298,17 +300,22 @@ class AccountPaperMatching:
             raise ValueError("paper account requires an opening reconciliation")
         if market.at < self.admission.account_time(transaction, account_view):
             raise ValueError("paper market precedes current account knowledge")
+        # Only open orders can match. A market without a trace has no posted
+        # facts yet (traces commit with their effects), so terminal orders and
+        # their history cannot change this projection and are not re-validated.
         direct = tuple(
             item.order
             for item in transaction.state.orders
             if item.account_id == account_id
             and item.context is None
+            and not item.order.is_terminal
             and item.order.intent.quantity.dimension.instrument_id == scenario.instrument_id
         )
         net = tuple(
             item.order
             for item in transaction.state.net_orders
             if item.account_id == account_id
+            and not item.order.is_terminal
             and item.order.intent.quantity.dimension.instrument_id == scenario.instrument_id
         )
         if any(

@@ -195,10 +195,9 @@ class QuantStatsReport:
             benchmark, _ = QuantStatsReport.project(
                 tuple(QuantStatsReport._fraction(p.value) for p in policy.benchmark)
             )
-            if net is None or not math.isclose(
-                compounded, float(net), abs_tol=1e-12, rel_tol=1e-12
-            ):
+            if net is None:
                 raise ValueError("QuantStats return disagrees with exact retained economics")
+            QuantStatsReport.require_agreement(compounded, values, net)
             exposures = tuple(
                 QuantStatsReport._fraction(p.exposure) for p in periods if p.exposure is not None
             )
@@ -236,6 +235,43 @@ class QuantStatsReport:
             adverse_slippage=str(result.checkpoint.state.trace[-1].balance.slippage.value),
             net_profit=str(result.terminal.net.value),
         )
+
+    @staticmethod
+    def require_agreement(compounded: float, values: tuple[Fraction, ...], net: Fraction) -> None:
+        """Refuse a projected compound return outside its float error bound from the exact net.
+
+        ``project`` multiplies float64 factors ``1 + float(r)``. Each factor rounds
+        once converting ``r`` (relative error ``u * |r| / (1 + r)``, which grows near
+        a total loss) and once adding one, and each product rounds once more. With
+        unit roundoff ``u = 2**-53`` and ``k`` such roundings, the product lies
+        within ``gamma(k) = k*u / (1 - k*u)`` of exact (Higham, Accuracy and
+        Stability of Numerical Algorithms, 2nd ed., section 3.1). Subtracting one
+        and converting ``net`` add ``u`` times each magnitude. The bound is doubled
+        as margin. It grows with the period count, whereas a fixed tolerance
+        rejects long correct runs. A total loss is an exact zero factor, so it
+        must agree exactly.
+
+        Args:
+            compounded: ``project``'s float compound return for ``values``.
+            values: The exact simple period returns that were projected.
+            net: Exact net return from the reconciled retained economics.
+
+        Raises:
+            ValueError: The projection differs from the exact economics.
+        """
+        unit = 2.0**-53
+        if any(value == -1 for value in values):
+            bound = 0.0
+        else:
+            roundings = len(values) + sum(
+                2.0 + abs(float(value)) / float(1 + value) for value in values
+            )
+            if roundings * unit >= 1:
+                raise ValueError("QuantStats projection has no meaningful float error bound")
+            gamma = roundings * unit / (1 - roundings * unit)
+            bound = 2 * (float(1 + net) * gamma + unit * (abs(float(net)) + abs(compounded)))
+        if not abs(compounded - float(net)) <= bound:
+            raise ValueError("QuantStats return disagrees with exact retained economics")
 
     @staticmethod
     def project(values: tuple[Fraction, ...]) -> tuple[float, float]:

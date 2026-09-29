@@ -101,6 +101,11 @@ class VenueGateway:
     absent lookup preserves uncertainty; it never permits a retry to send again.
     """
 
+    # Later fill reads restart this long before the last matched window's end, so
+    # executions the venue published late, or stamped ahead of the local clock,
+    # are still read. Repeated executions are applied once by identity.
+    _FILL_HISTORY_OVERLAP = timedelta(hours=1)
+
     def __init__(
         self,
         journal: AccountJournal,
@@ -198,6 +203,8 @@ class VenueGateway:
                 )
                 self._event(order_id, "unknown", at, f"send:{client_id}")
                 try:
+                    # Throttle sleeps happen here, never under the journal write fence.
+                    adapter.wait_for_request_slot()
                     with self.journal.execution_guard(
                         self.config.account_id, order_id, at, clock=self.clock.now
                     ):
@@ -280,6 +287,7 @@ class VenueGateway:
             if not order.cancel_requested:
                 self._event(order_id, "cancel_requested", at, f"cancel:{dispatch.client_id}")
             try:
+                adapter.wait_for_request_slot()
                 with self.journal.execution_guard(
                     self.config.account_id, order_id, at, cancel=True
                 ):
@@ -418,8 +426,11 @@ class VenueGateway:
         for fact in before:
             self._dispatch(client_id=fact.client_id)
         start = self.config.account.opening_at
+        proven = self._store.read().fills_complete_through
+        if proven is not None:
+            start = max(start, proven - self._FILL_HISTORY_OVERLAP)
         end = self.clock.now()
-        fills: list[VenueFillFact] = []
+        fills: dict[tuple[str, str], VenueFillFact] = {}
         for instrument in self.config.instruments:
             cursor: str | None = None
             seen: set[str] = set()
@@ -439,7 +450,10 @@ class VenueGateway:
                         raise VenueProtocolError("fill history lacks instrument or source clock")
                     if not start <= fill.source_at <= end:
                         raise VenueProtocolError("fill history falls outside the requested window")
-                fills.extend(page.fills)
+                    # A continuation may repeat executions at its page boundary.
+                    prior = fills.setdefault((fill.symbol, fill.fill_id), fill)
+                    if self._fill_economics(prior) != self._fill_economics(fill):
+                        raise VenueProtocolError("venue fill identity changed economics")
                 if page.complete:
                     if page.next_cursor is not None:
                         raise VenueProtocolError("complete fill page contains a continuation")
@@ -452,8 +466,7 @@ class VenueGateway:
                 raise VenueProtocolError("fill history exceeds bounded recovery capacity")
         # Economic order matters for base inventory; receipt clocks are assigned
         # at application in source order, while original receipts remain retained.
-        fills.sort(key=self._fill_sort)
-        for fill in fills:
+        for fill in sorted(fills.values(), key=self._fill_sort):
             self._ingest_fill(fill)
         observed: list[OrderState] = []
         for dispatch in self._store.read().dispatches:
@@ -461,6 +474,11 @@ class VenueGateway:
                 self._event(
                     dispatch.order_id, "rejected", self.clock.now(), f"reject:{dispatch.client_id}"
                 )
+                continue
+            if self._order(dispatch.order_id).is_terminal:
+                # A journaled terminal outcome already matched every identified fill.
+                # Later fills still arrive through fill history, and a venue order
+                # that is open again appears in the open-order snapshots.
                 continue
             at, nonce = self._request_clock()
             found = adapter.order(
@@ -529,12 +547,15 @@ class VenueGateway:
         matched = self.journal.reconcile_venue(observation)
         self._store.applied(receipt.identity)
         state = self._store.read()
+        # A break may come from an execution the venue published late, so only a
+        # matched account advances the proven fill window.
         self._store.save(
             replace(
                 state,
                 recovery_required=not matched,
                 reason="reconciled" if matched else "physical_account_break",
                 reconciled_at=observation.at if matched else state.reconciled_at,
+                fills_complete_through=end if matched else state.fills_complete_through,
             )
         )
 

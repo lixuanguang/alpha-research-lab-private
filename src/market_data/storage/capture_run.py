@@ -64,6 +64,7 @@ class CaptureRunJournal:
                 )
                 if actual != self.request:
                     raise ValueError("capture resume requires the exact retained run request")
+                self._set_aside_unprovisioned()
             else:
                 self._write(self.root / "run-request.json", self.codec.encode_json(self.request))
                 (self.root / "segments").mkdir()
@@ -81,6 +82,32 @@ class CaptureRunJournal:
         if self._lock is not None:
             self._lock.close()
             self._lock = None
+
+    def _set_aside_unprovisioned(self) -> None:
+        """Move segment directories whose provisioning never committed a cursor aside.
+
+        ``CaptureJournal.start`` writes the request, an empty journal and then the
+        cursor, and a journal accepts records only after that cursor exists. A
+        directory without a cursor therefore holds no acknowledged record, and a
+        crash during provisioning must not block resume. Anything else without a
+        cursor is refused. Only the ownership holder may move directories.
+        """
+        segments = self.root / "segments"
+        held = self.root / "interrupted-segments"
+        for root in tuple(segments.iterdir()):
+            if not root.is_dir() or (root / "cursor.json").exists():
+                continue
+            journal = root / "journal.jsonl"
+            names = {path.name for path in root.iterdir()}
+            if not names <= {"request.json", "journal.jsonl", "cursor.pending"} or (
+                journal.exists() and journal.stat().st_size
+            ):
+                raise ValueError("capture segment without a cursor holds unacknowledged data")
+            held.mkdir(exist_ok=True)
+            os.rename(root, held / root.name)
+            CaptureJournal._sync_directory(segments)
+            CaptureJournal._sync_directory(held)
+            CaptureJournal._sync_directory(self.root)
 
     def segments(self) -> tuple[CaptureJournal, ...]:
         """Read and validate one ordered chain; reject forks and omitted predecessors."""

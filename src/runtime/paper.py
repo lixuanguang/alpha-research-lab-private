@@ -601,7 +601,7 @@ class PaperCandidateRuntime:
         if decision is None or market is None:
             return None
         intent = decision.intent
-        holding = Ledger(self.journal.ledger_state()).balance.holding
+        holding = self.journal.ledger_balance().holding
         selling = isinstance(intent, TargetIntent) and intent.quantity.value < holding.value
         if isinstance(intent, ExposureIntent):
             selling = intent.exposure.value < market.bid.amount(holding).value

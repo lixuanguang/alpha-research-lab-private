@@ -14,6 +14,7 @@ from configuration.capture import CaptureConfig
 from configuration.paper import PaperExecutionScenario
 from configuration.paper_activation import PaperDeployment
 from financial_units import Money, Quantity
+from risk import SpotLimits
 from serialization import DomainCodec, WireRecord
 
 
@@ -211,6 +212,21 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
                 or source.freshness_us > account.configuration.budgets.max_quote_age_us
             ):
                 raise ValueError("paper instance exceeds its installed account definition")
+
+    def instance_limits(self, instance: PaperServiceInstance) -> SpotLimits:
+        """Return the installed account limits that govern one instance's instrument.
+
+        Raises:
+            ValueError: The instance is not part of this validated selection.
+        """
+        if instance not in self.instances:
+            raise ValueError("unknown paper instance")
+        account = next(item for item in self.accounts if item.account_id == instance.account_id)
+        return next(
+            item
+            for item in account.configuration.instruments
+            if item.maximum.dimension == instance.quantity.dimension
+        )
 
     @property
     def identity(self) -> str:

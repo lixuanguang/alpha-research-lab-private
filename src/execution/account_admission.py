@@ -973,6 +973,14 @@ class AccountAdmission:
     def account_time(self, transaction: _AccountTransaction, account: AccountView) -> datetime:
         """Return the latest knowledge clock whose state admission would consume."""
         account_id = account.ledger.account_id
+        # Resolve event owners through one map per call; a per-event order scan
+        # made every tick and admission quadratic in retained history.
+        order_accounts = {
+            tagged.order.identity: tagged.account_id for tagged in transaction.state.orders
+        }
+        net_accounts = {
+            parent.order.identity: parent.account_id for parent in transaction.state.net_orders
+        }
         clocks = [self.config.opening_at]
         if account.reconciled_at is not None:
             clocks.append(account.reconciled_at)
@@ -985,7 +993,8 @@ class AccountAdmission:
         clocks.extend(
             saved.event.at
             for saved in transaction.state.events
-            if transaction.order(saved.event.order_id).account_id == account_id
+            if self._owner(order_accounts, saved.event.order_id, "unknown child order")
+            == account_id
         )
         clocks.extend(
             event.at
@@ -1000,7 +1009,8 @@ class AccountAdmission:
         clocks.extend(
             saved.event.at
             for saved in transaction.state.net_events
-            if transaction.net_order(saved.event.order_id).account_id == account_id
+            if self._owner(net_accounts, saved.event.order_id, "unknown physical order")
+            == account_id
         )
         clocks.extend(
             event.at
@@ -1030,6 +1040,14 @@ class AccountAdmission:
             if control.request.account_id == account_id and control.status == "applied"
         )
         return max(clocks)
+
+    @staticmethod
+    def _owner(accounts: dict[str, str], order_id: str, missing: str) -> str:
+        """Return an order's account from a prebuilt map, failing as the scan did."""
+        owner = accounts.get(order_id)
+        if owner is None:
+            raise ValueError(missing)
+        return owner
 
     def record_failed_event(self, transaction: _AccountTransaction, event: OrderEvent) -> None:
         """Retain one rejected direct fact and durably fence its accounts."""

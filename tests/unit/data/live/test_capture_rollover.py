@@ -301,6 +301,50 @@ class TestCaptureRollover:
         assert any(gap["reason"] == "receiver_failed_unknown_loss" for gap in replay.gaps)
         assert replay.messages == len(frames)
 
+    @pytest.mark.parametrize("interruption", ["directory", "partial-request", "no-cursor"])
+    def test_resume_sets_aside_a_segment_whose_provisioning_was_interrupted(
+        self, tmp_path: Path, interruption: str
+    ) -> None:
+        """A crash inside segment provisioning leaves no acknowledged record to lose."""
+        request = self._request()
+        root = tmp_path / "run"
+        run = CaptureRunJournal(root, request)
+        run.open(resume=False)
+        first = run.start_segment(None)
+        first.append(CaptureRecord(kind="session", epoch=0, received_ns=time.time_ns()))
+        if interruption == "no-cursor":
+            # Died after the request and empty journal, before the cursor commit.
+            interrupted = run.start_segment(first).root
+            (interrupted / "cursor.json").unlink()
+        else:
+            interrupted = root / "segments" / "11111111-1111-4111-8111-111111111111"
+            interrupted.mkdir()
+            if interruption == "partial-request":
+                (interrupted / "request.json").write_bytes(b'{"config":')
+        run.close()
+        resumed = CaptureRunJournal(root, request)
+        try:
+            journals = resumed.open(resume=True)
+            assert tuple(journal.root for journal in journals) == (first.root,)
+            assert not interrupted.exists()
+            assert (root / "interrupted-segments" / interrupted.name).is_dir()
+        finally:
+            resumed.close()
+
+    def test_resume_refuses_an_uncommitted_segment_holding_records(self, tmp_path: Path) -> None:
+        """Only an empty, never-committed segment may be set aside on resume."""
+        request = self._request()
+        root = tmp_path / "run"
+        run = CaptureRunJournal(root, request)
+        run.open(resume=False)
+        second = run.start_segment(run.start_segment(None))
+        second.append(CaptureRecord(kind="session", epoch=0, received_ns=time.time_ns()))
+        (second.root / "cursor.json").unlink()
+        run.close()
+        with pytest.raises(ValueError, match="unacknowledged"):
+            CaptureRunJournal(root, request).open(resume=True)
+        assert second.root.exists()
+
     def test_exclusive_owner_and_changed_resume_request(self, tmp_path: Path) -> None:
         """Concurrent owners and deadline changes fail before any source is opened."""
         request = self._request()

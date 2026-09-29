@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import errno
 import hashlib
 import html
 import os
@@ -11,6 +12,7 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from fractions import Fraction
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 # project library imports
@@ -396,7 +398,18 @@ class DashboardSnapshot(WireRecord, frozen=True):
         return snapshot
 
     def write(self, directory: Path) -> Path:
-        """Retain one complete JSON/HTML view; identical retries leave bytes untouched."""
+        """Retain one complete JSON/HTML view; identical retries leave bytes untouched.
+
+        The view is staged in a hidden sibling and published by one directory
+        rename, so a process that dies mid-write leaves either no view or a whole
+        one. A directory holding only an interrupted earlier write's files, with
+        no manifest, is moved aside to a hidden ``.<name>.interrupted-*`` sibling
+        rather than deleted. A directory holding other files is refused.
+
+        Raises:
+            ValueError: The directory holds a different view or unrelated files.
+            OSError: Staging, synchronization or publication fails; retry safely.
+        """
         DashboardSnapshot.__post_init__(self)
         codec = DomainCodec()
         json_bytes = codec.encode_json(self)
@@ -405,24 +418,53 @@ class DashboardSnapshot(WireRecord, frozen=True):
             json_sha256=hashlib.sha256(json_bytes).hexdigest(),
             html_sha256=hashlib.sha256(html_bytes).hexdigest(),
         )
-        if directory.exists() and any(
-            (directory / name).exists()
-            for name in ("snapshot.json", "dashboard.html", "manifest.json")
-        ):
-            if self.read(directory) != self:
-                raise ValueError("dashboard directory already contains different content")
-            return directory / "dashboard.html"
-        directory.mkdir(parents=True, exist_ok=True)
-        for name, payload in (
-            ("snapshot.json", json_bytes),
-            ("dashboard.html", html_bytes),
-            ("manifest.json", codec.encode_json(manifest)),
-        ):
-            with (directory / name).open("xb") as output:
-                output.write(payload)
-                output.flush()
-                os.fsync(output.fileno())
+        if (directory / "manifest.json").exists():
+            return self._verified(directory)
+        if directory.is_dir() and any(directory.iterdir()):
+            names = {path.name for path in directory.iterdir()}
+            if not names <= {"snapshot.json", "dashboard.html"}:
+                raise ValueError("dashboard directory holds unrelated files")
+            os.rename(
+                directory,
+                directory.with_name(f".{directory.name}.interrupted-{os.urandom(8).hex()}"),
+            )
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(dir=directory.parent, prefix=f".{directory.name}.staging-") as root:
+            staging = Path(root)
+            for name, payload in (
+                ("snapshot.json", json_bytes),
+                ("dashboard.html", html_bytes),
+                ("manifest.json", codec.encode_json(manifest)),
+            ):
+                with (staging / name).open("xb") as output:
+                    output.write(payload)
+                    output.flush()
+                    os.fsync(output.fileno())
+            self._sync_directory(staging)
+            try:
+                os.rename(staging, directory)
+            except OSError as error:
+                if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                    raise
+                # Another writer published first; its view must be this one.
+                return self._verified(directory)
+        self._sync_directory(directory.parent)
         return directory / "dashboard.html"
+
+    def _verified(self, directory: Path) -> Path:
+        """Accept an already published view only when it is this exact snapshot."""
+        if self.read(directory) != self:
+            raise ValueError("dashboard directory already contains different content")
+        return directory / "dashboard.html"
+
+    @staticmethod
+    def _sync_directory(path: Path) -> None:
+        """Make directory entries durable before reporting publication."""
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     def render_html(self) -> bytes:
         """Render accessible, escaped charts and exact tables without external assets."""

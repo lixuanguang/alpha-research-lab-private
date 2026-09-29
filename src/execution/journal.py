@@ -83,6 +83,10 @@ class PaperOrderJournal:
         self._codec = DomainCodec()
         self._lock: BinaryIO | None = None
         self._epoch: int | None = None
+        # Decoded order states keyed by their exact stored bytes; see _orders.
+        self._decoded_orders: dict[bytes, OrderState] = {}
+        # The validated ledger for one exact stored ledger payload; see _ledger.
+        self._ledger_cache: tuple[bytes, Ledger] | None = None
         self._binding = self._codec.encode_json(
             (
                 "paper-order-journal-v1",
@@ -163,6 +167,11 @@ class PaperOrderJournal:
         """Read the exact fill ledger committed with lifecycle events."""
         with closing(self._connect()) as connection:
             return self._ledger(connection).state
+
+    def ledger_balance(self) -> LedgerBalance:
+        """Read exact current balances without rebuilding the committed fill ledger."""
+        with closing(self._connect()) as connection:
+            return self._ledger(connection).balance
 
     def blocked_reason(self) -> str | None:
         """Read a durable account break that prevents new order admission."""
@@ -349,18 +358,24 @@ class PaperOrderJournal:
                 if saved_liquidity is None
                 else self._codec.decode_json(self._blob(saved_liquidity[0]), PaperLiquidityState)
             )
+            # Only open orders can match, and a new market has no posted facts (its
+            # claim, effects and result commit together), so terminal orders and
+            # their events are neither decoded into the projection nor re-validated.
+            orders = tuple(order for order in self._orders(connection) if not order.is_terminal)
+            open_ids = {order.identity for order in orders}
             prior = tuple(
-                self._codec.decode_json(self._blob(row[0]), OrderEvent)
+                self._codec.decode_json(self._blob(row[1]), OrderEvent)
                 for row in self._query_all(
-                    connection, "SELECT payload FROM events ORDER BY sequence"
+                    connection, "SELECT order_id, payload FROM events ORDER BY sequence"
                 )
+                if row[0] in open_ids
             )
             projection = PaperMatchEvaluator(
                 scenario, lot=self.limits.lot, tick=self.limits.tick
             ).project(
                 market,
                 account_id=self.account,
-                orders=self._orders(connection),
+                orders=orders,
                 prior_events=prior,
                 liquidity=liquidity,
             )
@@ -530,10 +545,10 @@ class PaperOrderJournal:
                 "INSERT INTO fill_ids(fill_id, order_id, payload) VALUES (?, ?, ?)",
                 (event.fill.identity, event.order_id, self._codec.encode_json(event.fill)),
             )
-            connection.execute(
-                "UPDATE state SET ledger = ? WHERE id = 1",
-                (self._codec.encode_json(ledger.state),),
-            )
+            encoded_ledger = self._codec.encode_json(ledger.state)
+            connection.execute("UPDATE state SET ledger = ? WHERE id = 1", (encoded_ledger,))
+            # Keyed by exact bytes: a rolled-back payload is simply never read again.
+            self._ledger_cache = (encoded_ledger, ledger.copy())
         connection.execute(
             "UPDATE orders SET payload = ? WHERE order_id = ?",
             (self._codec.encode_json(current), current.identity),
@@ -831,11 +846,22 @@ class PaperOrderJournal:
         return StepCommit(status="committed", reason="reserved", orders=tuple(admitted))
 
     def _ledger(self, connection: sqlite3.Connection) -> Ledger:
-        """Reconstruct the exact economic state from its saved applied fill history."""
+        """Reconstruct the exact economic state from its saved applied fill history.
+
+        Decoding validates and replays every retained fill, so the ledger built
+        for one exact stored payload is reused while that payload is unchanged.
+        Callers receive an independent copy they may post to.
+        """
         row = self._query_one(connection, "SELECT ledger FROM state WHERE id = 1")
         if row is None:
             raise ValueError("paper account state is missing")
-        return Ledger(self._codec.decode_json(self._blob(row[0]), LedgerState))
+        payload = self._blob(row[0])
+        cached = self._ledger_cache
+        if cached is not None and cached[0] == payload:
+            return cached[1].copy()
+        ledger = Ledger(self._codec.decode_json(payload, LedgerState))
+        self._ledger_cache = (payload, ledger.copy())
+        return ledger
 
     def _reservations(self, connection: sqlite3.Connection) -> AccountReservations:
         """Calculate durable unresolved commitments from saved order states."""
@@ -866,9 +892,24 @@ class PaperOrderJournal:
         return None if row is None else self._codec.decode_json(self._blob(row[0]), OrderState)
 
     def _orders(self, connection: sqlite3.Connection) -> tuple[OrderState, ...]:
-        """Decode the account's current order states in admission order."""
+        """Decode the account's current order states in admission order.
+
+        A stored order's bytes change with every update, so an unchanged order,
+        typically a terminal one, reuses its earlier validated decode instead of
+        being decoded again on every market. Only the latest read is retained.
+        """
         rows = self._query_all(connection, "SELECT payload FROM orders ORDER BY sequence")
-        return tuple(self._codec.decode_json(self._blob(row[0]), OrderState) for row in rows)
+        decoded: dict[bytes, OrderState] = {}
+        for row in rows:
+            payload = self._blob(row[0])
+            order = self._decoded_orders.get(payload)
+            decoded[payload] = (
+                order if order is not None else self._codec.decode_json(payload, OrderState)
+            )
+        if len(decoded) != len(rows):
+            raise ValueError("paper journal repeats an order payload")
+        self._decoded_orders = decoded
+        return tuple(decoded.values())
 
     def _step(self, connection: sqlite3.Connection, step_id: str) -> StepRecord | None:
         """Decode one saved candidate step at the persistence boundary."""

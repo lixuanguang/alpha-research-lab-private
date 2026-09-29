@@ -103,6 +103,45 @@ class TestLedger:
         assert ledger.mark(None).gross.value == 20
         assert ledger.mark(None).net.value == Decimal("17.58")
 
+    def test_reused_state_matches_validated_rebuild_and_copies_post_independently(
+        self,
+    ) -> None:
+        """State built from applied fills equals a validated rebuild; copies stay separate."""
+        costs = SpotCosts(
+            adverse=self._price("0.50"), fee_rate=Decimal("0.001"), rounding="half_up"
+        )
+        fills = [
+            costs.fill(
+                f"trade-{index}",
+                decision_at=self.start,
+                filled_at=self.start + timedelta(seconds=index + 1),
+                quantity=self._quantity("1" if index % 2 == 0 else "-1"),
+                reference=self._price("100"),
+            )
+            for index in range(6)
+        ]
+        ledger = self._ledger()
+        for fill in fills[:4]:
+            ledger.apply(fill)
+        state = ledger.state
+        validated = LedgerState(
+            initial_cash=Money(value=Decimal("1000"), currency=self.currency),
+            dimension=self.dimension,
+            fills=tuple(fills[:4]),
+        )
+        codec = DomainCodec()
+        assert state == validated
+        assert codec.encode_json(state) == codec.encode_json(validated)
+        rebuilt = Ledger(codec.decode_json(codec.encode_json(state), LedgerState))
+        assert (rebuilt.state, rebuilt.balance) == (state, ledger.balance)
+        duplicate = ledger.copy()
+        duplicate.apply(fills[4])
+        assert ledger.state == state and len(duplicate.state.fills) == 5
+        with pytest.raises(ValueError, match="duplicate"):
+            duplicate.apply(fills[0])
+        ledger.apply(fills[4])
+        assert (ledger.state, ledger.balance) == (duplicate.state, duplicate.balance)
+
     def test_fee_tie_and_rational_basis_under_changed_context(self) -> None:
         """Retain 302/3 released basis and distinguish the oracle's half-up from half-even."""
         for precision in (2, 7, 28):

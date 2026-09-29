@@ -279,12 +279,27 @@ _FIND_TRACE = (
     "AND (?2 IS NULL OR account_id=?2) AND (?3 IS NULL OR venue=?3) "
     "AND (?4 IS NULL OR instrument_id=?4) ORDER BY seq LIMIT 1"
 )
-_ITER_TRACES = (
-    "SELECT payload FROM paper_traces WHERE (?1 IS NULL OR account_id=?1) "
-    "AND (?2 IS NULL OR instrument_id=?2) ORDER BY seq ASC",
-    "SELECT payload FROM paper_traces WHERE (?1 IS NULL OR account_id=?1) "
-    "AND (?2 IS NULL OR instrument_id=?2) ORDER BY seq DESC",
-)
+# One statement per present filter and order, keyed (account, instrument, newest
+# first), so SQLite can use paper_traces_account or paper_traces_instrument. An
+# "?1 IS NULL OR account_id=?1" parameter would force a full scan of every account.
+_ITER_TRACES = {
+    (False, False, False): "SELECT payload FROM paper_traces ORDER BY seq ASC",
+    (False, False, True): "SELECT payload FROM paper_traces ORDER BY seq DESC",
+    (True, False, False): "SELECT payload FROM paper_traces WHERE account_id=? ORDER BY seq ASC",
+    (True, False, True): "SELECT payload FROM paper_traces WHERE account_id=? ORDER BY seq DESC",
+    (False, True, False): (
+        "SELECT payload FROM paper_traces WHERE instrument_id=? ORDER BY seq ASC"
+    ),
+    (False, True, True): (
+        "SELECT payload FROM paper_traces WHERE instrument_id=? ORDER BY seq DESC"
+    ),
+    (True, True, False): (
+        "SELECT payload FROM paper_traces WHERE account_id=? AND instrument_id=? ORDER BY seq ASC"
+    ),
+    (True, True, True): (
+        "SELECT payload FROM paper_traces WHERE account_id=? AND instrument_id=? ORDER BY seq DESC"
+    ),
+}
 
 
 class _HistoryTables:
@@ -340,8 +355,10 @@ class _HistoryTables:
         self, account_id: str | None, instrument_id: InstrumentId | None, *, newest_first: bool
     ) -> Iterator[AccountPaperTrace]:
         """Yield committed traces in commit order, or reversed."""
+        instrument = self._instrument(instrument_id)
         cursor = self.connection.execute(
-            _ITER_TRACES[newest_first], (account_id, self._instrument(instrument_id))
+            _ITER_TRACES[(account_id is not None, instrument is not None, newest_first)],
+            tuple(item for item in (account_id, instrument) if item is not None),
         )
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield self.codec.decode_json(self._blob(row[0]), AccountPaperTrace)
@@ -743,6 +760,11 @@ class AccountStateStore:
                 transaction = _AccountTransaction(head.state, tables)
                 yield transaction
                 staged = transaction.state
+                if staged is head.state:
+                    # Nothing was staged (a guard or an idempotent request): keep the
+                    # committed head instead of re-encoding and rewriting its bytes.
+                    connection.commit()
+                    return
                 written = _FirmHead(
                     history=tables.append(staged),
                     state=replace(staged, decisions=(), portfolio_batches=(), paper_traces=()),

@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Literal
 
@@ -22,12 +23,23 @@ from execution import (
     PaperMatcher,
     PaperOrderJournal,
 )
+from execution.paper import PaperFeeSchedule
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import SpotLimits
 from serialization import DomainCodec
 from simulation import SpotCosts
 from strategies import OrderIntent
+
+
+class _ReserveBlindFeeSchedule(PaperFeeSchedule):
+    """Model a defective fee schedule that ignores each order's remaining fee reserve."""
+
+    def affordable(
+        self, order: OrderState, size: Fraction, price: Price, lot: Fraction
+    ) -> Fraction:
+        """Return every whole lot, as a model without the reserve bound would."""
+        return (size // lot) * lot
 
 
 class TestPaperMatcher:
@@ -256,8 +268,72 @@ class TestPaperMatcher:
             matcher.match(market, epoch=epoch)
             assert (restarted.events(), restarted.orders(), restarted.ledger_state()) == before
 
-    def test_fee_cap_prevents_fill_and_keeps_order_reserved(self, tmp_path: Path) -> None:
-        """A one-cent calculated fee cannot post against a zero maximum fee."""
+    def test_legacy_matcher_leaves_an_unaffordable_order_resting(self, tmp_path: Path) -> None:
+        """A zero fee reserve takes no fill, even one whose fee would round to zero."""
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("legacy-reserve-owner")
+            order = self._admit(
+                journal,
+                epoch,
+                step_id="legacy-reserve",
+                quantity="2",
+                limit="1.10",
+                maximum_fee="0.00",
+            )
+            matcher = PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1"))
+            matcher.match(
+                self._market("legacy-reserve", at=self.decision_at + timedelta(seconds=1)),
+                epoch=epoch,
+            )
+            current = journal.order(order.identity)
+            assert current is not None and current.status == "accepted"
+            # One unit's 0.005 fee rounds to 0.00; the reserve bounds the exact fee.
+            assert journal.ledger_state().fills == ()
+            assert journal.reservations().cash.value == Decimal("2.20")
+
+    def test_per_fill_rounding_never_exceeds_the_fee_reserve(self, tmp_path: Path) -> None:
+        """Separate fills that each round up stop at the reserve instead of breaking it."""
+        scenario = self._scenario(adverse="0.01")
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("rounding-owner")
+            # Three units at 1.20 cost 0.018 in one fill, which rounds to 0.02.
+            order = self._admit(
+                journal,
+                epoch,
+                step_id="rounding",
+                quantity="3",
+                limit="1.20",
+                maximum_fee="0.02",
+            )
+            matcher = PaperMatcher(
+                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
+            )
+            # Each one-unit touch fills near 0.006 in fees, which rounds up to 0.01.
+            for index, ask in enumerate(("1.19", "1.18", "1.19"), start=1):
+                matcher.match(
+                    self._market(
+                        f"rounding-{index}",
+                        at=self.decision_at + timedelta(seconds=index),
+                        ask=ask,
+                        ask_quantity="1",
+                    ),
+                    epoch=epoch,
+                )
+            current = journal.order(order.identity)
+            assert current is not None
+            assert (current.status, current.filled.value, current.paid_fee.value) == (
+                "partial",
+                Decimal("2"),
+                Decimal("0.02"),
+            )
+            fees = tuple(fill.fee.value for fill in journal.ledger_state().fills)
+            assert fees == (Decimal("0.01"), Decimal("0.01"))
+
+    def test_fee_cap_prevents_fill_and_keeps_order_reserved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A reserve-blind model's one-cent fee still cannot post against a zero maximum fee."""
+        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _ReserveBlindFeeSchedule)
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("fee-cap-owner")
             order = self._admit(
@@ -551,8 +627,11 @@ class TestPaperMatcher:
             assert journal.reservations().cash.value == 0
             assert journal.ledger_state().fills == ()
 
-    def test_scenario_fee_shortfall_rolls_back_entire_market(self, tmp_path: Path) -> None:
-        """A late fee-cap failure cannot leave earlier orders partially committed."""
+    def test_scenario_fee_shortfall_rolls_back_entire_market(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A reserve-blind model's late fee-cap failure leaves no order partially committed."""
+        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _ReserveBlindFeeSchedule)
         scenario = self._scenario()
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("atomic-market-owner")
