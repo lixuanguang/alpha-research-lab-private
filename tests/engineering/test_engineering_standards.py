@@ -228,6 +228,28 @@ class TestFormatCompatibilityChecker:
         (tmp_path / "src/README.md").write_text("Unsupported schemas are refused.\n")
         assert FormatCompatibilityChecker.findings(tmp_path) == ()
 
+    def test_rejects_revision_suffixed_names_but_not_listed_external_paths(
+        self, tmp_path: Path
+    ) -> None:
+        """Owned code, tests and configs cannot name formats by revision."""
+        suffix = "-" + "v2"
+        (tmp_path / "configs").mkdir()
+        (tmp_path / "configs/job.json").write_text(f'{{"schema": "job{suffix}"}}\n')
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests/test_x.py").write_text(f"handler_{suffix[1:]} = 1\n")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src/README.md").write_text("See https://www.okx.com/docs" + "-" + "v5/en/\n")
+        (tmp_path / "src/.venv").mkdir()
+        (tmp_path / "src/.venv/vendor.py").write_text(f"third_party{suffix} = 1\n")
+
+        findings = FormatCompatibilityChecker.findings(tmp_path)
+
+        assert sorted(finding.split(": ")[0] for finding in findings) == [
+            "configs/job.json:1",
+            "tests/test_x.py:1",
+        ]
+        assert all("revision suffix" in finding for finding in findings)
+
     def test_repository_runtime_text_has_no_compatibility_wording(self) -> None:
         """Keep the checked-in runtime tree free of old-format compatibility wording."""
         assert FormatCompatibilityChecker.findings(REPOSITORY_ROOT) == ()

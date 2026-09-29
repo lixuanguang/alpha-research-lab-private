@@ -56,7 +56,8 @@ success does not replace domain review or grant release or activation authority.
 The checker scans every `.py` and `.pyi` file recursively under exactly:
 `src`, `tests`, `tools/governance/src`, and `tools/typing/stubs`, including files
 that Git does not track. It also scans every UTF-8 text file under `src` for
-[format-compatibility wording](#format-changes-replace-in-place). A missing root,
+[format-compatibility wording](#format-changes-replace-in-place), and under `src`,
+`tools`, `tests` and `configs` (outside hidden directories) for revision-suffixed names. A missing root,
 unreadable source, malformed configuration, or finding fails closed. It has no source-rule waiver or
 function-registration mechanism. The checker does not yet enforce the
 orchestrator-only function rule or assess class cohesion; those are review
@@ -157,7 +158,9 @@ document that described the old format in the same change.
 New internal names, format tags and identifiers MUST NOT carry a `_vN` or `-vN`
 revision suffix; name a format for what it is. External API paths and
 third-party versions keep their own names. The engineering checker rejects runtime
-text under `src/` that labels code or documentation as kept for an earlier format.
+text under `src/` that labels code or documentation as kept for an earlier format,
+and any `_vN`/`-vN` name in `src/`, `tools/`, `tests/` or `configs/` except the
+external references listed in `FormatCompatibilityChecker`.
 
 ### Stable names and test-support layout
 
