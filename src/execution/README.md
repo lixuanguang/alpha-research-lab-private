@@ -327,7 +327,10 @@ Before each first submit and after uncertain outcomes, the gateway checks native
 account mode/UID, retained individual fills, order details, wallet totals and
 stable opening/closing open-order snapshots. It checks every configured instrument
 and refuses unknown orders, inconsistent cumulative fills, nonzero unmapped wallets,
-borrowed funds, history truncation or changed economic identity. Local unsent intents
+borrowed funds, history truncation or changed economic identity. An order whose
+terminal outcome is already journaled is not looked up again: later fills still
+arrive through fill history and a reopened order through the open-order snapshots,
+so venue lookup retention no longer limits account age. Local unsent intents
 remain reserved and are not represented as venue-observed orders. A broken or
 unavailable observation invalidates independent account readiness before the
 transport diagnostic is saved. Operator stops are never cleared by reconciliation.

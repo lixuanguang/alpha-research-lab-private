@@ -841,6 +841,27 @@ class TestVenueGateway:
         boundary = account.milliseconds(account.executions[99].at)
         assert windows[-2][0] < boundary and windows[-1][0] == boundary
 
+    @pytest.mark.parametrize("venue", ["okx", "bitfinex"])
+    def test_terminal_history_outlives_lookup_and_fill_retention(
+        self, tmp_path: Path, venue: Literal["okx", "bitfinex"]
+    ) -> None:
+        """A dispatch past 13 days and an account past 89 days still reconcile."""
+        journal, gateway, account, clock, order_id = self._native(tmp_path, venue)
+        account.execute(1, quantity="2", fee="0.01", per_millisecond=1)
+        clock.sleep(60)
+        assert not gateway.reconcile().recovery_required
+        assert self._order_state(journal, order_id).status == "filled"
+        # Bitfinex closed-order lookups cannot prove outcomes older than 13 days.
+        clock.sleep(14 * 86_400)
+        assert not gateway.reconcile().recovery_required
+        # OKX fill history refuses windows reaching back more than 89 days.
+        clock.sleep(76 * 86_400)
+        assert not gateway.reconcile().recovery_required
+        start, end = account.fill_windows()[-1]
+        opening = account.milliseconds(gateway.config.account.opening_at)
+        assert end - opening > 89 * 86_400_000 > end - start
+        assert self._order_state(journal, order_id).status == "filled"
+
     def test_fill_history_resumes_from_the_last_matched_window(self, tmp_path: Path) -> None:
         """A durable mark bounds later fill reads and advances only on a matched account."""
         journal, gateway, account, clock, _ = self._native(tmp_path, "okx")

@@ -472,6 +472,11 @@ class VenueGateway:
                     dispatch.order_id, "rejected", self.clock.now(), f"reject:{dispatch.client_id}"
                 )
                 continue
+            if self._order(dispatch.order_id).is_terminal:
+                # A journaled terminal outcome already matched every identified fill.
+                # Later fills still arrive through fill history, and a venue order
+                # that is open again appears in the open-order snapshots.
+                continue
             at, nonce = self._request_clock()
             found = adapter.order(
                 dispatch.symbol,
