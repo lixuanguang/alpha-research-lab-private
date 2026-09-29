@@ -5,6 +5,7 @@ import base64
 import hashlib
 import hmac
 from pathlib import Path
+from typing import cast
 
 # third party library imports
 import pytest
@@ -32,7 +33,7 @@ class TestCoinbaseCredentials:
         assert "secret" not in repr(credentials)
         assert not hasattr(credentials, "__dict__")
         assert all(
-            isinstance(getattr(credentials, slot), SecretValue)
+            isinstance(cast(object, getattr(credentials, slot)), SecretValue)
             for slot in CoinbaseCredentials.__slots__
         )
 
