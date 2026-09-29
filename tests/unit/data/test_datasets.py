@@ -300,15 +300,14 @@ class TestDatasetManifest:
                 max_bytes=_LIMIT,
             )
 
-    def test_versions_scope_nested_mutation_and_size_limits(self, tmp_path: Path) -> None:
-        """Reject unknown versions, unsafe direct copies and extra fields before use."""
+    def test_tiers_scope_nested_mutation_and_size_limits(self, tmp_path: Path) -> None:
+        """Reject unknown tiers, unsafe direct copies and extra fields before use."""
         manifest, payloads = self._build(tmp_path, (self._acquisition(tmp_path),))
         path = self._save(tmp_path, manifest, payloads)
         invalid: tuple[tuple[str, object], ...] = (
-            ("schema_version", "2"),
-            ("canonical_schema", "future"),
+            ("tier", "future"),
+            ("tier", "witnessed"),
             ("correction_policy", "latest"),
-            ("availability_policy", "backfill"),
             ("scope", "causal"),
             ("normalization_identity", "mutable-name"),
             ("partitions", ()),

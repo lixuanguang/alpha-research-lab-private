@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # standard library imports
-import hashlib
 import subprocess
 import sys
 from datetime import date
@@ -15,9 +14,6 @@ from pathlib import Path
 
 # project library imports
 from financial_units import Currency, Money, QuantLibConventions
-from market_data.adapters.sources import SourceAdapters
-from market_data.datasets import SnapshotStore
-from market_data.storage import RawStore
 from reference_data.calendars import (
     CalendarAuthority,
     CalendarSourceVersion,
@@ -76,24 +72,6 @@ def main() -> None:
         end=date(2024, 11, 29),
     )
     assert snapshot.session_for_label(date(2024, 11, 27)).opens_at
-    historical = inputs / "historical_snapshot"
-    identity = "23378e41e37533c74a41a3ce5bfa4046aa659ae3bd4131b08321c72dc3a448b9"
-    manifest = SnapshotStore(
-        historical / "snapshots", RawStore(historical / "raw"), readers=SourceAdapters()
-    ).read(identity, max_bytes=262_144)
-    assert manifest.identity == identity
-    assert manifest.normalization_identity != ImplementationIdentity.sha256()
-    assert (
-        domain_codec.encode_json(manifest)
-        == (historical / "snapshots" / identity / "manifest.json").read_bytes()
-    )
-    for partition in manifest.partitions:
-        assert (
-            hashlib.sha256(
-                (historical / "snapshots" / identity / partition.sha256).read_bytes()
-            ).hexdigest()
-            == partition.sha256
-        )
     executable = Path(sys.executable).parent
     explore_help = subprocess.run(
         [str(executable / "alpha-explore"), "--help"],

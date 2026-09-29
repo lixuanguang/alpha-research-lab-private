@@ -48,9 +48,9 @@ class _Partition(WireRecord, frozen=True, kw_only=True):
         dict[str, msgspec.Raw]
     )
     schema_version: Literal[
-        "canonical-trade-partition-v1",
-        "canonical-trade-partition-v2",
-        "canonical-trade-partition-v3",
+        "canonical-trade-partition-exploratory",
+        "canonical-trade-partition-witnessed",
+        "canonical-trade-partition-qualified",
     ]
     scope: Literal["exploratory_degraded", "causal_witnessed", "causal_qualified"]
     policy: QualityPolicy

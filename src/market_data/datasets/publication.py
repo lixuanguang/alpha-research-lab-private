@@ -250,17 +250,7 @@ class DatasetPublication:
         witnessed = any(isinstance(part.capture, ArchiveCapture) for part in partitions)
         qualified = any(isinstance(part.qualification, SourceQualification) for part in partitions)
         return DatasetManifest(
-            schema_version="3" if qualified else "2" if witnessed else "1",
-            canonical_schema="canonical-trade-partition-v3"
-            if qualified
-            else "canonical-trade-partition-v2"
-            if witnessed
-            else "canonical-trade-partition-v1",
-            availability_policy="provider-qualified-v3"
-            if qualified
-            else "native-witness-or-evidenced-later-v2"
-            if witnessed
-            else "original-or-evidenced-later-v1",
+            tier="qualified" if qualified else "witnessed" if witnessed else "exploratory",
             normalization_identity=self._normalization_identity,
             scope="causal_qualified"
             if qualified

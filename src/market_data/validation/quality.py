@@ -318,11 +318,11 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
         if not errors:
             canonical = self._codec.encode_json(
                 {
-                    "schema_version": "canonical-trade-partition-v3"
+                    "schema_version": "canonical-trade-partition-qualified"
                     if qualification is not None
-                    else "canonical-trade-partition-v2"
+                    else "canonical-trade-partition-witnessed"
                     if capture is not None
-                    else "canonical-trade-partition-v1",
+                    else "canonical-trade-partition-exploratory",
                     "scope": scope,
                     "policy": self,
                     "request": request,

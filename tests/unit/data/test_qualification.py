@@ -227,8 +227,23 @@ class TestSourceQualification:
         manifest = SnapshotStore(inputs.snapshots, inputs.raw, readers=SourceAdapters()).read(
             identity, max_bytes=1_000_000
         )
-        assert manifest.schema_version == "3" and manifest.scope == "causal_qualified"
+        assert manifest.tier == "qualified" and manifest.scope == "causal_qualified"
+        assert manifest.canonical_schema == "canonical-trade-partition-qualified"
+        assert manifest.availability_policy == "qualified-provider-reviewed"
         assert _CODEC.decode_json(_CODEC.encode_json(manifest), DatasetManifest) == manifest
+        numbered = inputs.snapshots.parent / "numbered-manifest.json"
+        numbered.write_bytes(
+            _CODEC.encode_json(manifest).replace(b'"tier":"qualified"', b'"schema_version":"3"')
+        )
+        with pytest.raises(ValueError, match="unsupported dataset manifest schema"):
+            DatasetManifest.read(
+                numbered,
+                identity=identity,
+                partitions=inputs.snapshots / identity,
+                store=inputs.raw,
+                max_bytes=1_000_000,
+                readers=SourceAdapters(),
+            )
         binding = (
             inputs.request.instrument.source,
             "trade",
@@ -440,13 +455,8 @@ class TestSourceQualification:
         with pytest.raises(ValueError, match="qualification"):
             replace(inputs.selected, policy=replace(inputs.selected.policy, use="exploratory"))
         manifest, _ = inputs.publisher.assemble((inputs.selected,), inputs.raw, max_bytes=1_000_000)
-        with pytest.raises(ValueError, match="version"):
-            replace(
-                manifest,
-                schema_version="1",
-                canonical_schema="canonical-trade-partition-v1",
-                availability_policy="original-or-evidenced-later-v1",
-            )
+        with pytest.raises(ValueError, match="tier differs"):
+            replace(manifest, tier="exploratory")
 
     @pytest.mark.parametrize("damage", ["missing", "changed"])
     def test_reopening_detects_damaged_original_archive(self, inputs: _Inputs, damage: str) -> None:

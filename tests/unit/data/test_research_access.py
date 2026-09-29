@@ -219,6 +219,19 @@ class TestResearchAccess:
         )
         with pytest.raises(ValueError, match="identity mismatch"):
             catalog.discover(max_entries=3, max_bytes=_LIMIT)
+        path.write_bytes(
+            path.read_bytes().replace(
+                b'"normalization_identity":"' + b"b" * 64, b'"normalization_identity":"' + b"a" * 64
+            )
+        )
+        assert catalog.discover(max_entries=3, max_bytes=_LIMIT) == entries
+        trade = tmp_path / "snapshots" / selection.inputs[0].query.snapshot_id / "manifest.json"
+        trade.chmod(0o644)
+        trade.write_bytes(
+            trade.read_bytes().replace(b'"tier":"exploratory"', b'"schema_version":"1"')
+        )
+        with pytest.raises(ValueError, match="unsupported dataset manifest schema"):
+            catalog.discover(max_entries=3, max_bytes=_LIMIT)
 
     def test_book_cutoff_nanoseconds_controls_fields_and_unknown_archive(
         self, tmp_path: Path

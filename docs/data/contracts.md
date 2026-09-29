@@ -342,8 +342,9 @@ refusal with the reasons. No partial output is released after a reader failure.
 it does not count unread rows or classify an economic conflict as a malformed row.
 Raw bytes remain with the caller or immutable store, including after rejection.
 
-Accepted deterministic JSON bytes use `canonical-trade-partition-v1` without
-added evidence, `v2` with native capture, or `v3` with reviewed provider qualification.
+Accepted deterministic JSON bytes use `canonical-trade-partition-exploratory`
+without added evidence, `canonical-trade-partition-witnessed` with native capture,
+or `canonical-trade-partition-qualified` with reviewed provider qualification.
 They retain explicit scope, policy, complete request/catalog, eligibility history, selected
 membership segments, reasons, full revision heads and binding-scoped controls.
 Heads use revision admission's deterministic payload-identity order; source order is retained
@@ -355,34 +356,41 @@ evidence and no large-partition performance or empirical P1 acceptance claim.
 
 ## Dataset manifest identity and verification
 
-Version `3` adds reviewed provider qualification and optional complete
-`prior_acquisitions` for the identical source request. Its canonical schema is
-`canonical-trade-partition-v3`, availability policy is `provider-qualified-v3`
-and scope is `causal_qualified`. Every retained archive is natively verified;
-snapshot and query reopening reproduce admission and preserve predecessor values
-and original unknown clocks. Evidence bytes and review provenance enter identity.
-Version `1`/`2` identities are preserved by omitting absent optional fields; older
-readers cannot consume version `3`. The
+`DatasetManifest.tier` names the strongest evidence among its partitions and fixes
+the canonical schema and availability policy:
+
+| Tier | Canonical schema | Availability policy |
+|---|---|---|
+| `exploratory` | `canonical-trade-partition-exploratory` | `exploratory-original-or-evidenced-later` |
+| `witnessed` | `canonical-trade-partition-witnessed` | `witnessed-native-or-evidenced-later` |
+| `qualified` | `canonical-trade-partition-qualified` | `qualified-provider-reviewed` |
+
+The `qualified` tier adds reviewed provider qualification and optional complete
+`prior_acquisitions` for the identical source request; its scope is
+`causal_qualified`. Every retained archive is natively verified; snapshot and query
+reopening reproduce admission and preserve predecessor values and original unknown
+clocks. Evidence bytes and review provenance enter identity. A manifest without a
+`tier`, including one with a numbered `schema_version`, is refused as an
+unsupported dataset manifest schema. The
 [provider contract](../../src/market_data/README.md#reviewed-provider-qualification)
 defines review requirements, history cutoff and supported limitations.
 
-`DatasetManifest` version `1` binds an **ordered** tuple of `DatasetPartition`
+`DatasetManifest` binds an **ordered** tuple of `DatasetPartition`
 records. Each entry retains the canonical SHA-256, complete acquisition manifest,
 quality policy, eligibility history and correction evidence. The acquisition embeds
 the actual resolved job, selected instruments/universe, catalog and raw descriptors;
 names never stand in for this content. The manifest also binds the normalization
-runtime identity, canonical schema, correction policy, availability policy and
-`exploratory_degraded` scope. `DomainCodec` supplies strict cached decoding and
-canonical serialization; unknown fields or unsupported versions/scopes fail.
+runtime identity, tier, correction policy and scope. `DomainCodec` supplies strict
+cached decoding and canonical serialization; unknown fields or unsupported
+tiers/scopes fail.
 
 Semantic identity is SHA-256 over this canonical manifest representation. Rebuild
 wall clocks and local paths are caller metadata outside the manifest. Original raw
 receipt/ingestion and reference/evidence clocks remain semantic provenance. JSON
 whitespace and relocating saved files do not change identity. Reordering partitions,
-changing resolved references, code or admission policy does change identity. Version 1
-fixes `canonical-trade-partition-v1`, `evidenced-v1` corrections and
-`original-or-evidenced-later-v1` availability; other versions require implementation
-and cannot be accepted by changing a label.
+changing resolved references, code or admission policy does change identity. Every
+tier uses `evidenced-v1` corrections; a new tier requires implementation and cannot
+be accepted by changing a label.
 
 `DatasetPublication.assemble` consumes ordered, complete daily Binance acquisitions
 with shared quality/eligibility inputs and corrections keyed by resolved run identity.

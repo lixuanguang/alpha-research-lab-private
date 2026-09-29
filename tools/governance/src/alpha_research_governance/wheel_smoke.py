@@ -112,10 +112,6 @@ class _InstalledWheelCheck:
             ("tests/integration/consumers/wheel_layout.py", "wheel_layout.py"),
         ):
             shutil.copyfile(repository_root / relative, inputs / name)
-        shutil.copytree(
-            repository_root / "tests/fixtures/datasets/historical_snapshot",
-            inputs / "historical_snapshot",
-        )
         command = [str(python), "-I", str(inputs / "wheel_layout.py"), str(inputs)]
         subprocess.run(  # nosec B603  # [owner=platform; rationale=isolated interpreter smoke argv; expires=2027-03-01]
             command, cwd=smoke_root, env=environment, check=True

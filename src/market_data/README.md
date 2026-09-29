@@ -599,8 +599,8 @@ nonidentical overlaps within one source/stream/instrument fail rather than being
 merged.
 
 `DatasetManifest.read` verifies manifest identity, raw/canonical bytes, source
-readers and admission before returning. Version 1 trade manifests retain their
-identities; book publication uses the separate `book-dataset-v2` format. A
+readers and admission before returning. Trade manifests name their evidence
+`tier`; book publication uses the separate `book-dataset-v2` format. A
 manifest path or `latest` alias is never a substitute for an explicit identity.
 
 ## Publish and reopen an atomic snapshot
@@ -848,8 +848,8 @@ alpha-dataset publish --inputs /absolute/reviewed/dataset-input.json \
 ```
 
 This is a bounded evidence gate, not an evidence registry or provider
-authentication service. Existing v1/v2 records remain readable; mixed admission
-scopes in one snapshot remain unsupported. A successful software fixture does not
+authentication service. Mixed admission scopes in one snapshot remain
+unsupported. A successful software fixture does not
 supply the historical evidence needed to admit a real sample.
 
 For deeper implementation coverage, use the focused [unit and integration
