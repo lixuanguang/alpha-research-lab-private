@@ -18,7 +18,7 @@ import msgspec
 from configuration import BookKey, PaperExecutionScenario
 from execution import AccountControl, AccountQuote, PaperAccount, PaperMarket, PortfolioCommit
 from financial_units import Price, Quantity
-from market_data.books import BookDepth, BookRegistry
+from market_data.books import BookAsOfIndex, BookDepth, BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord
 from research.observations import DecisionInputs, LiveBookDecisionSource
 from runtime.live_paper import LiveBookDelivery
@@ -124,6 +124,7 @@ class SharedPaperCaptureObserver:
         clock: Callable[[], datetime] | None = None,
         market_interval_us: int = 0,
         measurements: RuntimeMeasurementJournal | None = None,
+        index: BookAsOfIndex | None = None,
     ) -> None:
         """Bind explicit admitted owners and optional new-recording retention path."""
         scenario.__post_init__()
@@ -156,6 +157,7 @@ class SharedPaperCaptureObserver:
         self.source, self.books, self.journal, self.runtime = source, books, journal, runtime
         self.account_id, self.scenario, self.inputs = account_id, scenario, inputs
         self.delivery_path = delivery_path
+        self.index = index
         self._clock = clock
         self.market_interval_us = market_interval_us
         self.measurements = measurements
@@ -195,7 +197,12 @@ class SharedPaperCaptureObserver:
             coordinated_at=self._coordination_time(source.available_at) if selected else None,
             market_effects=False if market is not None and not market_effects else msgspec.UNSET,
         )
-        self._retain(delivery)
+        offset, length = self._retain(delivery)
+        if self.index is not None:
+            latest = self.books.latest(self._key)
+            if latest is None:
+                raise ValueError("retained delivery has no accepted book boundary")
+            self.index.append(*latest, offset=offset, length=length)
         started_ns = time.monotonic_ns()
         prior_decisions = len(self.decisions)
         try:
@@ -377,16 +384,18 @@ class SharedPaperCaptureObserver:
         """Read the injected or system UTC clock without inventing a future instant."""
         return datetime.now(UTC) if self._clock is None else self._clock()
 
-    def _retain(self, delivery: SharedBookDelivery) -> None:
-        """Persist bounded replay bytes before changing order or policy state."""
+    def _retain(self, delivery: SharedBookDelivery) -> tuple[int, int]:
+        """Persist bounded replay bytes before changing state; return their byte range."""
         if self.delivery_path is None:
             raise ValueError("live shared paper requires a retained delivery path")
         payload = self._codec.encode_json(delivery) + b"\n"
         if self._retained_bytes + len(payload) > self._maximum_bytes:
             raise ValueError("shared paper delivery retention exceeded configured bound")
         with self.delivery_path.open("ab") as stream:
+            offset = stream.seek(0, os.SEEK_END)
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
         self._retained_bytes += len(payload)
         self.retained_count += 1
+        return offset, len(payload)

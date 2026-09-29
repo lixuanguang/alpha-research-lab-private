@@ -178,6 +178,14 @@ class BookRegistry:
             self._evicted.add(key)
         history.append(_Boundary(quote, market))
 
+    def latest(self, key: BookKey) -> tuple[BookQuote, BookQuote | None] | None:
+        """Return the newest accepted boundary and the priced market it carries."""
+        self._selection(key)
+        history = self._history[key]
+        if not history:
+            return None
+        return history[-1].event, history[-1].market
+
     def lookup(self, key: BookKey, *, cutoff_ns: int) -> BookLookup:
         """Return an eligible native BBO or explicit refusal at an inclusive cutoff.
 

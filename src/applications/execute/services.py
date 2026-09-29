@@ -45,7 +45,7 @@ from execution import (
     SocketPaperAccount,
 )
 from market_data.adapters.sources import BookAdapters
-from market_data.books import BookRegistry
+from market_data.books import BookAsOfIndex, BookRegistry
 from market_data.collection import CaptureTransport
 from market_data.contracts import CaptureCursor, CaptureRequest
 from research.observations import LiveBookDecisionSource
@@ -713,6 +713,7 @@ class PaperServices:
                 delivery_path=path,
                 market_interval_us=source.market_interval_us,
                 measurements=measurements,
+                index=BookAsOfIndex.create(path.with_name(path.stem + ".index.sqlite3")),
             )
 
     def _wait_for_source(self) -> None:

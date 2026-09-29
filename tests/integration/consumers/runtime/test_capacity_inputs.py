@@ -88,6 +88,26 @@ class TestCapacityInputs:
         assert set(oracle) == {account.account_id for account in service.accounts}
         assert all(len(value[2]) == 1 and value[2][0].value == 2 for value in oracle.values())
 
+    def test_public_bitfinex_route_alone_receives_the_raised_message_cap(self) -> None:
+        """Only Bitfinex sources of a public Bitfinex route exceed the fixture cap."""
+        opening = datetime(2026, 9, 27, 12, tzinfo=UTC)
+        root = Path("/private/tmp/capacity-inputs")
+        caps = {
+            public: {
+                source.name: source.capture.max_messages
+                for source in CapacityWorkload(
+                    opening_at=opening, socket_root=root, public_venue=public
+                )
+                .service_configuration()
+                .sources
+            }
+            for public in (None, "okx", "bitfinex")
+        }
+        assert set(caps[None].values()) == set(caps["okx"].values()) == {5000}
+        assert caps["bitfinex"] == {
+            name: 12_000 if name.startswith("bitfinex") else 5000 for name in caps[None]
+        }
+
     @pytest.mark.parametrize("venue", ("okx", "bitfinex"))
     def test_full_depth_native_frames_and_schedule(self, venue: str) -> None:
         """Reconstruct real protocol snapshot/control/update at selected depth."""

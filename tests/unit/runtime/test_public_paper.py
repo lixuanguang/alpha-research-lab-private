@@ -43,7 +43,7 @@ from execution import (
 )
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
-from market_data.books import BookRegistry
+from market_data.books import BookAsOfIndex, BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level
 from reference_data.instruments import InstrumentId
 from research.features import FeatureVector
@@ -291,6 +291,7 @@ class TestSharedPublicPaper:
         retain: bool = False,
         inputs: _SignalInputs | None = None,
         measurements: RuntimeMeasurementJournal | None = None,
+        index: BookAsOfIndex | None = None,
     ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
         """Construct the actual source, registry, account and decision owners."""
         request = cls._request()
@@ -325,6 +326,7 @@ class TestSharedPublicPaper:
             clock=clock,
             market_interval_us=market_interval_us,
             measurements=measurements,
+            index=index,
         )
         return observer, journal
 
@@ -391,6 +393,7 @@ class TestSharedPublicPaper:
         inputs = _SignalInputs()
         measurement_path = tmp_path / "paper-measurements.jsonl"
         measurements = RuntimeMeasurementJournal(measurement_path, sync_every=1)
+        as_of = BookAsOfIndex.create(path.with_suffix(".index.sqlite3"))
         observer, journal = self._observer(
             path,
             clock=clock,
@@ -398,6 +401,7 @@ class TestSharedPublicPaper:
             retain=True,
             inputs=inputs,
             measurements=measurements,
+            index=as_of,
         )
         assert journal.reconcile(self._opening())
         deliveries = (
@@ -507,6 +511,22 @@ class TestSharedPublicPaper:
             assert codec.encode_json(observed_source) == codec.encode_json(delivery.source)
             assert codec.encode_json(observed) == codec.encode_json(delivery) == payload
         assert tuple(item.source.book.position for item in retained) == tuple(range(5))
+        as_of.close()
+        selection = observer.books.lookup(observer._key, cutoff_ns=0).selection
+        offset = 0
+        for payload, delivery in zip(retained_bytes, retained, strict=True):
+            elapsed = delivery.source.available_at - datetime(1970, 1, 1, tzinfo=UTC)
+            cutoff = (elapsed.days * 86_400 + elapsed.seconds) * 1_000_000_000 + (
+                elapsed.microseconds * 1000
+            )
+            lookup, selected = BookAsOfIndex(as_of.path).lookup(selection, cutoff_ns=cutoff)
+            assert lookup == observer.books.lookup(observer._key, cutoff_ns=cutoff)
+            target = lookup.quote if lookup.quote is not None else lookup.boundary
+            assert target is not None and selected is not None
+            if target.position == delivery.source.book.position:
+                assert selected == (offset, len(payload) + 1)
+            offset += len(payload) + 1
+        assert BookAsOfIndex(as_of.path).covered_bytes() == offset
         assert tuple(item.market_effects for item in retained) == (
             msgspec.UNSET,
             msgspec.UNSET,

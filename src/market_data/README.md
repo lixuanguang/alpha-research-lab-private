@@ -39,7 +39,7 @@ quality or qualify venue order execution.
 | Chronological stepping | `Replay`, `ReplayCursor` | [Replay contract](#chronological-event-stepping) |
 | Named trade/book research inputs | `ResearchSelection`, `inspect_eda` | [Selection reference](#discover-and-reopen-research-selections) |
 | Native book publication/replay | `publish_books`, `BookReplay` | `alpha-collect`; [book boundaries](#bounded-saved-books) |
-| Book registry and consolidated BBO | `BookRegistry`, `BookRegistryConfiguration` | [Registry queries](#book-registry-and-consolidated-bbo) |
+| Book registry and consolidated BBO | `BookRegistry`, `BookRegistryConfiguration`, `BookAsOfIndex` | [Registry queries](#book-registry-and-consolidated-bbo) |
 | Per-book depth and BBO | `BookDepth`, `BookProjection.quote`, `BookQuote` | [Shared book quotes](#shared-book-quotes) |
 | Reviewed source evidence | `ArchiveCapture`, `SourceQualification`, `QualityPolicy` | [Qualification sections](#witnessed-archive-availability) |
 | Public OKX/Bitfinex trades and observed rules | `PublicDataJob`, `PublicIngestion`, `PublicTradeManifest` | [Public data plane](#public-spot-data-plane) |
@@ -189,6 +189,16 @@ boundaries exclude the venue until a synchronized native snapshot restores it.
 Queries before retained history return `history_evicted`; rebuild a fresh registry
 from original inputs for older queries. At equal timestamps, the last delivered
 boundary wins; callers serialize delivery and queries.
+
+`latest(key)` returns the newest accepted boundary with the priced market it
+carries. `BookAsOfIndex` persists those pairs for one delivery log in SQLite with each
+delivery's byte range: `create(path)` opens its single writer, `append(boundary,
+market, offset=..., length=...)` requires contiguous positions and byte ranges and
+nondecreasing availability, and `lookup(selection, cutoff_ns=...)` returns the same
+`BookLookup` as a registry that retained every boundary, plus the delivery range of
+the selected market. It never evicts history. The owner appends only after a
+delivery is durable, so the index can lag its log but not lead it; `covered_bytes()`
+reports the described prefix.
 
 `BookLookup` retains the selected source, latest known boundary, eligible original
 quote or refusal reason. A consolidated result retains every selected lookup and

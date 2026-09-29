@@ -1076,3 +1076,63 @@ passed; `make test` passed 1,991 tests with two optional skips and three
 performance deselections. Three alert-socket tests first failed only because the
 session's temporary path exceeded the Unix socket path limit and passed with a
 short base directory. No hosted CI or signed run occurred.
+
+### Stage-1 residual decisions and declaration (2026-09-29)
+
+The owner decided the three remaining stage-1 gaps after their costs were reported.
+
+1. **Cold depth/BBO query: durable as-of index.** A cold reader decoded and validated
+   every retained full book to rebuild its touch index: 1.35 ms per OKX row, so 4.0–4.1 s
+   for about 100 s of history and linear in history length. The shared paper service now
+   writes a [`BookAsOfIndex`](../../src/market_data/books/as_of.py) beside each delivery
+   log. After a delivery's bytes are fsynced, it appends that boundary's validated quote,
+   the market it carries and its byte range. A lookup equals a
+   [`BookRegistry`](../../src/market_data/books/registry.py) lookup that kept every
+   boundary, and depth decodes only the selected delivery with full validation. The
+   index is derived, so it commits without an fsync; a crash can leave it behind the log,
+   and the reader reports the unindexed suffix as partial coverage. The live feature
+   path keeps its incremental in-memory registry.
+2. **Checkpoint percentiles: deferred to stage 2.** A 60-second trial acknowledges 21
+   durable checkpoints per account but commits only two (the rest are persisted
+   rejections), so 1,000 committed observations per account cannot be reached within
+   stage-1 service lives and unchanged 80-order grants. A 24-hour stage-2 run supplies
+   them without an authority change; the boundary stays unmeasured for stage 1.
+3. **Public Bitfinex capture cap: 12,000 messages per 100-second capture.** Fresh public
+   Bitfinex ETH (R0, 25 levels) sent 84.3 messages/s and reached the 5,000-message cap
+   after 59.3 s. Only Bitfinex sources of a public Bitfinex route receive the new cap,
+   42% above the observed rate; bytes stay far below 32 MiB. Fixture routes keep 5,000.
+
+**Declared cohort.** Declared before any build or trial. The candidate is the source at
+the commit adding this section, frozen by hash, with drivers and evidence under ignored
+`logs/runtime-capacity/stage1-residual/`, ported from the
+[account journal stage-1 drivers](account-journal-history.md#signed-stage-1-declaration-2026-09-29).
+Four signed `paper` targets with `account-runtime-v1` configuration and
+`account-journal-v4` state, built by the ephemeral local builder key with a new
+seven-day policy trusting only it; fresh journals, disabled deployments and ordinary
+one-hour grants; no grant, lifetime, budget or risk limit changes. Each step runs once
+and the cohort stops at the first failure.
+
+1. Freeze; fetch, build, verify and install the four targets.
+2. Steady fixture trial with the unchanged stage-1 shape and gates, then economic parity.
+3. Recovery trial with preservation, all-eight progress, the same gates and the
+   independent recovery-suffix parity.
+4. Loaded-fault trial on separately installed targets of the same releases.
+5. Populated-history queries on the new steady trial:
+   [`capacity_history_queries.py`](../../tests/integration/consumers/runtime/capacity_history_queries.py)
+   with 250 samples per reader, giving 1,000 per boundary and cache class. Pass requires
+   no failed request, matched-cutoff parity, and `pass` for both service and scheduled
+   response latency in all four classes against the budgets above: depth/BBO cold p99
+   2 s and warm 50/200/500 ms, dashboard cold p99 3 s and warm 100/400/1,000 ms.
+   Filesystem-cold stays unmeasured.
+6. Public Bitfinex route trial on separately installed targets with the 12,000 cap.
+   Pass requires the trial to pass with health covering its 60-second measured interval;
+   each public Bitfinex capture to end without a message, byte or frame cap and with
+   complete native delivery parity for its account and bounded queues; and the fixture
+   OKX sources to meet their unchanged source gates. Public latency samples are reported,
+   not graded.
+7. Cleanup audit over every trial, with all four accounts stopped.
+8. `make check` on the unchanged frozen source.
+
+Checkpoint percentiles, filesystem-cold queries, renewed public OKX health, integrated
+feature serving and stage 2 are outside this cohort.
+

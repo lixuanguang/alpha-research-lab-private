@@ -157,6 +157,7 @@ class CapacityTrial:
         self.workload = CapacityWorkload(
             opening_at=self.config.accounts[0].configuration.opening_at,
             socket_root=self.socket_root,
+            public_venue=public_venue,
         )
         self.policy = root / "release-policy.json"
         self.service_root = output / "operating"
@@ -856,6 +857,7 @@ def main() -> None:
         workload = CapacityWorkload(
             opening_at=config.accounts[0].configuration.opening_at,
             socket_root=Path(config.accounts[0].socket_path).parent,
+            public_venue=args.public_venue,
         )
         # Alert routing is an invocation setting, independent of native fixture identity.
         transports = workload.fixture_transports(

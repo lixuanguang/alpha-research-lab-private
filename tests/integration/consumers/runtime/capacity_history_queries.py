@@ -210,7 +210,7 @@ class CapacityHistoryQueries:
             "cold_budget_p99_ns": {"depth_bbo": 2_000_000_000, "dashboard": 3_000_000_000},
             "warm_budget_ms": {"depth_bbo": (50, 200, 500), "dashboard": (100, 400, 1000)},
             "query_at": self.query_at,
-            "application_cold_boundary": "fresh_components_native_index_poll_query_render",
+            "application_cold_boundary": "fresh_components_durable_index_open_query_render",
             "process_initialization": "excluded_imports_and_interpreter_are_already_loaded",
             "filesystem_cache": "uncontrolled_reads_after_frozen_history_preparation",
             "native_history_basis": "complete_actual_retained_bounded_trial",
@@ -237,7 +237,7 @@ class CapacityHistoryQueries:
                         source.delivery_path.read_bytes()
                     ).hexdigest(),
                     "delivery_bytes": source.delivery_path.stat().st_size,
-                    "indexed_deliveries": reader.sources[name].deliveries,
+                    "indexed_bytes": reader.sources[name].index.covered_bytes(),
                     "query_result": result,
                 }
             )

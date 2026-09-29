@@ -8,6 +8,7 @@ import os
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -30,9 +31,16 @@ from msgspec.structs import replace
 from paper_services import PaperServiceWorkload
 
 # project library imports
+from configuration import BookRegistryConfiguration
 from financial_units import ExactRatio
 from market_data.adapters.sources import BookAdapters
-from market_data.books import BookProjection, CaptureReplay
+from market_data.books import (
+    BookAsOfIndex,
+    BookDepth,
+    BookProjection,
+    BookRegistry,
+    CaptureReplay,
+)
 from market_data.contracts import CaptureRecord, CaptureRequest
 from market_data.storage import CaptureJournal
 from runtime import LiveBookDelivery, SharedBookDelivery
@@ -40,11 +48,62 @@ from serialization import DomainCodec
 from telemetry import MonitoringEvent, MonitoringIdentity, TelemetryStore
 
 
+class _DeliveryWriter:
+    """Append retained deliveries and their durable index rows as the shared service does."""
+
+    def __init__(self, reader: _RetainedBookIndex, source: _SourceIndex) -> None:
+        """Create the source's index beside its delivery log."""
+        self.reader, self.source = reader, source
+        self.registry = BookRegistry(
+            BookRegistryConfiguration(
+                selections=(reader.selections[source.name],),
+                equivalences=(),
+                history_capacity=100,
+            )
+        )
+        self.index = BookAsOfIndex.create(source.index.path)
+        self.codec = DomainCodec()
+
+    def append(self, delivery: SharedBookDelivery, *, indexed: bool = True) -> tuple[int, int]:
+        """Durably append one delivery line and, unless deferred, its index row."""
+        payload = self.codec.encode_json(delivery) + b"\n"
+        with self.source.delivery_path.open("ab") as stream:
+            offset = stream.seek(0, os.SEEK_END)
+            stream.write(payload)
+        if indexed:
+            self.index_line(delivery, offset, len(payload))
+        return offset, len(payload)
+
+    def index_line(self, delivery: SharedBookDelivery, offset: int, length: int) -> None:
+        """Accept the delivery's boundary and record the registry's carried market."""
+        config = self.source.request.config
+        self.registry.accept(
+            BookDepth._touch_quote_validated(
+                delivery.source.book,
+                venue=config.venue,
+                instrument_id=config.instrument_id,
+                source_id=self.source.request.identity,
+                channel=config.channel,
+                available_ns=self.reader._unix_ns(delivery.source.available_at),
+            )
+        )
+        latest = self.registry.latest(self.source.key)
+        assert latest is not None
+        self.index.append(*latest, offset=offset, length=length)
+
+
 class TestCapacityReads:
     """Keep reported boundaries attached to retained service facts."""
 
-    @staticmethod
-    def _index(tmp_path: Path) -> tuple[_RetainedBookIndex, _SourceIndex, datetime]:
+    @pytest.fixture(autouse=True)
+    def _close_writers(self) -> Iterator[None]:
+        """Release every index writer a test opened."""
+        self.writers: list[_DeliveryWriter] = []
+        yield
+        for writer in self.writers:
+            writer.index.close()
+
+    def _index(self, tmp_path: Path) -> tuple[_RetainedBookIndex, _SourceIndex, datetime]:
         """Retain a real native OKX capture and its corresponding delivery stream."""
         workload = PaperServiceWorkload(
             "okx",
@@ -85,13 +144,16 @@ class TestCapacityReads:
             ),
         )
         delivery_path = tmp_path / "delivery.jsonl"
-        codec = DomainCodec()
-        with delivery_path.open("wb") as stream:
-            for position, record in enumerate(records):
-                journal.append(record)
-                outcome = replay.apply(record)
-                row = BookProjection.capture(position, record, outcome, replay)
-                delivery = SharedBookDelivery(
+        selected = _SourceIndex("btc-book", request, capture_root, delivery_path, 10_000)
+        reader = _RetainedBookIndex(config, (selected,))
+        self.writer = _DeliveryWriter(reader, selected)
+        self.writers.append(self.writer)
+        for position, record in enumerate(records):
+            journal.append(record)
+            outcome = replay.apply(record)
+            row = BookProjection.capture(position, record, outcome, replay)
+            self.writer.append(
+                SharedBookDelivery(
                     source=LiveBookDelivery(
                         record=record,
                         book=row,
@@ -100,9 +162,8 @@ class TestCapacityReads:
                     inputs=(),
                     coordinated_at=None,
                 )
-                stream.write(codec.encode_json(delivery) + b"\n")
-        selected = _SourceIndex("btc-book", request, capture_root, delivery_path, 10_000)
-        return _RetainedBookIndex(config, (selected,)), selected, base
+            )
+        return reader, selected, base
 
     def test_as_of_depth_and_independent_native_parity(self, tmp_path: Path) -> None:
         """Exclude future delivery and prove the displayed touch against raw replay."""
@@ -205,78 +266,58 @@ class TestCapacityReads:
         with pytest.raises(ValueError):
             index.poll()
 
-    def test_read_covers_only_its_captured_prefix_and_keeps_causal_cutoff(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def _next(
+        self, delivery: SharedBookDelivery, position: int, base: datetime
+    ) -> SharedBookDelivery:
+        """Repeat the latest boundary at the next position and a later delivery clock."""
+        return replace(
+            delivery,
+            source=replace(
+                delivery.source,
+                book=replace(delivery.source.book, position=position),
+                available_at=base + timedelta(milliseconds=position + 2),
+            ),
+        )
+
+    def test_read_covers_only_the_indexed_prefix_and_keeps_causal_cutoff(
+        self, tmp_path: Path
     ) -> None:
-        """A concurrent append waits for the next read instead of extending the held poll."""
+        """A durable delivery whose index row is pending is partial coverage, not a new quote."""
         index, source, base = self._index(tmp_path)
-        assert index.poll() == 3
         codec = DomainCodec()
         latest = codec.decode_json(
             source.delivery_path.read_bytes().splitlines()[-1], SharedBookDelivery
         )
-        fourth = replace(
-            latest,
-            source=replace(
-                latest.source,
-                book=replace(latest.source.book, position=3),
-                available_at=base + timedelta(milliseconds=5),
-            ),
-        )
-        fifth = replace(
-            fourth,
-            source=replace(
-                fourth.source,
-                book=replace(fourth.source.book, position=4),
-                available_at=base + timedelta(milliseconds=6),
-            ),
-        )
-        with source.delivery_path.open("ab") as stream:
-            stream.write(codec.encode_json(fourth) + b"\n")
+        fourth = self._next(latest, 3, base)
+        self.writer.append(fourth)
         required_end = source.delivery_path.stat().st_size
-        original_poll = index._poll_serialized
-        appended = [False]
-
-        def append_after_snapshot(retained_ends: dict[str, int]) -> int:
-            """Add a real typed full boundary after the request captured its byte prefix."""
-            if not appended[0]:
-                with source.delivery_path.open("ab") as stream:
-                    stream.write(codec.encode_json(fifth) + b"\n")
-                appended[0] = True
-            return original_poll(retained_ends)
-
-        monkeypatch.setattr(index, "_poll_serialized", append_after_snapshot)
         result = index.read(source.name, cutoff_ns=index._unix_ns(base + timedelta(milliseconds=4)))
         assert result["quote_position"] == 2
         assert result["delivery_prefix_complete"] is True
         assert result["depth_index_required_prefix_bytes"] == required_end
         assert result["depth_index_indexed_prefix_bytes"] == required_end
-        assert source.deliveries == 4
-        next_result = index.read(
-            source.name, cutoff_ns=index._unix_ns(base + timedelta(milliseconds=7))
-        )
-        assert next_result["quote_position"] == 4
-        assert next_result["delivery_prefix_complete"] is True
-        assert source.deliveries == 5
+        fifth = self._next(fourth, 4, base)
+        pending = self.writer.append(fifth, indexed=False)
+        cutoff = index._unix_ns(base + timedelta(milliseconds=7))
+        lagging = index.read(source.name, cutoff_ns=cutoff)
+        assert lagging["delivery_prefix_complete"] is False
+        assert lagging["reason"] == "incomplete_retained_delivery_prefix"
+        assert lagging["depth_index_indexed_prefix_bytes"] == required_end
+        self.writer.index_line(fifth, *pending)
+        caught_up = index.read(source.name, cutoff_ns=cutoff)
+        assert caught_up["quote_position"] == 4
+        assert caught_up["delivery_prefix_complete"] is True
 
     def test_incomplete_captured_prefix_is_explicit_partial_coverage(self, tmp_path: Path) -> None:
         """A half-written next boundary cannot pass as an eligible current read."""
         index, source, base = self._index(tmp_path)
-        assert index.poll() == 3
         codec = DomainCodec()
         latest = codec.decode_json(
             source.delivery_path.read_bytes().splitlines()[-1], SharedBookDelivery
         )
-        fourth = replace(
-            latest,
-            source=replace(
-                latest.source,
-                book=replace(latest.source.book, position=3),
-                available_at=base + timedelta(milliseconds=5),
-            ),
-        )
+        fourth = self._next(latest, 3, base)
         payload = codec.encode_json(fourth) + b"\n"
-        old_offset = source.offset
+        offset = source.delivery_path.stat().st_size
         with source.delivery_path.open("ab") as stream:
             stream.write(payload[: len(payload) // 2])
         cutoff = index._unix_ns(base + timedelta(milliseconds=7))
@@ -285,9 +326,10 @@ class TestCapacityReads:
         assert result["partial_coverage"] is True
         assert result["eligible"] is False
         assert result["reason"] == "incomplete_retained_delivery_prefix"
-        assert source.offset == old_offset
         with source.delivery_path.open("ab") as stream:
             stream.write(payload[len(payload) // 2 :])
+        assert index.read(source.name, cutoff_ns=cutoff)["delivery_prefix_complete"] is False
+        self.writer.index_line(fourth, offset, len(payload))
         completed = index.read(source.name, cutoff_ns=cutoff)
         assert completed["delivery_prefix_complete"] is True
         assert completed["quote_position"] == 3

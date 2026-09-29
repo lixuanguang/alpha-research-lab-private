@@ -362,6 +362,9 @@ class CapacityWorkload:
     """Own combined account definitions, signed inputs and finite fixture selection."""
 
     venues: ClassVar[tuple[Literal["okx"], Literal["bitfinex"]]] = ("okx", "bitfinex")
+    # Observed public Bitfinex ETH R0 reached 84.3 messages/s; 12,000 per 100 s capture
+    # leaves 42% headroom. Fixture routes keep the stage-1 5,000-message cap.
+    public_bitfinex_max_messages: ClassVar[int] = 12_000
 
     def __init__(
         self,
@@ -369,12 +372,18 @@ class CapacityWorkload:
         opening_at: datetime,
         socket_root: Path,
         mode: Literal["paper", "shadow"] = "paper",
+        public_venue: Literal["okx", "bitfinex"] | None = None,
     ) -> None:
         """Bind four venue-scoped accounts to explicit local socket locations."""
         AccountConfiguration._require_utc(opening_at, field_name="capacity opening")
-        if not socket_root.is_absolute() or mode not in ("paper", "shadow"):
+        if (
+            not socket_root.is_absolute()
+            or mode not in ("paper", "shadow")
+            or public_venue not in (None, "okx", "bitfinex")
+        ):
             raise ValueError("capacity workload requires absolute sockets and paper/shadow mode")
         self.opening_at, self.socket_root, self.mode = opening_at, socket_root, mode
+        self.public_venue = public_venue
         self.codec = DomainCodec()
         self.venue_workloads = {
             venue: PaperServiceWorkload(
@@ -458,7 +467,9 @@ class CapacityWorkload:
                 capture = msgspec.structs.replace(
                     native.capture,
                     duration_seconds=100,
-                    max_messages=5000,
+                    max_messages=self.public_bitfinex_max_messages
+                    if venue == "bitfinex" and self.public_venue == "bitfinex"
+                    else 5000,
                     max_bytes=33_554_432,
                     max_frame_bytes=8_000_000,
                     queue_capacity=2048,
