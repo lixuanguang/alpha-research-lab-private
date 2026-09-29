@@ -216,6 +216,33 @@ class TestEconomicReplay(ReplayInputs):
         assert total == pytest.approx(-0.1, abs=1e-12)
         assert drawdown == pytest.approx(-0.1, abs=1e-12)
 
+    @pytest.mark.parametrize("period_return", [Fraction(1, 10**6), Fraction(1, 3 * 2**20)])
+    def test_long_projection_agrees_within_its_float_error_bound(
+        self, period_return: Fraction
+    ) -> None:
+        """A correct 100,000-period float compound return is not reported as disagreement."""
+        values = (period_return,) * 100_000
+        exact = (1 + period_return) ** len(values) - 1
+        compounded, _ = QuantStatsReport.project(values)
+        # Each 1 + r rounds the same way, so float error grows with the period count.
+        assert abs(compounded - float(exact)) > 1e-12
+        QuantStatsReport.require_agreement(compounded, values, exact)
+        missing_period = exact - period_return * (1 + exact) / (1 + period_return)
+        with pytest.raises(ValueError, match="disagrees"):
+            QuantStatsReport.require_agreement(compounded, values, missing_period)
+
+    def test_total_loss_projection_must_agree_exactly(self) -> None:
+        """A period losing everything leaves no float error to excuse."""
+        # A zero NAV ends the complete return series, so the loss is the last period.
+        values = (Fraction(1, 10), Fraction(1, 7), Fraction(-1))
+        compounded, _ = QuantStatsReport.project(values)
+        assert compounded == -1.0
+        QuantStatsReport.require_agreement(compounded, values, Fraction(-1))
+        with pytest.raises(ValueError, match="disagrees"):
+            QuantStatsReport.require_agreement(
+                compounded, values, Fraction(-1) + Fraction(1, 10**15)
+            )
+
     def test_report_preserves_exact_economics_and_benchmark_alignment(self) -> None:
         """Keep NAV reconciliation exact while rejecting an implicitly shifted benchmark."""
         result = self._run()
