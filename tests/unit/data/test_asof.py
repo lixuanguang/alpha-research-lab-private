@@ -377,6 +377,63 @@ class TestAsOfSelector:
         assert medians[1] < 2 * medians[0]
 
     @pytest.mark.performance
+    def test_query_evidence_cost_does_not_grow_per_partition(self) -> None:
+        """Equal partition evidence is copied once per query, not once per partition."""
+        config = Configuration.read(_ROOT / "configs/data-jobs/fixture-inspection.json")
+        catalog = _CODEC.decode_json(
+            (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
+        )
+        run = config.resolve(
+            config.jobs[0].name, catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
+        run = replace(run, instruments=(catalog.instruments[0],))
+        medians: list[float] = []
+        for minutes in (30, 120):
+            job = replace(run.job, end=run.job.start + timedelta(minutes=minutes))
+            requests = SourceRequest.partition(replace(run, job=job))
+            payloads = tuple(
+                self._canonical(
+                    request,
+                    tuple(
+                        self._item(
+                            request,
+                            trade_id=minute * 6 + index,
+                            capture=minute * 60 + index * 10,
+                            position=index,
+                        )
+                        for index in range(6)
+                    ),
+                )
+                for minute, request in enumerate(requests)
+            )
+            reader = QueryReader(
+                payloads,
+                readers=SourceAdapters(),
+                precedence=(self._binding(requests[0]),),
+                max_bytes=1_000_000_000,
+            )
+            end = _START + timedelta(minutes=minutes - 1, seconds=30)
+            samples: list[float] = []
+            for _ in range(9):
+                started = time.perf_counter()
+                batches = list(
+                    reader.batches(
+                        (requests[0].instrument.instrument_id,),
+                        start=end - timedelta(minutes=5),
+                        end=end,
+                        known_at=end,
+                        columns=("identity", "price"),
+                        batch_size=1000,
+                    )
+                )
+                samples.append(time.perf_counter() - started)
+            assert len(batches[0].evidence) == minutes
+            medians.append(sorted(samples)[4])
+        print(f"query at 30/120 minute partitions: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Copying every partition's manifest, catalog and history grew per partition.
+        assert medians[1] < 1.5 * medians[0]
+
+    @pytest.mark.performance
     def test_history_query_adds_no_cost_per_older_partition(self) -> None:
         """History mode's extra cost over cutoff mode does not grow with earlier partitions."""
         extras: list[float] = []

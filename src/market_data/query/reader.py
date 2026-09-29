@@ -10,7 +10,10 @@ from datetime import datetime
 from decimal import Decimal
 from itertools import batched
 from pathlib import Path
-from typing import ClassVar, Literal, NamedTuple
+from typing import ClassVar, Literal, NamedTuple, cast
+
+# third party library imports
+from msgspec.structs import replace
 
 # project library imports
 from market_data.contracts import ArchiveTrade, Occurrence, SourceRequest, Trade
@@ -19,6 +22,7 @@ from market_data.query.asof import (
     AsOfSelector,
     InputBinding,
     PointEvent,
+    _Partition,
     _RevisionIndex,
 )
 from market_data.storage import RawStore
@@ -101,6 +105,7 @@ class QueryReader:
         if sum(len(payload) for payload in canonical) > max_bytes:
             raise ValueError("query canonical input exceeds aggregate max_bytes")
         self._selector = AsOfSelector(canonical, precedence=precedence, readers=readers)
+        self._evidence = self._shared_evidence(self._selector._partitions)
         self._identity = hashlib.sha256(self._codec.encode_json(canonical)).hexdigest()
         self._precedence = precedence
 
@@ -214,15 +219,12 @@ class QueryReader:
             )
         self._check_cancelled(cancelled)
         selected = self._selector.select(instruments, start=start, end=end, known_at=known_at)
-        partitions = tuple(
-            partition
-            for partition in self._selector._partitions
-            if partition.request.instrument.instrument_id in instruments
-        )
+        # One deepcopy per result: shared manifests and histories are copied once.
         evidence = deepcopy(
             tuple(
-                QueryEvidence(p.request, p.scope, p.policy, p.eligibility, p.reasons)
-                for p in partitions
+                item
+                for item in self._evidence
+                if item.request.instrument.instrument_id in instruments
             )
         )
         if mode == "history":
@@ -256,6 +258,38 @@ class QueryReader:
                 for item in chunk
             )
             yield QueryBatch(identity, mode, columns, rows, evidence)
+
+    @staticmethod
+    def _shared_evidence(partitions: tuple[_Partition, ...]) -> tuple[QueryEvidence, ...]:
+        """Map equal manifests, catalogs and eligibility histories to one cached instance.
+
+        Values are unchanged. Each query deep-copies its evidence in one call, so a
+        shared value is copied once per result instead of once per partition; a
+        result's partitions may alias those copies, but no result aliases the cache
+        or another result.
+        """
+        shared: dict[object, object] = {}
+
+        def one[T](value: T) -> T:
+            """Return the first cached value equal to this one."""
+            return cast(T, shared.setdefault(value, value))
+
+        evidence: list[QueryEvidence] = []
+        for partition in partitions:
+            manifest = partition.request.manifest
+            manifest = one(replace(manifest, catalog=one(manifest.catalog)))
+            eligibility = partition.eligibility
+            eligibility = one(replace(eligibility, catalog=one(eligibility.catalog)))
+            evidence.append(
+                QueryEvidence(
+                    replace(partition.request, manifest=manifest),
+                    partition.scope,
+                    partition.policy,
+                    eligibility,
+                    partition.reasons,
+                )
+            )
+        return tuple(evidence)
 
     @staticmethod
     def _check_cancelled(cancelled: Callable[[], bool] | None) -> None:
