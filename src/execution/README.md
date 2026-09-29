@@ -53,15 +53,25 @@ they are not silently migrated into shared accounts.
 
 [`accounts.py`](accounts.py) remains the supported journal and record import
 surface. The concrete wire records live in [`account_records.py`](account_records.py),
-while [`account_state.py`](account_state.py) owns the unchanged SQLite document and
-transaction boundary. A commit writes exactly the bytes of a full encoding, but
-reuses encoded fields and history items that are the same immutable objects, so
-encoding cost follows what the transaction changed. Storage still rewrites the whole
-document on each commit, and a fresh process decodes it in full. Decisions, portfolio
-batches and paper traces are read only through the snapshot and transaction history
-lookups by identity (`find_decision`, `latest_checkpoint`, `find_batch`, `find_trace`,
-`iter_traces`) and written through `append_*`, so their storage can change without
-touching callers. The journal composes admission and reconciliation from
+while [`account_state.py`](account_state.py) owns the SQLite journal and transaction
+boundary. Decisions, portfolio batches and paper traces are read only through the
+snapshot and transaction history lookups by identity (`find_decision`,
+`latest_checkpoint`, `find_batch`, `find_trace`, `iter_traces`) and written through
+`append_*`, so callers do not depend on where history is stored.
+
+New journals are single `account-journal-v2`/`v3` documents. A commit writes exactly
+the bytes of a full encoding but reuses encoded fields and history items that are the
+same immutable objects, so encoding cost follows what the transaction changed; storage
+still rewrites the whole document, and a fresh process decodes it in full. The
+`account-journal-v4` layout of the [migration plan](../../docs/roadmap/account-journal-v4.md)
+is implemented but is created only by an explicit `AccountStateStore(...,
+history="tables")` until governance admits it. Its `firm` row holds a head: the
+current state without the three history collections, each collection's row count and
+sha256 hash chain, and every instance's latest checkpoint. The collections live in
+their own tables with each item's exact codec bytes. A commit inserts only new rows
+and rewrites the head, and a fresh process decodes only the head. The journal's own
+payload decides its format; v2/v3 readers reject a v4 head. `materialize()` rebuilds
+the v3 document byte for byte except `schema_version`. The journal composes admission and reconciliation from
 [`account_admission.py`](account_admission.py), physical fill and fee attribution
 from [`account_allocation.py`](account_allocation.py), and atomic portfolio order
 formation and instance controls from [`account_portfolio.py`](account_portfolio.py).
@@ -384,7 +394,9 @@ installation promotes the journal to v3 as described below. V2 journals without
 an explicit version remain readable and acquire v2 on their next write. Unknown
 versions fail. Older artifacts that cannot decode operational state are not
 compatible rollback targets. `AccountJournal.verify(path, config)` performs
-read-only integrity/config/schema validation and sees committed WAL state;
+read-only integrity/config/schema validation and sees committed WAL state; for v4 it
+also checks every history row, its key columns and the head's counts, hash chains
+and checkpoints;
 `storage="snapshot"` additionally requires no SQLite sidecars and leaves a
 standalone snapshot unchanged. The [workspace recovery owner](../runtime/README.md#account-workspace-recovery)
 uses these checks under backup locks and before restore publication.
@@ -396,7 +408,8 @@ records. The deployment is always disabled. It pins the exact account configurat
 instance/policy/candidate/model/feature identities, input binding, execution
 scenario, compatible signed release digests and `paper-account-state-v1` state ABI.
 `AccountJournal.install_paper` atomically binds matching assumptions, records a
-stop and promotes the journal to `account-journal-v3`; it creates no orders.
+stop and promotes the journal to `account-journal-v3`; a v4 journal keeps its schema and
+records activation by the activation's presence. It creates no orders.
 An incompatible deployment cannot replace that identity. Pre-activation v2 state
 is supported for a fresh installation; in-place signed v2-to-v3 migration is not
 an admitted installation operation.

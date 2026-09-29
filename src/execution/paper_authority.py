@@ -117,7 +117,11 @@ class PaperAuthority:
 
     @staticmethod
     def save(transaction: _AccountTransaction, value: PaperActivation) -> None:
-        """Replace only one account's activation and require the managed state reader."""
+        """Replace only one account's activation and require the managed state reader.
+
+        A v2 journal is promoted to v3; a v4 journal records activation only by
+        the presence of the activation itself.
+        """
         value.__post_init__()
         values = tuple(
             item
@@ -128,7 +132,11 @@ class PaperAuthority:
         transaction.state = replace(
             transaction.state,
             paper_activations=activations,
-            schema_version="account-journal-v3",
+            schema_version=(
+                "account-journal-v4"
+                if transaction.state.schema_version == "account-journal-v4"
+                else "account-journal-v3"
+            ),
         )
 
     @classmethod

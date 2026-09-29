@@ -108,12 +108,12 @@ class AccountPaperMatching:
 
     def traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
         """Read exact public inputs and modeled effects in commit order."""
-        snapshot = self.store.snapshot()
-        if account_id is not None and account_id not in {
-            account.ledger.account_id for account in snapshot.state.accounts
-        }:
-            raise ValueError("unknown account")
-        return tuple(snapshot.iter_traces(account_id))
+        with self.store.snapshot() as snapshot:
+            if account_id is not None and account_id not in {
+                account.ledger.account_id for account in snapshot.state.accounts
+            }:
+                raise ValueError("unknown account")
+            return tuple(snapshot.iter_traces(account_id))
 
     def market_seen(
         self, account_id: str, market_identity: str, *, snapshot: _AccountSnapshot | None = None
@@ -126,7 +126,9 @@ class AccountPaperMatching:
             or not market_identity
         ):
             raise ValueError("market membership requires account and market identities")
-        snapshot = self.store.snapshot() if snapshot is None else snapshot
+        if snapshot is None:
+            with self.store.snapshot() as fresh:
+                return self.market_seen(account_id, market_identity, snapshot=fresh)
         transaction = _AccountTransaction(snapshot.state)
         transaction.account(account_id)
         if self.owner is not None:
@@ -193,7 +195,9 @@ class AccountPaperMatching:
         self, account_id: str, *, snapshot: _AccountSnapshot | None = None
     ) -> tuple[tuple[AccountPaperFill, ...], tuple[AccountPaperCost, ...]]:
         """Project current owned fills and effective cost links from retained facts."""
-        snapshot = self.store.snapshot() if snapshot is None else snapshot
+        if snapshot is None:
+            with self.store.snapshot() as fresh:
+                return self.report_facts(account_id, snapshot=fresh)
         state = snapshot.state
         account = next(
             (item for item in state.accounts if item.ledger.account_id == account_id), None

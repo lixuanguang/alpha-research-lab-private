@@ -317,7 +317,13 @@ class AccountJournal:
         request.__post_init__()
         if request.projection == "operation":
             return AccountExecutionResult(accounts=(), orders=())
-        snapshot = self._store.snapshot()
+        with self._store.snapshot() as snapshot:
+            return self._project(request, snapshot)
+
+    def _project(
+        self, request: AccountExecutionRequest, snapshot: _AccountSnapshot
+    ) -> AccountExecutionResult:
+        """Project one inspection from a single consistent snapshot."""
         state = snapshot.state
         if request.projection == "market_membership":
             if request.account_id is None or request.query_market is None:
@@ -497,7 +503,8 @@ class AccountJournal:
 
     def portfolio_batch(self, identity: str) -> PortfolioBatch | None:
         """Read an original immutable batch for exact older transport retry checks."""
-        return self._saved_batch(self._store.snapshot(), identity)
+        with self._store.snapshot() as snapshot:
+            return self._saved_batch(snapshot, identity)
 
     def portfolio_residuals(self, account_id: str) -> tuple[PortfolioResidual, ...]:
         """Read retained unroutable quantities and their physical grid reasons."""
@@ -576,7 +583,8 @@ class AccountJournal:
 
     def checkpoint(self, instance_id: str) -> bytes | None:
         """Restore the last admitted or rejected continuation for one instance."""
-        return self._store.snapshot().latest_checkpoint(instance_id)
+        with self._store.snapshot() as snapshot:
+            return snapshot.latest_checkpoint(instance_id)
 
     def block(self, account_id: str, reason: str) -> None:
         """Persist an independent stop; reconciliation cannot clear it."""

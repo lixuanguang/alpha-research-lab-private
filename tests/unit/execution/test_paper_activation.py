@@ -63,6 +63,7 @@ class _PaperClock:
 class TestPaperActivation:
     """Exercise the managed public journal without installation or feed adapters."""
 
+    activated_schema = "account-journal-v3"
     opening_at = datetime(2026, 9, 25, 12, tzinfo=UTC)
     currency = Currency.from_code("USDT")
     dimension = Dimension(
@@ -359,7 +360,7 @@ class TestPaperActivation:
                     "SELECT json_extract(payload, '$.schema_version') FROM firm WHERE id=1"
                 ).fetchone(),
             )
-        assert row == ("account-journal-v3",)
+        assert row == (self.activated_schema,)
         assert AccountJournal.verify(path, config) == admin.accounts()
         assert AccountJournal(path, config, clock=clock).paper_activations() == (activation,)
         restart = AccountControl(

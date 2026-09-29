@@ -1,7 +1,8 @@
 # Account journal v4 migration plan
 
-Owner: quant development. Status: **plan declared 2026-09-29; phase 1 next; v4
-policy and the optional offline conversion tool await owner approval**. Baseline:
+Owner: quant development. Status: **plan declared 2026-09-29; phases 1 and 2
+implemented on branches, not merged; phase 3 next; v4 policy and the optional offline
+conversion tool await owner approval**. Baseline:
 `main` at `9ae6fb1`. This page is a stage-2 prerequisite for
 [MR15 runtime capacity](runtime-capacity.md#lifecycle-authority-and-acceptance-stages).
 It grants no trading authority and changes no budget, grant or risk limit.
@@ -89,22 +90,29 @@ with a full encode across the whole suite; the full suite, strict typing and
 engineering checks pass; retained economic replay hashes are unchanged. Phase 1
 can merge on its own and also removes linear scans from the hot path.
 
-### Phase 2 — v4 store behind the same API
+### Phase 2 — v4 store behind the same API, opt-in
 
 Implement the history methods over the tables above; a commit writes the head and
-inserted rows only, and a cold open decodes only the head. New journals are v4;
-v3 files open read-only. `install_paper` binds activation without the v2-to-v3
-promotion; activation is the presence of `paper_activations`. `verify()` checks
-head counts and digests against the tables. One shared loader replaces every
-direct `firm.payload` read in `src`.
+inserted rows only, and a cold open decodes only the head. The file's own payload
+decides its format. New journals stay v2/v3 until phase 3: v4 is created only by an
+explicit store option, because governance and `PaperDeployment` admit only v3, and
+v3 stays writable meanwhile. On v4, `install_paper` binds activation without the
+v2-to-v3 promotion; activation is the presence of `paper_activations`. `verify()`
+checks every row, its key columns and the head's counts, hash chains and
+checkpoints against the tables. One shared loader replaces every direct
+`firm.payload` read in `src`. Phase 2 needs no policy approval because it creates no
+v4 journal outside tests.
 
 Exit: the same operation sequence on v3 and v4 yields identical public
 projections; `materialize()` of a v4 journal reproduces the v3 bytes; v3 code
-fails closed on a v4 file.
+fails closed on a v4 file; the account-journal unit suites pass on both formats.
 
-### Phase 3 — governance and deployment
+### Phase 3 — governance, deployment and the default
 
-Admit v4 in the governance release records and release policy `state_schemas`;
+Requires the v4 policy approval. Make v4 the default for new journals
+(`_NEW_JOURNAL_HISTORY`) and open v3 files read-only. Require a v4 journal's
+`PaperDeployment.state_schema` to match it at `install_paper`. Admit v4 in the
+governance release records and release policy `state_schemas`;
 widen the installer's v3-only paper-scope checks to v3 or v4; hash the head and
 every history table in the pristine first-install comparison; admit v4 in
 `PaperDeployment.state_schema`; document v4 installation in
@@ -137,4 +145,4 @@ unchanged gates before any stage-2 use.
   by reinstalling rather than converting.
 - Decide whether phase 4 is wanted or retained v3 evidence stays as is.
 
-Phase 1 depends on neither decision.
+Phases 1 and 2 depend on neither decision; phase 3 requires the v4 policy.
