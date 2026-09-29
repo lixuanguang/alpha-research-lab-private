@@ -18,7 +18,13 @@ from uuid import uuid4
 import msgspec
 import pytest
 from capacity_inputs import CapacityWorkload
-from capacity_reads import CapacityReadObserver, _DashboardReader, _RetainedBookIndex, _SourceIndex
+from capacity_reads import (
+    CapacityReadObserver,
+    _DashboardReader,
+    _ResourceSampler,
+    _RetainedBookIndex,
+    _SourceIndex,
+)
 from capacity_results import CapacityResultsCollector
 from msgspec.structs import replace
 from paper_services import PaperServiceWorkload
@@ -434,6 +440,58 @@ class TestCapacityReads:
             writer.commit()
         with pytest.raises(ValueError, match="nontelemetry schema"):
             reader.wait_for_schema(output, time.monotonic() + 1)
+
+    def test_resource_sampler_caches_tree_but_reads_counters_and_disk_each_sample(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Whole-host discovery cannot consume a one-second slot on every sample."""
+        root, other = tmp_path / "root", tmp_path / "other"
+        (root / "nested").mkdir(parents=True)
+        other.mkdir()
+        (root / "a.bin").write_bytes(b"a" * 5000)
+        (root / "nested" / "b.bin").write_bytes(b"b" * 7)
+        (other / "c.bin").write_bytes(b"c" * 11)
+        (root / "linked").symlink_to(other, target_is_directory=True)
+        sampler = _ResourceSampler(
+            (os.getpid(),),
+            (root, root / "nested", tmp_path / "absent"),
+            tmp_path / "resources.jsonl",
+            tmp_path / "phases.jsonl",
+        )
+        discoveries: list[float] = []
+        discover = sampler._discover
+
+        def counted() -> dict[int, object]:
+            """Record each whole-host discovery."""
+            discoveries.append(time.monotonic())
+            return cast(dict[int, object], discover())
+
+        monkeypatch.setattr(sampler, "_discover", counted)
+        sampler.sample(steady_started=time.monotonic())
+        sampler.sample(steady_started=time.monotonic())
+        assert len(discoveries) == 1
+        assert len(sampler.rss_samples) == 2 and all(value > 0 for value in sampler.rss_samples)
+        assert len(sampler.cpu_samples) == 1
+        rows = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in (tmp_path / "resources.jsonl").read_bytes().splitlines()
+        ]
+        assert [row["logical_bytes"] for row in rows] == [5007, 5007]
+        assert all(row["file_count"] == 2 for row in rows)
+        (root / "nested" / "d.bin").write_bytes(b"d")
+        sampler._tree = None
+        sampler.sample(steady_started=time.monotonic())
+        assert len(discoveries) == 2
+        last = msgspec.json.decode(
+            (tmp_path / "resources.jsonl").read_bytes().splitlines()[-1], type=dict[str, object]
+        )
+        assert last["logical_bytes"] == 5008
+        phases = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in (tmp_path / "phases.jsonl").read_bytes().splitlines()
+        ]
+        ages = [phase["process_tree_age_seconds"] for phase in phases]
+        assert ages[0] == ages[2] == 0.0 and isinstance(ages[1], float) and ages[1] > 0
 
     def test_insufficient_warm_sample_count_has_no_percentiles(self) -> None:
         """Refuse a p99 claim from a short startup or steady observation."""

@@ -185,6 +185,10 @@ class ReceiptStream:
                     break
         except OSError, WebSocketException, TimeoutError:
             reason = "disconnect_unknown_loss"
+        except Exception:
+            # The consumer drains until session_end; ending without it would block
+            # durable consumption forever. The fixed reason becomes a visible gap.
+            reason = "receiver_failed_unknown_loss"
         await queue.put(
             CaptureRecord(
                 kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason

@@ -55,6 +55,8 @@ from telemetry import (
 
 _NO_SUCH_PROCESS = cast(type[Exception], psutil.NoSuchProcess)  # type: ignore[misc]  # [owner=runtime; rationale=untyped psutil process-exit exception is handled at sampling boundary; expires=2027-02-01]
 _ACCESS_DENIED = cast(type[Exception], psutil.AccessDenied)  # type: ignore[misc]  # [owner=runtime; rationale=untyped psutil access exception is recorded at sampling boundary; expires=2027-02-01]
+# Descendant discovery walks every host process; counters stay one-second.
+_TREE_REFRESH_SECONDS = 5.0
 
 
 class _ServiceRun(msgspec.Struct, frozen=True):
@@ -521,11 +523,11 @@ class _ResourceSampler:
         self.sampled_read_bytes = 0
         self.sampled_write_bytes = 0
         self.io_unavailable_samples = 0
+        self._tree: dict[int, _SampledProcess] | None = None
+        self._tree_at = 0.0
 
-    def sample(self, *, steady_started: float) -> None:
-        """Retain one process-tree, I/O and allocated-disk observation."""
-        phase_started = time.perf_counter()
-        at = time.monotonic()
+    def _discover(self) -> dict[int, _SampledProcess]:
+        """Resolve the selected root processes and all of their current descendants."""
         processes: dict[int, _SampledProcess] = {}
         for pid in self.pids:
             try:
@@ -539,6 +541,45 @@ class _ResourceSampler:
                 self.failures.append(f"process_tree_unavailable:{pid}")
         if not processes:
             self.failures.append("no_visible_processes")
+        return processes
+
+    def _scan_disk(self) -> tuple[int, int, int]:
+        """Sum logical and allocated bytes of regular files under every selected root."""
+        logical_bytes, occupied_bytes, file_count = 0, 0, 0
+        seen_paths: set[str] = set()
+        pending = [str(root) for root in self.roots]
+        while pending:
+            try:
+                with os.scandir(pending.pop()) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                pending.append(entry.path)
+                            elif entry.path not in seen_paths and entry.is_file():
+                                seen_paths.add(entry.path)
+                                stat = entry.stat()
+                                logical_bytes += stat.st_size
+                                occupied_bytes += stat.st_blocks * 512
+                                file_count += 1
+                        except FileNotFoundError:
+                            continue
+            except FileNotFoundError, NotADirectoryError:
+                continue
+        return logical_bytes, occupied_bytes, file_count
+
+    def sample(self, *, steady_started: float) -> None:
+        """Retain one process-tree, I/O and allocated-disk observation.
+
+        Whole-host process discovery can exceed the one-second slot under load, so
+        tree membership is refreshed every few seconds or after a tracked process
+        exits. Counters for every tracked process are still read each second.
+        """
+        phase_started = time.perf_counter()
+        at = time.monotonic()
+        refreshed = self._tree is None or at - self._tree_at >= _TREE_REFRESH_SECONDS
+        if refreshed:
+            self._tree, self._tree_at = self._discover(), at
+        processes = cast(dict[int, _SampledProcess], self._tree)
         discovery_finished = time.perf_counter()
         rss = 0
         cpu_delta = 0.0
@@ -573,6 +614,7 @@ class _ResourceSampler:
                         io_delta_write += max(0, counters.write_bytes - prior_io[1])
             except _NO_SUCH_PROCESS:
                 self.failures.append(f"process_exited:{process.pid}")
+                self._tree = None
             except OSError, _ACCESS_DENIED:
                 self.failures.append(f"process_counters_unavailable:{process.pid}")
         counters_finished = time.perf_counter()
@@ -587,19 +629,7 @@ class _ResourceSampler:
             self.sampled_write_bytes += io_delta_write
         else:
             self.io_unavailable_samples += 1
-        logical_bytes, occupied_bytes, file_count = 0, 0, 0
-        seen_paths: set[Path] = set()
-        for root in self.roots:
-            for path in root.rglob("*") if root.exists() else ():
-                try:
-                    if path not in seen_paths and path.is_file():
-                        seen_paths.add(path)
-                        stat = path.stat()
-                        logical_bytes += stat.st_size
-                        occupied_bytes += stat.st_blocks * 512
-                        file_count += 1
-                except FileNotFoundError:
-                    continue
+        logical_bytes, occupied_bytes, file_count = self._scan_disk()
         disk_finished = time.perf_counter()
         self.count += 1
         if current_cpu:
@@ -638,6 +668,7 @@ class _ResourceSampler:
                     {
                         "sample": self.count,
                         "steady_offset_seconds": at - steady_started,
+                        "process_tree_age_seconds": at - self._tree_at,
                         "process_discovery_seconds": discovery_finished - phase_started,
                         "process_counters_seconds": counters_finished - discovery_finished,
                         "disk_scan_seconds": disk_finished - counters_finished,

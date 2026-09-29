@@ -168,6 +168,7 @@ class SharedPaperCaptureObserver:
         self.delivered_count = 0
         self.retained_count = 0
         self._public_faulted = False
+        self._ineligible_book = False
         self.last_market: PaperMarket | None = None
         journal.bind_paper_scenario(account_id, scenario)
 
@@ -303,6 +304,7 @@ class SharedPaperCaptureObserver:
                         raise ValueError("public input fault was not applied")
                 self._public_faulted = True
             return
+        self._ineligible_book = False
         if delivery.market_effects is False:
             self.last_market = market
             return
@@ -331,20 +333,36 @@ class SharedPaperCaptureObserver:
         if self.last_market is None:
             return False
         record = delivery.source.record
+        freshness = min(
+            timedelta(microseconds=self.source.requirements[0].max_age_us),
+            timedelta(seconds=self.source.request.config.idle_seconds),
+        )
         if record.kind in ("session_end", "end") and record.reason in (
             "duration_limit",
             "message_limit",
             "supervisor_stop",
         ):
-            freshness = min(
-                timedelta(microseconds=self.source.requirements[0].max_age_us),
-                timedelta(seconds=self.source.request.config.idle_seconds),
-            )
+            return delivery.source.available_at - self.last_market.at > freshness
+        if self._transiently_ineligible(delivery):
+            # Per-order feeds split one atomic venue change into many messages, so a
+            # valid book can be one-sided or crossed between them. Such a book is
+            # never priced; it faults only if no eligible market follows in time.
             return delivery.source.available_at - self.last_market.at > freshness
         current = self.source.current_quote(
             str(self.scenario.instrument_id), delivery.source.available_at
         )
         return current is None or delivery.source.book.outcome in ("snapshot", "update")
+
+    def _transiently_ineligible(self, delivery: SharedBookDelivery) -> bool:
+        """Track a valid unpriceable book and the healthy controls that follow it."""
+        book = delivery.source.book
+        if delivery.source.record.kind != "frame" or book.status != "degraded":
+            self._ineligible_book = False
+        elif book.outcome in ("snapshot", "update"):
+            self._ineligible_book = not LiveBookDecisionSource._has_two_sided_book(book)
+        elif book.outcome not in ("heartbeat", "control"):
+            self._ineligible_book = False
+        return self._ineligible_book
 
     def _coordination_time(self, available_at: datetime) -> datetime:
         """Observe an actual strictly later UTC clock within a bounded read budget."""

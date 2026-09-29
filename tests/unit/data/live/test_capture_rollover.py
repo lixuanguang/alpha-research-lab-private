@@ -82,6 +82,28 @@ class RolloverTransport(VenueTransport):
         return socket
 
 
+class FailingSocket(RolloverSocket):
+    """Fail receipt with an exception outside the handled transport error types."""
+
+    async def recv(self) -> bytes:
+        """Deliver the authored prefix, then raise an unexpected receiver error."""
+        await asyncio.sleep(0)
+        frame = next(self._frames, None)
+        if frame is None:
+            raise RuntimeError("unexpected receiver failure")
+        return frame
+
+
+class FailingTransport(RolloverTransport):
+    """Open sockets whose receipt fails after their original frames."""
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Open one failing native session."""
+        socket = FailingSocket(self.frames)
+        self.sockets.append(socket)
+        return socket
+
+
 class TestCaptureRollover:
     """Exercise persistent native sequence, publication, ownership and crash-prefix recovery."""
 
@@ -257,6 +279,27 @@ class TestCaptureRollover:
         assert summary["reached_stop_deadline"] and summary["gaps"] == []
         assert summary["messages"] == 7 and transport.sockets[0].closed
         SavedCaptureRun.read(tmp_path / "run", book_factory=BookAdapters.create, max_seconds=30)
+
+    @pytest.mark.parametrize("frames", [(), _FRAMES[:4]], ids=["immediate", "after-snapshot"])
+    def test_unexpected_receiver_failure_seals_visible_gap(
+        self, tmp_path: Path, frames: tuple[bytes, ...]
+    ) -> None:
+        """A receiver exception ends its session with a durable gap instead of blocking drain."""
+        request = self._request(messages=100, segment_messages=100)
+        request = replace(request, window=replace(request.window, max_reconnects=0))
+        transport = FailingTransport(request.config, frames)
+        started = time.monotonic()
+        summary = asyncio.run(
+            asyncio.wait_for(collect_run(request, tmp_path / "run", transport=transport), 10)
+        )
+        assert time.monotonic() - started < 5
+        assert summary["stop_reason"] == "receiver_failed_unknown_loss"
+        assert transport.sockets[0].closed
+        replay = SavedCaptureRun.read(
+            tmp_path / "run", book_factory=BookAdapters.create, max_seconds=30
+        )
+        assert any(gap["reason"] == "receiver_failed_unknown_loss" for gap in replay.gaps)
+        assert replay.messages == len(frames)
 
     def test_exclusive_owner_and_changed_resume_request(self, tmp_path: Path) -> None:
         """Concurrent owners and deadline changes fail before any source is opened."""

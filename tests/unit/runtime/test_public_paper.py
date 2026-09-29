@@ -911,6 +911,103 @@ class TestSharedPublicPaper:
         )
         assert journal.admit(later).status == "rejected"
 
+    @classmethod
+    def _unpriceable(
+        cls, position: int, *, seconds: int, crossed: bool = False
+    ) -> SharedBookDelivery:
+        """Author a valid per-order boundary that is one-sided or crossed mid-update."""
+        delivery = cls._delivery(
+            position,
+            seconds=seconds,
+            kind="frame",
+            outcome="update",
+            status="degraded",
+            reason="visible_depth_only",
+            market=True,
+        )
+        book = delivery.source.book
+        level = Level(size=Decimal("4"), order_count=1)
+        book = replace(book, asks=((Decimal("98"), level),) if crossed else ())
+        return replace(delivery, source=replace(delivery.source, book=book))
+
+    def test_transient_unpriceable_book_faults_only_after_freshness(self, tmp_path: Path) -> None:
+        """Intermediate per-order states are unpriced; a persistent one still faults."""
+        observer, journal = self._observer(tmp_path / "transient.sqlite3")
+        assert journal.reconcile(self._opening())
+        opening = (
+            self._delivery(
+                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+            ),
+            self._delivery(
+                1,
+                seconds=1,
+                kind="frame",
+                outcome="snapshot",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+            ),
+        )
+        for delivery in (
+            *opening,
+            self._unpriceable(2, seconds=2),
+            self._unpriceable(3, seconds=2, crossed=True),
+            self._delivery(
+                4,
+                seconds=3,
+                kind="frame",
+                outcome="heartbeat",
+                status="degraded",
+                reason="unchanged",
+            ),
+            self._delivery(
+                5,
+                seconds=4,
+                kind="frame",
+                outcome="update",
+                status="degraded",
+                reason="visible_depth_only",
+                market=True,
+                state_identity="2" * 64,
+            ),
+        ):
+            observer.deliver(delivery)
+        assert journal.accounts()[0].operator_block is None
+        assert observer.last_market is not None
+        assert observer.last_market.at == self.at + timedelta(seconds=4)
+        persistent, persistent_journal = self._observer(tmp_path / "persistent.sqlite3")
+        assert persistent_journal.reconcile(self._opening())
+        for delivery in (*opening, self._unpriceable(2, seconds=2)):
+            persistent.deliver(delivery)
+        assert persistent_journal.accounts()[0].operator_block is None
+        persistent.deliver(
+            self._delivery(
+                3,
+                seconds=7,
+                kind="frame",
+                outcome="heartbeat",
+                status="degraded",
+                reason="unchanged",
+            )
+        )
+        assert persistent_journal.accounts()[0].operator_block == "public_input_invalid"
+        lost, lost_journal = self._observer(tmp_path / "lost.sqlite3")
+        assert lost_journal.reconcile(self._opening())
+        for delivery in (
+            *opening,
+            self._unpriceable(2, seconds=2),
+            self._delivery(
+                3,
+                seconds=2,
+                kind="gap",
+                outcome="gap",
+                status="recovering",
+                reason="disconnect_unknown_loss",
+            ),
+        ):
+            lost.deliver(delivery)
+        assert lost_journal.accounts()[0].operator_block == "public_input_invalid"
+
     def test_healthy_controls_do_not_block_but_stale_progress_does(self, tmp_path: Path) -> None:
         """Heartbeat and normal finite close preserve readiness; stale input revokes it."""
         observer, journal = self._observer(tmp_path / "account.sqlite3")
