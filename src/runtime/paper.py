@@ -166,9 +166,8 @@ class PaperCandidateRuntime:
             # A quote may have durable partial matching effects without its
             # final candidate callback/checkpoint. Complete its original bytes
             # before recovery advances availability to the new process clock.
-            for identity, payload in self.journal.markets():
-                if self.journal.step(f"market:{identity}") is None:
-                    self.market(self._codec.decode_json(payload, PaperMarket))
+            for _, payload in self.journal.unfinished_markets():
+                self.market(self._codec.decode_json(payload, PaperMarket))
             self._drain_orders()
             self._lifecycle(
                 StrategyEvent(

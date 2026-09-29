@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 # standard library imports
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -686,6 +688,55 @@ class TestPaperMatcher:
             assert current is not None and current.status == "unknown"
             assert journal.reservations() == reserved
             assert journal.ledger_state().fills == ()
+
+    def test_unfinished_markets_are_claims_without_their_market_step(self, tmp_path: Path) -> None:
+        """Restart recovers only claims whose market step never committed, in claim order."""
+        codec = DomainCodec()
+        markets = tuple(
+            self._market(f"claim-{index}", at=self.decision_at + timedelta(seconds=index))
+            for index in range(1, 6)
+        )
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("restart-owner")
+            for market in markets:
+                payload = codec.encode_json(market)
+                journal.claim_market(epoch=epoch, identity=market.identity, payload=payload)
+                if market.identity in ("claim-2", "claim-5"):
+                    journal.commit_step(
+                        epoch=epoch,
+                        step_id=f"market:{market.identity}",
+                        checkpoint=b"checkpoint",
+                        decision=None,
+                        reference=None,
+                        maximum_fee=self._money("0"),
+                        input_bytes=payload,
+                    )
+            # An unrelated step whose name only contains a claim identity finishes nothing.
+            journal.commit_step(
+                epoch=epoch,
+                step_id="timer:claim-3",
+                checkpoint=b"checkpoint",
+                decision=None,
+                reference=None,
+                maximum_fee=self._money("0"),
+            )
+            unfinished = journal.unfinished_markets()
+            assert unfinished == tuple(
+                claim for claim in journal.markets() if journal.step(f"market:{claim[0]}") is None
+            )
+            assert tuple(identity for identity, _ in unfinished) == (
+                "claim-1",
+                "claim-3",
+                "claim-4",
+            )
+            journal.release(epoch)
+        with closing(sqlite3.connect(tmp_path / "paper.sqlite3")) as connection:
+            connection.execute(
+                "UPDATE steps SET payload = ? WHERE step_id = 'market:claim-5'", (b"{}",)
+            )
+            connection.commit()
+        with self._journal(tmp_path) as journal, pytest.raises(ValueError):
+            journal.unfinished_markets()
 
     def test_legacy_claim_is_not_mistaken_for_completed_scenario_match(
         self, tmp_path: Path

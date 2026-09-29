@@ -293,6 +293,35 @@ class PaperOrderJournal:
             claims.append((identity, self._blob(row[1])))
         return tuple(claims)
 
+    def unfinished_markets(self) -> tuple[tuple[str, bytes], ...]:
+        """Return claimed quotes, in original order, whose market step never committed.
+
+        One read joins every claim to its ``market:`` step. Looking each step up
+        separately opened a connection per claim, so a restart grew by about half
+        a millisecond per retained quote. Committed steps are still decoded here,
+        so a malformed one fails the restart as that lookup did.
+        """
+        with closing(self._connect()) as connection:
+            rows = self._query_all(
+                connection,
+                "SELECT markets.market_id, markets.payload, steps.payload FROM markets "
+                "LEFT JOIN steps ON steps.step_id = 'market:' || markets.market_id "
+                "ORDER BY markets.sequence",
+            )
+        claims: list[tuple[str, bytes, object]] = []
+        for row in rows:
+            identity = row[0]
+            if type(identity) is not str:
+                raise ValueError("paper market identity is malformed")
+            claims.append((identity, self._blob(row[1]), row[2]))
+        unfinished: list[tuple[str, bytes]] = []
+        for identity, payload, step in claims:
+            if step is None:
+                unfinished.append((identity, payload))
+            else:
+                self._codec.decode_json(self._blob(step), StepRecord)
+        return tuple(unfinished)
+
     def match_scenario_market(
         self, *, epoch: int, market: PaperMarket, scenario: PaperExecutionScenario
     ) -> tuple[OrderEvent, ...]:
