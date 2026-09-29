@@ -3,23 +3,30 @@
 from __future__ import annotations
 
 # standard library imports
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
 # third party library imports
+import msgspec
 import pytest
 from msgspec.structs import force_setattr, replace
 from test_book_datasets import TestBookDatasets as _Inputs
 from test_book_replay import _View
 
 # project library imports
+from configuration import CaptureConfig
 from market_data.adapters.sources import SourceAdapters
+from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
 from market_data.datasets import BookInput, BookSnapshot, DatasetPublication
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader
 from market_data.replay import BookReplay
-from market_data.storage import RawStore
+from market_data.storage import CaptureJournal, RawStore
+from serialization import DomainCodec
 
 _LIMIT = 1_048_576
 _END = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(seconds=1)
@@ -164,3 +171,122 @@ class TestStreamedBookQueries:
         path.write_bytes(payload.replace(b"0.300000000000000001", b"0.300000000000000002"))
         with pytest.raises(ValueError, match="changed"):
             next(session.observations(selected.request.identity))
+
+
+class TestVerifiedBookReadCost:
+    """Bound a verified partition read by the strict decode that it cannot avoid."""
+
+    _root = Path(__file__).parents[3]
+    _limit = 67_108_864
+
+    @pytest.mark.performance
+    def test_verified_read_validates_each_decoded_row_once(self, tmp_path: Path) -> None:
+        """A read adds digest and lineage checks to decoding, not a second row validation."""
+        ratios: list[float] = []
+        for updates in (500, 2000):
+            session, request_identity = self._publish(tmp_path / str(updates), updates)
+            partition = session.partition(request_identity)
+            path = tmp_path / str(updates) / "snapshots" / session.identity / partition.sha256
+            lines = tuple(path.read_bytes().splitlines(keepends=True)[1:])
+            decode = self._median(partial(self._decode, lines))
+            read = self._median(partial(self._read, session, request_identity))
+            print(f"{len(lines)} rows: strict decode {decode:.6f}s, verified read {read:.6f}s")
+            ratios.append(read / decode)
+        # Re-running each decoded row's validation made reads about 1.36x the decode here.
+        assert max(ratios) < 1.2
+
+    def test_strict_row_decoding_runs_row_validation(self, tmp_path: Path) -> None:
+        """Reads rely on decoding to refuse malformed rows, so decoding must validate them."""
+        session, request_identity = self._publish(tmp_path, 2)
+        partition = session.partition(request_identity)
+        path = tmp_path / "snapshots" / session.identity / partition.sha256
+        codec = DomainCodec()
+        line = path.read_bytes().splitlines()[3]
+        assert codec.decode_json(line, BookObservation).bids
+        fields = msgspec.json.Decoder(dict[str, object]).decode(line)
+        bids = fields["bids"]
+        assert isinstance(bids, list) and bids
+        for field, value, message in (
+            ("state_identity", "not-a-digest", "state or quality scope"),
+            ("bids", [bids[0], bids[0]], "duplicate native order or aggregate price"),
+            ("position", -1, "occurrence coordinates"),
+        ):
+            with pytest.raises(ValueError, match=message):
+                codec.decode_json(codec.encode_json({**fields, field: value}), BookObservation)
+        assert sum(1 for _ in session.observations(request_identity)) == 6
+
+    @classmethod
+    def _publish(cls, root: Path, updates: int) -> tuple[BookSnapshot, str]:
+        """Publish a 50-level OKX snapshot followed by one-level absolute updates."""
+        request = CaptureRequest(
+            config=CaptureConfig.read(cls._root / "configs/live/okx-btc-usdt.json"),
+            recording_id="00000000-0000-0000-0000-000000000001",
+            implementation_identity="a" * 64,
+        )
+        journal = CaptureJournal(root / "capture", request)
+        journal.start()
+        journal.append(CaptureRecord(kind="session", epoch=0, received_ns=1))
+        journal.append(
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=2,
+                raw=b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}',
+            )
+        )
+        bids = ",".join(f'["{1000 - level}","1","0","1"]' for level in range(50))
+        asks = ",".join(f'["{1001 + level}","1","0","1"]' for level in range(50))
+        snapshot = _Inputs._frame("snapshot", -1, 10, f"[{bids}]", f"[{asks}]")
+        journal.append(CaptureRecord(kind="frame", epoch=0, received_ns=3, raw=snapshot))
+        for index in range(updates):
+            size = "2" if index // 50 % 2 == 0 else "1"
+            level = f'[["{1000 - index % 50}","{size}","0","1"]]'
+            journal.append(
+                CaptureRecord(
+                    kind="frame",
+                    epoch=0,
+                    received_ns=4 + index * 1000,
+                    raw=_Inputs._frame("update", 10 + index, 11 + index, level),
+                )
+            )
+        journal.append(
+            CaptureRecord(
+                kind="end", epoch=0, received_ns=10 + updates * 1000, reason="message_limit"
+            )
+        )
+        journal.finish(1)
+        raw, snapshots = RawStore(root / "raw"), root / "snapshots"
+        (root / "raw").mkdir()
+        snapshots.mkdir()
+        readers = SourceAdapters()
+        identity = DatasetPublication(readers, "a" * 64).publish_books(
+            (root / "capture",), raw, snapshots, max_records=updates + 8, max_bytes=cls._limit
+        )
+        selected = BookInput.read(root / "capture", max_records=updates + 8)
+        session = BookSnapshot.read(
+            snapshots, raw, readers=readers, identity=identity, max_bytes=cls._limit
+        )
+        return session, selected.request.identity
+
+    @staticmethod
+    def _decode(lines: tuple[bytes, ...]) -> int:
+        """Strictly decode and drop each canonical row, which runs its own validation once."""
+        codec = DomainCodec()
+        for line in lines:
+            codec.decode_json(line, BookObservation)
+        return len(lines)
+
+    @staticmethod
+    def _read(session: BookSnapshot, request_identity: str) -> int:
+        """Read every row of a pinned partition through its verified stream."""
+        return sum(1 for _ in session.observations(request_identity))
+
+    @staticmethod
+    def _median(operation: Callable[[], int], repeats: int = 7) -> float:
+        """Time an operation repeatedly and return its median wall-clock seconds."""
+        samples: list[float] = []
+        for _ in range(repeats):
+            started = time.perf_counter()
+            operation()
+            samples.append(time.perf_counter() - started)
+        return sorted(samples)[repeats // 2]

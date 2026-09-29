@@ -364,6 +364,15 @@ class BookStream:
     def validate_row(selection: BookInput, position: int, row: BookObservation) -> None:
         """Preserve original positions and source-specific clock absence or presence."""
         BookObservation.__post_init__(row)
+        BookStream._validate_lineage(selection, position, row)
+
+    @staticmethod
+    def _validate_lineage(selection: BookInput, position: int, row: BookObservation) -> None:
+        """Check an already validated row's original position and source clocks.
+
+        Strict decoding runs the row's own validation, so a freshly decoded row that
+        nothing else has seen needs only these selection-dependent checks.
+        """
         if row.position != position:
             raise ValueError("book history requires contiguous original positions")
         if selection.archive is not None and any(
@@ -852,7 +861,7 @@ class BookSnapshot:
                 if len(line) > BookStream._max_line_bytes or not line.endswith(b"\n"):
                     raise ValueError("incomplete or oversized canonical book line")
                 row = self._codec.decode_json(line, BookObservation)
-                BookStream.validate_row(partition.selection, count, row)
+                BookStream._validate_lineage(partition.selection, count, row)
                 yield row
                 count += 1
             if not count or count > partition.selection.max_records:
