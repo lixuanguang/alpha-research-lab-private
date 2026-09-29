@@ -353,7 +353,12 @@ recovery. Bitfinex follows authentication with position and funding snapshots an
 sends periodic balance valuations (`bu`); these are heartbeats while flat, and any
 position or funding exposure requires recovery. Private wallet frames may report
 availability as not yet calculated (unknown), while REST wallets must report it.
-Economic notifications trigger the same authoritative REST reconciliation.
+Economic notifications mark the account stale at once and trigger the same
+authoritative REST reconciliation, coalesced: once the stream has been quiet for
+one second (longer than the gap between one fill's frames), at least every ten
+seconds while notifications continue, and before a normal exit. Authentication
+still reconciles at once. The session's five-second loss bound counts only time
+spent waiting for a frame, not time spent reconciling.
 The bounded session closes and invalidates account freshness on exit. Reopening a
 session does not itself resume submission. This correctness-first implementation
 does not qualify low-latency streaming or MR15 runtime budgets.

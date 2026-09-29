@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import time
 from datetime import UTC, datetime
 from http.client import HTTPSConnection
 from ssl import create_default_context
@@ -91,6 +92,7 @@ class PrivateVenueSession:
         self.timeout_seconds = timeout_seconds
         self.max_frame_bytes = max_frame_bytes
         self.connection: ClientConnection | None = None
+        self._waited = 0.0
 
     def open(self, login: bytes, *, configuration: tuple[bytes, ...] = ()) -> None:
         """Open a TLS socket and send the caller-signed login once."""
@@ -106,6 +108,7 @@ class PrivateVenueSession:
             for frame in configuration:
                 self.connection.send(frame.decode("utf-8"))
             self.connection.send(login.decode("utf-8"))
+            self._waited = 0.0
         except (OSError, TimeoutError, WebSocketException) as error:
             self.close()
             raise VenueOutcomeUnknownError("private venue login transport failed") from error
@@ -120,15 +123,32 @@ class PrivateVenueSession:
             self.close()
             raise VenueOutcomeUnknownError("private venue stream lost") from error
 
-    def receive(self) -> tuple[bytes, datetime]:
-        """Return one bounded frame and UTC local receipt."""
+    def receive(self, wait_seconds: float | None = None) -> tuple[bytes, datetime] | None:
+        """Return one bounded frame and UTC local receipt, or None after a quiet wait.
+
+        The stream is lost after ``timeout_seconds`` spent waiting without a frame,
+        counted across quiet returns but not across the caller's work in between.
+        A shorter ``wait_seconds`` returns None when it passes without a frame.
+        """
         if self.connection is None:
             raise VenueProtocolError("private venue session is closed")
+        remaining = self.timeout_seconds - self._waited
+        quiet = wait_seconds is not None and wait_seconds < remaining
+        started = time.monotonic()
         try:
-            frame = self.connection.recv(timeout=self.timeout_seconds)
-        except (OSError, TimeoutError, WebSocketException) as error:
+            frame = self.connection.recv(
+                timeout=max(0.0, wait_seconds) if quiet and wait_seconds is not None else remaining
+            )
+        except TimeoutError as error:
+            if quiet:
+                self._waited += time.monotonic() - started
+                return None
             self.close()
             raise VenueOutcomeUnknownError("private venue stream lost") from error
+        except (OSError, WebSocketException) as error:
+            self.close()
+            raise VenueOutcomeUnknownError("private venue stream lost") from error
+        self._waited = 0.0
         raw = frame.encode("utf-8") if isinstance(frame, str) else frame
         if len(raw) > self.max_frame_bytes:
             self.close()

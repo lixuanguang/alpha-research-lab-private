@@ -292,7 +292,7 @@ class BrokenSession:
         """Require authentication to precede subscription."""
         assert self.receives == 1 and frame == b"subscribe"
 
-    def receive(self) -> tuple[bytes, datetime]:
+    def receive(self, wait_seconds: float | None = None) -> tuple[bytes, datetime] | None:
         """Authenticate once and then raise a transport-loss error."""
         self.receives += 1
         if self.receives > 1:
@@ -305,12 +305,20 @@ class BrokenSession:
 
 
 class ScriptedPrivateSession:
-    """Deliver exact private frames once, recording subscriptions and cleanup."""
+    """Deliver exact private frames once, recording subscriptions and cleanup.
 
-    def __init__(self, clock: AdvancingClock, frames: tuple[bytes, ...]) -> None:
+    A None entry is a quiet period: it lasts the gateway's whole requested wait.
+    Each frame arrives ``spacing`` seconds after the previous receive returned.
+    """
+
+    def __init__(
+        self, clock: AdvancingClock, frames: tuple[bytes | None, ...], *, spacing: float = 0.0
+    ) -> None:
         """Bind a finite native frame script and its receipt clock."""
         self.clock = clock
         self.frames = frames
+        self.spacing = spacing
+        self.receipts: list[tuple[bytes, datetime]] = []
         self.received = 0
         self.sent: list[bytes] = []
         self.closed = False
@@ -323,17 +331,41 @@ class ScriptedPrivateSession:
         """Record one subscription frame."""
         self.sent.append(frame)
 
-    def receive(self) -> tuple[bytes, datetime]:
+    def receive(self, wait_seconds: float | None = None) -> tuple[bytes, datetime] | None:
         """Return the next scripted frame at the current receipt clock."""
         if self.received >= len(self.frames):
             raise VenueOutcomeUnknownError("scripted private session is exhausted")
         frame = self.frames[self.received]
         self.received += 1
+        if frame is None:
+            assert wait_seconds is not None, "quiet period without pending facts"
+            self.clock.sleep(wait_seconds)
+            return None
+        if wait_seconds is not None and self.spacing > wait_seconds:
+            # The next frame arrives after the requested wait ends.
+            self.received -= 1
+            self.clock.sleep(wait_seconds)
+            return None
+        self.clock.sleep(self.spacing)
+        self.receipts.append((frame, self.clock.now()))
         return frame, self.clock.now()
 
     def close(self) -> None:
         """Record deterministic socket cleanup."""
         self.closed = True
+
+
+class ReconcileRecordingGateway(VenueGateway):
+    """Record when each REST reconciliation starts on the deterministic clock."""
+
+    started: list[datetime]
+
+    def _reconcile(self) -> None:
+        """Note the start, then reconcile as usual."""
+        if not hasattr(self, "started"):
+            self.started = []
+        self.started.append(self.clock.now())
+        super()._reconcile()
 
 
 class GuardProbingPause:
@@ -423,10 +455,12 @@ class NativeVenueAccount:
         self.cancelled = False
         self.executions: list[NativeExecution] = []
         self.requests: list[VenueHttpRequest] = []
+        self.request_times: list[datetime] = []
 
     def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
         """Record one signed request and answer it from native account state."""
         self.requests.append(request)
+        self.request_times.append(self.clock.now())
         body = self._okx(request) if self.venue == "okx" else self._bitfinex(request)
         return VenueHttpResponse(status=200, body=body, received_at=self.clock.now())
 
@@ -938,8 +972,137 @@ class TestVenueGateway:
         view = gateway.stream(session, max_messages=len(frames), duration_seconds=3600)
         assert session.received == len(frames) and session.closed
         assert view.reason == "private_stream_closed"
-        # Authentication, wallet and order snapshots each triggered REST reconciliation.
-        assert sum(item.path == "/v2/auth/r/wallets" for item in account.requests[requests:]) == 3
+        # Authentication reconciles at once; the snapshots coalesce into one at exit.
+        assert sum(item.path == "/v2/auth/r/wallets" for item in account.requests[requests:]) == 2
+
+    @staticmethod
+    def _bitfinex_prefix() -> list[bytes | None]:
+        """Authenticate and deliver flat snapshots, numbered from sequence 1."""
+        return [
+            b'{"event":"info","version":2,"platform":{"status":1}}',
+            b'{"event":"conf","status":"OK","flags":65536}',
+            b'{"event":"auth","status":"OK","userId":42}',
+            b'[0,"ps",[],1]',
+            b'[0,"os",[],2]',
+        ]
+
+    @staticmethod
+    def _bitfinex_fill(account: NativeVenueAccount, sequence: int) -> list[bytes | None]:
+        """Encode one execution's native on/te/tu/wu frames from the next sequence."""
+        trade = account._bitfinex_trade(account.executions[-1])
+        wallet = ["exchange", account.quote, str(account.cash), 0, str(account.cash)]
+        payloads: list[tuple[str, object]] = [
+            ("ou", account._bitfinex_order()),
+            ("te", trade),
+            ("tu", trade),
+            ("wu", wallet),
+        ]
+        frames: list[bytes | None] = []
+        for index, (kind, body) in enumerate(payloads):
+            frame: list[object] = [0, kind, body, sequence + index]
+            frames.append(msgspec.json.encode(frame))
+        return frames
+
+    def _wallet_reads(self, account: NativeVenueAccount, start: int) -> int:
+        """Count REST wallet reads, one per reconciliation, since a request index."""
+        return sum(item.path == "/v2/auth/r/wallets" for item in account.requests[start:])
+
+    def test_one_fill_burst_reconciles_once(self, tmp_path: Path) -> None:
+        """The four private frames of one fill cause exactly one REST reconciliation."""
+        journal, gateway, account, clock, order_id = self._native(tmp_path, "bitfinex")
+        account.execute(1, quantity="2", fee="0.01", per_millisecond=1)
+        frames = [*self._bitfinex_prefix(), None, *self._bitfinex_fill(account, 3), None]
+        frames.append(b'[0,"hb",7]')
+        session = ScriptedPrivateSession(clock, tuple(frames), spacing=0.01)
+        start = len(account.requests)
+        gateway.stream(session, max_messages=8, duration_seconds=3600)
+        # Authentication, the snapshots after a quiet second, and the fill burst.
+        assert self._wallet_reads(account, start) == 3
+        assert self._order_state(journal, order_id).status == "filled"
+        stream = [item for item in account.requests[start:] if item.path.startswith("/v2/auth/")]
+        per_fill = len(stream) // 3
+        print(f"REST requests per coalesced reconciliation: {per_fill}")
+
+    def test_coalesced_stream_matches_per_frame_reconciliation(self, tmp_path: Path) -> None:
+        """Reconciling after every fact frame or once per burst ends in the same state."""
+        outcomes = []
+        for label, quiet_after_each in (("coalesced", False), ("per-frame", True)):
+            journal, gateway, account, clock, order_id = self._native(tmp_path / label, "bitfinex")
+            account.execute(1, quantity="0.5", fee="0.01", per_millisecond=1)
+            fill = self._bitfinex_fill(account, 3)
+            frames = [*self._bitfinex_prefix(), None]
+            for frame in fill:
+                frames.append(frame)
+                if quiet_after_each and frame is not None and b'"te"' not in frame:
+                    frames.append(None)
+            if not quiet_after_each:
+                frames.append(None)
+            frames.append(b'[0,"hb",7]')
+            session = ScriptedPrivateSession(clock, tuple(frames), spacing=0.01)
+            gateway.stream(session, max_messages=8, duration_seconds=3600)
+            state = self._order_state(journal, order_id)
+            snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+            venue = gateway.inspect()
+            outcomes.append(
+                (state.status, state.filled, snapshot, venue.recovery_required, venue.reason)
+            )
+        assert outcomes[0] == outcomes[1]
+        assert outcomes[0][0] == "partial"
+
+    def test_continuous_facts_reconcile_within_the_maximum_delay(self, tmp_path: Path) -> None:
+        """Facts closer together than the quiet period still reconcile every ten seconds."""
+        journal, gateway, account, clock = self._native_gateway(tmp_path, "bitfinex")
+        recording = ReconcileRecordingGateway(journal, gateway.config, gateway.adapter, clock=clock)
+        frames = self._bitfinex_prefix()
+        wallet: list[object] = ["exchange", account.quote, str(account.cash), 0, str(account.cash)]
+        for index in range(60):
+            update: list[object] = [0, "wu", wallet, 3 + index]
+            frames.append(msgspec.json.encode(update))
+        session = ScriptedPrivateSession(clock, tuple(frames), spacing=0.5)
+        recording.stream(session, max_messages=len(frames), duration_seconds=3600)
+        # A flat position snapshot decodes as a heartbeat; the rest are facts.
+        facts = [
+            at for raw, at in session.receipts if raw.startswith(b"[0,") and b'"ps"' not in raw
+        ]
+        authenticated, *starts = recording.started
+        # Mid-stream reconciliations, then the one at exit.
+        assert len(starts) >= 3
+        for previous, started in zip((authenticated, *starts), starts[:-1], strict=False):
+            pending = [at for at in facts if previous < at <= started]
+            assert pending and started - pending[0] <= VenueGateway.PRIVATE_MAX_PENDING
+            assert started - pending[-1] < VenueGateway.PRIVATE_QUIET
+        # Bitfinex allows 80 authenticated REST requests per minute.
+        times = account.request_times
+        busiest = max(
+            sum(1 for later in times if at <= later < at + timedelta(minutes=1)) for at in times
+        )
+        assert busiest <= 80
+
+    def test_sequence_gap_with_pending_facts_aborts_without_reconciling(
+        self, tmp_path: Path
+    ) -> None:
+        """A gap still ends the session at once; pending facts are left to recovery."""
+        _, gateway, account, clock, _ = self._native(tmp_path, "bitfinex")
+        account.execute(1, quantity="2", fee="0.01", per_millisecond=1)
+        fill = self._bitfinex_fill(account, 3)
+        frames = [*self._bitfinex_prefix(), None, fill[0], b'[0,"hb",9]']
+        session = ScriptedPrivateSession(clock, tuple(frames), spacing=0.01)
+        start = len(account.requests)
+        with pytest.raises(VenueProtocolError, match="new authenticated session"):
+            gateway.stream(session, max_messages=10, duration_seconds=3600)
+        assert self._wallet_reads(account, start) == 2
+        assert gateway.inspect().recovery_required and session.closed
+
+    def test_session_end_reconciles_pending_facts(self, tmp_path: Path) -> None:
+        """Facts still pending when the message bound ends are reconciled before exit."""
+        journal, gateway, account, clock, order_id = self._native(tmp_path, "bitfinex")
+        account.execute(1, quantity="2", fee="0.01", per_millisecond=1)
+        frames = [*self._bitfinex_prefix(), None, *self._bitfinex_fill(account, 3)]
+        session = ScriptedPrivateSession(clock, tuple(frames), spacing=0.01)
+        start = len(account.requests)
+        gateway.stream(session, max_messages=9, duration_seconds=3600)
+        assert self._wallet_reads(account, start) == 3
+        assert self._order_state(journal, order_id).status == "filled"
 
     @staticmethod
     def _order_state(journal: AccountJournal, order_id: str) -> OrderState:
