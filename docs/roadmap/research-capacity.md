@@ -665,8 +665,12 @@ require an explicit budget-checked resume. From the repository root:
   --run-directory data/okx/research-corpus-20260930/btc --max-seconds 7200
 ```
 
-The preflight script needs Python 3.11 or later; this host's `/usr/bin/python3` is
-3.9, so the collector interpreter runs it.
+Run the preflight with the collector environment's interpreter: a resume executes that
+environment's `alpha-collect`, whose installed identity must equal the armed
+`fc3d794c…`. If a host restart removed `/private/tmp/capacity-closure-collector`,
+rebuild it from commit `5ca22aa` with
+`UV_PROJECT_ENVIRONMENT=/private/tmp/capacity-closure-collector uv run --frozen --no-editable`
+in a worktree of that commit, and confirm `InstalledIdentity.sha256()` before resuming.
 
 **Stop and exact resume (2026-09-29).** Both owners recorded `supervisor_stop` at
 02:02:24 UTC, before the window opened and with no `stop-requested` marker; the host

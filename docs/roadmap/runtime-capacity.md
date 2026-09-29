@@ -1136,3 +1136,32 @@ and the cohort stops at the first failure.
 Checkpoint percentiles, filesystem-cold queries, renewed public OKX health, integrated
 feature serving and stage 2 are outside this cohort.
 
+#### Residual cohort result (2026-09-29)
+
+The cohort at declaration commit `20d5b27`, installed implementation `51063b91…`,
+stopped at step 5; the compact record is `stage1_residual` in the
+[canonical evidence](runtime-capacity-evidence.json).
+
+- **Requalification of the changed runtime passed.** Steady (60.003 s, 121 health
+  witnesses) and recovery (60.001 s, 122 witnesses) met every unchanged gate, with
+  durable-to-BBO p99 of 31–50 ms and steady query response p99 of 29–34 ms for depth/BBO
+  and 112 ms for dashboards. Steady economic parity, recovery preservation (first
+  replacement claim to all-eight progress 7.66 s against 40 s), the independent
+  recovery-suffix parity and the loaded-fault trial all passed.
+- **Cold depth/BBO now meets its target.** All 1,000 application-cold depth/BBO queries
+  on the durable index succeeded: p50 7.44 ms, p95 13.60 ms, p99 21.82 ms, maximum
+  36.92 ms, against 2 s at p99 and the earlier 4.0–4.1 s. The consumer's summary was not
+  written; these nearest-rank values come from its retained 1,000 samples.
+- **Step 5 stopped on a harness defect.** The history-query consumer waits 30 s for its
+  dashboard reader processes after the depth workers finish. Depth used to take about
+  1,000 s and now takes about 50 s, while 250 serial application-cold dashboard requests
+  at about 0.73 s need about 190 s. The four readers were terminated after 107–109
+  requests each; every completed request succeeded, the slowest in 0.956 s against the
+  3 s cold budget. Dashboard cold and both warm classes are therefore unmeasured, not
+  failed.
+
+As declared, no step was retried, so the public Bitfinex route, the cleanup audit step
+and `make check` did not run. A read-only cleanup audit run afterwards found every
+observed process absent and all four accounts stopped in each completed trial. A new
+measurement needs a corrected consumer and a fresh declaration.
+

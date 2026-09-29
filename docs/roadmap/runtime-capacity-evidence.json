@@ -19701,5 +19701,113 @@
       "hosted_ci": false,
       "signed_run": false
     }
+  },
+  "stage1_residual": {
+    "recorded_on": "2026-09-29",
+    "declaration_commit": "20d5b27963d143f77839307ba8071381c5a8f9f4",
+    "installed_implementation": "51063b9197f2495eeca119bf82e4714e9f6e94fd68ad26feb21ab25399e5deaf",
+    "releases": {
+      "okx-shared": "4b6e123e69e11f5b81dd81486702e010715ad59d3f293c524accd0bda7f50b35",
+      "okx-isolated": "fc9d2a1556e131e25b8ce6713b86fd9a9c5ce77135edd3b7584a77719ef61cb9",
+      "bitfinex-shared": "c7c41f694c993a4e4f01d760b15ab8ba178a7113a0f019ef1bfd9a2199ef7114",
+      "bitfinex-isolated": "fb0d8fca0a4d955102379e61f1b42ea8d5634bd4243ed5eb8ce6605963f69c77"
+    },
+    "status": "stopped_at_history_queries_consumer_join_timeout",
+    "MR15_acceptance": false,
+    "historical_values_changed": false,
+    "decisions": {
+      "cold_depth": "durable_as_of_index",
+      "checkpoint_percentiles": "deferred_to_stage2",
+      "public_bitfinex_max_messages": 12000
+    },
+    "trials": {
+      "steady": {
+        "measurement_gates_pass": true,
+        "measured_seconds": 60.003,
+        "health_samples": 121,
+        "cpu_average_logical_cores": 2.07,
+        "peak_rss_gib": 2.47,
+        "steady_query_response_p99_ms": {
+          "dashboard": 112.1,
+          "depth_bbo": 29.1
+        },
+        "gate_assessment": {
+          "path": "logs/runtime-capacity/stage1-residual/steady/gate-assessment.json",
+          "sha256": "e2a695c289fdcedf1beb3b950d2dc24e45ed869a3f1488ce6a1627dae4709245"
+        }
+      },
+      "recovery": {
+        "measurement_gates_pass": true,
+        "measured_seconds": 60.001,
+        "health_samples": 122,
+        "cpu_average_logical_cores": 2.34,
+        "peak_rss_gib": 2.47,
+        "steady_query_response_p99_ms": {
+          "dashboard": 112.4,
+          "depth_bbo": 33.9
+        },
+        "gate_assessment": {
+          "path": "logs/runtime-capacity/stage1-residual/recovery/gate-assessment.json",
+          "sha256": "4e033cc10eca4471ab03a9e56334c1f9362ed1fa5a9ebc1631030bcac44f43fe"
+        }
+      }
+    },
+    "steady_economic_parity_qualified": true,
+    "recovery_preservation_qualified": true,
+    "recovery_first_claim_to_progress_seconds": 7.657,
+    "recovery_suffix_parity_qualified": true,
+    "loaded_faults_passed": true,
+    "history_queries": {
+      "depth_bbo_application_cold": {
+        "samples": 1000,
+        "failures": 0,
+        "p50_ms": 7.44,
+        "p95_ms": 13.601,
+        "p99_ms": 21.821,
+        "maximum_ms": 36.923,
+        "budget_p99_ms": 2000,
+        "note": "consumer summary not written; nearest-rank over the retained 1,000 samples"
+      },
+      "dashboard_application_cold": {
+        "outcome": "consumer TimeoutError: history dashboard reader did not complete",
+        "per_reader": {
+          "bitfinex-isolated": {
+            "completed": 108,
+            "ok": 108,
+            "maximum_ms": 928.2
+          },
+          "bitfinex-shared": {
+            "completed": 107,
+            "ok": 107,
+            "maximum_ms": 955.7
+          },
+          "okx-isolated": {
+            "completed": 108,
+            "ok": 108,
+            "maximum_ms": 942.2
+          },
+          "okx-shared": {
+            "completed": 109,
+            "ok": 109,
+            "maximum_ms": 915.8
+          }
+        },
+        "cause": "the consumer joins dashboard processes 30 s after the depth workers finish; depth now takes about 50 s instead of about 1,000 s, while 250 serial application-cold dashboard requests at about 0.73 s need about 190 s",
+        "classification": "measurement-harness coordination defect; every completed request succeeded within the 3 s cold budget"
+      },
+      "depth_bbo_warm": "not_run",
+      "dashboard_warm": "not_run",
+      "samples": {
+        "path": "logs/runtime-capacity/stage1-residual/history-queries/samples.jsonl",
+        "sha256": "b6036f2d3ff06bc848257be0ca9f99be634a7c1fb611e1ea3de0d7373cacfe4e"
+      }
+    },
+    "public_bitfinex": "not_run",
+    "post_stop_cleanup_audit": {
+      "steady": true,
+      "recovery": true,
+      "burst-faults/faults": true
+    },
+    "make_check": "not_run"
   }
 }
