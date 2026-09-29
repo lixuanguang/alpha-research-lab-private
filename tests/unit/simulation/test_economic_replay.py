@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import timedelta
+import hashlib
+from datetime import datetime, timedelta
 from decimal import Decimal, localcontext
 from fractions import Fraction
 from pathlib import Path
@@ -33,6 +34,7 @@ from research.studies import (
 )
 from simulation import (
     EconomicCheckpoint,
+    EconomicEvent,
     EconomicResult,
     VectorbtAdapter,
     VectorbtResult,
@@ -271,6 +273,50 @@ class TestEconomicReplay(ReplayInputs):
         assert any(period.net_return is None for period in incomplete.periods)
         assert incomplete.quantstats_drawdown is None
         assert incomplete.sampled_max_exposure is None
+
+    @staticmethod
+    def _event_at(event: EconomicEvent) -> datetime:
+        """Order trace events by their clock."""
+        return event.at
+
+    def test_report_reasons_belong_to_the_period_ending_at_or_after_them(self) -> None:
+        """A period (end - cadence, end] owns its end instant but not its start."""
+        result = self._run()
+        trace = result.checkpoint.state.trace
+        second = next(event for event in trace if event.phase == "mark" and event.at.minute == 2)
+        events: list[EconomicEvent] = [
+            *trace,
+            replace(second, at=_START, reason="before_start"),
+            replace(second, at=second.at, reason="at_end"),
+            replace(second, at=second.at + timedelta(microseconds=1), reason="after_end"),
+        ]
+        events.sort(key=self._event_at)
+        ordered: tuple[EconomicEvent, ...] = tuple(events)
+        state = replace(result.checkpoint.state, trace=ordered)
+        checkpoint = replace(
+            result.checkpoint,
+            state=state,
+            state_sha256=hashlib.sha256(_CODEC.encode_json(state)).hexdigest(),
+        )
+        policy = ReportPolicy(
+            benchmark_name="explicit-flat-synthetic-control",
+            benchmark=tuple(
+                BenchmarkPeriod(
+                    end=_START + timedelta(minutes=i), value=ExactRatio.from_fraction(Fraction(0))
+                )
+                for i in range(1, 5)
+            ),
+            cadence_seconds=60,
+            periods_per_year=525600,
+            annual_risk_free=ExactRatio.from_fraction(Fraction(0)),
+        )
+        report = QuantStatsReport.build(replace(result, checkpoint=checkpoint), policy)
+        assert tuple(period.reasons for period in report.periods) == (
+            (),
+            ("at_end",),
+            ("after_end",),
+            ("terminal",),
+        )
 
     def test_configured_engineering_sample_roundtrip_and_report_limitations(
         self, tmp_path: Path

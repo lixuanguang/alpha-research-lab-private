@@ -147,10 +147,19 @@ class QuantStatsReport:
         marks = {
             event.at: event for event in result.checkpoint.state.trace if event.phase == "mark"
         }
+        # Each trace event belongs to the one period (end - cadence, end] that contains it.
+        period_reasons: list[set[str]] = [set() for _ in ends]
+        for trace in result.checkpoint.state.trace:
+            if (trace.reason != "valued" and trace.phase == "mark") or (
+                trace.observation is not None and trace.observation.point is None
+            ):
+                index = -((spec.start - trace.at) // cadence) - 1
+                if 0 <= index < len(ends):
+                    period_reasons[index].add(trace.reason)
         initial = Fraction(spec.initial_cash.value)
         previous: Fraction | None = initial
         periods: list[ReportPeriod] = []
-        for end in ends:
+        for end, reasons_seen in zip(ends, period_reasons, strict=True):
             event = marks.get(end)
             nav = None if event is None or event.mark is None else Fraction(event.mark.nav.value)
             value = None if previous is None or previous <= 0 or nav is None else nav / previous - 1
@@ -159,19 +168,7 @@ class QuantStatsReport:
                 exposure = ExactRatio.from_fraction(
                     (nav - Fraction(event.balance.cash.value)) / nav
                 )
-            reasons = tuple(
-                sorted(
-                    {
-                        trace.reason
-                        for trace in result.checkpoint.state.trace
-                        if end - cadence < trace.at <= end
-                        and (
-                            (trace.reason != "valued" and trace.phase == "mark")
-                            or (trace.observation is not None and trace.observation.point is None)
-                        )
-                    }
-                )
-            )
+            reasons = tuple(sorted(reasons_seen))
             periods.append(
                 ReportPeriod(
                     end=end,
