@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import time
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -48,8 +49,8 @@ class TestAsOfSelector:
     """Use admitted synthetic bytes and actual published archives at the public boundary."""
 
     @staticmethod
-    def _request(*, archive: bool = False, instrument: int = 0) -> SourceRequest:
-        """Resolve retained configuration, selecting a single supported instrument."""
+    def _request(*, archive: bool = False, instrument: int = 0, minute: int = 0) -> SourceRequest:
+        """Resolve retained configuration, selecting one instrument's partition by minute."""
         name = "binance-archive" if archive else "fixture-inspection"
         catalog_name = "binance-archive-spot" if archive else "binance-spot"
         config = Configuration.read(_ROOT / f"configs/data-jobs/{name}.json")
@@ -61,7 +62,7 @@ class TestAsOfSelector:
         )
         return SourceRequest.partition(
             replace(run, instruments=(catalog.instruments[instrument],))
-        )[0]
+        )[minute]
 
     @staticmethod
     def _history(request: SourceRequest) -> EligibilityAssertions:
@@ -252,6 +253,127 @@ class TestAsOfSelector:
                 known_at=_START + timedelta(seconds=cutoff),
             )
             assert len(result) == count
+
+    def test_window_keeps_exactly_the_whole_selection_valid_inside_it(self) -> None:
+        """Windows filter the unwindowed selection, even when a correction moves a trade."""
+        first, second = self._request(), self._request(minute=1)
+        original = self._item(first, trade_id=25, capture=5, position=1)
+        moved = self._item(first, trade_id=25, capture=40, price="101.00", digest="b" * 64)
+        payloads = (
+            self._canonical(
+                first,
+                (
+                    self._item(first, trade_id=21, capture=1, position=0),
+                    original,
+                    self._item(first, trade_id=22, capture=10, position=2),
+                    self._item(first, capture=20, position=3, disconnect=True),
+                    self._item(first, trade_id=23, capture=30, position=4),
+                    moved,
+                    self._item(first, trade_id=24, capture=59, position=5),
+                ),
+                corrections=(self._correction(original, moved),),
+            ),
+            self._canonical(
+                second,
+                (
+                    self._item(second, trade_id=31, capture=60, position=0),
+                    self._item(second, trade_id=32, capture=90, position=1),
+                    self._item(second, capture=100, position=2, disconnect=True),
+                ),
+            ),
+        )
+        selector = AsOfSelector(
+            payloads, readers=SourceAdapters(), precedence=(self._binding(first),)
+        )
+        instruments = (first.instrument.instrument_id,)
+        edges = tuple(
+            _START + timedelta(seconds=second)
+            for second in sorted(set(range(0, 121, 10)) | {1, 5, 39, 41, 59, 61, 99, 101})
+        )
+        selected_instants: set[datetime] = set()
+        for known in (0, 5, 10, 39, 40, 100):
+            known_at = _START + timedelta(seconds=known)
+            whole = selector.select(
+                instruments,
+                start=_START - timedelta(days=1),
+                end=_START + timedelta(days=1),
+                known_at=known_at,
+            )
+            for start in edges:
+                for end in edges[edges.index(start) + 1 :]:
+                    # Controls keep no left edge; a revision's selected version must be inside.
+                    expected = tuple(
+                        item
+                        for item in whole
+                        if (
+                            self._instant(item) <= end
+                            if isinstance(item, Occurrence)
+                            else start <= self._instant(item) < end
+                        )
+                    )
+                    assert (
+                        selector.select(instruments, start=start, end=end, known_at=known_at)
+                        == expected
+                    )
+            selected_instants.update(
+                self._instant(item) for item in whole if isinstance(item, TradeRevision)
+            )
+        # The corrected trade is selected at each of its two instants under some cutoff.
+        assert {_START + timedelta(seconds=5), _START + timedelta(seconds=40)} <= selected_instants
+
+    @staticmethod
+    def _instant(item: PointEvent) -> datetime:
+        """Return a captured control's or revision's earliest business instant."""
+        occurrences = (item,) if isinstance(item, Occurrence) else item.occurrences
+        instants = [
+            occurrence.event.provenance.valid_from
+            for occurrence in occurrences
+            if isinstance(occurrence.event, (Trade, Disconnect))
+        ]
+        assert len(instants) == len(occurrences)
+        return min(instants)
+
+    @pytest.mark.performance
+    def test_trailing_window_selection_ignores_older_partitions(self) -> None:
+        """A fixed trailing window costs about the same however much history precedes it."""
+        medians: list[float] = []
+        for minutes in (15, 60):
+            payloads = tuple(
+                self._canonical(
+                    request,
+                    tuple(
+                        self._item(
+                            request,
+                            trade_id=minute * 6 + index,
+                            capture=minute * 60 + index * 10,
+                            position=index,
+                        )
+                        for index in range(6)
+                    ),
+                )
+                for minute in range(minutes)
+                for request in (self._request(minute=minute),)
+            )
+            request = self._request()
+            selector = AsOfSelector(
+                payloads, readers=SourceAdapters(), precedence=(self._binding(request),)
+            )
+            end = _START + timedelta(minutes=minutes - 1, seconds=30)
+            samples: list[float] = []
+            for _ in range(9):
+                started = time.perf_counter()
+                selected = selector.select(
+                    (request.instrument.instrument_id,),
+                    start=end - timedelta(minutes=5),
+                    end=end,
+                    known_at=end,
+                )
+                samples.append(time.perf_counter() - started)
+            assert len(selected) == 30
+            medians.append(sorted(samples)[4])
+        print(f"trailing selection at 15/60 minute partitions: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Walking and re-validating every earlier revision grew with the partition count.
+        assert medians[1] < 2 * medians[0]
 
     def test_equal_captures_source_order_future_duplicates_and_digest_changes(self) -> None:
         """Equal-time order follows raw position, never trade ID, payload or whole-file hashes."""
