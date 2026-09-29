@@ -1061,6 +1061,15 @@ stays one-second and uses one directory scan per entry. A process started less
 than five seconds before a sample may be absent until the next refresh. The
 retained 58-row interval is unchanged.
 
+**Account journal growth.** Each account journal is one JSON document rewritten
+on every commit; after the v5 cohort it held 1.87 MB, and at the stage-2 selection
+rate it would reach roughly 300 MB per account per day. A separate commit now
+encodes only changed fields and history items, cutting the median commit on that
+journal from 27.0 to 9.3 ms with byte-identical stored bytes, but whole-document
+writes and full cold decode remain. The
+[account journal v4 plan](account-journal-v4.md) moves the growing history into
+indexed tables and is a stage-2 prerequisite.
+
 Local validation: format, lint, strict typing, stubtest and engineering checks
 passed; `make test` passed 1,991 tests with two optional skips and three
 performance deselections. Three alert-socket tests first failed only because the
