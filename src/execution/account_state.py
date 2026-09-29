@@ -40,6 +40,7 @@ from execution.account_records import (
 from execution.account_reduction import PaperReductionResult
 from execution.paper_authority import PaperActivation
 from execution.records import OrderEvent, OrderState, StepCommit
+from reference_data.instruments import InstrumentId
 from serialization import DomainCodec, WireRecord
 
 
@@ -148,12 +149,89 @@ class _FirmState(WireRecord, frozen=True):
             raise ValueError("unsupported account journal state schema")
 
 
-class _AccountTransaction:
-    """Own the staged state of a single serialized firm transaction."""
+class _AccountSnapshot:
+    """Answer history lookups by identity without exposing collection storage."""
 
     def __init__(self, state: _FirmState) -> None:
-        """Retain only this transaction's immutable state value."""
+        """Retain one immutable state value."""
         self.state = state
+
+    def find_decision(self, instance_id: str, decision_identity: str) -> _SavedDecision | None:
+        """Resolve one saved decision by instance and decision identity."""
+        for saved in self.state.decisions:
+            if (saved.request.instance_id, saved.request.decision.identity) == (
+                instance_id,
+                decision_identity,
+            ):
+                return saved
+        return None
+
+    def latest_checkpoint(self, instance_id: str) -> bytes | None:
+        """Return the continuation of the instance's latest admitted or rejected decision."""
+        for saved in reversed(self.state.decisions):
+            if saved.request.instance_id == instance_id:
+                return saved.request.checkpoint
+        return None
+
+    def find_batch(self, identity: str) -> _SavedPortfolioBatch | None:
+        """Resolve one saved portfolio batch by its stable identity."""
+        for saved in self.state.portfolio_batches:
+            if saved.batch.identity == identity:
+                return saved
+        return None
+
+    def find_trace(
+        self,
+        market_identity: str,
+        *,
+        account_id: str | None = None,
+        venue: str | None = None,
+        instrument_id: InstrumentId | None = None,
+    ) -> AccountPaperTrace | None:
+        """Return the earliest trace of one market identity, narrowed by the given keys."""
+        for trace in self.state.paper_traces:
+            if (
+                trace.market.identity == market_identity
+                and (account_id is None or trace.account_id == account_id)
+                and (venue is None or trace.scenario.venue == venue)
+                and (instrument_id is None or trace.scenario.instrument_id == instrument_id)
+            ):
+                return trace
+        return None
+
+    def iter_traces(
+        self,
+        account_id: str | None = None,
+        *,
+        instrument_id: InstrumentId | None = None,
+        newest_first: bool = False,
+    ) -> Iterator[AccountPaperTrace]:
+        """Yield traces in commit order, or reversed, optionally within one account/instrument."""
+        traces = self.state.paper_traces
+        for trace in reversed(traces) if newest_first else traces:
+            if (account_id is None or trace.account_id == account_id) and (
+                instrument_id is None or trace.scenario.instrument_id == instrument_id
+            ):
+                yield trace
+
+
+class _AccountTransaction(_AccountSnapshot):
+    """Own the staged state of a single serialized firm transaction."""
+
+    def append_decisions(self, *saved: _SavedDecision) -> None:
+        """Append saved decisions after all existing history."""
+        decisions: tuple[_SavedDecision, ...] = (*self.state.decisions, *saved)
+        self.state = replace(self.state, decisions=decisions)
+
+    def append_batch(self, saved: _SavedPortfolioBatch) -> None:
+        """Append one saved portfolio batch after all existing history."""
+        batches: tuple[_SavedPortfolioBatch, ...] = (*self.state.portfolio_batches, saved)
+        self.state = replace(self.state, portfolio_batches=batches)
+
+    def append_trace(self, trace: AccountPaperTrace) -> None:
+        """Append one paper trace after all existing history."""
+        traces: tuple[AccountPaperTrace, ...] = (*self.state.paper_traces, trace)
+        self.state = replace(self.state, paper_traces=traces)
 
     def account(self, account_id: str) -> AccountView:
         """Resolve a configured account without creating implicit authority."""
@@ -248,6 +326,10 @@ class AccountStateStore:
         """Read one atomic firm snapshot."""
         with closing(self._connect()) as connection:
             return self._load(connection)
+
+    def snapshot(self) -> _AccountSnapshot:
+        """Read one atomic firm snapshot with its history lookups."""
+        return _AccountSnapshot(self.read())
 
     @staticmethod
     def verify(

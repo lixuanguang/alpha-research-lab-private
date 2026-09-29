@@ -210,14 +210,17 @@ class AccountReduction:
         )
         if len(bindings) != 1:
             raise ValueError("paper_market_disconnected")
-        traces = tuple(
-            trace
-            for trace in transaction.state.paper_traces
-            if trace.account_id == request.account_id and trace.scenario == bindings[0].scenario
+        last_trace = next(
+            (
+                item
+                for item in transaction.iter_traces(request.account_id, newest_first=True)
+                if item.scenario == bindings[0].scenario
+            ),
+            None,
         )
-        if not traces or traces[-1].status != "committed":
+        if last_trace is None or last_trace.status != "committed":
             raise ValueError("paper_market_disconnected")
-        market_at = traces[-1].market.at
+        market_at = last_trace.market.at
         if market_at > request.at:
             raise ValueError("future_paper_market")
         if admission_at - market_at > timedelta(

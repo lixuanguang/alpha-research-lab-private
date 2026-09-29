@@ -22,7 +22,7 @@ from execution.account_records import (
     AccountPaperFill,
     AccountPaperTrace,
 )
-from execution.account_state import AccountStateStore, _AccountTransaction, _FirmState
+from execution.account_state import AccountStateStore, _AccountSnapshot, _AccountTransaction
 from execution.paper import PaperMarket, PaperMatchEvaluator
 from execution.paper_authority import PaperAuthority, PaperOwner
 from execution.records import OrderEvent, OrderState
@@ -108,19 +108,15 @@ class AccountPaperMatching:
 
     def traces(self, account_id: str | None = None) -> tuple[AccountPaperTrace, ...]:
         """Read exact public inputs and modeled effects in commit order."""
-        state = self.store.read()
+        snapshot = self.store.snapshot()
         if account_id is not None and account_id not in {
-            account.ledger.account_id for account in state.accounts
+            account.ledger.account_id for account in snapshot.state.accounts
         }:
             raise ValueError("unknown account")
-        return tuple(
-            trace
-            for trace in state.paper_traces
-            if account_id is None or trace.account_id == account_id
-        )
+        return tuple(snapshot.iter_traces(account_id))
 
     def market_seen(
-        self, account_id: str, market_identity: str, *, state: _FirmState | None = None
+        self, account_id: str, market_identity: str, *, snapshot: _AccountSnapshot | None = None
     ) -> bool:
         """Inspect committed or failed membership under the snapshot's current owner."""
         if (
@@ -130,18 +126,15 @@ class AccountPaperMatching:
             or not market_identity
         ):
             raise ValueError("market membership requires account and market identities")
-        state = self.store.read() if state is None else state
-        transaction = _AccountTransaction(state)
+        snapshot = self.store.snapshot() if snapshot is None else snapshot
+        transaction = _AccountTransaction(snapshot.state)
         transaction.account(account_id)
         if self.owner is not None:
             self.owner.__post_init__()
         PaperAuthority.require_owner(
             transaction, account_id, self.owner, at=self.clock(), new_exposure=False
         )
-        return any(
-            trace.account_id == account_id and trace.market.identity == market_identity
-            for trace in state.paper_traces
-        )
+        return snapshot.find_trace(market_identity, account_id=account_id) is not None
 
     def match(
         self, account_id: str, market: PaperMarket, scenario: PaperExecutionScenario
@@ -166,21 +159,24 @@ class AccountPaperMatching:
                 raise ValueError("paper scenario is not bound")
             if binding.scenario != scenario:
                 raise ValueError("paper scenario changed after binding")
-            for saved in transaction.state.paper_traces:
-                if (
-                    saved.scenario.venue == scenario.venue
-                    and saved.scenario.instrument_id == scenario.instrument_id
-                    and saved.market.identity == market.identity
-                ):
-                    if saved.market != market:
-                        raise ValueError("paper market identity reused with different input")
-                    if saved.account_id == account_id:
-                        if saved.scenario != scenario:
-                            raise ValueError("paper scenario changed after binding")
-                        if saved.status == "failed":
-                            failure = saved.reason
-                        result = saved
-                        break
+            # Every trace of one venue market identity holds the same input bytes.
+            prior = transaction.find_trace(
+                market.identity, venue=scenario.venue, instrument_id=scenario.instrument_id
+            )
+            if prior is not None and prior.market != market:
+                raise ValueError("paper market identity reused with different input")
+            saved = transaction.find_trace(
+                market.identity,
+                account_id=account_id,
+                venue=scenario.venue,
+                instrument_id=scenario.instrument_id,
+            )
+            if saved is not None:
+                if saved.scenario != scenario:
+                    raise ValueError("paper scenario changed after binding")
+                if saved.status == "failed":
+                    failure = saved.reason
+                result = saved
             else:
                 if activation is not None:
                     now = self.clock()
@@ -194,10 +190,11 @@ class AccountPaperMatching:
         return result
 
     def report_facts(
-        self, account_id: str, *, state: _FirmState | None = None
+        self, account_id: str, *, snapshot: _AccountSnapshot | None = None
     ) -> tuple[tuple[AccountPaperFill, ...], tuple[AccountPaperCost, ...]]:
         """Project current owned fills and effective cost links from retained facts."""
-        state = self.store.read() if state is None else state
+        snapshot = self.store.snapshot() if snapshot is None else snapshot
+        state = snapshot.state
         account = next(
             (item for item in state.accounts if item.ledger.account_id == account_id), None
         )
@@ -209,8 +206,8 @@ class AccountPaperMatching:
         }
         trace_events = tuple(
             event
-            for trace in state.paper_traces
-            if trace.account_id == account_id and trace.status == "committed"
+            for trace in snapshot.iter_traces(account_id)
+            if trace.status == "committed"
             for event in trace.child_fill_events
         )
         fills: list[AccountPaperFill] = []
@@ -242,8 +239,8 @@ class AccountPaperMatching:
         linked_fills: set[str] = set()
         physical_fill_ids = {
             event.fill.identity
-            for trace in state.paper_traces
-            if trace.account_id == account_id and trace.status == "committed"
+            for trace in snapshot.iter_traces(account_id)
+            if trace.status == "committed"
             for event in trace.physical_events
             if event.fill is not None
         }
@@ -282,13 +279,13 @@ class AccountPaperMatching:
     ) -> tuple[AccountPaperTrace, str | None]:
         """Apply a never-seen quote or retain one rejected modeled economic fact."""
         scenario = binding.scenario
-        prior_traces = tuple(
-            item
-            for item in transaction.state.paper_traces
-            if item.account_id == account_id
-            and item.scenario.instrument_id == scenario.instrument_id
+        latest = next(
+            transaction.iter_traces(
+                account_id, instrument_id=scenario.instrument_id, newest_first=True
+            ),
+            None,
         )
-        if prior_traces and market.at < prior_traces[-1].market.at:
+        if latest is not None and market.at < latest.market.at:
             raise ValueError("paper market availability regressed")
         account_view = transaction.account(account_id)
         if account_view.fault is not None:
@@ -386,8 +383,7 @@ class AccountPaperMatching:
             reason=failure if failure is not None else "matched",
             rejected_event=failed_event,
         )
-        traces: tuple[AccountPaperTrace, ...] = (*transaction.state.paper_traces, trace)
-        transaction.state = replace(transaction.state, paper_traces=traces)
+        transaction.append_trace(trace)
         return trace, failure
 
     @staticmethod

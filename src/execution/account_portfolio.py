@@ -56,11 +56,11 @@ class PortfolioCoordinator:
         self, transaction: _AccountTransaction, batch: PortfolioBatch
     ) -> PortfolioCommit:
         """Admit risk, cross by policy, and create physical orders atomically."""
-        for saved in transaction.state.portfolio_batches:
-            if saved.batch.identity == batch.identity:
-                if saved.batch != batch:
-                    raise ValueError("portfolio batch identity reused with different content")
-                return saved.result
+        saved = transaction.find_batch(batch.identity)
+        if saved is not None:
+            if saved.batch != batch:
+                raise ValueError("portfolio batch identity reused with different content")
+            return saved.result
         before = transaction.state
         children: list[TaggedOrder] = []
         persist_rejection = False
@@ -72,20 +72,12 @@ class PortfolioCoordinator:
                 raise ValueError("portfolio_crossing_policy_changed")
             for item in batch.decisions:
                 request = item.request
-                if any(
-                    (saved.request.instance_id, saved.request.decision.identity)
-                    == (request.instance_id, request.decision.identity)
-                    for saved in transaction.state.decisions
+                if (
+                    transaction.find_decision(request.instance_id, request.decision.identity)
+                    is not None
                 ):
                     raise ValueError("decision_already_admitted")
-                current_checkpoint = next(
-                    (
-                        saved.request.checkpoint
-                        for saved in reversed(transaction.state.decisions)
-                        if saved.request.instance_id == request.instance_id
-                    ),
-                    b"",
-                )
+                current_checkpoint = transaction.latest_checkpoint(request.instance_id) or b""
                 if (
                     item.expected_checkpoint_sha256 is not None
                     and hashlib.sha256(current_checkpoint).hexdigest()
@@ -161,11 +153,7 @@ class PortfolioCoordinator:
                 )
                 for item in batch.decisions
             )
-            decisions: tuple[_SavedDecision, ...] = (
-                *transaction.state.decisions,
-                *saved_decisions,
-            )
-            transaction.state = replace(transaction.state, decisions=decisions)
+            transaction.append_decisions(*saved_decisions)
         except ValueError as error:
             transaction.state = before
             portfolio_result = PortfolioCommit(
@@ -187,13 +175,8 @@ class PortfolioCoordinator:
                     )
                     for item in batch.decisions
                 )
-                decisions = (*transaction.state.decisions, *rejected_decisions)
-                transaction.state = replace(transaction.state, decisions=decisions)
-        portfolio_batches: tuple[_SavedPortfolioBatch, ...] = (
-            *transaction.state.portfolio_batches,
-            _SavedPortfolioBatch(batch=batch, result=portfolio_result),
-        )
-        transaction.state = replace(transaction.state, portfolio_batches=portfolio_batches)
+                transaction.append_decisions(*rejected_decisions)
+        transaction.append_batch(_SavedPortfolioBatch(batch=batch, result=portfolio_result))
         return portfolio_result
 
     def stop_instance(

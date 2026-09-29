@@ -59,6 +59,7 @@ from execution.account_reduction import (
 )
 from execution.account_state import (
     AccountStateStore,
+    _AccountSnapshot,
     _AccountTransaction,
     _SavedDecision,
     _SavedNativeFill,
@@ -316,7 +317,8 @@ class AccountJournal:
         request.__post_init__()
         if request.projection == "operation":
             return AccountExecutionResult(accounts=(), orders=())
-        state = self._store.read()
+        snapshot = self._store.snapshot()
+        state = snapshot.state
         if request.projection == "market_membership":
             if request.account_id is None or request.query_market is None:
                 raise ValueError("market membership requires account and market identities")
@@ -326,7 +328,7 @@ class AccountJournal:
                 accounts=(),
                 orders=(),
                 market_seen=self._paper.market_seen(
-                    request.account_id, request.query_market, state=state
+                    request.account_id, request.query_market, snapshot=snapshot
                 ),
             )
         selected_accounts = (
@@ -351,27 +353,17 @@ class AccountJournal:
             return AccountExecutionResult(
                 accounts=(),
                 orders=(),
-                checkpoint=next(
-                    (
-                        saved.request.checkpoint
-                        for saved in reversed(state.decisions)
-                        if saved.request.instance_id == request.query_instance
-                    ),
-                    None,
+                checkpoint=(
+                    snapshot.latest_checkpoint(request.query_instance)
+                    if request.query_instance is not None
+                    else None
                 ),
             )
         if request.projection == "saved_batch":
             return AccountExecutionResult(
                 accounts=(),
                 orders=(),
-                saved_batch=next(
-                    (
-                        saved.batch
-                        for saved in state.portfolio_batches
-                        if saved.batch.identity == request.query_batch
-                    ),
-                    None,
-                ),
+                saved_batch=self._saved_batch(snapshot, request.query_batch),
             )
         if request.projection == "paper_activations":
             return AccountExecutionResult(
@@ -387,15 +379,11 @@ class AccountJournal:
             return AccountExecutionResult(
                 accounts=(),
                 orders=(),
-                paper_traces=tuple(
-                    trace
-                    for trace in state.paper_traces
-                    if request.account_id is None or trace.account_id == request.account_id
-                ),
+                paper_traces=tuple(snapshot.iter_traces(request.account_id)),
             )
         if request.projection == "facts":
             report_facts = tuple(
-                self._paper.report_facts(account.ledger.account_id, state=state)
+                self._paper.report_facts(account.ledger.account_id, snapshot=snapshot)
                 for account in selected_accounts
             )
             return AccountExecutionResult(
@@ -429,7 +417,7 @@ class AccountJournal:
             )
         report_facts = (
             tuple(
-                self._paper.report_facts(account.ledger.account_id, state=state)
+                self._paper.report_facts(account.ledger.account_id, snapshot=snapshot)
                 for account in selected_accounts
             )
             if request.action == "inspect"
@@ -453,11 +441,7 @@ class AccountJournal:
             paper_activations=state.paper_activations,
             paper_restore_quarantined=state.paper_restore_quarantine,
             paper_traces=(
-                tuple(
-                    trace
-                    for trace in state.paper_traces
-                    if request.account_id is None or trace.account_id == request.account_id
-                )
+                tuple(snapshot.iter_traces(request.account_id))
                 if request.action == "inspect"
                 else ()
             ),
@@ -467,30 +451,18 @@ class AccountJournal:
             paper_fills=tuple(fill for fills, _ in report_facts for fill in fills),
             paper_costs=tuple(cost for _, costs in report_facts for cost in costs),
             checkpoint=(
-                next(
-                    (
-                        saved.request.checkpoint
-                        for saved in reversed(state.decisions)
-                        if saved.request.instance_id == request.query_instance
-                    ),
-                    None,
-                )
+                snapshot.latest_checkpoint(request.query_instance)
                 if request.query_instance is not None
                 else None
             ),
-            saved_batch=(
-                next(
-                    (
-                        saved.batch
-                        for saved in state.portfolio_batches
-                        if saved.batch.identity == request.query_batch
-                    ),
-                    None,
-                )
-                if request.query_batch is not None
-                else None
-            ),
+            saved_batch=self._saved_batch(snapshot, request.query_batch),
         )
+
+    @staticmethod
+    def _saved_batch(snapshot: _AccountSnapshot, identity: str | None) -> PortfolioBatch | None:
+        """Resolve an optional retained batch query in one snapshot."""
+        saved = snapshot.find_batch(identity) if identity is not None else None
+        return saved.batch if saved is not None else None
 
     @staticmethod
     def verify(
@@ -525,10 +497,7 @@ class AccountJournal:
 
     def portfolio_batch(self, identity: str) -> PortfolioBatch | None:
         """Read an original immutable batch for exact older transport retry checks."""
-        for saved in self._store.read().portfolio_batches:
-            if saved.batch.identity == identity:
-                return saved.batch
-        return None
+        return self._saved_batch(self._store.snapshot(), identity)
 
     def portfolio_residuals(self, account_id: str) -> tuple[PortfolioResidual, ...]:
         """Read retained unroutable quantities and their physical grid reasons."""
@@ -607,10 +576,7 @@ class AccountJournal:
 
     def checkpoint(self, instance_id: str) -> bytes | None:
         """Restore the last admitted or rejected continuation for one instance."""
-        for saved in reversed(self._store.read().decisions):
-            if saved.request.instance_id == instance_id:
-                return saved.request.checkpoint
-        return None
+        return self._store.snapshot().latest_checkpoint(instance_id)
 
     def block(self, account_id: str, reason: str) -> None:
         """Persist an independent stop; reconciliation cannot clear it."""
@@ -680,14 +646,11 @@ class AccountJournal:
         with self._store.write() as transaction:
             PaperAuthority.require_decision(transaction, request, self.paper_owner, now=self._now())
             self._require_current_input(transaction, request)
-            for saved in transaction.state.decisions:
-                if (saved.request.instance_id, saved.request.decision.identity) == (
-                    request.instance_id,
-                    request.decision.identity,
-                ):
-                    if saved.request != request:
-                        raise ValueError("decision identity reused with different content")
-                    return saved.result
+            saved = transaction.find_decision(request.instance_id, request.decision.identity)
+            if saved is not None:
+                if saved.request != request:
+                    raise ValueError("decision identity reused with different content")
+                return saved.result
             before = transaction.state
             try:
                 result = self._admission.admit(transaction, request)
@@ -696,11 +659,7 @@ class AccountJournal:
                 result = StepCommit(status="rejected", reason=str(error), orders=())
             if result.status == "rejected":
                 transaction.state = before
-            decisions: tuple[_SavedDecision, ...] = (
-                *transaction.state.decisions,
-                _SavedDecision(request=request, result=result),
-            )
-            transaction.state = replace(transaction.state, decisions=decisions)
+            transaction.append_decisions(_SavedDecision(request=request, result=result))
             return result
 
     def coordinate(self, batch: PortfolioBatch) -> PortfolioCommit:

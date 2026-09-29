@@ -57,7 +57,11 @@ while [`account_state.py`](account_state.py) owns the unchanged SQLite document 
 transaction boundary. A commit writes exactly the bytes of a full encoding, but
 reuses encoded fields and history items that are the same immutable objects, so
 encoding cost follows what the transaction changed. Storage still rewrites the whole
-document on each commit, and a fresh process decodes it in full. The journal composes admission and reconciliation from
+document on each commit, and a fresh process decodes it in full. Decisions, portfolio
+batches and paper traces are read only through the snapshot and transaction history
+lookups by identity (`find_decision`, `latest_checkpoint`, `find_batch`, `find_trace`,
+`iter_traces`) and written through `append_*`, so their storage can change without
+touching callers. The journal composes admission and reconciliation from
 [`account_admission.py`](account_admission.py), physical fill and fee attribution
 from [`account_allocation.py`](account_allocation.py), and atomic portfolio order
 formation and instance controls from [`account_portfolio.py`](account_portfolio.py).
