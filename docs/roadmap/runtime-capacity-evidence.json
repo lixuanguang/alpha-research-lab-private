@@ -19634,5 +19634,72 @@
     ],
     "local_evidence_only": true,
     "hosted_ci": false
+  },
+  "post_closure_corrections": {
+    "recorded_on": "2026-09-29",
+    "base_commit": "5ca22aaf4532cc6f48cf3d5baab771affee88ab0",
+    "status": "unsigned_corrections_pending_requalification",
+    "MR15_acceptance": false,
+    "stage2_acceptance": false,
+    "historical_values_changed": false,
+    "bitfinex_one_sided": {
+      "reattribution": "retained requalification-5 public Bitfinex ETH public_input_invalid came from sub-millisecond intermediate R0 per-order states, not a one-sided market",
+      "record": {
+        "path": "logs/runtime-capacity/bounded-evidence/bitfinex-one-sided-reattribution.json",
+        "sha256": "076b481b7866e028ebcbd308a1275f109411af0554f882806040f1b0e9160527",
+        "bytes": 3963
+      },
+      "episodes_source_positions": [
+        [
+          275,
+          279
+        ],
+        [
+          334,
+          340
+        ],
+        [
+          869,
+          877
+        ]
+      ],
+      "episode_unpriceable_receipt_ms": [
+        0.169,
+        0.258,
+        0.32
+      ],
+      "corrected_replay_deliveries": 1162,
+      "corrected_replay_operator_block": null,
+      "economic_facts_sha256_unchanged": "c05bc64a15ade83214813fa57d4a41d9e80317864a2e2ca8ebb5b65c984836f9",
+      "rule": "valid one-sided or crossed book is unpriced and faults only when no eligible market follows within min(source freshness, capture idle); gaps, loss, stale and invalid inputs fault immediately",
+      "superseded_check": "latency-query-10/one_sided_replay.py asserts the previous fault and now fails by design",
+      "signed_coverage": "not covered by candidate-10 signed releases; fresh signed releases and a fresh public Bitfinex trial required"
+    },
+    "collector_receiver_failure": {
+      "defect": "receipt exception outside handled transport errors omitted session_end; durable consumer could wait indefinitely",
+      "correction": "session ends with receiver_failed_unknown_loss, retained as a visible gap before bounded reconnect or stop",
+      "running_collections": "retain their original implementation identities"
+    },
+    "resource_sampler": {
+      "fifth_interval_slow_slots": {
+        "22": {
+          "process_discovery_seconds": 0.823,
+          "disk_scan_seconds": 0.194
+        },
+        "25": {
+          "process_discovery_seconds": 0.704,
+          "disk_scan_seconds": 0.43
+        }
+      },
+      "correction": "process-tree membership refreshed every five seconds or after a tracked exit; counters each second; one-second occupied-disk scan via directory entries",
+      "retained_rows_changed": false
+    },
+    "validation": {
+      "make_test": "1991 passed, 2 skipped, 3 deselected",
+      "static": "format, lint, strict mypy, stubtest and engineering checks passed",
+      "environment_note": "three alert-socket tests needed a short pytest base directory for the Unix socket path limit",
+      "hosted_ci": false,
+      "signed_run": false
+    }
   }
 }

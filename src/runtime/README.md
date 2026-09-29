@@ -225,6 +225,10 @@ delivery clock is at least that interval after the last selected book. Every
 native record is still retained, reconstructed and validated in source order.
 An intermediate eligible book updates the freshest monitoring mark, but creates
 no modeled fill or strategy checkpoint; invalid source input faults immediately.
+A valid book that is momentarily one-sided or crossed between per-order messages,
+and the heartbeats or controls that follow it, has no eligible market. It faults
+the account only if no eligible market arrives within the smaller of source
+freshness and capture idle time, measured on retained delivery clocks.
 The interval is positive, defaults to 3,000,000 microseconds and cannot exceed
 either source freshness or capture idle time. The exact source configuration and
 `SharedBookInputs` identity both bind it. `SharedBookDelivery.market_effects=false`

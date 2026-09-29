@@ -54,7 +54,10 @@ they are not silently migrated into shared accounts.
 [`accounts.py`](accounts.py) remains the supported journal and record import
 surface. The concrete wire records live in [`account_records.py`](account_records.py),
 while [`account_state.py`](account_state.py) owns the unchanged SQLite document and
-transaction boundary. The journal composes admission and reconciliation from
+transaction boundary. A commit writes exactly the bytes of a full encoding, but
+reuses encoded fields and history items that are the same immutable objects, so
+encoding cost follows what the transaction changed. Storage still rewrites the whole
+document on each commit, and a fresh process decodes it in full. The journal composes admission and reconciliation from
 [`account_admission.py`](account_admission.py), physical fill and fee attribution
 from [`account_allocation.py`](account_allocation.py), and atomic portfolio order
 formation and instance controls from [`account_portfolio.py`](account_portfolio.py).
