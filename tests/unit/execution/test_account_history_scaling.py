@@ -247,3 +247,18 @@ class TestAccountHistoryScaling:
         print(f"report facts at 40/200 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Five times the fills may cost at most about five times as much.
         assert medians[1] < 7 * medians[0]
+
+    @pytest.mark.performance
+    def test_admission_and_fill_round_trip_does_not_replay_account_history(
+        self, tmp_path: Path
+    ) -> None:
+        """Admitting and filling orders stays near linear as postings accumulate."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        medians: list[float] = []
+        for orders in (40, 200):
+            while history.orders < orders:
+                history.round_trip()
+            medians.append(history.median_seconds(history.round_trip, repeats=9))
+        print(f"round trip at 40/200 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Replaying and re-validating every posting per ledger grew quadratically here.
+        assert medians[1] < 8 * medians[0]

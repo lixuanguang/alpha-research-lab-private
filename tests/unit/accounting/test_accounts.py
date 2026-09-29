@@ -456,6 +456,125 @@ class TestAccountLedger:
                 )
             )
 
+    def test_incremental_postings_match_a_full_rebuild_after_every_step(self) -> None:
+        """Posting one fact at a time equals replaying the stored history from scratch."""
+        base = Currency(code="BASE", minor_unit=Decimal("0.00000001"))
+        ledger = AccountLedger(AccountState(account_id="physical", currencies=(self.usd, base)))
+        codec = DomainCodec()
+        fee = AccountPosting(
+            identity="fee",
+            account_id="physical",
+            event_at=self.start + timedelta(seconds=4),
+            known_at=self.start + timedelta(seconds=4),
+            kind="fee",
+            cash=self._cash("-1"),
+            instance_id="alpha",
+            order_id="order-a",
+        )
+        steps: tuple[tuple[AccountPosting, str | None], ...] = (
+            (self._transfer("capital", seconds=0, value="1000"), None),
+            (self._fill("buy-a", seconds=1, quantity="2", price="100"), None),
+            (
+                self._fill(
+                    "buy-b", seconds=2, quantity="3", price="50", instance_id="beta", order_id="b"
+                ),
+                None,
+            ),
+            (fee, None),
+            (fee, None),
+            (replace(fee, cash=self._cash("-2")), "conflicting posting retry"),
+            (
+                AccountPosting(
+                    identity="base-fee",
+                    account_id="physical",
+                    event_at=self.start + timedelta(seconds=5),
+                    known_at=self.start + timedelta(seconds=5),
+                    kind="fee",
+                    cash=self._cash("-0.01", base),
+                    asset_change=Quantity(value=Decimal("-0.01"), dimension=self.asset_a),
+                    instance_id="alpha",
+                    order_id="order-a",
+                ),
+                None,
+            ),
+            (
+                AccountPosting(
+                    identity="rebate",
+                    account_id="physical",
+                    event_at=self.start + timedelta(seconds=6),
+                    known_at=self.start + timedelta(seconds=6),
+                    kind="rebate",
+                    cash=self._cash("0.25"),
+                    instance_id="beta",
+                    order_id="b",
+                ),
+                None,
+            ),
+            (
+                AccountPosting(
+                    identity="fee-revision",
+                    account_id="physical",
+                    event_at=self.start + timedelta(seconds=7),
+                    known_at=self.start + timedelta(seconds=7),
+                    kind="correction",
+                    corrects="fee",
+                    replacement_kind="fee",
+                    cash=self._cash("-0.5"),
+                    instance_id="alpha",
+                    order_id="order-a",
+                ),
+                None,
+            ),
+            (
+                AccountPosting(
+                    identity="stale-revision",
+                    account_id="physical",
+                    event_at=self.start + timedelta(seconds=8),
+                    known_at=self.start + timedelta(seconds=8),
+                    kind="correction",
+                    corrects="fee",
+                    cash=self._cash("0"),
+                    instance_id="alpha",
+                    order_id="order-a",
+                ),
+                "current revision",
+            ),
+            (
+                AccountPosting(
+                    identity="rebate-void",
+                    account_id="physical",
+                    event_at=self.start + timedelta(seconds=8),
+                    known_at=self.start + timedelta(seconds=8),
+                    kind="correction",
+                    corrects="rebate",
+                    cash=self._cash("0"),
+                    instance_id="beta",
+                    order_id="b",
+                ),
+                None,
+            ),
+            (self._fill("oversell", seconds=9, quantity="-3", price="100"), "short"),
+            (self._transfer("overdraft", seconds=9, value="-10000"), "insufficient"),
+            (self._fill("sell-a", seconds=9, quantity="-1", price="120"), None),
+            (self._transfer("late", seconds=1, value="5"), "out of order"),
+            (self._transfer("withdraw", seconds=10, value="-100"), None),
+        )
+        for posting, refusal in steps:
+            before = (ledger.state, ledger.effective_postings(), ledger.snapshot())
+            if refusal is not None:
+                with pytest.raises(ValueError, match=refusal):
+                    ledger.post(posting)
+                assert (ledger.state, ledger.effective_postings(), ledger.snapshot()) == before
+                continue
+            ledger.post(posting)
+            rebuilt = AccountLedger(
+                codec.decode_json(codec.encode_json(ledger.state), AccountState)
+            )
+            assert rebuilt.state == ledger.state
+            assert rebuilt.effective_postings() == ledger.effective_postings()
+            for instance_id in (None, "alpha", "beta"):
+                assert rebuilt.snapshot(instance_id) == ledger.snapshot(instance_id)
+
     def test_exact_balances_survive_low_decimal_precision(self) -> None:
         """Avoid ambient Decimal rounding in cumulative multi-posting balances."""
         with localcontext() as context:
