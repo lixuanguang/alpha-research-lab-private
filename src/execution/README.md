@@ -350,8 +350,13 @@ quarantine is described below.
 
 Recovery is deliberately bounded by source history retention, pagination and
 configured resource limits. An empty unavailable historical window is not proof of
-no fills. The current Bitfinex fill reader refuses a full ambiguous timestamp page;
-larger recovery workloads require the MR15 capacity extension before admission.
+no fills. Fill history starts at the account opening until a reconciliation
+matches the physical account. The venue journal (`venue-journal-v2`) then retains
+that window's end, and later reads restart one hour before it so late-published or
+clock-skewed executions are still read; a physical break leaves the mark in place.
+Repeated executions apply once by fill identity. The Bitfinex reader pages trades
+forward by time and restarts each continuation inside the last millisecond of a
+full page; a full page that stays within one millisecond fails closed.
 No borrowing, derivatives, third-currency fee conversion, production activation or
 venue-execution fidelity is claimed. The
 [MR11 roadmap record](../../docs/roadmap/README.md#mr11-delivery-and-acceptance)

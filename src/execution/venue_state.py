@@ -44,9 +44,15 @@ class VenueReceipt(WireRecord, frozen=True):
 
 
 class VenueState(WireRecord, frozen=True):
-    """Persist transport history independently of the authoritative account ledger."""
+    """Persist transport history independently of the authoritative account ledger.
 
-    schema_version: str = "venue-journal-v1"
+    ``fills_complete_through`` is the end of the last fill-history window whose
+    reconciliation matched the physical account. Every execution the venue had
+    published by then with an earlier source time has been applied. Version 1
+    state predates the mark; its absent mark keeps the full opening window.
+    """
+
+    schema_version: str = "venue-journal-v2"
     nonce: int = 0
     last_request_at: datetime | None = None
     dispatches: tuple[VenueDispatch, ...] = ()
@@ -54,11 +60,21 @@ class VenueState(WireRecord, frozen=True):
     recovery_required: bool = True
     reason: str = "initial_reconciliation_required"
     reconciled_at: datetime | None = None
+    fills_complete_through: datetime | None = None
 
     def __post_init__(self) -> None:
         """Refuse incompatible state rather than guessing a recovery migration."""
-        if self.schema_version != "venue-journal-v1" or self.nonce < 0:
+        if (
+            self.schema_version not in ("venue-journal-v1", "venue-journal-v2")
+            or (
+                self.schema_version == "venue-journal-v1"
+                and self.fills_complete_through is not None
+            )
+            or self.nonce < 0
+        ):
             raise ValueError("unsupported venue journal state")
+        if self.fills_complete_through is not None:
+            self._require_utc(self.fills_complete_through, field_name="venue fill mark")
         if len({item.client_id for item in self.dispatches}) != len(self.dispatches):
             raise ValueError("venue client identities collide")
         if len({item.order_id for item in self.dispatches}) != len(self.dispatches):
@@ -116,6 +132,9 @@ class VenueStateStore:
             raise ValueError("venue journal state is missing")
         result = self._codec.decode_json(payload, VenueState)
         result.__post_init__()
+        if result.schema_version == "venue-journal-v1":
+            # The next save writes version 2; version 1 readers then refuse it.
+            result = replace(result, schema_version="venue-journal-v2")
         return result
 
     def save(self, state: VenueState) -> None:

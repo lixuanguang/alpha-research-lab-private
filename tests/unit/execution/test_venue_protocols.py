@@ -376,6 +376,90 @@ class TestBitfinexSpotProtocol:
             )
         assert page.fills[0].fill_id == "bitfinex:55"
 
+    @staticmethod
+    def _trade(identity: int, milliseconds: int) -> list[object]:
+        """Build one documented native trade array at an exact source millisecond."""
+        return [
+            identity,
+            "tETHUSD",
+            milliseconds,
+            987,
+            "0.01",
+            "125.12",
+            "EXCHANGE LIMIT",
+            "125.12",
+            1,
+            "-0.01",
+            "USD",
+            1234,
+        ]
+
+    def test_trade_history_continues_from_the_last_page_millisecond(self) -> None:
+        """A full page restarts inside its last millisecond instead of dropping fills."""
+        start = 1790424000000
+        pages: list[list[object]] = [
+            [self._trade(1, start), self._trade(2, start + 1), self._trade(3, start + 1)],
+            [self._trade(2, start + 1), self._trade(3, start + 1), self._trade(4, start + 2)],
+            [self._trade(4, start + 2)],
+        ]
+        transport = ScriptedVenueTransport(
+            self._paper_info(), *(msgspec.json.encode(page) for page in pages)
+        )
+        adapter = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
+        adapter.qualify_account(at=self.at, nonce=1)
+        cursor: str | None = None
+        identities: list[str] = []
+        for nonce in (2, 3, 4):
+            page = adapter.fills(
+                symbol="tETHUSD",
+                start_ms=start,
+                end_ms=start + 5,
+                limit=3,
+                cursor=cursor,
+                at=self.at,
+                nonce=nonce,
+            )
+            identities.extend(fill.fill_id for fill in page.fills)
+            cursor = page.next_cursor
+        assert page.complete and cursor is None
+        assert identities == [f"bitfinex:{item}" for item in (1, 2, 3, 2, 3, 4, 4)]
+        bodies = [
+            msgspec.json.decode(request.body, type=dict[str, int])
+            for request in transport.requests[1:]
+        ]
+        assert [body["start"] for body in bodies] == [start, start + 1, start + 2]
+        assert all(body["sort"] == 1 and body["end"] == start + 5 for body in bodies)
+        for invalid in ("01790424000001", "later", str(start - 1), str(start + 6)):
+            with pytest.raises(ValueError, match="cursor"):
+                adapter.fills(
+                    symbol="tETHUSD",
+                    start_ms=start,
+                    end_ms=start + 5,
+                    limit=3,
+                    cursor=invalid,
+                    at=self.at,
+                    nonce=5,
+                )
+        assert len(transport.requests) == 4
+
+    def test_trade_history_page_must_ascend_within_its_window(self) -> None:
+        """A descending or out-of-window native page cannot become a continuation."""
+        start = 1790424000000
+        descending: list[object] = [self._trade(2, start + 1), self._trade(1, start)]
+        transport = ScriptedVenueTransport(self._paper_info(), msgspec.json.encode(descending))
+        adapter = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
+        adapter.qualify_account(at=self.at, nonce=1)
+        with pytest.raises(VenueProtocolError, match="ascending"):
+            adapter.fills(
+                symbol="tETHUSD",
+                start_ms=start,
+                end_ms=start + 5,
+                limit=3,
+                cursor=None,
+                at=self.at,
+                nonce=2,
+            )
+
     def test_derivative_symbol_is_rejected_before_send_and_on_account_read(self) -> None:
         """A shared native endpoint cannot admit perpetual-futures symbols as spot."""
         derivative = self._order()

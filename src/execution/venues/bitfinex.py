@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from hashlib import sha384
 from hmac import new
+from itertools import pairwise
 
 # project library imports
 from configuration import CapabilityProfile
@@ -262,18 +263,26 @@ class BitfinexSpotAdapter:
         at: datetime,
         nonce: int,
     ) -> VenueFillPage:
-        """Read a bounded complete window; reject a full ambiguous timestamp page."""
+        """Read one ascending time page, continuing a full page from its last millisecond.
+
+        Bitfinex pages trade history by timestamp only, and a full page can stop
+        inside a millisecond whose later trades it omitted. The continuation
+        cursor is that millisecond, so the next page repeats its trades and the
+        caller drops repeated fill identities. A full page that never leaves its
+        first millisecond cannot advance and fails closed.
+        """
         del at
         self._require_verified()
         self._validate_symbol(symbol)
-        if cursor is not None or not (0 <= start_ms <= end_ms) or not (1 <= limit <= 2500):
+        page_start = start_ms if cursor is None else self._cursor_milliseconds(cursor)
+        if not (0 <= start_ms <= page_start <= end_ms) or not (1 <= limit <= 2500):
             raise ValueError("invalid Bitfinex fill window, limit, or cursor")
         path = "/v2/auth/r/trades/" + symbol + "/hist"
         response = self._request(
             path,
             VenueJson.encode(
                 {
-                    "start": start_ms,
+                    "start": page_start,
                     "end": end_ms,
                     "limit": limit,
                     "sort": 1,
@@ -282,19 +291,31 @@ class BitfinexSpotAdapter:
             nonce=nonce,
         )
         items = VenueJson.array(VenueJson.parse(response.body))
-        if len(items) >= limit:
-            raise VenueProtocolError("Bitfinex trade page may omit same-millisecond fills")
+        if len(items) > limit:
+            raise VenueProtocolError("Bitfinex trade page exceeds its requested limit")
         facts = tuple(self._fill_fact(VenueJson.array(item), response) for item in items)
-        if any(
-            fact.symbol != symbol
-            or fact.source_at is None
-            or not (start_ms <= VenueJson.epoch_milliseconds(fact.source_at) <= end_ms)
+        times = tuple(
+            None if fact.source_at is None else VenueJson.epoch_milliseconds(fact.source_at)
             for fact in facts
+        )
+        if any(
+            fact.symbol != symbol or time is None or not (page_start <= time <= end_ms)
+            for fact, time in zip(facts, times, strict=True)
         ):
             raise VenueProtocolError("Bitfinex fill outside requested interval")
+        if any(
+            later is None or earlier is None or later < earlier
+            for earlier, later in pairwise(times)
+        ):
+            raise VenueProtocolError("Bitfinex trade page is not in ascending time order")
         if len({fact.fill_id for fact in facts}) != len(facts):
             raise VenueProtocolError("Bitfinex trade page repeats an identity")
-        return VenueFillPage(fills=facts, next_cursor=None, complete=True)
+        if len(items) < limit:
+            return VenueFillPage(fills=facts, next_cursor=None, complete=True)
+        last = times[-1]
+        if last is None or last == page_start:
+            raise VenueProtocolError("Bitfinex trade page may omit same-millisecond fills")
+        return VenueFillPage(fills=facts, next_cursor=str(last), complete=False)
 
     def balances(self, *, at: datetime, nonce: int) -> tuple[VenueBalance, ...]:
         """Read complete exchange-wallet currency balances; null availability fails."""
@@ -491,6 +512,17 @@ class BitfinexSpotAdapter:
                 raise ValueError("Bitfinex order exceeds eight decimal places")
             if is_price and len(significant) > 5:
                 raise ValueError("Bitfinex price exceeds five significant digits")
+
+    @staticmethod
+    def _cursor_milliseconds(cursor: str) -> int:
+        """Read a canonical epoch-millisecond continuation without lossy coercion."""
+        if (
+            not cursor.isascii()
+            or not cursor.isdigit()
+            or (cursor.startswith("0") and cursor != "0")
+        ):
+            raise ValueError("invalid Bitfinex fill cursor")
+        return int(cursor)
 
     @staticmethod
     def _venue_order_number(order_id: str) -> int:

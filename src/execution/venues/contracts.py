@@ -206,7 +206,11 @@ class VenueBalance(msgspec.Struct, frozen=True):
 
 
 class VenueFillPage(msgspec.Struct, frozen=True):
-    """Expose bounded history and refuse to call a truncated window complete."""
+    """Expose bounded history and refuse to call a truncated window complete.
+
+    A continuation may repeat executions at its page boundary; callers apply
+    each fill identity once and refuse a repeat with different economics.
+    """
 
     fills: tuple[VenueFillFact, ...]
     next_cursor: str | None
@@ -317,7 +321,7 @@ class VenueAdapter(Protocol):
         at: datetime,
         nonce: int,
     ) -> VenueFillPage:
-        """Read one bounded history page with an explicit continuation."""
+        """Read one bounded history page with an explicit, possibly overlapping continuation."""
 
     def balances(self, *, at: datetime, nonce: int) -> tuple[VenueBalance, ...]:
         """Read account physical balances without inferring strategy ownership."""
