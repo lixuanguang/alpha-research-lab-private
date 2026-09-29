@@ -118,8 +118,7 @@ limits. Existing serialized smaller studies retain their meaning.
 Profiling 128 scheduled closes found 128 replay constructions and 509 query
 batch calls. Scheduled features now retain one causal replay, frozen closes and
 compact observation state. Restarts validate the pinned input and restore its
-cursor; legacy value-only checkpoints reconstruct once and check every frozen
-value. Older readers reject checkpoints carrying the new optional state fields.
+cursor; a value-only checkpoint without a cursor is refused.
 No financial arithmetic, temporal cutoff, calendar or cost model changed.
 
 ## Prior diagnostic results (retained)

@@ -175,9 +175,11 @@ fails closed. After any persistence failure the writer refuses append/publicatio
 start a new UUID recording and retain the old one. No exact lost-message count is
 invented for a process that died with messages in memory.
 
-Completed legacy recordings remain verified through their unchanged manifests. Legacy interrupted recordings without `cursor.json` retain bounded newline-prefix
-inspection and the unknown-loss marker, without a cursor acknowledgement claim. An empty recording that died before its first session and an end record without
-verified publication both count as interrupted. Checkpoints acknowledge
+Completed recordings are verified through their manifests. Interrupted
+inspection requires `cursor.json`; a recording without it is refused as an
+unsupported capture journal schema. An empty recording that died before its
+first session and an end record without verified publication both count as
+interrupted. Checkpoints acknowledge
 saved input, not downstream consumer state. Shared book replay requires its own
 consumer state beside the source cursor. No exactly-once or gap-free-history
 claim follows from a completed capture. Clean duration/message limits are intended

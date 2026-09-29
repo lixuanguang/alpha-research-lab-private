@@ -22,7 +22,7 @@ from test_book_replay import _View
 from configuration import CaptureConfig
 from market_data.adapters.sources import SourceAdapters
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
-from market_data.datasets import BookInput, BookSnapshot, DatasetPublication
+from market_data.datasets import BookHistory, BookInput, BookSnapshot, DatasetPublication
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader
 from market_data.replay import BookReplay
 from market_data.storage import CaptureJournal, RawStore
@@ -33,11 +33,11 @@ _END = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(seconds=1)
 
 
 class TestStreamedBookQueries:
-    """Compare native streaming with legacy reference and independent exact book values."""
+    """Compare native streaming with in-memory admission and independent exact book values."""
 
     @staticmethod
     def _snapshot(tmp_path: Path) -> tuple[BookSnapshot, BookInput, bytes]:
-        """Publish one original capture with a gap and retain independently admitted v1 bytes."""
+        """Publish one original capture with a gap and retain independently admitted bytes."""
         capture = _Inputs._capture(tmp_path / "capture", gap=True)
         raw, snapshots = RawStore(tmp_path / "raw"), tmp_path / "snapshots"
         (tmp_path / "raw").mkdir()
@@ -47,15 +47,15 @@ class TestStreamedBookQueries:
             (capture,), raw, snapshots, max_records=32, max_bytes=_LIMIT
         )
         selected = BookInput.read(capture, max_records=32)
-        legacy = selected.admit(raw, readers=readers, max_bytes=_LIMIT).require_canonical()
+        admitted = selected.admit(raw, readers=readers, max_bytes=_LIMIT).require_canonical()
         session = BookSnapshot.read(
             snapshots, raw, readers=readers, identity=identity, max_bytes=_LIMIT
         )
-        return session, selected, legacy
+        return session, selected, admitted
 
     def test_stream_reference_exact_states_and_cursor_restart(self, tmp_path: Path) -> None:
-        """Absolute updates, deletion, gaps and nanoseconds match hand values and v1 replay."""
-        session, selected, legacy = self._snapshot(tmp_path)
+        """Absolute updates, deletion, gaps and nanoseconds match hand values and admission."""
+        session, selected, admitted = self._snapshot(tmp_path)
         streamed = BookReplay.from_snapshot(
             session,
             request_identity=selected.request.identity,
@@ -63,22 +63,21 @@ class TestStreamedBookQueries:
             config_identity="b" * 64,
             batch_size=2,
         )
-        reference = BookReplay(
-            legacy, terminal=_END, config_identity="b" * 64, max_bytes=_LIMIT, batch_size=3
-        )
-        assert tuple(row for batch in streamed.batches() for row in batch) == tuple(
-            row for batch in reference.batches() for row in batch
+        assert (
+            tuple(row for batch in streamed.batches() for row in batch)
+            == DomainCodec().decode_json(admitted, BookHistory).observations
         )
         rows = tuple(row for batch in streamed.batches() for row in batch)
         assert rows[2].bids[0][1].size == Decimal("0.300000000000000001")
         assert rows[3].bids[0][1].size == Decimal("0.2")
         assert rows[4].bids == ()
         assert rows[5].status == "recovering" and rows[5].outcome == "gap"
-        view, expected = _View(), _View()
+        view = _View()
         checkpoint = streamed.step(_END, view.consume)
-        reference.step(_END, expected.consume)
         assert checkpoint is not None and checkpoint.clock.microsecond == 1
-        assert view.rows == expected.rows and view.phases == expected.phases
+        assert view.rows == list(rows) and [phase for phase, _ in view.phases] == ["source"] * len(
+            rows
+        ) + ["expiry", "fill", "decision", "mark"]
         resumed = BookReplay.from_snapshot(
             session,
             request_identity=selected.request.identity,

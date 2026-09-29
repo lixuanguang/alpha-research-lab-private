@@ -137,7 +137,7 @@ class PaperDeployment(WireRecord, frozen=True):
 
     @property
     def source_bindings(self) -> tuple[PaperSourceBinding, ...]:
-        """Resolve each strategy's exact source, retaining legacy shared scope."""
+        """Resolve each strategy's exact source, defaulting to the deployment's shared scope."""
         extras = () if self.additional_sources is msgspec.UNSET else self.additional_sources
         overrides = {item.instance_id: item for item in extras}
         return tuple(

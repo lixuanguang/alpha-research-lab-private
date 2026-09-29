@@ -126,7 +126,7 @@ class _StoppedAccounts:
         self.storage = storage
 
     def read(self) -> tuple[AccountView, ...]:
-        """Reject implicit legacy running state and return explicitly stopped accounts."""
+        """Reject running or unbound account state and return explicitly stopped accounts."""
         accounts = AccountJournal.verify(self.journal, self.config, storage=self.storage)
         if any(
             account.phase not in ("stopped", "faulted")

@@ -249,14 +249,13 @@ def inspect(source: Path, output: Path) -> dict[str, object]:
     assert resumed == actual.state
     failures: list[str] = []
     try:
-        BookReplay(
-            payload,
-            snapshot_identity="f" * 64,
+        BookReplay.from_snapshot(
+            snapshot,
+            request_identity=selected.request.identity,
             batch_size=7,
             cursor=chosen.cursor,
             terminal=terminal,
-            config_identity=selected.request.identity,
-            max_bytes=_LIMIT,
+            config_identity="f" * 64,
         )
     except ValueError as error:
         failures.append(str(error))

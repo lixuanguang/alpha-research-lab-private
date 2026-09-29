@@ -1131,27 +1131,17 @@ class TestVenueGateway:
         with first.claim(), pytest.raises(ValueError, match="already active"), second.claim():
             pytest.fail("second sender acquired the live owner fence")
 
-    def test_version_one_venue_state_reads_as_unproven_fill_history(self, tmp_path: Path) -> None:
-        """Earlier state has no fill mark, and a version 1 payload cannot carry one."""
+    def test_old_venue_state_schema_is_refused(self, tmp_path: Path) -> None:
+        """A saved state in the removed version 1 schema is refused, never upgraded."""
         store = VenueStateStore(tmp_path / "account.sqlite3", "account", b"scope")
         codec = DomainCodec()
         with store.claim():
-            legacy = VenueState(schema_version="venue-journal-v1", nonce=7)
-            with closing(sqlite3.connect(store.path)) as connection, connection:
-                connection.execute(
-                    "UPDATE state SET payload=? WHERE id=1", (codec.encode_json(legacy),)
-                )
-            upgraded = store.read()
-            assert upgraded.schema_version == "venue-journal-v2"
-            assert (upgraded.nonce, upgraded.fills_complete_through) == (7, None)
-            forged = codec.encode_json(legacy).replace(
-                b'"schema_version":"venue-journal-v1"',
-                b'"schema_version":"venue-journal-v1","fills_complete_through":'
-                b'"2026-09-26T12:00:00Z"',
+            old = codec.encode_json(VenueState(nonce=7)).replace(
+                b'"schema_version":"venue-journal-v2"', b'"schema_version":"venue-journal-v1"'
             )
             with closing(sqlite3.connect(store.path)) as connection, connection:
-                connection.execute("UPDATE state SET payload=? WHERE id=1", (forged,))
-            with pytest.raises(ValueError, match="unsupported venue journal state"):
+                connection.execute("UPDATE state SET payload=? WHERE id=1", (old,))
+            with pytest.raises(ValueError, match="unsupported venue journal schema"):
                 store.read()
 
     def test_same_physical_wallet_cannot_fund_two_local_accounts(self, tmp_path: Path) -> None:

@@ -225,10 +225,10 @@ class CaptureJournal:
     def records(self, *, completed: bool = True) -> Iterator[CaptureRecord]:
         """Verify completed bytes or inspect only the newline-terminated interrupted prefix.
 
-        New recordings admit only their verified durable cursor prefix. Legacy
-        recordings without a cursor retain newline-prefix inspection without an
-        acknowledgement guarantee. Incomplete inspection ends with an unknown-loss gap,
-        including when process death happened exactly at a line boundary.
+        Interrupted recordings admit only their verified durable cursor prefix; a
+        recording without a cursor is refused. Incomplete inspection ends with an
+        unknown-loss gap, including when process death happened exactly at a line
+        boundary.
 
         Args:
             completed: Require a verified manifest, or explicitly inspect an interrupted prefix.
@@ -251,7 +251,9 @@ class CaptureJournal:
         last_epoch, last_ns = 0, 1
         with source:
             limit = self.request.config.max_bytes
-            if not completed and (self.root / "cursor.json").exists():
+            if not completed:
+                if not (self.root / "cursor.json").exists():
+                    raise ValueError("unsupported capture journal schema without a cursor")
                 limit = self._verify_cursor(source)
             elif os.fstat(source.fileno()).st_size > limit:
                 raise ValueError("journal exceeds storage bound")

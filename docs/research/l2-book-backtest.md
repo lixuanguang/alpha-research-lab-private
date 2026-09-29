@@ -34,12 +34,11 @@ intentionally interrupted attempts under the output root's `attempts/` directory
 
 New runs serialize each named artifact once. The configuration, EDA, checkpoints
 and report exports are read-only hard links to their retained artifact in the
-same output filesystem. New `report.json` files use `l2-book-report-v2`: metadata
-and SHA-256 references to the adjacent configuration, EDA and ordered checkpoints,
-without embedding those payloads again. Companion filenames and schemas are unchanged.
-`BookReport.read(path)` verifies every digest and reconstructs the complete report;
-it also reads standalone `l2-book-report-v1` files. To move a v2 report, copy its
-directory with all companion files. To share the rendered summary alone, use
+same output filesystem. `report.json` uses `l2-book-report-v2`: metadata and
+SHA-256 references to the adjacent configuration, EDA and ordered checkpoints,
+without embedding those payloads again. `BookReport.read(path)` verifies every
+digest and reconstructs the complete report; any other report schema is refused.
+To move a report, copy its directory with all companion files. To share the rendered summary alone, use
 `report.html`. Existing resumption identity checks still apply.
 
 `AttemptStore` shares byte-identical content across attempts in

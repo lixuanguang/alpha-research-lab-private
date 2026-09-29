@@ -240,9 +240,8 @@ Enum iteration and string equality are no longer supported.
 Currency remains a strict frozen Pydantic C03 value; this candidate's shared
 `msgspec` serialization boundary supplies its exact wire hooks alongside the
 canonical market-event codecs. Currency wire values persist both `code` and
-`minor_unit`; at currency, money, and price boundaries, known legacy preset
-strings resolve through the fixed packaged definitions and unknown bare codes
-are rejected. Market-event codecs preserve their closed tags and exact Decimal
+`minor_unit`; at currency, money, and price boundaries, a bare code string is
+rejected as an unsupported currency schema. Market-event codecs preserve their closed tags and exact Decimal
 text. Configured backtests, simulated orders/fills, checkpoints and retained
 reports now use the shared serialization boundary; venue execution remains
 planned. The packaged JSON is an owned compatibility input;

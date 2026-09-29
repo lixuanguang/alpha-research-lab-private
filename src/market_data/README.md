@@ -600,8 +600,7 @@ merged.
 
 `DatasetManifest.read` verifies manifest identity, raw/canonical bytes, source
 readers and admission before returning. Version 1 trade manifests retain their
-identities; book publication uses the separate `book-dataset-v1` and
-`book-dataset-v2` families. A
+identities; book publication uses the separate `book-dataset-v2` format. A
 manifest path or `latest` alias is never a substitute for an explicit identity.
 
 ## Publish and reopen an atomic snapshot
@@ -737,14 +736,13 @@ an existing snapshot directory and explicit `max_records`/`max_bytes`. The
 `BookObservation` JSON line per original raw position. Publication keeps one
 observation plus the native visible state in memory, then independently replays
 the retained raw input against every staged line before the directory is made
-visible. The manifest and partition digests identify exact bytes. Previously
-published `book-dataset-v1` envelopes remain readable with their old identities;
-trade manifests/readers remain unchanged.
+visible. The manifest and partition digests identify exact bytes. Any other
+book dataset schema is refused.
 
 At most 1,000,000 raw positions per input are selectable for streamed publication,
 subject to each source's own record limit and the caller's raw/canonical byte cap.
-The legacy in-memory `BookInput.admit` reference envelope remains limited to
-10,000 positions; the online `BookCapture` parity buffer retains its own 10,000
+The in-memory `BookInput.admit` reference envelope is limited to 10,000
+positions; the online `BookCapture` parity buffer retains its own 10,000
 position bound. Publication reports use `BookAdmissionReport` with counts and a
 digest, without carrying the whole canonical file in memory. L3 orders keep native
 IDs and sizes; L2 levels keep aggregate sizes and counts; zero-size updates delete levels. Adjacent duplicates retain positions
@@ -769,14 +767,14 @@ never exposes input early.
 
 `BookSnapshot.read` admits the complete pinned snapshot once and provides
 `selection`, `partition` and `observations` for repeated queries and replay.
-Returned evidence is independently decoded. Each v2 observation traversal checks
+Returned evidence is independently decoded. Each observation traversal checks
 the selected file digest on an open descriptor before yielding its first row;
 the cheap `verify_partition` check detects a replaced or modified path after
 session opening under the required protected immutable-store contract. Its
 `require_limit` check applies a consumer's per-file cap to actual manifest,
 canonical and retained raw sizes. Optional `BookSnapshot.read(report=...)` sinks
-receive `BookAdmissionReport` values; the legacy generic snapshot report sink
-requires full `QualityReport.canonical` bytes and is unavailable for v2. Sessions
+receive `BookAdmissionReport` values; the generic snapshot report sink, which
+requires full `QualityReport.canonical` bytes, is refused for books. Sessions
 require protected stores and never grant a source availability clock that was not
 captured originally.
 

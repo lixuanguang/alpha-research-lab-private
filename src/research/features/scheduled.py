@@ -262,6 +262,8 @@ class ScheduledFeatures:
                 or checkpoint.input_identity != reader.identity
             ):
                 raise ValueError("scheduled checkpoint definition or source changed")
+            if checkpoint.values and checkpoint.cursor is None:
+                raise ValueError("unsupported value-only scheduled checkpoint schema")
             self._values = checkpoint.values
             self._cursor = checkpoint.cursor
             self._observation_state = checkpoint.observation_state
@@ -359,21 +361,6 @@ class ScheduledFeatures:
         ):
             raise ValueError("scheduled feature quote currency differs from admitted source")
         self._replay, self._observations = replay, observations
-        if self._values and self._cursor is None:
-            self._restore_legacy_checkpoint()
-
-    def _restore_legacy_checkpoint(self) -> None:
-        """Reconstruct old value-only checkpoints once without changing their frozen trace."""
-        previous: Observation | None = None
-        state: ObservationState | None = None
-        for expected in self._values:
-            actual, state = self._advance(expected.observation.closed_at, previous)
-            if actual != expected:
-                raise ValueError("saved source differs from frozen scheduled checkpoint")
-            previous = actual.observation
-        if self._replay is None or state is None:
-            raise RuntimeError("scheduled replay disappeared during checkpoint recovery")
-        self._cursor, self._observation_state = self._replay.cursor, state
 
     def _advance(
         self, decision_at: datetime, previous: Observation | None

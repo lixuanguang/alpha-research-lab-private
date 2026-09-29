@@ -366,8 +366,8 @@ completed-observation policy, not a new source-completeness guarantee.
 identity and value digest, plus a paired replay cursor and compact observation
 state after an evaluated close. Reload rejects changed instance, source bytes,
 timing, units, version, incompatible schedules, stale endpoints or inconsistent
-exact returns. An older value-only checkpoint remains readable; its source state
-is reconstructed once from the pinned history before the next decision. Failed
+exact returns. A checkpoint with values but no cursor is refused as an
+unsupported value-only schema. Failed
 evaluation discards partially advanced replay state and leaves the last committed
 checkpoint unchanged. Restore with the same `QueryReader`, definition and
 serialized checkpoint; changing batch size is allowed. The digest detects

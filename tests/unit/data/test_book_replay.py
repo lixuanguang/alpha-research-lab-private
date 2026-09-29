@@ -15,7 +15,7 @@ from test_book_datasets import TestBookDatasets as _Inputs
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.collection import BookCapture
 from market_data.contracts import BookObservation
-from market_data.datasets import BookHistory, BookInput, DatasetPublication
+from market_data.datasets import BookHistory, BookInput, BookSnapshot, DatasetPublication
 from market_data.replay import BookReplay, ReplayCursor, ReplayPhase
 from market_data.storage import CaptureJournal, RawStore
 from runtime import ImplementationIdentity
@@ -48,13 +48,33 @@ class TestBookReplay:
     """Use real journal/publication boundaries and independent nanosecond expectations."""
 
     @staticmethod
-    def _engine(payload: bytes, size: int = 1, cursor: ReplayCursor | None = None) -> BookReplay:
+    def _publish(source: Path, tmp_path: Path) -> tuple[BookSnapshot, str]:
+        """Publish one saved input and reopen its verified snapshot session."""
+        raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
+        raw.mkdir()
+        snapshots.mkdir()
+        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
+            (source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT
+        )
+        session = BookSnapshot.read(
+            snapshots, RawStore(raw), readers=SourceAdapters(), identity=identity, max_bytes=_LIMIT
+        )
+        return session, BookInput.read(source, max_records=32).request.identity
+
+    @staticmethod
+    def _engine(
+        published: tuple[BookSnapshot, str],
+        size: int = 1,
+        cursor: ReplayCursor | None = None,
+        config_identity: str = "a" * 64,
+    ) -> BookReplay:
         """Bind fixed consumer policy and the same terminal across batch sizes."""
-        return BookReplay(
-            payload,
+        snapshot, request_identity = published
+        return BookReplay.from_snapshot(
+            snapshot,
+            request_identity=request_identity,
             terminal=_END,
-            config_identity="a" * 64,
-            max_bytes=_LIMIT,
+            config_identity=config_identity,
             batch_size=size,
             cursor=cursor,
         )
@@ -62,11 +82,7 @@ class TestBookReplay:
     def test_atomic_nanoseconds_equal_time_phases_and_restart(self, tmp_path: Path) -> None:
         """All seven nanosecond boundaries precede phases at the first safe microsecond."""
         root = _Inputs._capture(tmp_path / "capture", gap=True)
-        payload = (
-            BookInput.read(root, max_records=32)
-            .admit(RawStore(root), readers=SourceAdapters(), max_bytes=_LIMIT)
-            .require_canonical()
-        )
+        payload = self._publish(root, tmp_path)
         engine, view = self._engine(payload), _View()
         assert engine.cursor is None
         batches = tuple(engine.batches())
@@ -129,19 +145,23 @@ class TestBookReplay:
             pass
         assert view.rows == [] and len(view.phases) == 4
         assert engine.cursor is not None and engine.cursor.position is None
-        payload = selected.admit(
-            RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT
-        ).require_canonical()
-        history = _CODEC.decode_json(payload, BookHistory)
+        history = _CODEC.decode_json(
+            selected.admit(
+                RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT
+            ).require_canonical(),
+            BookHistory,
+        )
         with pytest.raises(ValueError, match="cannot invent"):
             replace(history, observations=(replace(history.observations[0], received_ns=1),))
+        session = BookSnapshot.read(
+            snapshots, RawStore(raw), readers=SourceAdapters(), identity=identity, max_bytes=_LIMIT
+        )
+        published = (session, selected.request.identity)
         for size in (0, True):
             with pytest.raises(ValueError, match="batch_size"):
-                self._engine(payload, size)
-        with pytest.raises(ValueError, match="max_bytes"):
-            BookReplay(payload, terminal=_END, config_identity="a" * 64, max_bytes=1, batch_size=1)
+                self._engine(published, size)
         with pytest.raises(ValueError, match="incompatible"):
-            self._engine(payload, cursor=engine.cursor)
+            self._engine(published, cursor=engine.cursor, config_identity="c" * 64)
         (raw / selected.raw.sha256).chmod(0o644)
         (raw / selected.raw.sha256).write_bytes(b"corrupt")
         with pytest.raises(ValueError):
@@ -180,12 +200,7 @@ class TestBookReplay:
 
     def test_cursor_failure_and_isolation(self, tmp_path: Path) -> None:
         """Copied evidence cannot change stepping; callbacks cannot checkpoint partial work."""
-        root = _Inputs._capture(tmp_path / "capture")
-        payload = (
-            BookInput.read(root, max_records=32)
-            .admit(RawStore(root), readers=SourceAdapters(), max_bytes=_LIMIT)
-            .require_canonical()
-        )
+        payload = self._publish(_Inputs._capture(tmp_path / "capture"), tmp_path)
         engine = self._engine(payload)
         row = next(engine.batches())[0]
         force_setattr(row, "received_ns", 999)
