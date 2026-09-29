@@ -1,7 +1,13 @@
 """Expose the market data query public contract."""
 
 # project library imports
-from market_data.query.asof import AsOfSelector, EconomicOrder, InputBinding, PointEvent
+from market_data.query.asof import (
+    AsOfSelector,
+    ContinuityResumed,
+    EconomicOrder,
+    InputBinding,
+    PointEvent,
+)
 from market_data.query.books import (
     BookColumn,
     BookMarketRow,
@@ -32,6 +38,7 @@ __all__ = [
     "BookQuery",
     "BookQueryBatch",
     "BookQueryReader",
+    "ContinuityResumed",
     "EconomicOrder",
     "InputBinding",
     "PointEvent",

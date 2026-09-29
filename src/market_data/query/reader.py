@@ -20,6 +20,7 @@ from market_data.contracts import ArchiveTrade, Occurrence, SourceRequest, Trade
 from market_data.datasets import DatasetReaders, SnapshotStore
 from market_data.query.asof import (
     AsOfSelector,
+    ContinuityResumed,
     InputBinding,
     PointEvent,
     _Partition,
@@ -69,6 +70,8 @@ class QueryBatch(NamedTuple):
     columns: tuple[QueryColumn, ...]
     rows: tuple[QueryRow, ...]
     evidence: tuple[QueryEvidence, ...]
+    # Requested first-binding-message recoveries; empty unless the query asked.
+    recoveries: tuple[ContinuityResumed, ...] = ()
 
 
 class QueryReader:
@@ -173,6 +176,7 @@ class QueryReader:
         batch_size: int,
         mode: Literal["cutoff", "history"] = "cutoff",
         cancelled: Callable[[], bool] | None = None,
+        recoveries: bool = False,
     ) -> Generator[QueryBatch]:
         """Select before projecting, yielding at most batch_size market/control rows.
 
@@ -189,6 +193,8 @@ class QueryReader:
                 retained membership history at each decision. No event stepping is performed.
             cancelled: Optional cooperative cancellation predicate, checked before selection
                 and between batches. Generator close also releases its local selection.
+            recoveries: Cutoff only: also return each scoped disconnect's first later
+                same-binding trade known by the cutoff, as ``ContinuityResumed`` records.
 
         Yields:
             Typed tuples with exact values in requested column order, full unprojectable
@@ -212,6 +218,7 @@ class QueryReader:
                 for c in columns
             )
             or (mode == "history" and "revision" not in columns)
+            or (recoveries is not False and (recoveries is not True or mode != "cutoff"))
         ):
             raise ValueError(
                 "query requires positive batches and unique supported columns; "
@@ -236,28 +243,31 @@ class QueryReader:
             selected = tuple(self._history(indexes, start, end, known_at)) + tuple(
                 item for item in selected if isinstance(item, Occurrence)
             )
-        identity = hashlib.sha256(
-            self._codec.encode_json(
-                (
-                    "reference-query",
-                    self._identity,
-                    self._precedence,
-                    tuple(sorted(map(str, instruments))),
-                    start,
-                    end,
-                    known_at,
-                    columns,
-                    mode,
-                )
-            )
-        ).hexdigest()
+        instrument_texts: tuple[str, ...] = tuple(sorted(str(item) for item in instruments))
+        parts: tuple[object, ...] = (
+            "reference-query",
+            self._identity,
+            self._precedence,
+            instrument_texts,
+            start,
+            end,
+            known_at,
+            columns,
+            mode,
+        )
+        if recoveries:
+            parts = (*parts, "first-binding-message")
+        identity = hashlib.sha256(self._codec.encode_json(parts)).hexdigest()
+        recovered = (
+            self._selector.recoveries(instruments, end=end, known_at=known_at) if recoveries else ()
+        )
         for chunk in batched(selected, batch_size) if selected else ((),):
             self._check_cancelled(cancelled)
             rows = tuple(
                 self._project(deepcopy(item) if mode == "history" else item, columns)
                 for item in chunk
             )
-            yield QueryBatch(identity, mode, columns, rows, evidence)
+            yield QueryBatch(identity, mode, columns, rows, evidence, recovered)
 
     @staticmethod
     def _shared_evidence(partitions: tuple[_Partition, ...]) -> tuple[QueryEvidence, ...]:

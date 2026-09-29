@@ -217,7 +217,18 @@ is admitted. The following produce a missing value, never zero or forward fill:
 
 - The full lookback lies outside the union of declared saved request coverage.
 - A binding-scoped disconnect survives the query, including earlier boundary
-  controls. Recovery is conservatively unproven for this diagnostic.
+  controls. Recovery is conservatively unproven for this diagnostic by default.
+  A policy may opt in with `accept_first_binding_message=True`, a weaker basis:
+  the first later trade on the same binding (in capture instant, partition and
+  raw order), known by the cutoff, is taken as recovery. The query must request
+  it with `QueryReader.batches(..., recoveries=True)`, which returns derived
+  `ContinuityResumed` records beside the rows. The window is then computed only if
+  every scoped disconnect lies before its start and is answered at or before the
+  start; otherwise it stays missing. The recoveries used are retained on the
+  window. A disconnect inside the window, an unanswered one, or one answered after
+  the start still gives a missing value. The opt-in is part of the policy and so
+  of the feature's identity. Subscription acknowledgements and our own capture
+  sessions are not yet used as recovery evidence.
 - Too few then-available trades, including unknown availability or membership.
 - A stale final trade, or nonpositive prices unsupported by this return formula.
 
