@@ -113,6 +113,15 @@ class _DedicatedHistory:
             assert committed.status == "committed"
             self.market()
 
+    def median_round_trip_seconds(self, repeats: int = 9) -> float:
+        """Time filled round trips and return the median wall-clock seconds."""
+        samples: list[float] = []
+        for _ in range(repeats):
+            started = time.perf_counter()
+            self.round_trip()
+            samples.append(time.perf_counter() - started)
+        return sorted(samples)[repeats // 2]
+
     def median_market_seconds(self, repeats: int = 21) -> float:
         """Time idle markets and return the median wall-clock seconds."""
         samples: list[float] = []
@@ -148,4 +157,18 @@ class TestPaperHistoryScaling:
                 medians.append(history.median_market_seconds())
         print(f"idle market at 20/100 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Decoding and re-validating every order and event grew about fourfold here.
+        assert medians[1] < 2.5 * medians[0]
+
+    @pytest.mark.performance
+    def test_filled_round_trip_does_not_replay_the_whole_ledger(self, tmp_path: Path) -> None:
+        """Posting fills stays near flat while the retained fill ledger grows."""
+        with _DedicatedHistory.open(tmp_path) as journal:
+            history = _DedicatedHistory(journal, journal.claim("ledger-owner"))
+            medians: list[float] = []
+            for orders in (50, 200):
+                while history.orders < orders:
+                    history.round_trip()
+                medians.append(history.median_round_trip_seconds())
+        print(f"round trip at 50/200 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Decoding, re-validating and replaying every fill per event grew superlinearly.
         assert medians[1] < 2.5 * medians[0]
