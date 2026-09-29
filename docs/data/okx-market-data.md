@@ -1,8 +1,8 @@
 # OKX public L2 capture and historical replay
 
 OKX adds **L2** data: aggregate price levels and order counts, without individual
-order IDs or queue priority. Bitfinex R0 and Coinbase Exchange remain the L3
-sources. The acquisition/capture examples below select native **BTC-USDT spot**;
+order IDs or queue priority. Bitfinex R0 remains the active L3 source; Coinbase
+Exchange L3 is deferred. The acquisition/capture examples below select native **BTC-USDT spot**;
 the [saved L2 backtest](../research/l2-book-backtest.md) selects **ETH-USDT spot**.
 Each configuration has its own canonical listing ID. USDT is not USD.
 

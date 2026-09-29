@@ -139,8 +139,8 @@ and live paper matching share these APIs without adding research dependencies to
 the collector or market-data dependencies to the portable execution wheel.
 
 The declared initial qualification remains OKX `books` L2 and Bitfinex `R0` L3.
-Coinbase lifecycle fixtures retain software coverage only; authenticated access
-is still unqualified. Per-book visible depth does not establish complete venue
+Coinbase lifecycle fixtures retain software coverage only; live Coinbase
+collection is deferred and not required. Per-book visible depth does not establish complete venue
 coverage, queue priority, executable liquidity or strategy performance. The registry below
 owns cross-venue consolidation; MR15 owns capacity measurement. The
 [roadmap acceptance record](../../docs/roadmap/README.md#mr07a-common-bbo-and-incremental-l3-aggregates)

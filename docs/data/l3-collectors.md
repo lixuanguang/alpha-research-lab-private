@@ -1,8 +1,9 @@
 # Bounded crypto L3 capture and replay
 
 Owner: repository founder. Status: bounded development capture, durability,
-recovery, quality, supervision and replay are implemented. Coinbase authenticated
-external acceptance remains access-blocked. This workflow records new observations;
+recovery, quality, supervision and replay are implemented. Coinbase Exchange L3
+collection is [deferred](#coinbase-deferred) and not required by any workflow.
+This workflow records new observations;
 it does not establish historical backfill, complete source coverage, a deployed
 service or an execution model.
 
@@ -22,15 +23,16 @@ consume retained results. The former infrastructure/capture notebooks are
 retired from active examples; their source remains in Git history.
 
 [OKX public L2](okx-market-data.md) retains aggregate levels and historical source
-clocks separately from these L3 order feeds. Coinbase remains available through
-the installed collector and tests with the access requirements below; notebook
-diagnostics do not read its credentials.
-The first configured native spot identities are separate listings:
+clocks separately from these L3 order feeds. Bitfinex R0 is the only L3 source
+in active use; it is public and needs no credentials. The Coinbase adapter and
+its tests remain in the codebase, but no workflow requires Coinbase data (see
+[Coinbase (deferred)](#coinbase-deferred)).
+The configured native spot identities are separate listings:
 
 | Venue | Native symbol | Feed | Canonical listing ID | Depth |
 | --- | --- | --- | --- | --- |
 | Bitfinex | `tBTCUSD` | public `book`, `prec=R0`, `freq=F0` | `c87d983f-e7ec-4e64-8d54-9f2be67a64b8` | requested `len=25`; live sample contained 25 orders per side |
-| Coinbase Exchange | `BTC-USD` | authenticated `level3` and heartbeat | `218142de-d549-43bb-85ba-a174fd4f798f` | complete REST level=3 snapshot; fail if configured order/byte budget is exceeded |
+| Coinbase Exchange (deferred) | `BTC-USD` | authenticated `level3` and heartbeat | `218142de-d549-43bb-85ba-a174fd4f798f` | complete REST level=3 snapshot; fail if configured order/byte budget is exceeded |
 
 The listing UUIDs are authored identities, not exchange-issued UUIDs or a
 historical eligibility catalog. Both configurations explicitly bind BTC and USD.
@@ -41,9 +43,7 @@ From the repository root:
 
 ```sh
 uv run --frozen --no-editable alpha-collect probe --config configs/live/bitfinex-btc-usd.json
-uv run --frozen --no-editable alpha-collect probe --config configs/live/coinbase-btc-usd.json
 uv run --frozen --no-editable alpha-collect capture --config configs/live/bitfinex-btc-usd.json --output data/bitfinex
-uv run --frozen --no-editable alpha-collect capture --config configs/live/coinbase-btc-usd.json --output data/coinbase --secrets secrets/coinbase.secrets
 ```
 
 Each maintained config selects a 20-second recording, at most 10,000 received
@@ -52,19 +52,26 @@ messages, a 32 MB journal, 8 MB per source message, a queue of 1,024 messages,
 These are resource ceilings, not promised exchange throughput or depth. Bounded
 connection/shutdown and pending filesystem work can extend command elapsed time
 past the receive interval. Review limits in the [Bitfinex configuration](../../configs/live/bitfinex-btc-usd.json)
-and [Coinbase configuration](../../configs/live/coinbase-btc-usd.json)
 before changing them. A reconnect starts a fresh epoch and snapshot; it does not
 repair the preceding interval. Stop the foreground invocation with Ctrl-C.
 
-## Coinbase credentials and access
+## Coinbase (deferred)
+
+Coinbase Exchange L3 collection is deferred and is not a requirement for any
+workflow, test or acceptance step. Exchange Level 3 access needs an institutional
+Exchange account (about USD 5,000 minimum opening funding), which the project is
+not opening at this stage. Bitfinex R0 covers the active L3 path. The adapter,
+[configuration](../../configs/live/coinbase-btc-usd.json) and lifecycle fixtures
+stay in the codebase so the source can be revisited; the notes below record what
+would apply then and are not setup steps.
 
 Use a **Coinbase Exchange** API key with View permission and eligible Exchange
 account access. The CDP `name`/`privateKey` JSON is deliberately ignored. Exchange
 uses its own key, base64 HMAC secret and passphrase; neither the CDP private key
 nor an Advanced Trade subscription supplies Exchange Level 3 access.
 
-An empty, owner-only local `secrets/coinbase.secrets` was created for this work.
-For a new checkout, copy the tracked empty example without overwriting a local key:
+If Coinbase is revisited, copy the tracked empty example without overwriting a
+local key:
 
 ```sh
 mkdir -p secrets
@@ -305,8 +312,8 @@ Derived summaries add `frames`, `duplicates`, `stale_snapshots` and
 input can produce a different derived trace when a formerly invalid exact repeat
 is now explicitly classified as a duplicate.
 
-These recovery guarantees do not establish Coinbase external eligibility or
-complete source coverage.
+These recovery guarantees do not establish complete source coverage; Coinbase
+external access is [deferred](#coinbase-deferred).
 
 ## Official protocol references
 
@@ -471,7 +478,7 @@ the canonical executable proof; the engineer notebook covers synthetic session r
 The canonical proof covers the selected prefix (32 positions in acceptance), while
 native summary parity covers the finite recording. Continuous service, complete
 coverage, source clock accuracy and execution remain outside this acceptance.
-Coinbase live acceptance still requires verified Exchange access. The existing
+Coinbase live acceptance is [deferred](#coinbase-deferred) and not required. The existing
 supervised CLI path remains raw-capture-only and refuses snapshot flags; independent
 supervision follows its separate contract. Artifact verification remains required for any
 deployment. No new venue connection is needed to replay an existing saved recording.

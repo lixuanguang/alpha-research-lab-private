@@ -9,12 +9,12 @@ tables, ordered free first, with depth, quality evidence and API links. The
 expanded tables include imported candidates whose claims remain unverified;
 their labels distinguish them from the checks recorded in this guide.
 
-The new native L3 workflow prioritizes **Bitfinex R0** and **Coinbase Exchange
-Level 3**. Start with the [collector commands](../../data/l3-collectors.md#start-here)
+The native L3 workflow uses **Bitfinex R0**, a public feed that needs no
+credentials. Start with the [collector commands](../../data/l3-collectors.md#start-here)
 and [market-data guide](../../../src/market_data/README.md). Bitfinex has real bounded
-capture/replay evidence; Coinbase authenticated source acceptance awaits local
-Exchange key/secret/passphrase and account eligibility. This is live recording,
-not historical backfill.
+capture/replay evidence. Coinbase Exchange Level 3 is
+[deferred](../../data/l3-collectors.md#coinbase-deferred): it needs an institutional
+Exchange account and is not required. This is live recording, not historical backfill.
 
 The requested [OKX integration](../../data/okx-market-data.md) adds public
 BTC-USDT **L2** live books and historical order-book archives with actual bounded

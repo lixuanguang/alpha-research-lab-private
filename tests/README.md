@@ -156,7 +156,7 @@ reads retained Coinbase `level3` capture journals given with `--capture` or foun
 under `--search` roots. For each REST snapshot it reports bridged updates whose
 source `time` precedes the snapshot's, the adapter's refusal if any, and whether
 sequence-only bridging would accept. Without a Coinbase capture it reports that no
-pair is available, which is the case while authenticated Coinbase access is blocked. The [notebook guide](../examples/notebook-operations.md)
+pair is available, which is expected while Coinbase collection is deferred. The [notebook guide](../examples/notebook-operations.md)
 owns execution of the research worksheets.
 
 The [decision source consumer](integration/consumers/research/decision_sources.py)
