@@ -83,6 +83,8 @@ class PaperOrderJournal:
         self._codec = DomainCodec()
         self._lock: BinaryIO | None = None
         self._epoch: int | None = None
+        # Decoded order states keyed by their exact stored bytes; see _orders.
+        self._decoded_orders: dict[bytes, OrderState] = {}
         self._binding = self._codec.encode_json(
             (
                 "paper-order-journal-v1",
@@ -349,18 +351,24 @@ class PaperOrderJournal:
                 if saved_liquidity is None
                 else self._codec.decode_json(self._blob(saved_liquidity[0]), PaperLiquidityState)
             )
+            # Only open orders can match, and a new market has no posted facts (its
+            # claim, effects and result commit together), so terminal orders and
+            # their events are neither decoded into the projection nor re-validated.
+            orders = tuple(order for order in self._orders(connection) if not order.is_terminal)
+            open_ids = {order.identity for order in orders}
             prior = tuple(
-                self._codec.decode_json(self._blob(row[0]), OrderEvent)
+                self._codec.decode_json(self._blob(row[1]), OrderEvent)
                 for row in self._query_all(
-                    connection, "SELECT payload FROM events ORDER BY sequence"
+                    connection, "SELECT order_id, payload FROM events ORDER BY sequence"
                 )
+                if row[0] in open_ids
             )
             projection = PaperMatchEvaluator(
                 scenario, lot=self.limits.lot, tick=self.limits.tick
             ).project(
                 market,
                 account_id=self.account,
-                orders=self._orders(connection),
+                orders=orders,
                 prior_events=prior,
                 liquidity=liquidity,
             )
@@ -866,9 +874,24 @@ class PaperOrderJournal:
         return None if row is None else self._codec.decode_json(self._blob(row[0]), OrderState)
 
     def _orders(self, connection: sqlite3.Connection) -> tuple[OrderState, ...]:
-        """Decode the account's current order states in admission order."""
+        """Decode the account's current order states in admission order.
+
+        A stored order's bytes change with every update, so an unchanged order,
+        typically a terminal one, reuses its earlier validated decode instead of
+        being decoded again on every market. Only the latest read is retained.
+        """
         rows = self._query_all(connection, "SELECT payload FROM orders ORDER BY sequence")
-        return tuple(self._codec.decode_json(self._blob(row[0]), OrderState) for row in rows)
+        decoded: dict[bytes, OrderState] = {}
+        for row in rows:
+            payload = self._blob(row[0])
+            order = self._decoded_orders.get(payload)
+            decoded[payload] = (
+                order if order is not None else self._codec.decode_json(payload, OrderState)
+            )
+        if len(decoded) != len(rows):
+            raise ValueError("paper journal repeats an order payload")
+        self._decoded_orders = decoded
+        return tuple(decoded.values())
 
     def _step(self, connection: sqlite3.Connection, step_id: str) -> StepRecord | None:
         """Decode one saved candidate step at the persistence boundary."""

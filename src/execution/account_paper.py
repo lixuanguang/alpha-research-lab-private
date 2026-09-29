@@ -298,17 +298,22 @@ class AccountPaperMatching:
             raise ValueError("paper account requires an opening reconciliation")
         if market.at < self.admission.account_time(transaction, account_view):
             raise ValueError("paper market precedes current account knowledge")
+        # Only open orders can match. A market without a trace has no posted
+        # facts yet (traces commit with their effects), so terminal orders and
+        # their history cannot change this projection and are not re-validated.
         direct = tuple(
             item.order
             for item in transaction.state.orders
             if item.account_id == account_id
             and item.context is None
+            and not item.order.is_terminal
             and item.order.intent.quantity.dimension.instrument_id == scenario.instrument_id
         )
         net = tuple(
             item.order
             for item in transaction.state.net_orders
             if item.account_id == account_id
+            and not item.order.is_terminal
             and item.order.intent.quantity.dimension.instrument_id == scenario.instrument_id
         )
         if any(

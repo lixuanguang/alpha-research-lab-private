@@ -15,10 +15,18 @@ import pytest
 # project library imports
 from accounting import AccountSnapshot
 from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
-from execution import AccountJournal, AccountObservation, PaperMarket
+from execution import (
+    AccountDecision,
+    AccountJournal,
+    AccountObservation,
+    AccountQuote,
+    OrderDecision,
+    PaperMarket,
+)
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
+from strategies import OrderIntent
 
 
 class _SharedFirmHistory:
@@ -50,20 +58,56 @@ class _SharedFirmHistory:
             assert self.journal.reconcile(self._opening(account))
         self.at = self.opening_at + timedelta(seconds=1)
         self.markets = 0
+        self.orders = 0
 
     def tick(self, account_id: str) -> None:
         """Match one never-seen public market for an account."""
         self.at += timedelta(milliseconds=1)
         self.markets += 1
+        # Alternating touches start a fresh displayed-size segment on each market.
+        is_odd = self.markets % 2 == 1
         market = PaperMarket(
             identity=f"market-{self.markets}",
             at=self.at,
-            bid=self._price("0.90"),
-            ask=self._price("1.00"),
+            bid=self._price("0.89" if is_odd else "0.90"),
+            ask=self._price("1.01" if is_odd else "1.00"),
             bid_quantity=self._quantity("3"),
             ask_quantity=self._quantity("3"),
         )
         self.journal.match_public_market(account_id, market, self.scenario)
+
+    def round_trip(self) -> None:
+        """Fill one IOC buy and one IOC sell of a single unit for the busy account."""
+        for side, limit in (("buy", "1.10"), ("sell", "0.80")):
+            self.at += timedelta(milliseconds=1)
+            self.orders += 1
+            quote = AccountQuote(price=self._price("1.00"), at=self.at)
+            self.journal.observe(quote)
+            admitted = self.journal.admit(
+                AccountDecision(
+                    account_id="busy",
+                    instance_id="busy-alpha",
+                    decision=OrderDecision(
+                        identity=f"order-{self.orders}",
+                        at=self.at,
+                        intent=OrderIntent(
+                            side="buy" if side == "buy" else "sell",
+                            quantity=self._quantity("1"),
+                            limit=self._price(limit),
+                            time_in_force="ioc",
+                        ),
+                    ),
+                    quote=quote,
+                    maximum_fee=self._money("0.01"),
+                    checkpoint=f"order-{self.orders}".encode(),
+                )
+            )
+            assert admitted.status == "committed", admitted.reason
+            self.tick("busy")
+
+    def busy_tick(self) -> None:
+        """Match one idle market for the busy account."""
+        self.tick("busy")
 
     def quiet_traces(self) -> int:
         """Read every retained trace of the quiet account."""
@@ -172,3 +216,16 @@ class TestAccountHistoryScaling:
         print(f"quiet trace read at 500/4000 busy traces: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Scanning every account's rows grows about eightfold here; the index stays flat.
         assert medians[1] < 2 * medians[0]
+
+    @pytest.mark.performance
+    def test_idle_paper_tick_ignores_terminal_order_history(self, tmp_path: Path) -> None:
+        """An idle tick stays near flat while filled orders and their events accumulate."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        medians: list[float] = []
+        for orders in (40, 200):
+            while history.orders < orders:
+                history.round_trip()
+            medians.append(history.median_seconds(history.busy_tick, repeats=21))
+        print(f"idle tick at 40/200 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Re-validating every order and event against every order grew about 11x here.
+        assert medians[1] < 3 * medians[0]

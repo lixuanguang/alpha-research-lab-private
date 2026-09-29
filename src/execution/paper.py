@@ -196,6 +196,8 @@ class PaperMatchEvaluator:
         self.scenario, self.lot, self.tick = scenario, lot, tick
         self.fees = PaperFeeSchedule(scenario.fee_rate)
         self._codec = DomainCodec()
+        # The identity hashes the whole scenario; compute it once, not per effect.
+        self._scenario_identity = scenario.identity
 
     def project(
         self,
@@ -241,7 +243,7 @@ class PaperMatchEvaluator:
             liquidity.__post_init__()
             if liquidity.bid.price.per != self.lot.dimension:
                 raise ValueError("paper liquidity belongs to another instrument")
-            if liquidity.scenario_identity != self.scenario.identity:
+            if liquidity.scenario_identity != self._scenario_identity:
                 raise ValueError("paper liquidity belongs to another execution scenario")
             if market.at < liquidity.last_market_at:
                 raise ValueError("paper market availability regressed")
@@ -386,7 +388,7 @@ class PaperMatchEvaluator:
                     dimension=self.lot.dimension,
                 ),
             ),
-            scenario_identity=self.scenario.identity,
+            scenario_identity=self._scenario_identity,
             last_market_identity=market.identity,
             last_market_at=market.at,
         )
@@ -459,7 +461,7 @@ class PaperMatchEvaluator:
                 (
                     "paper-match-v2",
                     account_id,
-                    self.scenario.identity,
+                    self._scenario_identity,
                     market.identity,
                     order.identity,
                     kind,
