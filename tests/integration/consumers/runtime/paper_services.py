@@ -12,9 +12,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar, Literal
 
-# third party library imports
-import msgspec
-
 # project library imports
 from accounting import AccountSnapshot
 from applications.execute.service_inputs import ServiceBookInputs
@@ -430,7 +427,7 @@ class PaperServiceWorkload:
                     if item.source != definitions[0].source
                 )
                 if account.account_id == "shared"
-                else msgspec.UNSET
+                else ()
             ),
         )
 

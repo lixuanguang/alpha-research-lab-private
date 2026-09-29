@@ -328,7 +328,7 @@ New foreground book captures can use
 [scope example](../../configs/live/public-spot-universes.json). The complete scope
 is part of `CaptureRequest` and therefore of raw, snapshot and query provenance;
 collection and research membership are enforced separately. A request without
-this field is unscoped and omits it from its wire identity.
+this field is unscoped and records `universes` as null.
 Scoped supervised capture is explicitly unsupported until its runtime consumer
 retains the scope too.
 

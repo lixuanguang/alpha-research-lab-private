@@ -560,7 +560,7 @@ class TestExperiments:
             engineering_sample=TimeWindow(start=self._time(0), end=self._time(1)),
         )
         assert _CODEC.decode_json(_CODEC.encode_json(sample), ExperimentSpec) == sample
-        assert b"engineering_sample" not in _CODEC.encode_json(validation)
+        assert b'"engineering_sample":null' in _CODEC.encode_json(validation)
         assert sample.identity != validation.identity
         with AttemptStore(tmp_path) as store:
             original = store.start(validation, at=self._time(30), invocation="validation")

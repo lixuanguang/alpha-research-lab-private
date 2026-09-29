@@ -11,9 +11,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-# third party library imports
-import msgspec
-
 # project library imports
 from configuration import BookKey, PaperExecutionScenario
 from execution import AccountControl, AccountQuote, PaperAccount, PaperMarket, PortfolioCommit
@@ -53,7 +50,7 @@ class SharedBookDelivery(WireRecord, frozen=True):
     inputs: tuple[SharedStrategyInput, ...]
     coordinated_at: datetime | None
     schema_version: str = "shared-book-delivery-v1"
-    market_effects: bool | msgspec.UnsetType = msgspec.UNSET
+    market_effects: bool = True
 
     def __post_init__(self) -> None:
         """Reject unbound policy clocks or partial coordination envelopes."""
@@ -64,7 +61,7 @@ class SharedBookDelivery(WireRecord, frozen=True):
         """Validate newly constructed selection and coordination after native validation."""
         if self.schema_version != "shared-book-delivery-v1" or type(self.inputs) is not tuple:
             raise ValueError("invalid shared book delivery")
-        if self.market_effects is not msgspec.UNSET and type(self.market_effects) is not bool:
+        if type(self.market_effects) is not bool:
             raise ValueError("invalid shared market selection")
         if self.market_effects is False and (self.inputs or self.coordinated_at is not None):
             raise ValueError("unselected market cannot coordinate decisions")
@@ -195,7 +192,7 @@ class SharedPaperCaptureObserver:
             source=source,
             inputs=selected,
             coordinated_at=self._coordination_time(source.available_at) if selected else None,
-            market_effects=False if market is not None and not market_effects else msgspec.UNSET,
+            market_effects=market is None or market_effects,
         )
         offset, length = self._retain(delivery)
         if self.index is not None:

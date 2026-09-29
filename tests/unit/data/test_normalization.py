@@ -1,4 +1,4 @@
-"""Keep legacy capture provenance intact while assigning scoped occurrence identities."""
+"""Keep capture provenance intact while assigning scoped occurrence identities."""
 
 from __future__ import annotations
 

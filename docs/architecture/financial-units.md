@@ -244,7 +244,7 @@ canonical market-event codecs. Currency wire values persist both `code` and
 rejected as an unsupported currency schema. Market-event codecs preserve their closed tags and exact Decimal
 text. Configured backtests, simulated orders/fills, checkpoints and retained
 reports now use the shared serialization boundary; venue execution remains
-planned. The packaged JSON is an owned compatibility input;
+planned. The packaged currency JSON is an owned preset input;
 changing it changes package content and invalidates the corresponding uv cache
 key. QuantLib remains exactly 1.43. New consumer schemas require their own
 versioned compatibility and evidence.

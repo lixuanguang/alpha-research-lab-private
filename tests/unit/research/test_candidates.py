@@ -9,7 +9,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # third party library imports
-import msgspec
 import pytest
 from msgspec.structs import replace
 
@@ -191,9 +190,7 @@ class TestCandidateBundles:
             environment_sha256=_ENVIRONMENT_SHA256,
             split=split,
             engineering_sample=(
-                TimeWindow(start=_START, end=_START + timedelta(hours=5))
-                if split is None
-                else msgspec.UNSET
+                TimeWindow(start=_START, end=_START + timedelta(hours=5)) if split is None else None
             ),
         )
         payloads["study-report"] = codec.encode_json(

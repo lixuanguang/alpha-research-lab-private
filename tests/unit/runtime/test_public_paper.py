@@ -527,13 +527,7 @@ class TestSharedPublicPaper:
                 assert selected == (offset, len(payload) + 1)
             offset += len(payload) + 1
         assert BookAsOfIndex(as_of.path).covered_bytes() == offset
-        assert tuple(item.market_effects for item in retained) == (
-            msgspec.UNSET,
-            msgspec.UNSET,
-            False,
-            False,
-            msgspec.UNSET,
-        )
+        assert tuple(item.market_effects for item in retained) == (True, True, False, False, True)
         assert len(journal.paper_traces("paper")) == 2
         assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
             self._quantity("1"),
@@ -596,26 +590,14 @@ class TestSharedPublicPaper:
         assert observer.last_market is not None
         assert observer.last_market.at == self.at + timedelta(seconds=2)
 
-    def test_market_interval_bounds_and_legacy_wire_identity(self, tmp_path: Path) -> None:
-        """The omitted selection field preserves v1 bytes; invalid cadence fails early."""
+    def test_market_interval_bounds_and_explicit_selection(self, tmp_path: Path) -> None:
+        """The selection field is always encoded; invalid cadence fails early."""
         delivery = self._delivery(
             0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
         )
         codec = DomainCodec()
-        expected = codec.encode_json(
-            {
-                "source": delivery.source,
-                "inputs": delivery.inputs,
-                "coordinated_at": delivery.coordinated_at,
-                "schema_version": delivery.schema_version,
-            }
-        )
-        assert codec.encode_json(delivery) == expected
-        assert b"market_effects" not in expected
-        assert codec.decode_json(expected, SharedBookDelivery) == delivery
-        assert hashlib.sha256(codec.encode_json(delivery)).hexdigest() == (
-            hashlib.sha256(expected).hexdigest()
-        )
+        assert b'"market_effects":true' in codec.encode_json(delivery)
+        assert codec.decode_json(codec.encode_json(delivery), SharedBookDelivery) == delivery
         with pytest.raises(ValueError, match="cannot coordinate"):
             replace(delivery, market_effects=False, coordinated_at=self.at)
         for interval in (-1, True, 5_000_001, 10_000_000):

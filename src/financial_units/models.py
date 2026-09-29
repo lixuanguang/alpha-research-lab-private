@@ -347,7 +347,7 @@ class Currency(_FinancialUnitModel):
 
     @staticmethod
     def _load_defaults() -> tuple[Currency, ...]:
-        """Load and validate immutable compatibility presets from packaged JSON."""
+        """Load and validate immutable currency presets from packaged JSON."""
         payload = resources.files(__package__).joinpath("default_currencies.json").read_bytes()
         definitions = msgspec.json.decode(
             payload,

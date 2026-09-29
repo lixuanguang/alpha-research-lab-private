@@ -232,8 +232,7 @@ freshness and capture idle time, measured on retained delivery clocks.
 The interval is positive, defaults to 3,000,000 microseconds and cannot exceed
 either source freshness or capture idle time. The exact source configuration and
 `SharedBookInputs` identity both bind it. `SharedBookDelivery.market_effects=false`
-retains an unselected book for exact replay; old envelopes with that optional
-field omitted retain their prior per-book economic behavior. This is a selected-
+retains an unselected book for exact replay. This is a selected-
 book paper model, not a measured feed or throughput capacity claim.
 
 `PaperConfiguration.execution` selects a required versioned scenario. The dedicated

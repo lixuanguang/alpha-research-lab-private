@@ -479,7 +479,7 @@ silently repaired from a historical snapshot.
 scenario for a named instance. `scope_for(instance_id)` resolves its exact route;
 `scenarios` exposes distinct bound scenarios. Unsupported instances, conflicting
 mechanics for one instrument, venue substitutions and currency changes reject.
-Absent overrides retain the original MR13 wire bytes and deployment hash.
+A deployment without overrides encodes an explicit empty tuple.
 Managed shadow deployments use explicit shadow authority and cannot create paper
 fills or internal crosses. Installation binds every selected scenario before orders.
 

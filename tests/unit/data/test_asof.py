@@ -482,7 +482,7 @@ class TestAsOfSelector:
         original = self._canonical(
             request,
             (self._item(request),),
-            history=replace(history, schema_version="1", assertions=history.assertions[:-1]),
+            history=replace(history, assertions=history.assertions[:-1]),
         )
         corrected = self._canonical(request, (self._item(request),), history=history)
         for payload in (original, corrected):
@@ -505,7 +505,7 @@ class TestAsOfSelector:
         excluded = self._canonical(
             request,
             (self._item(request),),
-            history=replace(history, schema_version="1", assertions=(endpoint,)),
+            history=replace(history, assertions=(endpoint,)),
         )
         assert (
             self._select(

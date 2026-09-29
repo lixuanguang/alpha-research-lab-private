@@ -450,8 +450,8 @@ after the last selected book cause `paper_market` matching and active strategy
 evaluation. Intermediate eligible books update the monitoring mark without
 matching orders, posting paper fills or advancing strategy checkpoints. Source
 invalidation still faults immediately. Retained `SharedBookDelivery` records
-mark skipped economics with `market_effects=false` for exact replay; records
-that omit the field applied that book's market effects. This models selected
+record `market_effects` explicitly: `false` marks skipped economics for exact
+replay, `true` means that book's market effects were applied. This models selected
 paper opportunities and does not qualify feed throughput or MR15 capacity.
 
 The supervisor consumes at most one durable frame per source per pass. When the

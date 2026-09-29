@@ -62,8 +62,8 @@ class _Partition(WireRecord, frozen=True, kw_only=True):
     reasons: tuple[str, ...]
     revisions: tuple[TradeRevision, ...]
     controls: tuple[Occurrence, ...]
-    capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
-    qualification: SourceQualification | msgspec.UnsetType = msgspec.UNSET
+    capture: ArchiveCapture | None = None
+    qualification: SourceQualification | None = None
 
     def __post_init__(self) -> None:
         """Reject altered canonical claims using the existing source and quality gate.

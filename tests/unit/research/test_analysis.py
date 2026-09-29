@@ -29,7 +29,7 @@ from research.features import (
     TrailingReturn,
     WindowPolicy,
 )
-from research.studies import FeatureLabelPayload
+from research.results import FeatureStudyResult
 from serialization import DomainCodec
 
 _START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -214,7 +214,7 @@ class TestBoundedFeatureAnalysis:
             ),
             value=ExactRatio(numerator="1", denominator="100"),
         )
-        payload = FeatureLabelPayload(
+        payload = FeatureStudyResult(
             schema_version="feature-study-result-v1",
             selection_identity="1" * 64,
             feature_definition=definition,

@@ -28,6 +28,7 @@ from research.experiments import (
 )
 from research.features import FeatureValue, PriceWindow, TrailingReturn, WindowPolicy
 from research.labels import ForwardReturn, LabelValue
+from research.results import FeatureStudyResult
 from research.studies import (
     AlphalensDiagnostics,
     AlphalensReport,
@@ -35,7 +36,6 @@ from research.studies import (
     ClearMLDestination,
     ClearMLPublication,
     FactorDirection,
-    FeatureLabelPayload,
     PriceConvention,
     QuantileRule,
     ResultManifest,
@@ -69,7 +69,7 @@ def _payload(
     pending: tuple[tuple[int, int], ...] = (),
     assets: tuple[InstrumentId, ...] = _ASSETS,
     decision_step: timedelta = timedelta(seconds=10),
-) -> FeatureLabelPayload:
+) -> FeatureStudyResult:
     """Create a tiny retained result whose expected ranks are hand-computable."""
     feature_definition, label_definition = _definitions()
     feature_rows: list[tuple[str, FeatureValue]] = []
@@ -130,7 +130,7 @@ def _payload(
                     label_available_at=None if is_pending else available,
                 )
             )
-    return FeatureLabelPayload(
+    return FeatureStudyResult(
         schema_version="feature-study-result-v1",
         selection_identity=_SELECTION,
         feature_definition=feature_definition,

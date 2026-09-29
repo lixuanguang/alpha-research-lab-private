@@ -158,17 +158,17 @@ class TestDatasetManifest:
             DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).assemble(
                 (first,), RawStore(tmp_path), max_bytes=_LIMIT
             )
-        legacy = self._build(tmp_path, (first,))
+        shared = self._build(tmp_path, (first,))
         per_input = DatasetInput(
             acquisition=first,
-            policy=legacy[0].partitions[0].policy,
-            eligibility=legacy[0].partitions[0].eligibility,
+            policy=shared[0].partitions[0].policy,
+            eligibility=shared[0].partitions[0].eligibility,
         )
         assert (
             DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).assemble(
                 (per_input,), RawStore(tmp_path), max_bytes=_LIMIT
             )
-            == legacy
+            == shared
         )
 
     def test_rebuild_order_roundtrip_and_relocation(self, tmp_path: Path) -> None:

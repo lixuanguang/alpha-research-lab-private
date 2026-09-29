@@ -49,7 +49,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
     capture: CaptureRequest | None = None
     archive: OKXArchiveRequest | None = None
     index: bytes = b""
-    predecessors: tuple[CaptureAncestor, ...] | msgspec.UnsetType = msgspec.UNSET
+    predecessors: tuple[CaptureAncestor, ...] = ()
 
     def __post_init__(self) -> None:
         """Require exactly one supported request and preserve archive discovery evidence."""
@@ -75,13 +75,13 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             raise ValueError("book archive discovery differs from retained request")
         if self.capture is not None and self.index:
             raise ValueError("live capture cannot acquire archive discovery evidence")
-        if self.predecessors is not msgspec.UNSET and (
+        if (
             type(self.predecessors) is not tuple
             or len(self.predecessors) > 511
             or any(type(item) is not CaptureAncestor for item in self.predecessors)
         ):
             raise ValueError("book input requires bounded typed capture predecessors")
-        if self.predecessors is not msgspec.UNSET and self.capture is None:
+        if self.predecessors and self.capture is None:
             raise ValueError("archive input cannot acquire capture predecessors")
         if self.capture is not None:
             self.capture_chain()
@@ -90,7 +90,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
         """Validate exact segment linkage and expose original replay order without duplicates."""
         if self.capture is None:
             return ()
-        previous = () if self.predecessors is msgspec.UNSET else self.predecessors
+        previous = self.predecessors
         chain = (*previous, CaptureAncestor(capture=self.capture, raw=self.raw))
         segment = self.capture.segment
         if segment is None:
@@ -160,19 +160,17 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             capture=codec.decode_json(payload, CaptureRequest) if capture else None,
             archive=None if capture else codec.decode_json(payload, OKXArchiveRequest),
             index=b"" if capture else cls._read_bytes(directory / "index.json", 1_048_576),
-            predecessors=cls._predecessors(directory, payload) if capture else msgspec.UNSET,
+            predecessors=cls._predecessors(directory, payload) if capture else (),
         )
         return selected
 
     @classmethod
-    def _predecessors(
-        cls, directory: Path, payload: bytes
-    ) -> tuple[CaptureAncestor, ...] | msgspec.UnsetType:
+    def _predecessors(cls, directory: Path, payload: bytes) -> tuple[CaptureAncestor, ...]:
         """Resolve sibling segment identities before any suffix bytes are admitted."""
         codec = DomainCodec()
         request = codec.decode_json(payload, CaptureRequest)
         if request.segment is None or request.segment.ordinal == 0:
-            return msgspec.UNSET
+            return ()
         ancestors: list[CaptureAncestor] = []
         part = request.segment
         while part.ordinal:

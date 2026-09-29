@@ -15,12 +15,12 @@ from research.experiments import (
     Fingerprint,
     TemporalSplit,
 )
+from research.results import FeatureStudyResult
 from research.studies import (
     AlphalensDiagnostics,
     AlphalensStudy,
     ClearMLDestination,
     ClearMLPublication,
-    FeatureLabelPayload,
     ResultManifest,
     WindowDiagnosticRun,
     WindowDiagnosticStudy,
@@ -136,7 +136,7 @@ def compare_factors(
                 or hashlib.sha256(payload).hexdigest() != source_sha256
             ):
                 raise ValueError("factor source is not the pinned completed feature result")
-            retained = FeatureLabelPayload.decode(payload)
+            retained = FeatureStudyResult.decode(payload)
             if retained.split_identity != split.identity:
                 raise ValueError("factor comparison must preserve the source temporal split")
             if any(

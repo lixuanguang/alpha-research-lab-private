@@ -13,7 +13,7 @@ from reference_data.catalogs import ReferenceHistory
 from serialization import WireRecord
 
 
-class SpotLimits(WireRecord, frozen=True, omit_defaults=True):
+class SpotLimits(WireRecord, frozen=True):
     """Declare explicit product, grid, currency and unlevered holding limits."""
 
     maximum: Quantity

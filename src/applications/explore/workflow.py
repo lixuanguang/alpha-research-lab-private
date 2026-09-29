@@ -166,8 +166,8 @@ def inspect_experiment(
         snapshots: Existing immutable snapshot root; missing inputs fail the retained attempt.
         raw: Retained originals required for snapshot admission.
         attempts: Local retained single-writer root containing the complete family history.
-        tracking: Explicit ClearML destination for formal tracked invocations; omitted for
-            compatibility with existing local exploratory consumers.
+        tracking: Explicit ClearML destination for formal tracked invocations; omit it
+            for a local exploratory run.
         feature_registry: Optional feature implementation registry used only by FeatureStudy;
             omitted to preserve the installed trailing-return implementation.
 

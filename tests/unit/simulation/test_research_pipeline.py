@@ -98,20 +98,6 @@ class TestResearchPipeline:
             comparison=comparison,
         )
 
-    def test_legacy_plan_roundtrip_uses_optional_default(self) -> None:
-        """Decode an old plan shape without comparison and retain exact bytes on reload."""
-        configuration, _ = self._runs()
-        plan = self._plan(configuration)
-        codec = DomainCodec()
-
-        payload = codec.encode_json(plan)
-        legacy_payload = payload.replace(b',"comparison":null', b"")
-        assert b'"comparison"' not in legacy_payload
-        restored = codec.decode_json(legacy_payload, PipelineRun)
-
-        assert restored == plan
-        assert restored.comparison is None
-
     def test_comparison_plan_roundtrip_and_first_variant_binding(self) -> None:
         """Retain the real comparison definition and reject a mismatched base configuration."""
         configuration, comparison = self._runs()

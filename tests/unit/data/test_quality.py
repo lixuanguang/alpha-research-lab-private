@@ -359,7 +359,7 @@ class TestPartitionQuality:
         original = history.assertions[0]
         early = replace(original, valid_to=_START + timedelta(minutes=30))
         excluded = replace(original, valid_from=early.valid_to, state="excluded", reason="delisted")
-        history = replace(history, schema_version="1", assertions=(early, excluded))
+        history = replace(history, assertions=(early, excluded))
         policy = self._policy()
         item = self._item(selection)
         report = policy.validate(
@@ -383,7 +383,7 @@ class TestPartitionQuality:
         )
         assert "unknown" in " ".join(unknown.reasons)
         full = self._history(selection)
-        before = replace(full, schema_version="1", assertions=full.assertions[:-1])
+        before = replace(full, assertions=full.assertions[:-1])
         assert (
             policy.validate(
                 selection, (item,), verifier=SourceAdapters.verifier(selection), eligibility=before

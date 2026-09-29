@@ -380,7 +380,7 @@ class CapacityEconomicParity:
             else ()
         )
         if delivery.inputs != expected or (
-            market is not None and (delivery.market_effects is not False) != selected
+            market is not None and delivery.market_effects != selected
         ):
             raise ValueError("retained source selection or exact feature values differ")
         observer._apply(delivery, market)

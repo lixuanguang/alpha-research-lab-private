@@ -29,9 +29,8 @@ from research.studies import (
 )
 ```
 
-`research.results.FeatureStudyResult` owns the unchanged
-`feature-study-result-v1` bytes shared by feature production, model admission
-and diagnostics. `FeatureLabelPayload` remains an alias for existing callers.
+`research.results.FeatureStudyResult` owns the `feature-study-result-v1` bytes
+shared by feature production, model admission and diagnostics.
 Model admission retains its label, ordered-row and input-digest requirements;
 diagnostics retain their own missing-label and aligned-row rules.
 
@@ -88,9 +87,9 @@ Publication is explicit through `PublicationPolicy`:
   while the completed result remains readable and retryable.
 
 `applications.explore.publish_experiments(attempts)` retries retained outbox bytes
-without reevaluating folds or consuming holdouts. Older configured consumers
-retain their existing immediate-tracking signatures below. The new policy is
-also supported by the existing `ParameterComparison` controller.
+without reevaluating folds or consuming holdouts. Configured backtest consumers
+take a ClearML destination and publish immediately, as shown below;
+`ParameterComparison` takes a publication policy.
 
 The following is the result-reading portion of a workflow after the caller
 constructs its `components` through the public protocols:
@@ -431,7 +430,7 @@ remain unchanged `BacktestSpec` inputs. Pin the published snapshot and explicit
 `ReportPolicy`; preserve the original no-interest benchmark. Engineering samples
 use `experiment-engineering-sample-v1`, keep their own attempts/failures/outbox
 and cannot consume holdouts. Parameter comparison and validation diagnostics
-reject this mode. Existing v1 inputs omit the field and retain their identities.
+reject this mode. Other specs record `engineering_sample` as null.
 
 ## Ownership and verification
 

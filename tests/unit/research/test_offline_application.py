@@ -37,7 +37,8 @@ from research.features import (
     TrailingReturn,
     WindowPolicy,
 )
-from research.studies import ClearMLDestination, FeatureLabelPayload, ResultManifest
+from research.results import FeatureStudyResult
+from research.studies import ClearMLDestination, ResultManifest
 from serialization import DomainCodec
 
 _CODEC = DomainCodec()
@@ -139,7 +140,7 @@ class TestFormalOfflineFeatureComparison:
             ),
             value=ExactRatio(numerator="1", denominator="100"),
         )
-        payload = FeatureLabelPayload(
+        payload = FeatureStudyResult(
             schema_version="feature-study-result-v1",
             selection_identity="1" * 64,
             feature_definition=definition,

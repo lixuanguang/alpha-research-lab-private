@@ -160,7 +160,7 @@ establish or filter historical membership; catalog/units acceptance remains a
 separate contract. Known exclusions may outlive the authored catalog interval.
 
 An assertion's `identity` hashes its canonical fields, evidence and optional
-`supersedes` link. `history.append(assertion)` returns a new version-2 history,
+`supersedes` link. `history.append(assertion)` returns a new history,
 preserving all original records and leaving the input unchanged. A correction
 names its retained predecessor's identity, belongs to the same instrument, has
 strictly later knowledge and distinct evidence identity, and cannot branch.

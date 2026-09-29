@@ -386,24 +386,17 @@ class TestCaptureRollover:
         assert transport.sockets == []
         assert not (tmp_path / "failed" / "run-summary.json").exists()
 
-    def test_legacy_wire_bytes_and_fixed_profile_boundaries(self) -> None:
-        """New lineage stays absent from legacy identities and one-hour segment ceilings remain."""
+    def test_explicit_wire_fields_and_fixed_profile_boundaries(self) -> None:
+        """Unset lineage and scope encode as null; one-hour segment ceilings remain."""
         request = self._request()
-        legacy = CaptureRequest(
+        single = CaptureRequest(
             config=request.config,
             recording_id=request.run_id,
             implementation_identity=request.implementation_identity,
         )
-        codec = DomainCodec()
-        expected = codec.encode_json(
-            {
-                "config": request.config,
-                "recording_id": request.run_id,
-                "implementation_identity": request.implementation_identity,
-            }
-        )
-        assert codec.encode_json(legacy) == expected
-        assert legacy.identity == hashlib.sha256(expected).hexdigest()
+        encoded = DomainCodec().encode_json(single)
+        assert b'"universes":null' in encoded and b'"segment":null' in encoded
+        assert single.identity == hashlib.sha256(encoded).hexdigest()
         with pytest.raises(ValueError, match="resource"):
             replace(request.config, duration_seconds=3601)
         with pytest.raises(ValueError, match="73 hours"):

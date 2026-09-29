@@ -356,7 +356,7 @@ class _UncertainObserver(SharedPaperCaptureObserver):
 
     def __init__(self, *, policy_failure: bool = False) -> None:
         """Keep the selected input cohort visible to the supervisor."""
-        self.inputs = ServiceBookInputs(("first",), 30_000_000)
+        self.inputs = ServiceBookInputs(("first",), 30_000_000, 0)
         self.calls = 0
         self.policy_failure = policy_failure
 
@@ -428,7 +428,7 @@ class _ObservationGate(SharedPaperCaptureObserver):
         self.entered, self.finished = threading.Event(), threading.Event()
         self.positions: list[int] = []
         self.callback_threads: list[int] = []
-        self.inputs = ServiceBookInputs((), 30_000_000)
+        self.inputs = ServiceBookInputs((), 30_000_000, 0)
         self.last_market = None
         self.measurements = None
         self.index = None

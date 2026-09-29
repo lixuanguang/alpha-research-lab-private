@@ -8,9 +8,6 @@ import platform
 from importlib.metadata import distributions
 from typing import Literal
 
-# third party library imports
-import msgspec
-
 # project library imports
 from research.experiments.splits import TemporalSplit, TimeWindow
 from serialization import DomainCodec, WireRecord
@@ -52,7 +49,7 @@ class ExperimentSpec(WireRecord, frozen=True, kw_only=True):
     seeds: tuple[tuple[str, int], ...]
     environment_sha256: str
     split: TemporalSplit | None
-    engineering_sample: TimeWindow | msgspec.UnsetType = msgspec.UNSET
+    engineering_sample: TimeWindow | None = None
 
     def __post_init__(self) -> None:
         """Validate complete semantic identity before any attempt is retained."""
@@ -75,10 +72,7 @@ class ExperimentSpec(WireRecord, frozen=True, kw_only=True):
                 raise TypeError("engineering experiment requires its sample and no split")
             self.engineering_sample.__post_init__()
         else:
-            if (
-                type(self.split) is not TemporalSplit
-                or self.engineering_sample is not msgspec.UNSET
-            ):
+            if type(self.split) is not TemporalSplit or self.engineering_sample is not None:
                 raise TypeError("experiment requires a temporal split")
             self.split.__post_init__()
 

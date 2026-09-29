@@ -445,8 +445,8 @@ class TestSourceQualification:
         """No strict bundle is inferred from native rows, authored status or schema labels."""
         selected = replace(
             inputs.selected,
-            qualification=msgspec.UNSET,
-            prior_acquisitions=msgspec.UNSET,
+            qualification=None,
+            prior_acquisitions=(),
             corrections=(),
         )
         report = inputs.report(selected)
@@ -499,7 +499,7 @@ class TestSourceQualification:
         """Version history cannot import another selection or bypass the qualified boundary."""
         selected = inputs.selected
         with pytest.raises(ValueError, match="qualified acquisition history"):
-            replace(selected, qualification=msgspec.UNSET)
+            replace(selected, qualification=None)
         with pytest.raises(ValueError, match="duplicated"):
             replace(selected, prior_acquisitions=(selected.acquisition,))
         with pytest.raises(ValueError, match="foreign"):

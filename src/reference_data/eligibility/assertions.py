@@ -50,7 +50,7 @@ class EligibilityEvidence(WireRecord, frozen=True, kw_only=True):
             raise ValueError("research assumption availability must equal its authored recording")
 
 
-class EligibilityAssertion(WireRecord, frozen=True, kw_only=True, omit_defaults=True):
+class EligibilityAssertion(WireRecord, frozen=True, kw_only=True):
     """Retain one included or excluded assertion over a half-open UTC valid interval."""
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
@@ -116,7 +116,7 @@ class EligibilityAssertions(WireRecord, frozen=True, kw_only=True):
     """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    schema_version: Literal["1", "2"] = "1"
+    schema_version: str = "1"
     catalog: CatalogSnapshot
     assertions: tuple[EligibilityAssertion, ...]
 
@@ -127,8 +127,8 @@ class EligibilityAssertions(WireRecord, frozen=True, kw_only=True):
             ValueError: Schema, linkage or contradictory overlapping assertions are invalid.
             TypeError: Catalog or assertions have unsafe types.
         """
-        if self.schema_version not in ("1", "2"):
-            raise ValueError("unsupported eligibility schema version")
+        if self.schema_version != "1":
+            raise ValueError("unsupported eligibility schema")
         if type(self.catalog) is not CatalogSnapshot or type(self.assertions) is not tuple:
             raise TypeError("eligibility requires a CatalogSnapshot and immutable assertions")
         self.catalog.validate()
@@ -173,8 +173,6 @@ class EligibilityAssertions(WireRecord, frozen=True, kw_only=True):
         successors: dict[str, EligibilityAssertion] = {}
         for assertion in self.assertions:
             if assertion.supersedes is not None:
-                if self.schema_version != "2":
-                    raise ValueError("eligibility corrections require schema version 2")
                 predecessor = by_identity.get(assertion.supersedes)
                 if (
                     predecessor is None
@@ -197,16 +195,14 @@ class EligibilityAssertions(WireRecord, frozen=True, kw_only=True):
             assertion: New membership or an evidenced correction naming its predecessor.
 
         Returns:
-            A validated version-2 history; this history remains unchanged.
+            A validated history; this history remains unchanged.
 
         Raises:
             TypeError: An assertion or nested record has an unsafe Python type.
             ValueError: Evidence, correction linkage or active membership conflicts.
         """
         self.__post_init__()
-        return EligibilityAssertions(
-            schema_version="2", catalog=self.catalog, assertions=(*self.assertions, assertion)
-        )
+        return EligibilityAssertions(catalog=self.catalog, assertions=(*self.assertions, assertion))
 
     def select(
         self, instrument_id: InstrumentId, *, valid_at: datetime, known_at: datetime

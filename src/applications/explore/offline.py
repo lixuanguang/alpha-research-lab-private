@@ -21,10 +21,10 @@ from research.features import (
     OfflineFeatureAccess,
     OfflineFeatureRequest,
 )
+from research.results import FeatureStudyResult
 from research.studies import (
     ClearMLDestination,
     ClearMLPublication,
-    FeatureLabelPayload,
     ResultManifest,
 )
 from runtime import ImplementationIdentity
@@ -110,7 +110,7 @@ def compare_offline_features(
             payload = _source_payload(source, source_sha256, family, split)
             store.retain(start.attempt_id, "offline-feature-request", request_bytes)
             store.retain(start.attempt_id, "mr3-feature-result", payload)
-            retained = FeatureLabelPayload.decode(payload)
+            retained = FeatureStudyResult.decode(payload)
             if (
                 request.definition.definition_version
                 not in (
@@ -206,7 +206,7 @@ def _source_payload(
         raise ValueError("offline feature source has no completed result bytes")
     if hashlib.sha256(result).hexdigest() != source_sha256:
         raise ValueError("offline feature source bytes differ from the pinned digest")
-    payload = FeatureLabelPayload.decode(result)
+    payload = FeatureStudyResult.decode(result)
     if payload.split_identity != split.identity:
         raise ValueError("offline feature source split differs from the requested split")
     if any(

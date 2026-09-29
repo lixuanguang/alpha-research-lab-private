@@ -331,8 +331,8 @@ class QualityPolicy(WireRecord, frozen=True, kw_only=True):
                     "reasons": tuple(reasons),
                     "revisions": heads,
                     "controls": tuple(sorted(controls, key=self._codec.encode_json)),
-                    **({"capture": capture} if capture is not None else {}),
-                    **({"qualification": qualification} if qualification is not None else {}),
+                    "capture": capture,
+                    "qualification": qualification,
                 }
             )
         return QualityReport(
