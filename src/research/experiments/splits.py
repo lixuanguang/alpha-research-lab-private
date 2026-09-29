@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 # standard library imports
+import bisect
 import hashlib
-from datetime import datetime, timedelta
+import itertools
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 # project library imports
@@ -84,6 +86,47 @@ class SampleInterval(WireRecord, frozen=True, kw_only=True):
     def _temporal_key(self) -> tuple[datetime, str]:
         """Resolve equal decision times with a stable sample identity."""
         return self.decision_at, self.row_id
+
+
+class _ProtectedIntervals:
+    """Index closed evaluation information intervals for purge and embargo queries.
+
+    Bounds are exact integer UTC microseconds, sorted by start, with the latest end
+    of every prefix. The intervals starting at or before a query's end form one
+    prefix, so a single binary search decides whether any of them reaches the
+    query's start. Each query costs O(log n) instead of a scan of every interval.
+    """
+
+    _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+    _MICROSECOND = timedelta(microseconds=1)
+
+    def __init__(self, intervals: list[tuple[datetime, datetime]]) -> None:
+        """Order closed [start, end] UTC intervals by start and keep each prefix's latest end."""
+        ordered = sorted(
+            (self._microseconds(start), self._microseconds(end)) for start, end in intervals
+        )
+        self._starts = [start for start, _ in ordered]
+        self._latest_ends = list(itertools.accumulate((end for _, end in ordered), max))
+
+    def meets(self, start: datetime, end: datetime, *, margin_us: int) -> bool:
+        """Test whether any interval lies within a margin of the closed interval [start, end].
+
+        Args:
+            start: UTC start of the queried closed interval.
+            end: UTC end of the queried closed interval.
+            margin_us: Nonnegative gap in microseconds; zero tests intersection.
+
+        Returns:
+            Whether some interval starts at most ``margin_us`` after ``end`` and ends
+            at most ``margin_us`` before ``start``.
+        """
+        count = bisect.bisect_right(self._starts, self._microseconds(end) + margin_us)
+        return count > 0 and self._latest_ends[count - 1] >= self._microseconds(start) - margin_us
+
+    @classmethod
+    def _microseconds(cls, instant: datetime) -> int:
+        """Convert a UTC instant to exact integer microseconds since the Unix epoch."""
+        return (instant - cls._EPOCH) // cls._MICROSECOND
 
 
 class TemporalSplit(WireRecord, frozen=True, kw_only=True):
@@ -203,16 +246,16 @@ class TemporalSplit(WireRecord, frozen=True, kw_only=True):
             Sorted row identities and the first applicable refusal reason.
         """
         self.__post_init__()
-        protected = [
+        evaluation = [
             (self.validation.start, self.validation.end),
             (self.holdout.start, self.holdout.end),
         ]
-        protected.extend(
+        evaluation.extend(
             (row.information_start, row.information_end)
             for row in self.samples
             if self.validation.contains(row.decision_at) or self.holdout.contains(row.decision_at)
         )
-        gap = timedelta(microseconds=self.embargo_us)
+        protected = _ProtectedIntervals(evaluation)
         excluded: list[tuple[str, str]] = []
         for row in sorted(self.samples, key=SampleInterval._identity_key):
             reason = ""
@@ -228,14 +271,10 @@ class TemporalSplit(WireRecord, frozen=True, kw_only=True):
                 row.label_available_at is None or row.label_available_at > self.fit_cutoff
             ):
                 reason = "label unavailable at fitting cutoff"
-            elif any(
-                row.information_start <= end and row.information_end >= start
-                for start, end in protected
-            ):
+            elif protected.meets(row.information_start, row.information_end, margin_us=0):
                 reason = "purged overlapping information"
-            elif any(
-                row.information_start - end <= gap and start - row.information_end <= gap
-                for start, end in protected
+            elif protected.meets(
+                row.information_start, row.information_end, margin_us=self.embargo_us
             ):
                 reason = "embargoed shared information"
             if reason:
