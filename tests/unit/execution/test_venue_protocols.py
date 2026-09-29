@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, localcontext
 
 # third party library imports
@@ -647,18 +647,31 @@ class TestBitfinexSpotProtocol:
         assert fact.filled_quantity == Decimal("0.000000000000000002")
         assert fact.remaining_quantity == Decimal("1.000000000000000001")
 
-    def test_closed_order_outside_retention_fails_before_lookup(self) -> None:
-        """Two-week native history cannot prove a stale command's terminal state."""
-        transport = ScriptedVenueTransport(self._paper_info())
+    def test_closed_order_outside_retention_fails_before_history_lookup(self) -> None:
+        """Active orders prove any age; two-week closed history cannot prove absence."""
+        active_items: list[object] = [self._order()]
+        transport = ScriptedVenueTransport(
+            self._paper_info(), msgspec.json.encode(active_items), b"[]"
+        )
         adapter = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
         adapter.qualify_account(at=self.at, nonce=1)
+        submitted_at = datetime(2026, 9, 26, 12, tzinfo=UTC)
+        resting = adapter.order(
+            "tETHUSD",
+            "1234",
+            submitted_at=submitted_at,
+            venue_order_id="987",
+            at=submitted_at + timedelta(days=20),
+            nonce=2,
+        )
+        assert resting is not None and resting.status == "open"
         with pytest.raises(VenueProtocolError, match="retention"):
             adapter.order(
                 "tETHUSD",
                 "1234",
-                submitted_at=datetime(2026, 9, 1, tzinfo=UTC),
+                submitted_at=submitted_at,
                 venue_order_id="987",
-                at=self.at,
-                nonce=2,
+                at=submitted_at + timedelta(days=20),
+                nonce=4,
             )
-        assert len(transport.requests) == 1
+        assert [item.path for item in transport.requests[1:]] == ["/v2/auth/r/orders"] * 2

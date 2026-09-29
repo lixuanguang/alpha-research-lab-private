@@ -49,6 +49,7 @@ from execution.venues.contracts import (
     VenueOrderFact,
     VenueOrderRequest,
     VenueOutcomeUnknownError,
+    VenueProtocolError,
     VenueRejectedError,
     VenueStreamEvent,
 )
@@ -983,6 +984,23 @@ class TestVenueGateway:
         opening = account.milliseconds(gateway.config.account.opening_at)
         assert end - opening > 89 * 86_400_000 > end - start
         assert self._order_state(journal, order_id).status == "filled"
+
+    def test_bitfinex_order_resting_past_closed_retention_still_reconciles(
+        self, tmp_path: Path
+    ) -> None:
+        """Active orders prove a resting order at any age; only closed lookups stay bounded."""
+        journal, gateway, account, clock, order_id = self._native(tmp_path, "bitfinex")
+        account.execute(1, quantity="0.5", fee="0.01", per_millisecond=1)
+        clock.sleep(14 * 86_400)
+        assert not gateway.reconcile().recovery_required
+        assert self._order_state(journal, order_id).filled.value == Decimal("0.5")
+        # Once it closes, absence from active orders past closed-order retention proves nothing.
+        account.cancelled = True
+        requests = len(account.requests)
+        with pytest.raises(VenueProtocolError, match="closed-order retention"):
+            gateway.reconcile()
+        paths = [item.path for item in account.requests[requests:]]
+        assert "/v2/auth/r/orders/hist" not in paths
 
     def test_fill_history_resumes_from_the_last_matched_window(self, tmp_path: Path) -> None:
         """A durable mark bounds later fill reads and advances only on a matched account."""
