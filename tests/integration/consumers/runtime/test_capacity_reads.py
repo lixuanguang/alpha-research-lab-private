@@ -437,13 +437,7 @@ class TestCapacityReads:
         monkeypatch.setattr(time, "sleep", await_commit)
         with closing(sqlite3.connect(journal)) as writer:
             writer.execute("BEGIN IMMEDIATE")
-            writer.execute("CREATE TABLE metadata (version TEXT NOT NULL, floor TEXT)")
-            writer.execute("INSERT INTO metadata VALUES ('telemetry-store', NULL)")
-            writer.execute(
-                "CREATE TABLE events (scope TEXT, mode TEXT, name TEXT, version TEXT, "
-                "sample TEXT, revision INTEGER, at TEXT, available TEXT, "
-                "recorded TEXT, payload BLOB)"
-            )
+            TelemetryStore._create(writer)
             worker = threading.Thread(target=wait_for_schema, daemon=True)
             worker.start()
             try:
