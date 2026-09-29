@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 # third party library imports
+import msgspec
 import pytest
 from economic_examples import CODEC as _CODEC
 from economic_examples import START as _START
@@ -140,6 +141,62 @@ class TestEconomicReplay(ReplayInputs):
         gapped = self._run((*self.rows[:3], (150, 150, None), *self.rows[3:]))
         with pytest.raises(ValueError, match="gaps"):
             VectorbtAdapter.run(gapped)
+
+    def test_vectorbt_nav_check_is_bounded_by_its_float_error(self) -> None:
+        """A near-total loss agrees within its derived bound; a larger difference is refused."""
+        fixture = VectorbtAdapter.run(self._run())
+        bound = fixture.nav_error_bound
+        assert 0 < bound < 1e-9 * abs(fixture.nav[-1])
+        template = fixture.orders[0]
+        # Spend all but the fee reserve of a large balance, then value at a collapsed price.
+        initial = Decimal("3478127.82")
+        buy = replace(
+            template,
+            target=template.target.model_copy(update={"value": Decimal("136.75273")}),
+            reference=template.reference.model_copy(update={"value": Decimal("25408.29")}),
+            effective=template.effective.model_copy(update={"value": Decimal("25408.29")}),
+            fee=template.fee.model_copy(update={"value": Decimal("3474.65302213")}),
+        )
+        terminal = template.reference.model_copy(update={"value": Decimal("0.01")})
+        cash, holdings, nav = VectorbtAdapter.project(initial, (buy,), terminal)
+        exact = Decimal("1.51237347")
+        assert (
+            initial
+            - Decimal("136.75273") * Decimal("25408.29")
+            - Decimal("3474.65302213")
+            + Decimal("136.75273") * Decimal("0.01")
+            == exact
+        )
+        # The fixed tolerance rejected this correct run.
+        assert abs(nav[-1] - float(exact)) > max(1e-10, 1e-12 * float(exact))
+        derived = VectorbtAdapter.nav_error_bound(initial, (buy,), terminal)
+        assert abs(nav[-1] - float(exact)) <= derived
+        agreed = replace(
+            fixture,
+            orders=(buy,),
+            cash=cash,
+            holdings=holdings,
+            nav=nav,
+            exact_terminal_nav=fixture.exact_terminal_nav.model_copy(update={"value": exact}),
+            nav_error_bound=derived,
+        )
+        assert _CODEC.decode_json(_CODEC.encode_json(agreed), VectorbtResult) == agreed
+        with pytest.raises(ValueError, match="float error bound"):
+            _CODEC.decode_json(
+                _CODEC.encode_json(replace(agreed, nav=(nav[0], nav[-1] + 2 * derived))),
+                VectorbtResult,
+            )
+
+    def test_vectorbt_comparison_with_fixed_tolerances_is_refused(self) -> None:
+        """A retained comparison in the earlier fixed-tolerance layout is not read."""
+        encoded = msgspec.json.decode(
+            _CODEC.encode_json(VectorbtAdapter.run(self._run())), type=dict[str, object]
+        )
+        bound = encoded.pop("nav_error_bound")
+        assert type(bound) is float
+        encoded["absolute_tolerance"], encoded["relative_tolerance"] = 1e-10, 1e-12
+        with pytest.raises(ValueError, match=r"absolute_tolerance|nav_error_bound"):
+            _CODEC.decode_json(msgspec.json.encode(encoded), VectorbtResult)
 
     def test_projection_isolates_unrelated_controls_and_future_perturbations(self) -> None:
         """Keep another instrument's gap and future-only prices out of the causal prefix."""

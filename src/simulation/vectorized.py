@@ -7,7 +7,9 @@ import hashlib
 import math
 from datetime import datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from importlib.metadata import version
+from typing import ClassVar
 
 # project library imports
 from financial_units import Money, Price, Quantity
@@ -62,8 +64,7 @@ class VectorbtResult(WireRecord, frozen=True):
     holdings: tuple[float, ...]
     nav: tuple[float, ...]
     exact_terminal_nav: Money
-    absolute_tolerance: float
-    relative_tolerance: float
+    nav_error_bound: float
     scope: str
     schema_version: str = "vectorbt-comparison"
 
@@ -88,11 +89,17 @@ class VectorbtResult(WireRecord, frozen=True):
             for value in values
         ):
             raise ValueError("vectorbt produced a nonfinite or untyped projection")
-        if self.absolute_tolerance != 1e-10 or self.relative_tolerance != 1e-12:
-            raise ValueError("unsupported vectorbt comparison tolerance")
+        if (
+            type(self.nav_error_bound) is not float
+            or not math.isfinite(self.nav_error_bound)
+            or self.nav_error_bound <= 0
+        ):
+            raise ValueError("unsupported vectorbt comparison error bound")
         for order in self.orders:
             order.__post_init__()
         self.exact_terminal_nav.model_copy()
+        if not abs(self.nav[-1] - float(self.exact_terminal_nav.value)) <= self.nav_error_bound:
+            raise ValueError("vectorbt terminal NAV differs beyond its float error bound")
 
 
 class VectorbtAdapter:
@@ -217,18 +224,55 @@ class VectorbtAdapter:
         """Select the event-time terminal mark without using hash-based tie ordering."""
         return point.event_at, point.order
 
-    @staticmethod
+    @classmethod
     def _execute(
-        reference: EconomicResult, orders: tuple[VectorbtOrder, ...], terminal: Price
+        cls, reference: EconomicResult, orders: tuple[VectorbtOrder, ...], terminal: Price
     ) -> VectorbtResult:
-        """Call the pinned real Numba engine with every relevant execution default explicit."""
-        # third party library imports
-        import vectorbt
-
+        """Run the pinned engine and retain its NAV only within the derived float error bound."""
         versions = tuple(
             (name, version(name))
             for name in ("vectorbt", "numba", "llvmlite", "numpy", "pandas", "plotly")
         )
+        initial = reference.spec.initial_cash.value
+        cash, holdings, nav = cls.project(initial, orders, terminal)
+        return VectorbtResult(
+            reference_sha256=hashlib.sha256(DomainCodec().encode_json(reference)).hexdigest(),
+            engine="vectorbt/numba",
+            versions=versions,
+            orders=orders,
+            cash=cash,
+            holdings=holdings,
+            nav=nav,
+            exact_terminal_nav=reference.terminal.nav,
+            nav_error_bound=cls.nav_error_bound(initial, orders, terminal),
+            scope=(
+                "single isolated cash-funded spot; completed-window signals; "
+                "explicit positive-delay prints; full long-only targets; "
+                "exact rounded fees projected to float; no shared capital, gaps, "
+                "corrections, queue, liquidity or impact"
+            ),
+        )
+
+    @staticmethod
+    def project(
+        initial: Decimal, orders: tuple[VectorbtOrder, ...], terminal: Price
+    ) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
+        """Call the pinned real Numba engine with every relevant execution default explicit.
+
+        Args:
+            initial: Exact initial cash.
+            orders: Exact delayed long-only target orders in execution order.
+            terminal: Exact terminal valuation price.
+
+        Returns:
+            Float cash, holdings and NAV after each order and at the terminal mark.
+
+        Raises:
+            ValueError: The engine version differs or rejects an order.
+        """
+        # third party library imports
+        import vectorbt
+
         if version("vectorbt") != "1.1.0":
             raise ValueError("vectorbt adapter requires its exercised engine version 1.1.0")
         prices = [float(order.effective.value) for order in orders] + [float(terminal.value)]
@@ -244,7 +288,7 @@ class VectorbtAdapter:
             fees=0.0,
             fixed_fees=fees,
             slippage=0.0,
-            init_cash=float(reference.spec.initial_cash.value),
+            init_cash=float(initial),
             cash_sharing=False,
             allow_partial=False,
             raise_reject=True,
@@ -255,34 +299,91 @@ class VectorbtAdapter:
             seed=0,
             engine="numba",
         )
-        cash, holdings, nav = (
+        return (
             tuple(portfolio.cash().tolist()),
             tuple(portfolio.assets().tolist()),
             tuple(portfolio.value().tolist()),
         )
-        result = VectorbtResult(
-            reference_sha256=hashlib.sha256(DomainCodec().encode_json(reference)).hexdigest(),
-            engine="vectorbt/numba",
-            versions=versions,
-            orders=orders,
-            cash=cash,
-            holdings=holdings,
-            nav=nav,
-            exact_terminal_nav=reference.terminal.nav,
-            absolute_tolerance=1e-10,
-            relative_tolerance=1e-12,
-            scope=(
-                "single isolated cash-funded spot; completed-window signals; "
-                "explicit positive-delay prints; full long-only targets; "
-                "exact rounded fees projected to float; no shared capital, gaps, "
-                "corrections, queue, liquidity or impact"
-            ),
+
+    # vectorbt 1.1.0 ``add_nb`` returns exactly zero for a sum within these of zero.
+    _SNAP_RELATIVE: ClassVar[Fraction] = Fraction(1, 10**9)
+    _SNAP_ABSOLUTE: ClassVar[Fraction] = Fraction(1, 10**12)
+    _UNIT: ClassVar[Fraction] = Fraction(1, 2**53)
+
+    @classmethod
+    def nav_error_bound(
+        cls, initial: Decimal, orders: tuple[VectorbtOrder, ...], terminal: Price
+    ) -> float:
+        """Bound the engine's terminal NAV error against the exact replay of the same orders.
+
+        The engine converts each exact input to float64 (relative error ``u = 2**-53``),
+        computes ``size = target - position``, ``cash -= size * price + fee`` on a
+        buy, ``cash += size * price - fee`` on a sell, ``position += size``, and
+        finally ``cash + position * terminal``. Each operation rounds once, adding
+        ``u`` times its exact result, and errors carried into an operation pass
+        through unchanged to first order, except that ``position + size`` returns
+        to the target, so the carried position error cancels there. vectorbt's
+        ``add_nb`` also snaps a sum within ``max(1e-9 * max(|a|, |b|), 1e-12)`` of
+        zero to exactly zero. Where the exact sum, widened by the error already
+        carried, could fall in that window, the whole exact sum is added to the
+        bound. Orders the engine could ignore as zero-sized add their entire
+        effect. The sum is doubled as margin for second-order terms and the final
+        conversions.
+
+        Args:
+            initial: Exact initial cash.
+            orders: Exact delayed long-only target orders in execution order.
+            terminal: Exact terminal valuation price.
+
+        Returns:
+            A positive absolute bound in quote units.
+        """
+        unit = cls._UNIT
+        cash, position = Fraction(initial), Fraction(0)
+        cash_error, position_error = unit * abs(cash), Fraction(0)
+        for order in orders:
+            target = Fraction(order.target.value)
+            price = Fraction(order.effective.value)
+            fee = Fraction(order.fee.value)
+            delta = target - position
+            size_error = position_error + unit * (abs(target) + abs(delta))
+            # position + (target - position) re-targets: the carried position error
+            # cancels to first order, leaving the target's conversion and rounding.
+            retarget_error = unit * (abs(target) + abs(delta) + position_error)
+            notional = abs(delta) * price
+            notional_error = price * (size_error + 2 * unit * abs(delta))
+            if abs(delta) <= cls._SNAP_ABSOLUTE + size_error:
+                # The engine may ignore a near-zero order that the exact replay executes.
+                cash_error += notional + fee + notional_error
+                position_error += abs(delta) + size_error
+            elif delta > 0:
+                total = notional + fee
+                total_error = notional_error + unit * (fee + total)
+                cash_error = cls._sum_error(cash, -total, cash_error + total_error)
+                cash -= total
+                position_error = cls._sum_error(position, delta, retarget_error)
+            else:
+                proceeds_error = cls._sum_error(notional, -fee, notional_error + unit * fee)
+                cash += notional - fee
+                cash_error += proceeds_error + unit * abs(cash)
+                position_error = cls._sum_error(position, delta, retarget_error)
+            position = target
+        price = Fraction(terminal.value)
+        holding = abs(position) * price
+        nav = cash + position * price
+        error = (
+            cash_error
+            + price * position_error
+            + 2 * unit * holding
+            + unit * (abs(cash) + holding)
+            + 2 * unit * abs(nav)
         )
-        if not math.isclose(
-            result.nav[-1],
-            float(reference.terminal.nav.value),
-            rel_tol=result.relative_tolerance,
-            abs_tol=result.absolute_tolerance,
-        ):
-            raise ValueError("vectorbt terminal NAV differs beyond analytical float tolerance")
-        return result
+        return float(2 * error) + math.ulp(float(2 * error))
+
+    @classmethod
+    def _sum_error(cls, left: Fraction, right: Fraction, carried: Fraction) -> Fraction:
+        """Return the error of an ``add_nb`` sum: carried, rounding, and a possible snap."""
+        result = abs(left + right)
+        window = max(cls._SNAP_RELATIVE * max(abs(left), abs(right)), cls._SNAP_ABSOLUTE)
+        snapped = result if result <= window + carried else Fraction(0)
+        return carried + cls._UNIT * result + snapped
