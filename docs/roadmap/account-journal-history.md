@@ -3,7 +3,7 @@
 Owner: quant development. Status: **storage, governance and deployment implemented
 on branches 2026-09-29, not merged; storage qualification passed, retained replay
 failed and replaced by the signed cohort's own parity; signed stage-1 cohort
-declared**. Policy approved by the
+passed**. Stage-2 sustained operation remains separate. Policy approved by the
 owner on 2026-09-29. Baseline: `main` at `9ae6fb1`. This page is a stage-2
 prerequisite for
 [MR15 runtime capacity](runtime-capacity.md#lifecycle-authority-and-acceptance-stages).
@@ -254,4 +254,31 @@ grant, service lifetime, budget or risk limit changes.
 
 Public routes, feature serving, cold-cache boundaries and stage 2 are not in this
 cohort.
+
+## Signed stage-1 result (2026-09-29)
+
+Passed at declaration commit `c80912b`, installed implementation `aacae36c…`, with
+four signed releases of that frozen source. Every phase ran once; the compact record
+is `signed_stage1` in
+[account-journal-history-evidence.json](account-journal-history-evidence.json).
+
+| Phase | Result |
+| --- | --- |
+| Steady (60.005 measured s, 121 health witnesses) | All gates pass; CPU 2.02 cores average, RSS 2.45 GiB, occupied 0.25 GiB; query response p99 31.1 ms depth/BBO and 119.5 ms dashboard |
+| Steady economic parity | Qualified: all seven facts equal and the first-touch oracle holds on all four accounts; installed identities match |
+| Recovery (60.005 s, 122 witnesses) | All gates pass; economics preserved; first replacement claim to all-eight progress 7.66 s against 40 s; query p99 34.7 and 120.9 ms |
+| Recovery-suffix parity | Qualified on all four accounts: baseline, operator controls and native suffix replayed into fresh journals |
+| Loaded faults | Passed with no failures |
+| Cleanup | Every observed process absent in all three trials; all four accounts stopped |
+| `make check` | Passed on the unchanged frozen source |
+
+One build attempt was refused before any grant or trial, because a six-day release
+validity ended after the 2026-10-04 dependency-admission review date. It is
+retained at `logs/account-history/stage1-build-attempt-1`; the rebuild used a four-day
+validity and changed nothing else.
+
+This characterizes the finite stage-1 envelope on the tabled journal. It is not
+public-route health, integrated feature serving, cold-cache evidence or stage-2
+sustained acceptance, which still needs a longer bounded service life or handoff,
+signed capture rollover and extended finite grants.
 

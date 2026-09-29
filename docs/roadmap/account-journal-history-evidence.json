@@ -142,6 +142,127 @@
     "Application-cold with an uncontrolled warm filesystem cache; not filesystem-cold.",
     "Batch and trace templates are 1.43x and 2.10x the reference item size, so disk per account-day is conservative.",
     "verify() takes 126.2 s at full history; it decodes and validates every row.",
-    "No fresh signed releases, deployments or stage-1 cohort were run."
-  ]
+    "Signed stage 1 is a bounded 60-second characterization per trial; stage-2 sustained operation remains separate."
+  ],
+  "signed_stage1": {
+    "declaration": {
+      "path": "docs/roadmap/account-journal-history.md",
+      "commit": "c80912bdef6b6f5f11d92e0b21d98f91a71fec7f"
+    },
+    "installed_implementation": "aacae36c73d161b4852b98e43be1edb6d33a36dd31d7ffd57777e3c6ff2a31f2",
+    "releases": {
+      "okx-shared": "b16c91fc739861b52390efc8dcfca08fc2f2e74235132e928023e384ab9e0cee",
+      "okx-isolated": "09ea58445b5f89bba9cee98922fb9dbfe88278c74fcd4406b8855a57a0c7ec32",
+      "bitfinex-shared": "74f87bf0299e31ac1e28d883d2549226c7b55550d8a05b6de9fdce750b00b3f1",
+      "bitfinex-isolated": "c75eeccfe9a9a20ad4636690e19a5c1696b2f82e30df3523adb09a013c120899"
+    },
+    "builder": "local-account-history (ephemeral local key, seven-day policy, account-journal-v4 only)",
+    "build_attempts": [
+      {
+        "path": "logs/account-history/stage1-build-attempt-1",
+        "outcome": "refused before any grant or trial: release validity (six days, to 2026-10-05) exceeded the dependency-admission review date 2026-10-04",
+        "correction": "release validity four days; no gate, budget, limit or trial input changed"
+      }
+    ],
+    "trials": {
+      "steady": {
+        "measurement_gates_pass": true,
+        "failures": [],
+        "measured_seconds": 60.005,
+        "health_samples": 121,
+        "resources": {
+          "cpu_average_logical_cores": 2.02,
+          "peak_rss_gib": 2.45,
+          "peak_occupied_gib": 0.247
+        },
+        "queries_p99_response_ms": {
+          "dashboard": 119.5,
+          "depth_bbo": 31.1
+        },
+        "gate_assessment": {
+          "path": "logs/account-history/stage1/steady/gate-assessment.json",
+          "sha256": "631959a56881c1f17bda6727b55338cff1b83cd5ec139e20843a61647da5c86e"
+        }
+      },
+      "recovery": {
+        "measurement_gates_pass": true,
+        "failures": [],
+        "measured_seconds": 60.005,
+        "health_samples": 122,
+        "resources": {
+          "cpu_average_logical_cores": 2.3,
+          "peak_rss_gib": 2.43,
+          "peak_occupied_gib": 0.268
+        },
+        "queries_p99_response_ms": {
+          "dashboard": 120.9,
+          "depth_bbo": 34.7
+        },
+        "gate_assessment": {
+          "path": "logs/account-history/stage1/recovery/gate-assessment.json",
+          "sha256": "303c02fd7eb26d888fdb3259a1700103d066d9b8b0070c8538dcf911057fa661"
+        }
+      }
+    },
+    "steady_economic_parity": {
+      "qualified": true,
+      "installed_identity_match": true,
+      "accounts_all_seven_equal_and_oracle": {
+        "okx-shared": true,
+        "okx-isolated": true,
+        "bitfinex-shared": true,
+        "bitfinex-isolated": true
+      },
+      "report": {
+        "path": "logs/account-history/stage1/steady/economic-parity.json",
+        "sha256": "91cd846ccbc46c840eb5b86b3e81c1c689f4f3d2b3ee491ca51fc15115a115ef"
+      }
+    },
+    "recovery_preservation": {
+      "qualified": true,
+      "first_claim_to_progress_seconds": 7.659,
+      "within_40_seconds": true,
+      "report": {
+        "path": "logs/account-history/stage1/recovery/recovery-economic-preservation.json",
+        "sha256": "def759200fa6c2dba3071865e16d775652ac9fd968af3e37b8cf3f83ed4daea8"
+      }
+    },
+    "recovery_suffix_parity": {
+      "qualified": true,
+      "installed_identity_match": true,
+      "accounts": {
+        "okx-shared": true,
+        "okx-isolated": true,
+        "bitfinex-shared": true,
+        "bitfinex-isolated": true
+      },
+      "report": {
+        "path": "logs/account-history/stage1/recovery-suffix-parity.json",
+        "sha256": "463dcf5ac4060cde213080d8a244f913c6ce1756a5e9d020e4be88af74249d85"
+      }
+    },
+    "loaded_faults": {
+      "passed": true,
+      "failures": [],
+      "summary": {
+        "path": "logs/account-history/stage1/burst-faults/faults/summary.json",
+        "sha256": "eba8731c38dacaa93fafeba320f13c180c2c242479348dd4da4b0a94003d4932"
+      }
+    },
+    "cleanup": {
+      "steady": true,
+      "recovery": true,
+      "burst-faults/faults": true
+    },
+    "all_accounts_stopped": true,
+    "make_check": {
+      "make_check": 0,
+      "local_ci_status": "completed",
+      "build": 0,
+      "local_ci_completed_at": "2026-09-29T05:16:57.386567+00:00",
+      "frozen_source_unchanged_after_check": true
+    },
+    "passed": true,
+    "scope": "bounded stage-1 characterization; not public-route health, feature serving, cold cache or stage-2 sustained acceptance"
+  }
 }

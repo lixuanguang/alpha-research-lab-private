@@ -1067,8 +1067,9 @@ rate it would reach roughly 300 MB per account per day. A separate commit now
 encodes only changed fields and history items, cutting the median commit on that
 journal from 27.0 to 9.3 ms with byte-identical stored bytes, but whole-document
 writes and full cold decode remain. The
-[account journal history plan](account-journal-history.md) moves the growing history into
-indexed tables and is a stage-2 prerequisite.
+[account journal history record](account-journal-history.md) moves the growing history into
+indexed tables; its storage qualification and a fresh signed stage-1 cohort passed on
+2026-09-29, and stage 2 remains separate.
 
 Local validation: format, lint, strict typing, stubtest and engineering checks
 passed; `make test` passed 1,991 tests with two optional skips and three
