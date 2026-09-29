@@ -103,7 +103,7 @@ class SavedDecisionSource:
         selections: list[PublicTradeSelection | BookSelection | ReferenceSelection] = []
         for selection in self._selection.inputs:
             if not isinstance(selection, (PublicTradeSelection, BookSelection, ReferenceSelection)):
-                raise ValueError("legacy trade projections use the existing window feature path")
+                raise ValueError("trade selections use the window feature path, not projections")
             if at > selection.query.known_at:
                 raise ValueError("decision exceeds pinned source observation cutoff")
             selections.append(replace(selection, query=replace(selection.query, known_at=at)))

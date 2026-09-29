@@ -69,6 +69,16 @@ class TestPaperExecutionApplication:
             maximum_fee=cls._money("1"),
             fee_rate=Decimal("0.001"),
             market_max_age_us=60_000_000,
+            execution=PaperExecutionScenario(
+                venue="okx",
+                instrument_id=cls.dimension.instrument_id,
+                entry_delay_us=0,
+                cancel_delay_us=0,
+                adverse=cls._price("0"),
+                fee_rate=Decimal("0.001"),
+                take_fraction=Decimal("1"),
+                gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
+            ),
         )
 
     @staticmethod

@@ -201,7 +201,7 @@ class PaperCandidateRuntime:
         self._admit_time(market.at)
         if market.bid.per != self.config.maximum.dimension:
             raise ValueError("paper market instrument differs from its account")
-        if self.config.execution is None or self.config.mode == "shadow":
+        if self.config.mode == "shadow":
             self.journal.claim_market(
                 epoch=self._fence(), identity=market.identity, payload=payload
             )

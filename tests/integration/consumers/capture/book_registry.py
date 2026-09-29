@@ -19,7 +19,12 @@ from msgspec.structs import replace
 # project library imports
 import market_data
 from accounting import Ledger, LedgerState
-from configuration import BookEquivalence, BookRegistryConfiguration, BookSelection
+from configuration import (
+    BookEquivalence,
+    BookRegistryConfiguration,
+    BookSelection,
+    PaperExecutionScenario,
+)
 from execution import OrderDecision, PaperMarket, PaperMatcher, PaperOrderJournal
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
@@ -341,6 +346,16 @@ class _SelectedVenuePaperAcceptance:
             product="spot",
         )
         initial = LedgerState(initial_cash=self._money("1000"), dimension=self.dimension)
+        scenario = PaperExecutionScenario(
+            venue="okx",
+            instrument_id=self.dimension.instrument_id,
+            entry_delay_us=0,
+            cancel_delay_us=0,
+            adverse=self._price("0"),
+            fee_rate=Decimal("0.005"),
+            take_fraction=Decimal("1"),
+            gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
+        )
         path = output / "selected-venue-paper.sqlite3"
         market = PaperMarket(
             identity=hashlib.sha256(
@@ -383,9 +398,9 @@ class _SelectedVenuePaperAcceptance:
             )
             if admitted.status != "committed" or len(admitted.orders) != 1:
                 raise AssertionError("selected venue order was not admitted")
-            PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1")).match(
-                market, epoch=epoch
-            )
+            PaperMatcher(
+                journal, fee_rate=Decimal("0.005"), lot=self._quantity("1"), scenario=scenario
+            ).match(market, epoch=epoch)
             fills = journal.ledger_state().fills
             balance = Ledger(journal.ledger_state()).balance
             if (
@@ -410,9 +425,9 @@ class _SelectedVenuePaperAcceptance:
             ledger_state=initial,
         ) as recovered:
             epoch = recovered.claim("installed-restart")
-            PaperMatcher(recovered, fee_rate=Decimal("0.005"), lot=self._quantity("1")).match(
-                market, epoch=epoch
-            )
+            PaperMatcher(
+                recovered, fee_rate=Decimal("0.005"), lot=self._quantity("1"), scenario=scenario
+            ).match(market, epoch=epoch)
             if (recovered.orders(), recovered.events(), recovered.ledger_state()) != before:
                 raise AssertionError("paper restart duplicated selected-venue effects")
         return {

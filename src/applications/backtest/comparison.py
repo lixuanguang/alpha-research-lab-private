@@ -18,6 +18,7 @@ from research.studies import (
     ClearMLDestination,
     ComparisonStudy,
     ParameterComparison,
+    PublicationPolicy,
     QuantStatsReport,
     ResearchInputs,
     TrialEvaluation,
@@ -200,5 +201,8 @@ def compare_parameters(
     )
     with AttemptStore(attempts) as store:
         return comparison.run(
-            store, EconomicComparison(reader, selection, step=step), tracking, max_trials=max_trials
+            store,
+            EconomicComparison(reader, selection, step=step),
+            publication=PublicationPolicy(mode="immediate", destination=tracking),
+            max_trials=max_trials,
         )

@@ -161,6 +161,16 @@ class TestPaperMatcher:
             gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
         )
 
+    @classmethod
+    def _matcher(cls, journal: PaperOrderJournal) -> PaperMatcher:
+        """Match at the displayed touch with no modeled delay or adverse cost."""
+        return PaperMatcher(
+            journal,
+            fee_rate=Decimal("0.005"),
+            lot=cls._quantity("1"),
+            scenario=cls._scenario(adverse="0.00"),
+        )
+
     def test_two_orders_share_finite_ask_and_replay_has_no_extra_fill(self, tmp_path: Path) -> None:
         """Three displayed units fill two then one, with half-even fees and one reserve."""
         market = self._market("shared-ask", at=self.decision_at + timedelta(seconds=1))
@@ -168,7 +178,7 @@ class TestPaperMatcher:
             epoch = journal.claim("first-owner")
             first = self._admit(journal, epoch, step_id="first", quantity="2", limit="1.10")
             second = self._admit(journal, epoch, step_id="second", quantity="2", limit="1.10")
-            matcher = PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1"))
+            matcher = self._matcher(journal)
             matcher.match(market, epoch=epoch)
             filled = journal.order(first.identity)
             assert filled is not None and filled.status == "filled"
@@ -200,9 +210,7 @@ class TestPaperMatcher:
             assert (journal.events(), journal.orders(), journal.ledger_state()) == before
         with self._journal(tmp_path) as restarted:
             epoch = restarted.claim("restarted-owner")
-            PaperMatcher(restarted, fee_rate=Decimal("0.005"), lot=self._quantity("1")).match(
-                market, epoch=epoch
-            )
+            self._matcher(restarted).match(market, epoch=epoch)
             assert (restarted.events(), restarted.orders(), restarted.ledger_state()) == before
 
     def test_ioc_cancels_unfilled_remainder_after_touch(self, tmp_path: Path) -> None:
@@ -220,9 +228,7 @@ class TestPaperMatcher:
             market = self._market(
                 "thin-ask", at=self.decision_at + timedelta(seconds=1), ask_quantity="1"
             )
-            PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1")).match(
-                market, epoch=epoch
-            )
+            self._matcher(journal).match(market, epoch=epoch)
             current = journal.order(order.identity)
             assert current is not None
             assert current.status == "cancelled"
@@ -253,9 +259,7 @@ class TestPaperMatcher:
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("interrupted-owner")
             order = self._admit(journal, epoch, step_id="interrupted", quantity="2", limit="1.10")
-            PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1")).match(
-                market, epoch=epoch
-            )
+            self._matcher(journal).match(market, epoch=epoch)
             current = journal.order(order.identity)
             assert current is not None and current.filled.value == Decimal("1")
             assert journal.step("market:unfinished-quote") is None
@@ -263,35 +267,12 @@ class TestPaperMatcher:
             before = (journal.events(), journal.orders(), journal.ledger_state())
         with self._journal(tmp_path) as restarted:
             epoch = restarted.claim("restarted-owner")
-            matcher = PaperMatcher(restarted, fee_rate=Decimal("0.005"), lot=self._quantity("1"))
+            matcher = self._matcher(restarted)
             with pytest.raises(ValueError, match="market identity was reused"):
                 matcher.match(changed, epoch=epoch)
             assert (restarted.events(), restarted.orders(), restarted.ledger_state()) == before
             matcher.match(market, epoch=epoch)
             assert (restarted.events(), restarted.orders(), restarted.ledger_state()) == before
-
-    def test_legacy_matcher_leaves_an_unaffordable_order_resting(self, tmp_path: Path) -> None:
-        """A zero fee reserve takes no fill, even one whose fee would round to zero."""
-        with self._journal(tmp_path) as journal:
-            epoch = journal.claim("legacy-reserve-owner")
-            order = self._admit(
-                journal,
-                epoch,
-                step_id="legacy-reserve",
-                quantity="2",
-                limit="1.10",
-                maximum_fee="0.00",
-            )
-            matcher = PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1"))
-            matcher.match(
-                self._market("legacy-reserve", at=self.decision_at + timedelta(seconds=1)),
-                epoch=epoch,
-            )
-            current = journal.order(order.identity)
-            assert current is not None and current.status == "accepted"
-            # One unit's 0.005 fee rounds to 0.00; the reserve bounds the exact fee.
-            assert journal.ledger_state().fills == ()
-            assert journal.reservations().cash.value == Decimal("2.20")
 
     def test_per_fill_rounding_never_exceeds_the_fee_reserve(self, tmp_path: Path) -> None:
         """Separate fills that each round up stop at the reserve instead of breaking it."""
@@ -346,14 +327,13 @@ class TestPaperMatcher:
                 limit="1.10",
                 maximum_fee="0.00",
             )
-            matcher = PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1"))
+            matcher = self._matcher(journal)
             with pytest.raises(ValueError, match="fill exceeds order economics or limit"):
                 matcher.match(
                     self._market("fee-cap", at=self.decision_at + timedelta(seconds=1)),
                     epoch=epoch,
                 )
-            current = journal.order(order.identity)
-            assert current is not None and current.status == "accepted"
+            assert journal.order(order.identity) == order
             assert journal.ledger_state().fills == ()
             assert journal.reservations().cash.value == Decimal("2.20")
 
@@ -369,7 +349,7 @@ class TestPaperMatcher:
                 limit="1.10",
                 time_in_force="post-only",
             )
-            PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1")).match(
+            self._matcher(journal).match(
                 self._market("crossing", at=self.decision_at + timedelta(seconds=1)),
                 epoch=epoch,
             )
@@ -394,7 +374,7 @@ class TestPaperMatcher:
                 limit="0.95",
                 time_in_force="post-only",
             )
-            matcher = PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1"))
+            matcher = self._matcher(journal)
             matcher.match(
                 self._market("noncrossing", at=self.decision_at + timedelta(seconds=1)),
                 epoch=epoch,
@@ -738,18 +718,18 @@ class TestPaperMatcher:
         with self._journal(tmp_path) as journal, pytest.raises(ValueError):
             journal.unfinished_markets()
 
-    def test_legacy_claim_is_not_mistaken_for_completed_scenario_match(
+    def test_shadow_claim_is_not_mistaken_for_completed_scenario_match(
         self, tmp_path: Path
     ) -> None:
-        """A preclaimed legacy quote has no atomic scenario result to replay."""
+        """A preclaimed shadow quote has no atomic scenario result to replay."""
         scenario = self._scenario()
-        market = self._market("legacy-claim", at=self.decision_at + timedelta(seconds=1))
+        market = self._market("shadow-claim", at=self.decision_at + timedelta(seconds=1))
         with self._journal(tmp_path) as journal:
-            epoch = journal.claim("legacy-claim-owner")
+            epoch = journal.claim("shadow-claim-owner")
             journal.claim_market(
                 epoch=epoch, identity=market.identity, payload=DomainCodec().encode_json(market)
             )
-            with pytest.raises(ValueError, match="legacy market history cannot adopt"):
+            with pytest.raises(ValueError, match="shadow market history cannot adopt"):
                 journal.match_scenario_market(epoch=epoch, market=market, scenario=scenario)
             assert journal.markets() == ((market.identity, DomainCodec().encode_json(market)),)
 
@@ -771,17 +751,22 @@ class TestPaperMatcher:
             assert journal.markets() == ()
             assert journal.ledger_state().fills == ()
 
-    def test_legacy_paper_configuration_keeps_its_original_binding_identity(self) -> None:
-        """Adding an optional authored scenario does not strand a prior paper journal."""
-        config = PaperConfiguration(
-            account="paper-account",
-            mode="paper",
-            initial_cash=self._money("1000"),
-            maximum=self._quantity("10"),
-            lot=self._quantity("1"),
-            tick=self._price("0.01"),
-            maximum_fee=self._money("0.50"),
-            fee_rate=Decimal("0.005"),
-            market_max_age_us=5_000_000,
-        )
-        assert config.identity == "ad5f2860388ae323b587d7023285e2b428dc69e754dbbf1346e1d59997190ec3"
+    def test_paper_configuration_requires_an_execution_scenario(self) -> None:
+        """A configuration saved without its authored scenario is refused."""
+        with pytest.raises(ValueError, match="execution"):
+            DomainCodec().decode_json(
+                DomainCodec().encode_json(
+                    {
+                        "account": "paper-account",
+                        "mode": "paper",
+                        "initial_cash": self._money("1000"),
+                        "maximum": self._quantity("10"),
+                        "lot": self._quantity("1"),
+                        "tick": self._price("0.01"),
+                        "maximum_fee": self._money("0.50"),
+                        "fee_rate": Decimal("0.005"),
+                        "market_max_age_us": 5_000_000,
+                    }
+                ),
+                PaperConfiguration,
+            )

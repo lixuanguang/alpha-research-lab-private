@@ -177,6 +177,11 @@ class TestParameterComparison:
             project="tests", api_uri="http://127.0.0.1:18008", files_uri="http://127.0.0.1:18081"
         )
 
+    @classmethod
+    def _immediate(cls) -> PublicationPolicy:
+        """Publish each trial to the test destination as it completes."""
+        return PublicationPolicy(mode="immediate", destination=cls._tracking())
+
     def test_real_grid_resume_retains_exact_economics_and_shared_selection(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -185,14 +190,19 @@ class TestParameterComparison:
         definition, evaluator = self._definition()
         with AttemptStore(tmp_path / "attempts") as store:
             one = self._search(definition, tmp_path).run(
-                store, evaluator, self._tracking(), max_trials=1
+                store, evaluator, publication=self._immediate(), max_trials=1
             )
             first_bytes = DomainCodec().encode_json(store.read(one[0]))
-            both = self._search(definition, tmp_path).run(store, evaluator, self._tracking())
+            both = self._search(definition, tmp_path).run(
+                store, evaluator, publication=self._immediate()
+            )
             assert len(one) == 1 and len(both) == 2
             assert DomainCodec().encode_json(store.read(one[0])) == first_bytes
             assert (
-                self._search(definition, tmp_path).run(store, evaluator, self._tracking()) == both
+                self._search(definition, tmp_path).run(
+                    store, evaluator, publication=self._immediate()
+                )
+                == both
             )
             assert len({store.artifact(i, "selection-identity") for i in both}) == 1
             objectives = set()
@@ -213,7 +223,7 @@ class TestParameterComparison:
             assert objectives == {Fraction(0), Fraction(-1447, 200_000_000)}
             with pytest.raises(ValueError, match="configuration, code or environment"):
                 self._search(replace(definition, seed=18), tmp_path).run(
-                    store, evaluator, self._tracking()
+                    store, evaluator, publication=self._immediate()
                 )
 
     def test_pruned_rejected_and_failed_trials_cannot_be_successful(
@@ -240,7 +250,9 @@ class TestParameterComparison:
         ):
             path = tmp_path / label
             with AttemptStore(path / "attempts") as store:
-                attempts = self._search(selected, path).run(store, runner, self._tracking())
+                attempts = self._search(selected, path).run(
+                    store, runner, publication=self._immediate()
+                )
                 assert len(attempts) == 2
                 assert {store.read(i).status for i in attempts} == expected
                 for attempt in attempts:
@@ -265,7 +277,9 @@ class TestParameterComparison:
         study.set_user_attr("run_identity", definition.specification("a" * 64, "b" * 64).identity)
         study.ask()
         with AttemptStore(tmp_path / "attempts") as store:
-            attempts = self._search(definition, tmp_path).run(store, evaluator, self._tracking())
+            attempts = self._search(definition, tmp_path).run(
+                store, evaluator, publication=self._immediate()
+            )
             assert len(attempts) == 2
             assert {store.read(i).status for i in attempts} == {"abandoned", "completed"}
             assert len(study.trials) == 2
@@ -278,14 +292,18 @@ class TestParameterComparison:
         monkeypatch.setattr(AttemptStore, "retain", _RetentionFailure.retain)
         definition, evaluator = self._definition()
         with AttemptStore(tmp_path / "attempts") as store:
-            attempts = self._search(definition, tmp_path).run(store, evaluator, self._tracking())
+            attempts = self._search(definition, tmp_path).run(
+                store, evaluator, publication=self._immediate()
+            )
             assert len(attempts) == 2
             assert {store.read(i).status for i in attempts} == {"failed"}
             assert all(
                 "definition write failure" in store.read(i).events[-1].reason for i in attempts
             )
             assert (
-                self._search(definition, tmp_path).run(store, evaluator, self._tracking())
+                self._search(definition, tmp_path).run(
+                    store, evaluator, publication=self._immediate()
+                )
                 == attempts
             )
 
@@ -296,10 +314,12 @@ class TestParameterComparison:
         monkeypatch.setattr(ClearMLPublication, "publish", _Publication.publish)
         definition, evaluator = self._definition()
         with AttemptStore(tmp_path / "attempts") as store:
-            self._search(definition, tmp_path).run(store, evaluator, self._tracking())
+            self._search(definition, tmp_path).run(store, evaluator, publication=self._immediate())
         with AttemptStore(tmp_path / "wrong-attempts") as other:
             with pytest.raises(ValueError, match="mapping differs"):
-                self._search(definition, tmp_path).run(other, evaluator, self._tracking())
+                self._search(definition, tmp_path).run(
+                    other, evaluator, publication=self._immediate()
+                )
 
     def test_local_and_deferred_search_retain_without_contacting_clearml(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -333,15 +353,6 @@ class TestParameterComparison:
             PublicationPolicy(mode="local", destination=self._tracking())
         with pytest.raises(ValueError, match="requires a destination"):
             PublicationPolicy(mode="deferred")
-        definition, evaluator = self._definition()
-        with AttemptStore(tmp_path / "attempts") as store:
-            with pytest.raises(ValueError, match="either legacy tracking"):
-                self._search(definition, tmp_path).run(
-                    store,
-                    evaluator,
-                    self._tracking(),
-                    publication=PublicationPolicy(mode="local"),
-                )
 
     def test_deferred_resume_enqueues_prior_local_trials(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

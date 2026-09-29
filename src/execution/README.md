@@ -17,8 +17,9 @@ modeled paper/shadow work only. A selected reference identity has
 `qualification == "referenced"` but venue rule freshness remains the caller's
 responsibility. Neither qualification grants executable authority.
 
-`claim_market` binds each modeled quote identity to exact immutable bytes before
-matching effects. `markets()` exposes claims in insertion order so a supervising
+Paper matching claims each modeled quote identity with exact immutable bytes in
+the same transaction as its effects; shadow mode uses `claim_market` to record a
+quote before its step commits. `markets()` exposes claims in insertion order so a supervising
 runtime can finish interrupted work before advancing its recovery clock. A quote
 with different bytes under the same identity cannot create a new fill identity or
 obtain another allowance of displayed liquidity.

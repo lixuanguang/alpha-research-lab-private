@@ -102,8 +102,8 @@ distinct durable events. See the [paper journal](../../execution/README.md) for
 reservations, fencing and known reconciliation limits. Physical venue account
 reconciliation and venue adapters remain separate work.
 
-The optional `PaperConfiguration.execution` scenario preserves legacy fixture
-requests. Integrated native-paper runs select its explicit venue/instrument,
+Every `PaperConfiguration` requires an `execution` scenario; a configuration
+without one is refused. The scenario selects its explicit venue/instrument,
 entry/cancel delays, adverse price, fee rate, take fraction and off-chain gas
 reason. Tick/lot rules come from the existing spot limits. A changed scenario or
 quote identity cannot reopen prior matched state. The same evaluator serves

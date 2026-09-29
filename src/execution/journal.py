@@ -259,7 +259,7 @@ class PaperOrderJournal:
         return True
 
     def claim_market(self, *, epoch: int, identity: str, payload: bytes) -> None:
-        """Bind a legacy quote before its separately committed matching effects."""
+        """Bind a shadow quote to exact bytes before its market step commits."""
         if type(identity) is not str or not identity or type(payload) is not bytes or not payload:
             raise ValueError("paper market claim requires an identity and immutable bytes")
         with self._write(epoch) as connection:
@@ -267,7 +267,7 @@ class PaperOrderJournal:
                 self._query_one(connection, "SELECT id FROM paper_scenario WHERE id = 1")
                 is not None
             ):
-                raise ValueError("legacy quote claim cannot enter a scenario-bound journal")
+                raise ValueError("shadow quote claim cannot enter a scenario-bound journal")
             saved = self._query_one(
                 connection, "SELECT payload FROM markets WHERE market_id = ?", (identity,)
             )
@@ -327,9 +327,8 @@ class PaperOrderJournal:
     ) -> tuple[OrderEvent, ...]:
         """Claim and apply a modeled quote, all fills and liquidity debt atomically.
 
-        The existing legacy touch matcher retains its separate callback recovery
-        contract. A versioned scenario uses this complete transaction so a crash
-        cannot publish a fill while losing the capacity consumed at that touch.
+        One complete transaction means a crash cannot publish a fill while losing
+        the capacity consumed at that touch.
         """
         # project library imports
         from execution.paper import PaperLiquidityState, PaperMatchEvaluator, PaperMatchProjection
@@ -344,7 +343,7 @@ class PaperOrderJournal:
             )
             if saved_scenario is None:
                 if self._query_one(connection, "SELECT market_id FROM markets LIMIT 1") is not None:
-                    raise ValueError("legacy market history cannot adopt an execution scenario")
+                    raise ValueError("shadow market history cannot adopt an execution scenario")
                 connection.execute(
                     "INSERT INTO paper_scenario(id, payload) VALUES (1, ?)",
                     (scenario_payload,),

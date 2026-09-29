@@ -35,6 +35,7 @@ from configuration import (
     CapabilitySelection,
     CaptureConfig,
     PaperConfiguration,
+    PaperExecutionScenario,
     UniverseSelection,
 )
 from execution import OrderEvent, PaperMarket, PaperOrderJournal
@@ -839,6 +840,16 @@ class TestPaperCandidateRuntime:
             maximum_fee=Money(value=Decimal("0"), currency=currency),
             fee_rate=Decimal("0"),
             market_max_age_us=1_000_000,
+            execution=PaperExecutionScenario(
+                venue="bitfinex",
+                instrument_id=_INSTRUMENT,
+                entry_delay_us=0,
+                cancel_delay_us=0,
+                adverse=Price(value=Decimal("0"), currency=currency, per=dimension),
+                fee_rate=Decimal("0"),
+                take_fraction=Decimal("1"),
+                gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
+            ),
         )
         journal = PaperOrderJournal(
             path,

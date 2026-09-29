@@ -333,7 +333,7 @@ class AttemptStore:
             if path.read_bytes() != payload:
                 raise ValueError("retained artifact cannot be replaced")
         else:
-            # Share immutable content within this store while keeping legacy per-attempt paths.
+            # Share immutable content within this store; each attempt path links to it.
             content = self._root / "artifacts"
             if not content.exists():
                 content.mkdir()

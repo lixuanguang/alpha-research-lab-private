@@ -236,12 +236,12 @@ retains an unselected book for exact replay; old envelopes with that optional
 field omitted retain their prior per-book economic behavior. This is a selected-
 book paper model, not a measured feed or throughput capacity claim.
 
-When `PaperConfiguration.execution` selects a versioned scenario, the dedicated
+`PaperConfiguration.execution` selects a required versioned scenario. The dedicated
 journal pins its bytes and atomically commits each quote, modeled events and
 same-touch liquidity debt. Entry and cancel delays use later eligible received
 quotes; effective prices include adverse movement within the order limit, with
 half-even quote fees. This top-of-book model has no exchange response clock or
-queue position. Existing scenario-less fixtures preserve their original binding.
+queue position.
 
 Owner: `runtime`; application composition belongs to
 [`applications.paper`](../applications/paper/README.md), order state and modeled
