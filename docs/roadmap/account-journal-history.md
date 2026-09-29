@@ -89,13 +89,57 @@ hashes every table.
    `account-journal-v4`; unmanaged installed account releases and the signed account
    installation consumer were removed.
 
-## Qualification
+## Qualification declaration (2026-09-29)
 
-Predeclare before measurement. Provisional targets on the declared M1 Max host,
-for a synthetic 24-hour history of about 30,000 batches, 60,000 decisions and
-30,000 traces per account: commit p99 at most 5 ms, cold open at most 100 ms,
-resident memory independent of history size, and occupied disk reported against
-the 120 GiB canonical budget. Replay retained v5 cohort deliveries into fresh
-journals with identical economic-fact hashes. Then issue fresh signed releases and
-deployments and rerun a stage-1 steady, recovery and loaded-fault cohort under the
-unchanged gates before any stage-2 use.
+Declared before any measurement. One run; a missed target is recorded as a failure
+and is not retried with a changed workload, method or target. The run uses the
+[history capacity consumer](../../tests/integration/consumers/runtime/account_history_capacity.py)
+at the commit that adds this declaration, and retains raw results under ignored
+`logs/account-history/qualification-1/`; the compact record will be
+`docs/roadmap/account-journal-history-evidence.json`.
+
+**Host.** The declared Apple M1 Max, 10 logical cores, 64 GiB RAM, macOS 27.0,
+APFS, on AC power. The filesystem cache is uncontrolled and warm after the first
+read; this is application-cold evidence, not filesystem-cold. No collector, build,
+test or other qualification runs concurrently.
+
+**Synthetic 24-hour history, one account.** Two instances and one instrument.
+30,000 portfolio batches of two decisions each (60,000 decisions) and 30,000 paper
+traces: one batch and one trace every 2.88 seconds. Items are clones of the items a
+real journal writes for the consumer's compact scenario (opening reconciliation, a
+coordinated two-instance batch and a public market match), with fresh identities, a
+recomputed trace input digest and a 675-byte synthetic checkpoint per decision. The
+head is that scenario's real head. History is written through the store's own
+`write()`/`append_*` path in unmeasured fill transactions of 100 batches, 200
+decisions and 100 traces. Mean item bytes are reported against the measured
+single-document means (batch 6,574, decision 2,722, trace 2,757).
+
+**Measures and targets.** Percentiles are empirical nearest-rank.
+
+| Measure | Method | Target |
+| --- | --- | --- |
+| Batch commit | 1,000 timed complete `write()` transactions at full history: `find_batch`, two `find_decision` and two `latest_checkpoint` lookups, append two decisions and one batch | p99 ≤ 5 ms |
+| Trace commit | 1,000 timed transactions alternating with the batch commits: `find_trace` by venue/instrument and by account, newest account/instrument trace, append one trace | p99 ≤ 5 ms |
+| Cold open | 1,000 in-process opens of the full journal, each with a new codec and store, through the first `read()` | p99 ≤ 100 ms |
+| Fresh-process open | 20 opens in new interpreters, imports excluded | reported |
+| Memory | New interpreter per history level (0, 25, 50, 75 and 100%, on copies), each opening and running 200 commits of each kind; peak RSS | 100% minus 0% ≤ 16 MiB |
+| Disk | Database bytes at full history after a truncating WAL checkpoint, per account-day and for four accounts against the 120 GiB canonical budget | reported |
+| Verification | `verify()` duration at full history | reported |
+
+Report projections that return a whole history (`paper_traces()`,
+`paper_report_facts()`) are excluded from the memory measure; they are
+proportional to history by design.
+
+**Retained replay.** With this code, the maintained
+[economic parity consumer](../../tests/integration/consumers/runtime/capacity_parity.py)
+replays the v5 cohort's `initial-steady` trial (four accounts) and, with that trial
+as baseline, the `recovery-01` suffix into fresh journals. Pass requires every
+account's seven economic-fact comparisons to be equal (replay hash equals signed
+hash) and, for `initial-steady`, every replay hash to equal the original parity
+result's. The installed-identity match is false by construction and is not a
+criterion. The single-baseline suffix replay cannot rebuild the chained
+`recovery-02`–`05` intervals; they are not claimed.
+
+**Not in this run.** Fresh signed releases and deployments, and the stage-1 steady,
+recovery and loaded-fault cohort under the unchanged gates, remain required before
+any stage-2 use and need a separate go-ahead.
