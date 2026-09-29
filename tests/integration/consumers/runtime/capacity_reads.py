@@ -38,7 +38,13 @@ from configuration import (
     PaperServiceConfiguration,
 )
 from market_data.adapters.sources import BookAdapters
-from market_data.books import BookDepth, BookProjection, BookRegistry, CaptureReplay
+from market_data.books import (
+    BookAsOfIndex,
+    BookDepth,
+    BookProjection,
+    BookRegistry,
+    CaptureReplay,
+)
 from market_data.contracts import BookObservation, BookQuote, CaptureRequest
 from market_data.storage import CaptureJournal
 from runtime import LiveBookDelivery, SharedBookDelivery
@@ -144,7 +150,7 @@ class _SampledProcess(Protocol):
 
 
 class _SourceIndex:
-    """Retain every complete serialized native delivery with its causal quote and byte count."""
+    """Bind a source's delivery log, its durable as-of index and the live polled history."""
 
     def __init__(
         self,
@@ -158,6 +164,7 @@ class _SourceIndex:
         self.name, self.request = name, request
         self.capture_root, self.delivery_path = capture_root, delivery_path
         self.key = BookKey(venue=request.config.venue, instrument_id=request.config.instrument_id)
+        self.index = BookAsOfIndex(delivery_path.with_name(delivery_path.stem + ".index.sqlite3"))
         self.offset = 0
         self.deliveries = 0
         self.history: deque[tuple[BookQuote, bytes, int]] = deque(maxlen=history_capacity)
@@ -187,6 +194,9 @@ class _RetainedBookIndex:
             )
             for source in sources
         )
+        self.selections = {
+            source.name: selection for source, selection in zip(sources, selections, strict=True)
+        }
         self.registry = BookRegistry(
             BookRegistryConfiguration(
                 selections=selections, equivalences=(), history_capacity=10_000
@@ -214,18 +224,13 @@ class _RetainedBookIndex:
         }
 
     def read(self, source_name: str, *, cutoff_ns: int) -> dict[str, object]:
-        """Cover the request's retained prefix and report polling waits independently."""
-        retained_ends = self._retained_ends()
-        began = time.monotonic_ns()
-        with self.poll_lock:
-            acquired = time.monotonic_ns()
-            records = self._poll_serialized(retained_ends)
-            polled = time.monotonic_ns()
+        """Answer one as-of query from the durable index and report its covered prefix."""
         source = self.sources[source_name]
-        required_end = retained_ends.get(source_name)
-        with self.lock:
-            result = self.depth(source_name, cutoff_ns=cutoff_ns)
-            indexed_end = source.offset
+        required_end = (
+            source.delivery_path.stat().st_size if source.delivery_path.is_file() else None
+        )
+        indexed_end = source.index.covered_bytes()
+        result = self.depth(source_name, cutoff_ns=cutoff_ns)
         covered = required_end is not None and indexed_end >= required_end
         if not covered:
             result.update(
@@ -237,9 +242,6 @@ class _RetainedBookIndex:
             delivery_prefix_complete=covered,
             depth_index_required_prefix_bytes=required_end,
             depth_index_indexed_prefix_bytes=indexed_end,
-            depth_index_poll_records=records,
-            depth_index_poll_wait_seconds=(acquired - began) / 1_000_000_000,
-            depth_index_poll_seconds=(polled - acquired) / 1_000_000_000,
         )
         return result
 
@@ -280,45 +282,48 @@ class _RetainedBookIndex:
         return count
 
     def depth(self, source_name: str, *, cutoff_ns: int) -> dict[str, object]:
-        """Decode only the selected causal native boundary for its exact BBO and depth."""
+        """Look up the causal boundary in the durable index and decode only its delivery."""
         source = self.sources[source_name]
         limit = 25 if source.request.config.venue == "bitfinex" else 100
-        with self.lock:
-            lookup = self.registry.lookup(source.key, cutoff_ns=cutoff_ns)
+        lookup, selected = source.index.lookup(self.selections[source_name], cutoff_ns=cutoff_ns)
+        selected_row: BookObservation | None = None
+        read_bytes = 0
+        if selected is not None:
+            offset, length = selected
+            with source.delivery_path.open("rb") as stream:
+                stream.seek(offset)
+                encoded_delivery = stream.read(length)
+            read_bytes = len(encoded_delivery)
+            if read_bytes != length or not encoded_delivery.endswith(b"\n"):
+                raise ValueError(f"{source_name} indexed delivery is truncated")
+            selected_row = self.codec.decode_json(
+                encoded_delivery, _IndexedSharedDelivery
+            ).source.book
             target = lookup.quote if lookup.quote is not None else lookup.boundary
-            selected_row: BookObservation | None = None
-            scanned_bytes = 0
-            for quote, encoded_delivery, encoded_bytes in reversed(source.history):
-                scanned_bytes += encoded_bytes
-                if target is not None and quote.position == target.position:
-                    selected_row = self.codec.decode_json(
-                        encoded_delivery, _IndexedSharedDelivery
-                    ).source.book
-                    break
-            selected_depth = (
-                BookDepth((), ())
-                if selected_row is None
-                else BookDepth.from_observation(selected_row)
-            )
-            visible = BookDepth(selected_depth.bids[-limit:], selected_depth.asks[:limit])
-            result = self.codec.encode_json((lookup, visible))
-            return {
-                "source": source_name,
-                "cutoff_ns": cutoff_ns,
-                "reason": lookup.reason,
-                "eligible": lookup.eligible,
-                "boundary_position": None if lookup.boundary is None else lookup.boundary.position,
-                "quote_position": None if lookup.quote is None else lookup.quote.position,
-                "market_state": None if lookup.quote is None else lookup.quote.market_state,
-                "bid_levels": len(visible.bids),
-                "ask_levels": len(visible.asks),
-                "depth_index_scan_bytes": scanned_bytes,
-                "returned_bytes": len(result),
-                "result_sha256": hashlib.sha256(result).hexdigest(),
-                "partial_coverage": not lookup.eligible,
-                "consolidation": "not_applicable_no_equivalent_currency_pair",
-                "scan_basis": "serialized_retained_delivery_rows_visited_in_memory",
-            }
+            if target is None or selected_row.position != target.position:
+                raise ValueError(f"{source_name} indexed delivery differs from its boundary")
+        selected_depth = (
+            BookDepth((), ()) if selected_row is None else BookDepth.from_observation(selected_row)
+        )
+        visible = BookDepth(selected_depth.bids[-limit:], selected_depth.asks[:limit])
+        result = self.codec.encode_json((lookup, visible))
+        return {
+            "source": source_name,
+            "cutoff_ns": cutoff_ns,
+            "reason": lookup.reason,
+            "eligible": lookup.eligible,
+            "boundary_position": None if lookup.boundary is None else lookup.boundary.position,
+            "quote_position": None if lookup.quote is None else lookup.quote.position,
+            "market_state": None if lookup.quote is None else lookup.quote.market_state,
+            "bid_levels": len(visible.bids),
+            "ask_levels": len(visible.asks),
+            "depth_index_scan_bytes": read_bytes,
+            "returned_bytes": len(result),
+            "result_sha256": hashlib.sha256(result).hexdigest(),
+            "partial_coverage": not lookup.eligible,
+            "consolidation": "not_applicable_no_equivalent_currency_pair",
+            "scan_basis": "durable_as_of_index_lookup_and_one_selected_delivery",
+        }
 
     def replay_parity(self) -> dict[str, dict[str, object]]:
         """Compare all available raw records and retained deliveries at one cursor."""

@@ -657,13 +657,30 @@ require an explicit budget-checked resume. From the repository root:
 
 ```sh
 # Inspect both durable progress records and acquisition-run.json first.
-/usr/bin/python3 logs/capacity-closure/resume_acquisition.py btc
+/private/tmp/capacity-closure-collector/bin/python logs/capacity-closure/resume_acquisition.py btc
 # Only after a crash, before the fixed deadline, with no live owner or stop marker:
-/usr/bin/python3 logs/capacity-closure/resume_acquisition.py btc --resume
+/private/tmp/capacity-closure-collector/bin/python logs/capacity-closure/resume_acquisition.py btc --resume
 # After the fixed stop, verify each retained chain separately (repeat for eth):
 /private/tmp/capacity-closure-collector/bin/alpha-collect capture-run-replay \
   --run-directory data/okx/research-corpus-20260930/btc --max-seconds 7200
 ```
+
+Run the preflight with the collector environment's interpreter: a resume executes that
+environment's `alpha-collect`, whose installed identity must equal the armed
+`fc3d794c…`. If a host restart removed `/private/tmp/capacity-closure-collector`,
+rebuild it from commit `5ca22aa` with
+`UV_PROJECT_ENVIRONMENT=/private/tmp/capacity-closure-collector uv run --frozen --no-editable`
+in a worktree of that commit, and confirm `InstalledIdentity.sha256()` before resuming.
+
+**Stop and exact resume (2026-09-29).** Both owners recorded `supervisor_stop` at
+02:02:24 UTC, before the window opened and with no `stop-requested` marker; the host
+restarted at 02:40 UTC and removed the `/private/tmp` collector environment. No
+segment had been written. Installing commit `5ca22aa` reproduced the exact collector
+identity `fc3d794c…`, and the owner approved resuming. Both budget preflights passed
+(worst case 29.0 of 32 GiB, 547 GiB free), and at 06:36 UTC both runs resumed on the
+original implementation, request and fixed window as PIDs 63739/63740 with their own
+`caffeinate` owners, reporting `waiting_start`. The preflight records are
+`resume-preflight-20260929T063617*.json` in `logs/capacity-closure/`.
 
 Keep raw segments for 30 days and run/provenance records for 90 days after the
 fixed stop; no automatic cleanup is configured. Retained journal/publication

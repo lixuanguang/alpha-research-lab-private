@@ -1067,11 +1067,139 @@ rate it would reach roughly 300 MB per account per day. A separate commit now
 encodes only changed fields and history items, cutting the median commit on that
 journal from 27.0 to 9.3 ms with byte-identical stored bytes, but whole-document
 writes and full cold decode remain. The
-[account journal history plan](account-journal-history.md) moves the growing history into
-indexed tables and is a stage-2 prerequisite.
+[account journal history record](account-journal-history.md) moves the growing history into
+indexed tables; its storage qualification and a fresh signed stage-1 cohort passed on
+2026-09-29, and stage 2 remains separate.
 
 Local validation: format, lint, strict typing, stubtest and engineering checks
 passed; `make test` passed 1,991 tests with two optional skips and three
 performance deselections. Three alert-socket tests first failed only because the
 session's temporary path exceeded the Unix socket path limit and passed with a
 short base directory. No hosted CI or signed run occurred.
+
+### Stage-1 residual decisions and declaration (2026-09-29)
+
+The owner decided the three remaining stage-1 gaps after their costs were reported.
+
+1. **Cold depth/BBO query: durable as-of index.** A cold reader decoded and validated
+   every retained full book to rebuild its touch index: 1.35 ms per OKX row, so 4.0–4.1 s
+   for about 100 s of history and linear in history length. The shared paper service now
+   writes a [`BookAsOfIndex`](../../src/market_data/books/as_of.py) beside each delivery
+   log. After a delivery's bytes are fsynced, it appends that boundary's validated quote,
+   the market it carries and its byte range. A lookup equals a
+   [`BookRegistry`](../../src/market_data/books/registry.py) lookup that kept every
+   boundary, and depth decodes only the selected delivery with full validation. The
+   index is derived, so it commits without an fsync; a crash can leave it behind the log,
+   and the reader reports the unindexed suffix as partial coverage. The live feature
+   path keeps its incremental in-memory registry.
+2. **Checkpoint percentiles: deferred to stage 2.** A 60-second trial acknowledges 21
+   durable checkpoints per account but commits only two (the rest are persisted
+   rejections), so 1,000 committed observations per account cannot be reached within
+   stage-1 service lives and unchanged 80-order grants. A 24-hour stage-2 run supplies
+   them without an authority change; the boundary stays unmeasured for stage 1.
+3. **Public Bitfinex capture cap: 12,000 messages per 100-second capture.** Fresh public
+   Bitfinex ETH (R0, 25 levels) sent 84.3 messages/s and reached the 5,000-message cap
+   after 59.3 s. Only Bitfinex sources of a public Bitfinex route receive the new cap,
+   42% above the observed rate; bytes stay far below 32 MiB. Fixture routes keep 5,000.
+
+**Declared cohort.** Declared before any build or trial. The candidate is the source at
+the commit adding this section, frozen by hash, with drivers and evidence under ignored
+`logs/runtime-capacity/stage1-residual/`, ported from the
+[account journal stage-1 drivers](account-journal-history.md#signed-stage-1-declaration-2026-09-29).
+Four signed `paper` targets with `account-runtime-v1` configuration and
+`account-journal-v4` state, built by the ephemeral local builder key with a new
+seven-day policy trusting only it; fresh journals, disabled deployments and ordinary
+one-hour grants; no grant, lifetime, budget or risk limit changes. Each step runs once
+and the cohort stops at the first failure.
+
+1. Freeze; fetch, build, verify and install the four targets.
+2. Steady fixture trial with the unchanged stage-1 shape and gates, then economic parity.
+3. Recovery trial with preservation, all-eight progress, the same gates and the
+   independent recovery-suffix parity.
+4. Loaded-fault trial on separately installed targets of the same releases.
+5. Populated-history queries on the new steady trial:
+   [`capacity_history_queries.py`](../../tests/integration/consumers/runtime/capacity_history_queries.py)
+   with 250 samples per reader, giving 1,000 per boundary and cache class. Pass requires
+   no failed request, matched-cutoff parity, and `pass` for both service and scheduled
+   response latency in all four classes against the budgets above: depth/BBO cold p99
+   2 s and warm 50/200/500 ms, dashboard cold p99 3 s and warm 100/400/1,000 ms.
+   Filesystem-cold stays unmeasured.
+6. Public Bitfinex route trial on separately installed targets with the 12,000 cap.
+   Pass requires the trial to pass with health covering its 60-second measured interval;
+   each public Bitfinex capture to end without a message, byte or frame cap and with
+   complete native delivery parity for its account and bounded queues; and the fixture
+   OKX sources to meet their unchanged source gates. Public latency samples are reported,
+   not graded.
+7. Cleanup audit over every trial, with all four accounts stopped.
+8. `make check` on the unchanged frozen source.
+
+Checkpoint percentiles, filesystem-cold queries, renewed public OKX health, integrated
+feature serving and stage 2 are outside this cohort.
+
+#### Residual cohort result (2026-09-29)
+
+The cohort at declaration commit `20d5b27`, installed implementation `51063b91…`,
+stopped at step 5; the compact record is `stage1_residual` in the
+[canonical evidence](runtime-capacity-evidence.json).
+
+- **Requalification of the changed runtime passed.** Steady (60.003 s, 121 health
+  witnesses) and recovery (60.001 s, 122 witnesses) met every unchanged gate, with
+  durable-to-BBO p99 of 31–50 ms and steady query response p99 of 29–34 ms for depth/BBO
+  and 112 ms for dashboards. Steady economic parity, recovery preservation (first
+  replacement claim to all-eight progress 7.66 s against 40 s), the independent
+  recovery-suffix parity and the loaded-fault trial all passed.
+- **Cold depth/BBO now meets its target.** All 1,000 application-cold depth/BBO queries
+  on the durable index succeeded: p50 7.44 ms, p95 13.60 ms, p99 21.82 ms, maximum
+  36.92 ms, against 2 s at p99 and the earlier 4.0–4.1 s. The consumer's summary was not
+  written; these nearest-rank values come from its retained 1,000 samples.
+- **Step 5 stopped on a harness defect.** The history-query consumer waits 30 s for its
+  dashboard reader processes after the depth workers finish. Depth used to take about
+  1,000 s and now takes about 50 s, while 250 serial application-cold dashboard requests
+  at about 0.73 s need about 190 s. The four readers were terminated after 107–109
+  requests each; every completed request succeeded, the slowest in 0.956 s against the
+  3 s cold budget. Dashboard cold and both warm classes are therefore unmeasured, not
+  failed.
+
+As declared, no step was retried, so the public Bitfinex route, the cleanup audit step
+and `make check` did not run. A read-only cleanup audit run afterwards found every
+observed process absent and all four accounts stopped in each completed trial. A new
+measurement needs a corrected consumer and a fresh declaration.
+
+#### Residual continuation declaration (2026-09-29)
+
+Owner-approved, declared before running, and limited to **one attempt**: whatever the
+outcome, no further attempt follows without new owner approval, and the driver refuses a
+second invocation. The consumer now joins each dashboard reader process by its own
+schedule, `samples × max(200 ms slot, per-request budget) + 30 s` (780 s cold, 280 s warm),
+instead of 30 s after the depth readers finish; a reader that overruns it still fails.
+The signed runtime and releases are unchanged, so nothing is rebuilt.
+
+1. Populated-history queries again on the residual steady trial, all four classes, into a
+   new output directory, with the criteria of step 5 above.
+2. The public Bitfinex route of step 6, on a new route root with freshly issued ordinary
+   one-hour grants for the same releases and the 12,000-message cap, with the same criteria.
+3. Cleanup audit of the new trial, then `make check` on the unchanged frozen source.
+
+#### Residual continuation result (2026-09-29)
+
+The single attempt stopped at step 1; no further attempt follows without owner approval,
+and the public Bitfinex route, cleanup audit and `make check` did not run. All 4,000
+requests returned, with matched-cutoff parity and no failure.
+
+| Class | Service p50 / p95 / p99 | Scheduled response p99 | Result |
+| --- | --- | --- | --- |
+| Depth/BBO, application-cold | 7.9 / 14.5 / 20.9 ms | 34.8 ms | pass (2 s) |
+| Depth/BBO, warm | 7.3 / 14.3 / 20.7 ms | 32.4 ms | pass (50/200/500 ms) |
+| Dashboard, application-cold | 716.7 / 781.6 / 822.3 ms | 129.3 s | service passes 3 s; response fails |
+| Dashboard, warm | 584.8 / 657.4 / 699.4 ms | 97.3 s | fail (100/400/1,000 ms) |
+
+The durable as-of index therefore qualifies both depth/BBO classes. The dashboard query
+over the populated one-hour history of 10,000 events per account misses its warm p50 and
+p95 targets by about sixfold and 1.6-fold; the same query on the steady trial's small
+history met its budget at 112 ms p99. Each dashboard reader is paced at 5 Hz, so a
+service time of 0.6–0.8 s builds a queue of up to about 130 s, which is why scheduled
+response fails in both dashboard classes. Per the MR15 rule, the next step is to
+attribute the warm dashboard cost in the
+[monitoring query](../../src/telemetry/events.py) and report the cost of a change,
+not another run.
+

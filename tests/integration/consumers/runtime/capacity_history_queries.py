@@ -210,7 +210,7 @@ class CapacityHistoryQueries:
             "cold_budget_p99_ns": {"depth_bbo": 2_000_000_000, "dashboard": 3_000_000_000},
             "warm_budget_ms": {"depth_bbo": (50, 200, 500), "dashboard": (100, 400, 1000)},
             "query_at": self.query_at,
-            "application_cold_boundary": "fresh_components_native_index_poll_query_render",
+            "application_cold_boundary": "fresh_components_durable_index_open_query_render",
             "process_initialization": "excluded_imports_and_interpreter_are_already_loaded",
             "filesystem_cache": "uncontrolled_reads_after_frozen_history_preparation",
             "native_history_basis": "complete_actual_retained_bounded_trial",
@@ -237,7 +237,7 @@ class CapacityHistoryQueries:
                         source.delivery_path.read_bytes()
                     ).hexdigest(),
                     "delivery_bytes": source.delivery_path.stat().st_size,
-                    "indexed_deliveries": reader.sources[name].deliveries,
+                    "indexed_bytes": reader.sources[name].index.covered_bytes(),
                     "query_result": result,
                 }
             )
@@ -364,6 +364,18 @@ class CapacityHistoryQueries:
             control.close()
 
     @staticmethod
+    def _reader_deadline_ns(
+        started_ns: int, samples: int, cache_class: Literal["application_cold", "warm"]
+    ) -> int:
+        """Bound a paced serial dashboard reader by its schedule and per-request p99 budget.
+
+        Requests start at 200 ms slots or when the previous one finishes, so a reader
+        whose every request meets its budget finishes within ``samples`` budgets.
+        """
+        budget_ns = 3_000_000_000 if cache_class == "application_cold" else 1_000_000_000
+        return started_ns + samples * max(200_000_000, budget_ns) + 30_000_000_000
+
+    @staticmethod
     def _summarize(values: tuple[int, ...], budget_ns: tuple[int, int, int]) -> dict[str, object]:
         """Apply the declared targets only to sufficient actual observations of one class."""
         ordered = sorted(values)
@@ -445,8 +457,9 @@ class CapacityHistoryQueries:
                 ]
                 for future in futures:
                     future.result()
+            deadline_ns = self._reader_deadline_ns(started_ns, self.samples_per_reader, cache_class)
             for process, _, output in readers:
-                process.join(30)
+                process.join(max(0.0, (deadline_ns - time.monotonic_ns()) / 1_000_000_000))
                 if process.is_alive():
                     process.terminate()
                     process.join(2)
