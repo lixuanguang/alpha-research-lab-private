@@ -61,12 +61,19 @@ snapshot and transaction history lookups by identity (`find_decision`,
 `append_*`, so callers do not depend on where history is stored.
 
 The `firm` row holds the journal head: the current state without the three history
-collections, each collection's row count and sha256 hash chain, and every instance's
-latest checkpoint. The collections live in their own tables with each item's exact
-codec bytes ([design](../../docs/roadmap/account-journal-history.md)). A commit inserts
-only new rows and rewrites the head, reusing the encoded bytes of unchanged head fields,
-and a fresh process decodes only the head. Only the `account-journal` schema is
-readable; any other payload, including a whole-state document, fails closed. The journal composes admission and reconciliation from
+collections and without the state that grows with history, each collection's row count
+and sha256 hash chain, and every instance's latest checkpoint. The collections live in
+their own tables with each item's exact codec bytes
+([design](../../docs/roadmap/account-journal-history.md)). Orders, net orders, events,
+net events, reconciliations, native fills, physical reconciliations and each account's
+postings are kept in `state_rows`, one row per tuple position with the item's exact
+codec bytes and sha256; the head keeps each field's row count and a sha256 over its row
+digests in order. A commit writes only changed or new rows and a head of bounded size;
+another process reads the head, compares row digests and decodes only rows that
+changed. In memory the state still holds the complete tuples, so account behavior does
+not depend on this layout. Only this `account-journal` layout is readable: a journal
+with other tables, including one without `state_rows` or `dispatch_leases`, is refused
+as an unsupported account journal schema and is never migrated. The journal composes admission and reconciliation from
 [`account_admission.py`](account_admission.py), physical fill and fee attribution
 from [`account_allocation.py`](account_allocation.py), and atomic portfolio order
 formation and instance controls from [`account_portfolio.py`](account_portfolio.py).
@@ -421,7 +428,7 @@ or live-capital authorization mechanism.
 Unknown schemas fail. `AccountJournal.verify(path, config)` performs
 read-only integrity/config/schema validation and sees committed WAL state; it also
 checks every history row, its key columns and the head's counts, hash chains and
-checkpoints;
+checkpoints, and every state row against its digest and the head's row summaries;
 `storage="snapshot"` additionally requires no SQLite sidecars and leaves a
 standalone snapshot unchanged. The [workspace recovery owner](../runtime/README.md#account-workspace-recovery)
 uses these checks under backup locks and before restore publication.
