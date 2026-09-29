@@ -118,3 +118,64 @@ def test_invalid_staged_schema_preserves_durable_and_cached_state(tmp_path: Path
         )
     assert row == (payload,)
     assert AccountStateStore(path, _AccountFixture._config(), codec).read() == original
+
+
+def _stored_payload(path: Path) -> bytes:
+    """Read the exact committed firm document."""
+    with closing(sqlite3.connect(path)) as connection:
+        row = cast(
+            tuple[object, ...] | None,
+            connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+        )
+    assert row is not None and type(row[0]) is bytes
+    return row[0]
+
+
+def test_incremental_encoding_commits_exact_full_document_bytes(tmp_path: Path) -> None:
+    """Reused history bytes never diverge from encoding the complete committed state."""
+    fixture = _AccountFixture
+    config = fixture._config()
+    path = tmp_path / "incremental.sqlite3"
+    codec = DomainCodec()
+    journal = AccountJournal(path, config)
+    store = journal._store
+
+    def require_exact() -> None:
+        """Compare stored bytes with an independent full encoding and fresh decode."""
+        payload = _stored_payload(path)
+        assert payload == codec.encode_json(store.read())
+        assert codec.encode_json(AccountStateStore(path, config, codec).read()) == payload
+
+    assert journal.reconcile(
+        fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+    )
+    require_exact()
+    for staged in (("alpha",), ("alpha", "beta"), ("alpha", "beta", "gamma"), ("beta",), ()):
+        with store.write() as transaction:
+            transaction.state = replace(transaction.state, stopped_instances=staged)
+        require_exact()
+    with store.write() as transaction:
+        transaction.state = replace(transaction.state, crossing_policy="reject")
+    require_exact()
+    with store.write() as transaction:
+        first = transaction.state.accounts[0]
+        transaction.state = replace(
+            transaction.state, accounts=(replace(first, reconciled_at=None),)
+        )
+    require_exact()
+    with pytest.raises(RuntimeError, match="discard"):
+        with store.write() as transaction:
+            transaction.state = replace(transaction.state, stopped_instances=("staged",))
+            raise RuntimeError("discard")
+    with store.write() as transaction:
+        extended: tuple[str, ...] = (*transaction.state.stopped_instances, "delta")
+        transaction.state = replace(transaction.state, stopped_instances=extended)
+    require_exact()
+    other = AccountStateStore(path, config, DomainCodec())
+    with other.write() as transaction:
+        transaction.state = replace(transaction.state, stopped_instances=("other",))
+    with store.write() as transaction:
+        followed: tuple[str, ...] = (*transaction.state.stopped_instances, "after")
+        transaction.state = replace(transaction.state, stopped_instances=followed)
+    require_exact()
+    assert store.read().stopped_instances == ("other", "after")
