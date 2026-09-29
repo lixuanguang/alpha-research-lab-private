@@ -236,6 +236,45 @@ _HISTORY_TABLES = (
 )
 
 
+# A dispatch lease is transient coordination, not history: no digest covers it.
+_LEASE_TABLE = (
+    "CREATE TABLE dispatch_leases (order_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, "
+    "instance_ids BLOB NOT NULL, holder TEXT NOT NULL, armed_at TEXT NOT NULL, "
+    "deadline TEXT NOT NULL)"
+)
+_TABLES = frozenset(("firm", "decisions", "portfolio_batches", "paper_traces", "dispatch_leases"))
+
+
+class DispatchLease(WireRecord, frozen=True):
+    """Hold one physical send outside the journal transaction until it is released.
+
+    Arming commits the final dispatch checks and this lease together; the send
+    runs with no transaction open; release deletes it. A stop-type writer for the
+    same account or instance waits until the lease is released or its deadline
+    passes, so no stop commits while a send it did not precede is pending.
+    """
+
+    order_id: str
+    account_id: str
+    instance_ids: tuple[str, ...]
+    holder: str
+    armed_at: datetime
+    deadline: datetime
+
+    def __post_init__(self) -> None:
+        """Require identities and a deadline after arming."""
+        self._require_utc(self.armed_at, field_name="lease armed_at")
+        self._require_utc(self.deadline, field_name="lease deadline")
+        if (
+            not self.order_id
+            or not self.account_id
+            or not self.holder
+            or type(self.instance_ids) is not tuple
+            or self.deadline <= self.armed_at
+        ):
+            raise ValueError("invalid dispatch lease")
+
+
 def _decision_key(saved: _SavedDecision) -> tuple[str, ...]:
     """Return the decisions table lookup columns."""
     return saved.request.instance_id, saved.request.decision.identity
@@ -609,6 +648,70 @@ class _AccountTransaction(_AccountSnapshot):
         )
         self.state = replace(self.state, net_orders=net_orders)
 
+    def leases(self) -> tuple[DispatchLease, ...]:
+        """Read every dispatch lease visible to this transaction."""
+        rows = cast(
+            list[tuple[object, ...]],
+            self.tables.connection.execute(
+                "SELECT order_id, account_id, instance_ids, holder, armed_at, deadline "
+                "FROM dispatch_leases ORDER BY order_id"
+            ).fetchall(),
+        )
+        leases: list[DispatchLease] = []
+        for row in rows:
+            if len(row) != 6:
+                raise ValueError("invalid dispatch lease row")
+            order_id, account_id, instance_ids, holder, armed_at, deadline = row
+            if not (
+                isinstance(order_id, str)
+                and isinstance(account_id, str)
+                and isinstance(instance_ids, bytes)
+                and isinstance(holder, str)
+                and isinstance(armed_at, str)
+                and isinstance(deadline, str)
+            ):
+                raise ValueError("invalid dispatch lease row")
+            leases.append(
+                DispatchLease(
+                    order_id=order_id,
+                    account_id=account_id,
+                    instance_ids=msgspec.json.decode(instance_ids, type=tuple[str, ...]),
+                    holder=holder,
+                    armed_at=datetime.fromisoformat(armed_at),
+                    deadline=datetime.fromisoformat(deadline),
+                )
+            )
+        return tuple(leases)
+
+    def arm_lease(self, lease: DispatchLease) -> None:
+        """Insert a lease; an order holds at most one."""
+        lease.__post_init__()
+        self.tables.connection.execute(
+            "INSERT INTO dispatch_leases VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                lease.order_id,
+                lease.account_id,
+                self.tables.codec.encode_json(lease.instance_ids),
+                lease.holder,
+                lease.armed_at.isoformat(timespec="microseconds"),
+                lease.deadline.isoformat(timespec="microseconds"),
+            ),
+        )
+
+    def release_lease(self, order_id: str, holder: str) -> None:
+        """Delete this holder's lease on an order, if it still exists."""
+        self.tables.connection.execute(
+            "DELETE FROM dispatch_leases WHERE order_id=? AND holder=?", (order_id, holder)
+        )
+
+    def drop_expired_leases(self, now: datetime) -> None:
+        """Delete leases whose deadline has passed; their sends have ended."""
+        for lease in self.leases():
+            if lease.deadline <= now:
+                self.tables.connection.execute(
+                    "DELETE FROM dispatch_leases WHERE order_id=?", (lease.order_id,)
+                )
+
 
 def _field_keys(record: type[msgspec.Struct]) -> tuple[tuple[str, bytes], ...]:
     """Return each field's name and encoded key prefix in the codec's sorted order."""
@@ -671,7 +774,7 @@ class AccountStateStore:
             )
             payload = self._configuration_payload
             if row is None:
-                for statement in _HISTORY_TABLES:
+                for statement in (*_HISTORY_TABLES, _LEASE_TABLE):
                     connection.execute(statement)
                 head = _FirmHead(history=_EMPTY_HISTORY, state=self._initial())
                 connection.execute(
@@ -680,8 +783,19 @@ class AccountStateStore:
             elif row[0] != payload:
                 raise ValueError("account configuration or state schema differs")
             else:
+                self._require_layout(connection)
                 self._load(connection)
             connection.commit()
+
+    @staticmethod
+    def _require_layout(connection: sqlite3.Connection) -> None:
+        """Refuse a journal whose tables are not exactly the current layout."""
+        rows = cast(
+            list[tuple[object, ...]],
+            connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall(),
+        )
+        if frozenset(row[0] for row in rows) != _TABLES:
+            raise ValueError("unsupported account journal schema")
 
     def read(self) -> _FirmState:
         """Read one atomic firm snapshot; its history tuples are empty."""
@@ -731,6 +845,7 @@ class AccountStateStore:
                 if integrity != ("ok",):
                     raise ValueError("account journal integrity check failed")
                 connection.execute("BEGIN")
+                AccountStateStore._require_layout(connection)
                 payload = _FirmRow.payload(connection, codec.encode_json(config))
                 head = codec.decode_json(payload, _FirmHead)
                 _HistoryTables(connection, codec, head.history).verify()

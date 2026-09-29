@@ -30,13 +30,23 @@ class TlsVenueHttpTransport:
         venue: Literal["okx", "bitfinex"],
         *,
         timeout_seconds: float = 5.0,
+        total_seconds: float = 20.0,
         max_response_bytes: int = 1_048_576,
     ) -> None:
-        """Pin the documented venue host and resource bounds."""
-        if venue not in ("okx", "bitfinex") or timeout_seconds <= 0 or max_response_bytes <= 0:
+        """Pin the documented venue host and resource bounds.
+
+        ``timeout_seconds`` bounds each socket operation; ``total_seconds`` bounds
+        the whole request, which a dispatch lease relies on.
+        """
+        if (
+            venue not in ("okx", "bitfinex")
+            or not 0 < timeout_seconds <= total_seconds
+            or max_response_bytes <= 0
+        ):
             raise ValueError("invalid venue transport configuration")
         self.host = "openapi.okx.com" if venue == "okx" else "api.bitfinex.com"
         self.timeout_seconds = timeout_seconds
+        self.total_seconds = total_seconds
         self.max_response_bytes = max_response_bytes
 
     def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
@@ -47,6 +57,7 @@ class TlsVenueHttpTransport:
             or "://" in request.path
         ):
             raise VenueProtocolError("venue request path must be relative to fixed host")
+        deadline = time.monotonic() + self.total_seconds
         connection = HTTPSConnection(
             self.host, timeout=self.timeout_seconds, context=create_default_context()
         )
@@ -57,9 +68,21 @@ class TlsVenueHttpTransport:
                 body=request.body if request.method == "POST" else None,
                 headers=dict(request.headers),
             )
+            self._limit(connection, deadline)
             response = connection.getresponse()
-            body = response.read(self.max_response_bytes + 1)
-            if type(body) is not bytes or len(body) > self.max_response_bytes:
+            chunks: list[bytes] = []
+            size = 0
+            while size <= self.max_response_bytes:
+                self._limit(connection, deadline)
+                chunk = response.read(min(65_536, self.max_response_bytes + 1 - size))
+                if type(chunk) is not bytes:
+                    raise VenueProtocolError("venue REST response is not bytes")
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+            body = b"".join(chunks)
+            if len(body) > self.max_response_bytes:
                 raise VenueProtocolError("venue REST response exceeds bound or is not bytes")
             status = response.status
             if type(status) is not int:
@@ -69,6 +92,14 @@ class TlsVenueHttpTransport:
         finally:
             connection.close()
         return VenueHttpResponse(status=status, body=body, received_at=datetime.now(UTC))
+
+    def _limit(self, connection: HTTPSConnection, deadline: float) -> None:
+        """Shorten the next socket wait to the request's remaining total time."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("venue REST request exceeded its total bound")
+        if connection.sock is not None:
+            connection.sock.settimeout(min(self.timeout_seconds, remaining))
 
 
 class PrivateVenueSession:

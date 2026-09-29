@@ -313,10 +313,17 @@ each physical account; independent copied workspaces are not a distributed fence
 Each physical order must already be reserved through direct admission or MR09
 portfolio coordination. The gateway stores its client identity and uncertain
 attempt before I/O. A kernel lock excludes another sending owner while the first
-can still use its connection; a bounded account write lock protects the final
-independent risk/stop check. The adapter's local request budget is waited out
-before that lock is taken, so a throttle sleep never holds the shared journal; the
-network request itself still runs under the lock. Lost acknowledgements, restart and absent order lookup
+can still use its connection. The final independent risk/stop check commits in a
+short journal transaction together with a durable dispatch lease (30 seconds);
+the request is then sent with no journal transaction open, and the lease is
+released afterwards. The send must start within 10 seconds of arming, and the
+TLS transport bounds a whole request to 20 seconds, so the send ends before the
+lease does. Operator blocks, venue invalidation, account controls and strategy
+stops for that account or instance wait, outside any transaction, until the lease
+is released or expires, so a stop either commits before arming (arming refuses)
+or after the send. A lease left by a crashed sender expires; the order stays
+`unknown` for reconciliation. Cancellations hold no lease. The adapter's local
+request budget is waited out before arming. Lost acknowledgements, restart and absent order lookup
 never authorize another submit for that identity. Request acknowledgement is not
 acceptance. Cancellation acknowledgement is not terminal cancellation. A further
 explicit cancel requires successful reconciliation confirming the order is still

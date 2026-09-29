@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import sqlite3
+import threading
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -36,7 +37,12 @@ from execution import (
     VenueGateway,
 )
 from execution.venue_state import VenueState, VenueStateStore
-from execution.venues import BitfinexSpotAdapter, OKXSpotAdapter, VenueCredentials
+from execution.venues import (
+    BitfinexSpotAdapter,
+    OKXSpotAdapter,
+    TlsVenueHttpTransport,
+    VenueCredentials,
+)
 from execution.venues.contracts import (
     VenueAdapter,
     VenueBalance,
@@ -456,9 +462,14 @@ class NativeVenueAccount:
         self.executions: list[NativeExecution] = []
         self.requests: list[VenueHttpRequest] = []
         self.request_times: list[datetime] = []
+        # When set, a request to this path signals the first event and waits for the second.
+        self.hold: tuple[str, threading.Event, threading.Event] | None = None
 
     def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
         """Record one signed request and answer it from native account state."""
+        if self.hold is not None and request.path == self.hold[0]:
+            self.hold[1].set()
+            assert self.hold[2].wait(10)
         self.requests.append(request)
         self.request_times.append(self.clock.now())
         body = self._okx(request) if self.venue == "okx" else self._bitfinex(request)
@@ -931,6 +942,62 @@ class TestVenueGateway:
         authorization = self._authorization(gateway.config, enabled=True)
         assert gateway.submit(order_id, authorization).submission_attempted
         return journal, gateway, account, clock, order_id
+
+    def test_stop_before_arming_sends_nothing(self, tmp_path: Path) -> None:
+        """An operator stop committed before the final check leaves zero submit requests."""
+        journal, gateway, account, clock = self._native_gateway(tmp_path, "bitfinex")
+        order_id = self._admit(journal, gateway.config, clock)
+        journal.block(gateway.config.account_id, "operator-stop")
+        with pytest.raises(ValueError, match="dispatch is blocked"):
+            gateway.submit(order_id, self._authorization(gateway.config, enabled=True))
+        assert not any(item.path == "/v2/auth/w/order/submit" for item in account.requests)
+
+    def test_send_blocked_in_transport_holds_no_journal_lock(self, tmp_path: Path) -> None:
+        """Other writers commit during a pending send; a stop waits for it to finish."""
+        journal, gateway, account, clock = self._native_gateway(tmp_path, "bitfinex")
+        order_id = self._admit(journal, gateway.config, clock)
+        sending, release = threading.Event(), threading.Event()
+        account.hold = ("/v2/auth/w/order/submit", sending, release)
+        failures: list[BaseException] = []
+        stopped = threading.Event()
+
+        def submit() -> None:
+            """Send from the gateway's own thread."""
+            try:
+                gateway.submit(order_id, self._authorization(gateway.config, enabled=True))
+            except BaseException as error:
+                failures.append(error)
+
+        def stop() -> None:
+            """Issue an operator stop while the send is pending."""
+            journal.block(gateway.config.account_id, "operator-stop")
+            stopped.set()
+
+        sender = threading.Thread(target=submit)
+        sender.start()
+        assert sending.wait(10)
+        # Before dispatch leases this write failed with "database is locked".
+        price = Price(
+            value=Decimal("100"),
+            currency=gateway.config.instruments[0].quote_currency,
+            per=self.dimension,
+        )
+        journal.observe(AccountQuote(price=price, at=clock.now()))
+        stopper = threading.Thread(target=stop)
+        stopper.start()
+        assert not stopped.wait(0.3)
+        release.set()
+        sender.join(10)
+        assert stopped.wait(10) and not failures
+        stopper.join(10)
+        assert self._order_state(journal, order_id).request_acknowledged
+        assert journal.accounts()[0].operator_block == "operator-stop"
+
+    def test_transport_total_bound_fits_the_dispatch_lease(self) -> None:
+        """A send started within its window ends before the lease any stop waits for."""
+        transport = TlsVenueHttpTransport("bitfinex")
+        window = VenueGateway.DISPATCH_SEND_WINDOW.total_seconds()
+        assert window + transport.total_seconds <= VenueGateway.DISPATCH_LEASE.total_seconds()
 
     def test_throttle_waits_outside_the_account_write_fence(self, tmp_path: Path) -> None:
         """A full local request budget never sleeps while dispatch holds the account journal."""

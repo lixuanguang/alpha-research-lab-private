@@ -112,6 +112,10 @@ class VenueGateway:
     # One fill arrives as several private frames (Bitfinex on/te/tu/wu) well
     # within a second; reconcile once the stream is that quiet, and at least
     # this often while facts keep arriving.
+    # A submission's lease covers the time to start its send plus the transport's
+    # total bound (TlsVenueHttpTransport.total_seconds).
+    DISPATCH_SEND_WINDOW = timedelta(seconds=10)
+    DISPATCH_LEASE = timedelta(seconds=30)
     PRIVATE_QUIET = timedelta(seconds=1)
     PRIVATE_MAX_PENDING = timedelta(seconds=10)
 
@@ -215,8 +219,13 @@ class VenueGateway:
                     # Throttle sleeps happen here, never under the journal write fence.
                     adapter.wait_for_request_slot()
                     with self.journal.execution_guard(
-                        self.config.account_id, order_id, at, clock=self.clock.now
-                    ):
+                        self.config.account_id,
+                        order_id,
+                        at,
+                        clock=self.clock.now,
+                        lease=self.DISPATCH_LEASE,
+                        send_window=self.DISPATCH_SEND_WINDOW,
+                    ) as permit:
                         send_at = self.clock.now()
                         authorization.authorize(
                             self.config,
@@ -225,6 +234,7 @@ class VenueGateway:
                             order.intent.limit.amount(order.intent.quantity),
                         )
                         self._reference(order, instrument, send_at)
+                        permit.require_sendable()
                         ack = adapter.submit(request, at=send_at, nonce=nonce)
                 except VenueRejectedError:
                     rejected = self._store.read()

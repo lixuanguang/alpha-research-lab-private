@@ -4,13 +4,15 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import time
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
 
 # third party library imports
 from msgspec.structs import replace
@@ -59,6 +61,7 @@ from execution.account_reduction import (
 )
 from execution.account_state import (
     AccountStateStore,
+    DispatchLease,
     _AccountSnapshot,
     _AccountTransaction,
     _SavedDecision,
@@ -70,6 +73,26 @@ from execution.records import OrderEvent, OrderState, StepCommit
 from financial_units import DecimalGrid, Money, Quantity
 from portfolio import ProRataAllocator
 from serialization import DomainCodec
+
+
+class DispatchPermit(NamedTuple):
+    """The order a guard admitted, and the lease its send runs under (None for a cancel)."""
+
+    order: OrderState
+    lease: DispatchLease | None
+    send_by: datetime | None
+    clock: Callable[[], datetime]
+
+    def require_sendable(self) -> None:
+        """Refuse to start a send whose remaining lease could not cover the transport.
+
+        Call immediately before the send; the lease uses the journal's clock.
+
+        Raises:
+            ValueError: The send window after arming has passed.
+        """
+        if self.send_by is not None and self.clock() > self.send_by:
+            raise ValueError("dispatch lease send window passed")
 
 
 class AccountJournal:
@@ -221,7 +244,7 @@ class AccountJournal:
     def revoke_paper(self, account_id: str, authorization_id: str, at: datetime) -> None:
         """Revoke new exposure durably while preserving cancellations and reductions."""
         PaperDeployment._require_utc(at, field_name="paper revocation")
-        with self._store.write() as transaction:
+        with self._stop_write(account_id=account_id) as transaction:
             activation = PaperAuthority.find(transaction, account_id)
             if (
                 activation is None
@@ -590,7 +613,7 @@ class AccountJournal:
         """Persist an independent stop; reconciliation cannot clear it."""
         if type(reason) is not str or not reason.strip():
             raise ValueError("block requires a visible reason")
-        with self._store.write() as transaction:
+        with self._stop_write(account_id=account_id) as transaction:
             if self.paper_owner is not None:
                 PaperAuthority.require_owner(
                     transaction, account_id, self.paper_owner, at=self._now(), new_exposure=False
@@ -609,7 +632,7 @@ class AccountJournal:
             raise ValueError("venue invalidation requires venue_test mode")
         if type(reason) is not str or not reason.strip():
             raise ValueError("venue invalidation requires a visible reason")
-        with self._store.write() as transaction:
+        with self._stop_write(account_id=account_id) as transaction:
             account = transaction.account(account_id)
             transaction.save_account(
                 replace(account, fault=f"venue_unavailable:{reason}", reconciled_at=None)
@@ -618,7 +641,7 @@ class AccountJournal:
     def control(self, request: AccountControl) -> AccountControlResult:
         """Apply an identified local startup, stop, fault, restart or cancel."""
         request.__post_init__()
-        with self._store.write() as transaction:
+        with self._stop_write(account_id=request.account_id) as transaction:
             if self.paper_owner is not None:
                 PaperAuthority.require_owner(
                     transaction,
@@ -787,7 +810,7 @@ class AccountJournal:
         """Fence one strategy and request cancellation of shared physical parents."""
         self._admission.require_instance(instance_id)
         self._admission.require_utc(at, field_name="strategy stop")
-        with self._store.write() as transaction:
+        with self._stop_write(instance_id=instance_id) as transaction:
             if self.paper_owner is not None:
                 account_id = next(
                     item.account_id
@@ -1163,6 +1186,32 @@ class AccountJournal:
         with self._store.write() as transaction:
             return self._admission.reconcile_physical(transaction, observation, self._allocation)
 
+    # Stop-type writers poll for a held lease this often, outside any transaction.
+    _LEASE_POLL_SECONDS = 0.02
+
+    @contextmanager
+    def _stop_write(
+        self, *, account_id: str | None = None, instance_id: str | None = None
+    ) -> Iterator[_AccountTransaction]:
+        """Open a stop-type write once no unexpired dispatch lease covers its scope.
+
+        A held lease means a send whose final checks preceded this stop may still
+        be pending, so the stop waits (outside any transaction) until the lease is
+        released or its deadline passes, and removes expired leases when it commits.
+        """
+        while True:
+            with self._store.write() as transaction:
+                transaction.drop_expired_leases(self._now())
+                held = any(
+                    (account_id is None or lease.account_id == account_id)
+                    and (instance_id is None or instance_id in lease.instance_ids)
+                    for lease in transaction.leases()
+                )
+                if not held:
+                    yield transaction
+                    return
+            time.sleep(self._LEASE_POLL_SECONDS)
+
     @contextmanager
     def execution_guard(
         self,
@@ -1172,16 +1221,26 @@ class AccountJournal:
         *,
         cancel: bool = False,
         clock: Callable[[], datetime] | None = None,
-    ) -> Iterator[OrderState]:
-        """Hold the journal write fence across one bounded physical dispatch.
+        lease: timedelta = timedelta(seconds=30),
+        send_window: timedelta = timedelta(seconds=10),
+    ) -> Iterator[DispatchPermit]:
+        """Commit the final dispatch checks, then send with no journal transaction open.
 
-        The caller commits uncertainty before entering and records the response
-        after leaving. This fence prevents an account or strategy stop from racing
-        the final send check; a cancellation remains available while stopped.
+        A submission arms a ``DispatchLease`` in the same short transaction as its
+        final checks. Stop-type writers for the account or its instances wait for
+        the lease, so a stop either commits before arming (arming then refuses) or
+        after release. The send must start within ``send_window`` of arming and the
+        transport must finish before ``lease`` ends. A cancellation checks the
+        order in a short transaction and holds no lease: it remains available
+        while stopped and a stop never waits for it.
         """
         if self.config.mode != "venue_test":
             raise ValueError("execution guard requires venue_test mode")
         self._admission.require_utc(at, field_name="physical dispatch")
+        if not timedelta(0) < send_window < lease:
+            raise ValueError("dispatch lease must outlast its send window")
+        holder = uuid.uuid4().hex
+        armed: DispatchLease | None = None
         with self._store.write() as transaction:
             if clock is not None:
                 at = clock()
@@ -1246,4 +1305,24 @@ class AccountJournal:
                 ):
                     raise ValueError("dispatch price deviation")
                 self._admission.require_reissue_safe(transaction, account_id, at)
-            yield order
+                now = self._now()
+                transaction.drop_expired_leases(now)
+                if any(item.account_id == account_id for item in transaction.leases()):
+                    raise ValueError("another dispatch is in progress")
+                armed = DispatchLease(
+                    order_id=order_id,
+                    account_id=account_id,
+                    instance_ids=instance_ids,
+                    holder=holder,
+                    armed_at=now,
+                    deadline=now + lease,
+                )
+                transaction.arm_lease(armed)
+        if armed is None:
+            yield DispatchPermit(order, None, None, self._now)
+            return
+        try:
+            yield DispatchPermit(order, armed, armed.armed_at + send_window, self._now)
+        finally:
+            with self._store.write() as transaction:
+                transaction.release_lease(order_id, holder)
