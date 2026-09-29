@@ -15,7 +15,12 @@ from typing import ClassVar, Literal, NamedTuple
 # project library imports
 from market_data.contracts import ArchiveTrade, Occurrence, SourceRequest, Trade
 from market_data.datasets import DatasetReaders, SnapshotStore
-from market_data.query.asof import AsOfSelector, InputBinding, PointEvent, _Partition
+from market_data.query.asof import (
+    AsOfSelector,
+    InputBinding,
+    PointEvent,
+    _RevisionIndex,
+)
 from market_data.storage import RawStore
 from market_data.validation import QualityPolicy, TradeRevision
 from reference_data.eligibility import EligibilityAssertions
@@ -221,7 +226,12 @@ class QueryReader:
             )
         )
         if mode == "history":
-            selected = tuple(self._history(partitions, start, end, known_at)) + tuple(
+            indexes = tuple(
+                index
+                for index in self._selector._indexes
+                if index.partition.request.instrument.instrument_id in instruments
+            )
+            selected = tuple(self._history(indexes, start, end, known_at)) + tuple(
                 item for item in selected if isinstance(item, Occurrence)
             )
         identity = hashlib.sha256(
@@ -255,29 +265,20 @@ class QueryReader:
 
     @staticmethod
     def _history(
-        partitions: tuple[_Partition, ...], start: datetime, end: datetime, known_at: datetime
+        indexes: tuple[_RevisionIndex, ...], start: datetime, end: datetime, known_at: datetime
     ) -> Generator[TradeRevision]:
         """Retain complete chains touching the window without terminal membership filtering."""
-        for partition in partitions:
-            for head in partition.revisions:
-                version: TradeRevision | None = head
-                while (
-                    version is not None
-                    and version.ts_knowledge is not None
-                    and version.ts_knowledge > known_at
-                ):
-                    version = version.previous
-                retained = version
-                while version is not None:
-                    if (
-                        start
-                        <= min(AsOfSelector._valid_from(item) for item in version.occurrences)
-                        < end
-                    ):
-                        if retained is not None:
-                            yield retained
+        for index in indexes:
+            # Chains with no version valid in [start, end) cannot pass the window test.
+            for chain in index.chains(start, end):
+                # Chains are newest first; unknown knowledge counts as known.
+                for position, (version_known_at, _, _) in enumerate(chain):
+                    if version_known_at is None or version_known_at <= known_at:
                         break
-                    version = version.previous
+                else:
+                    continue
+                if any(start <= instant < end for _, instant, _ in chain[position:]):
+                    yield chain[position][2]
 
     @staticmethod
     def _project(item: PointEvent, columns: tuple[QueryColumn, ...]) -> QueryRow:
