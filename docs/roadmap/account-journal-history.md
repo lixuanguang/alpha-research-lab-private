@@ -2,7 +2,8 @@
 
 Owner: quant development. Status: **storage, governance and deployment implemented
 on branches 2026-09-29, not merged; storage qualification passed, retained replay
-failed, signed stage-1 cohort not run**. Policy approved by the
+failed and replaced by the signed cohort's own parity; signed stage-1 cohort
+declared**. Policy approved by the
 owner on 2026-09-29. Baseline: `main` at `9ae6fb1`. This page is a stage-2
 prerequisite for
 [MR15 runtime capacity](runtime-capacity.md#lifecycle-authority-and-acceptance-stages).
@@ -189,4 +190,68 @@ code, which only a new signed cohort produces.
 
 **Not run.** Fresh signed releases and deployments and the stage-1 steady, recovery
 and loaded-fault cohort remain required before any stage-2 use.
+
+## Decisions after qualification (2026-09-29)
+
+The owner delegated three decisions; each follows from the code and records above.
+
+1. **Run the signed stage-1 cohort once.** It is the remaining prerequisite, and
+   earlier signed attempts stopped only because failures were being retried. This
+   cohort is predeclared below, runs each trial once and records a failure without
+   retrying it.
+2. **Replace the retained-delivery replay.** Retained v5 results record an earlier
+   journal schema that this code does not decode, by policy. The replay's purpose,
+   economic equivalence on real deliveries, is served by the cohort's own parity:
+   the maintained parity consumer replays each new signed trial's exact deliveries,
+   and for recovery its operator controls and native suffix, into fresh journals
+   and requires every economic fact to match. Stage-2 equivalence rests on that and
+   on the dual-format evidence taken before the earlier format was removed.
+3. **Keep `verify()` as it is.** Profiling at full history attributes the 126 s to
+   strict per-field revalidation of the units models (0.4–1.9 ms per row typed
+   against 7–42 µs untyped JSON), which the units library requires by design. It
+   runs only for stopped-account backup and restore, which have no time budget, and
+   the earlier format paid the same per-item cost on every open. Revisit only if a
+   backup or restore budget is declared.
+
+## Signed stage-1 declaration (2026-09-29)
+
+Declared before any build or trial. The candidate is the source at the commit that
+adds this declaration, frozen by hash; drivers and retained evidence live under
+ignored `logs/account-history/stage1/`, ported from the candidate-10 drivers with
+only these changes: new paths, a v4-only policy and build requests, a wheel fetch,
+no historical one-sided replay (superseded by the
+[reattribution](runtime-capacity.md#reattribution-and-harness-corrections-2026-09-29)),
+and an added recovery-suffix parity.
+
+**Candidate and authority.** Four signed execution `paper` targets (OKX shared and
+isolated, Bitfinex shared and isolated) with `account-runtime-v1` configuration and
+`account-journal-v4` state. They are built by a new ephemeral local builder,
+`local-account-history`, whose private key is mode 0600 outside the repository; the
+earlier builder key did not survive a host restart. Its installation policy trusts
+only that builder for seven days and admits only those two schemas. Dependencies are
+fetched from the lock with verified hashes. Fresh journals, disabled deployments
+and ordinary one-hour grants with the unchanged 80-order and 100-unit limits; no
+grant, service lifetime, budget or risk limit changes.
+
+**Sequence, each once, stopping at the first failure.**
+
+1. Freeze source and consumers; fetch, build, verify and install four targets.
+2. Steady trial on the declared native fixture with the MR15 stage-1 shape: 120-second
+   accounts, 100-second capture, 75-second supervisor, at least 60 measured seconds
+   with the declared burst and four depth plus four dashboard readers at 5 Hz.
+3. Steady economic parity: every account's seven economic facts equal the signed
+   facts, the first-touch oracle holds and the installed identities match.
+4. Steady gate assessment and topology/lifetime retention with the unchanged
+   candidate-10 gates: health, receipt-to-durable, durable-to-BBO, queue, coverage,
+   capture completion and size, query budgets, resources (average CPU ≤ 7 cores,
+   RSS ≤ 24 GiB, occupied ≤ 320 GiB) and complete shutdown delivery accounting.
+5. Recovery trial of the same candidate with replacement owners, then preservation
+   and all-eight progress, the same gates, and the independent recovery-suffix
+   parity against the steady trial.
+6. Loaded-fault trial on separately installed targets of the same releases.
+7. Cleanup audit: every observed process absent and all four accounts stopped.
+8. `make check` on the unchanged frozen source.
+
+Public routes, feature serving, cold-cache boundaries and stage 2 are not in this
+cohort.
 
