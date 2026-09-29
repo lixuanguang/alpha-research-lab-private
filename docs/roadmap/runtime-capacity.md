@@ -1180,3 +1180,26 @@ The signed runtime and releases are unchanged, so nothing is rebuilt.
    one-hour grants for the same releases and the 12,000-message cap, with the same criteria.
 3. Cleanup audit of the new trial, then `make check` on the unchanged frozen source.
 
+#### Residual continuation result (2026-09-29)
+
+The single attempt stopped at step 1; no further attempt follows without owner approval,
+and the public Bitfinex route, cleanup audit and `make check` did not run. All 4,000
+requests returned, with matched-cutoff parity and no failure.
+
+| Class | Service p50 / p95 / p99 | Scheduled response p99 | Result |
+| --- | --- | --- | --- |
+| Depth/BBO, application-cold | 7.9 / 14.5 / 20.9 ms | 34.8 ms | pass (2 s) |
+| Depth/BBO, warm | 7.3 / 14.3 / 20.7 ms | 32.4 ms | pass (50/200/500 ms) |
+| Dashboard, application-cold | 716.7 / 781.6 / 822.3 ms | 129.3 s | service passes 3 s; response fails |
+| Dashboard, warm | 584.8 / 657.4 / 699.4 ms | 97.3 s | fail (100/400/1,000 ms) |
+
+The durable as-of index therefore qualifies both depth/BBO classes. The dashboard query
+over the populated one-hour history of 10,000 events per account misses its warm p50 and
+p95 targets by about sixfold and 1.6-fold; the same query on the steady trial's small
+history met its budget at 112 ms p99. Each dashboard reader is paced at 5 Hz, so a
+service time of 0.6–0.8 s builds a queue of up to about 130 s, which is why scheduled
+response fails in both dashboard classes. Per the MR15 rule, the next step is to
+attribute the warm dashboard cost in the
+[monitoring query](../../src/telemetry/events.py) and report the cost of a change,
+not another run.
+

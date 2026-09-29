@@ -19808,6 +19808,105 @@
       "recovery": true,
       "burst-faults/faults": true
     },
-    "make_check": "not_run"
+    "make_check": "not_run",
+    "continuation": {
+      "declaration_commit": "9bd6eda",
+      "attempt": 1,
+      "further_attempts": "none_without_owner_approval",
+      "status": "stopped_at_history_queries_dashboard_budget",
+      "history_queries": {
+        "matched_cutoff_parity": true,
+        "failed_requests": 0,
+        "classes": {
+          "depth_bbo:application_cold": {
+            "service_latency": {
+              "samples": 1000,
+              "status": "pass",
+              "p50_ms": 7.9,
+              "p95_ms": 14.5,
+              "p99_ms": 20.9,
+              "maximum_ms": 35.9
+            },
+            "scheduled_response_latency": {
+              "samples": 1000,
+              "status": "pass",
+              "p50_ms": 12.4,
+              "p95_ms": 20.5,
+              "p99_ms": 34.8,
+              "maximum_ms": 40.9
+            }
+          },
+          "depth_bbo:warm": {
+            "service_latency": {
+              "samples": 1000,
+              "status": "pass",
+              "p50_ms": 7.3,
+              "p95_ms": 14.3,
+              "p99_ms": 20.7,
+              "maximum_ms": 32.7
+            },
+            "scheduled_response_latency": {
+              "samples": 1000,
+              "status": "pass",
+              "p50_ms": 15.0,
+              "p95_ms": 23.4,
+              "p99_ms": 32.4,
+              "maximum_ms": 38.6
+            }
+          },
+          "dashboard:application_cold": {
+            "service_latency": {
+              "samples": 1000,
+              "status": "pass",
+              "p50_ms": 716.7,
+              "p95_ms": 781.6,
+              "p99_ms": 822.3,
+              "maximum_ms": 885.4
+            },
+            "scheduled_response_latency": {
+              "samples": 1000,
+              "status": "fail",
+              "p50_ms": 65999.5,
+              "p95_ms": 124095.0,
+              "p99_ms": 129334.6,
+              "maximum_ms": 131204.5
+            }
+          },
+          "dashboard:warm": {
+            "service_latency": {
+              "samples": 1000,
+              "status": "fail",
+              "p50_ms": 584.8,
+              "p95_ms": 657.4,
+              "p99_ms": 699.4,
+              "maximum_ms": 759.6
+            },
+            "scheduled_response_latency": {
+              "samples": 1000,
+              "status": "fail",
+              "p50_ms": 50990.5,
+              "p95_ms": 93350.8,
+              "p99_ms": 97317.4,
+              "maximum_ms": 98994.8
+            }
+          }
+        },
+        "failures": [
+          "dashboard:application_cold:scheduled_response_latency:fail",
+          "dashboard:warm:service_latency:fail",
+          "dashboard:warm:scheduled_response_latency:fail"
+        ],
+        "summary": {
+          "path": "logs/runtime-capacity/stage1-residual/history-queries-2/summary.json",
+          "sha256": "49de77f09420559f24817780d655eaa094a04fcc3531a84ecb94966ec71034b3"
+        },
+        "assessment": {
+          "path": "logs/runtime-capacity/stage1-residual/history-queries-2/assessment.json",
+          "sha256": "fc73fc3464d1e304638da57e99af94a27b0327ca1fa6cdda8b90baf767c6317d"
+        }
+      },
+      "public_bitfinex": "not_run",
+      "make_check": "not_run"
+    }
   }
 }
