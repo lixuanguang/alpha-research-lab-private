@@ -61,6 +61,8 @@ logs/
 *.key
 secrets/*
 !secrets/.secrets.example
+*.secrets
+**/*.secrets
 
 # -----------------------------------------------------------------------------
 # Data outputs (keep fixtures/schemas in git)

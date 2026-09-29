@@ -54,6 +54,12 @@ from configuration.venue_execution import (
     VenueExecutionConfiguration,
     VenueInstrument,
 )
+from configuration.venue_secrets import (
+    SecretValue,
+    VenueSecrets,
+    VenueSecretsError,
+    read_secret_fields,
+)
 
 __all__ = [
     "AccountConfiguration",
@@ -98,10 +104,14 @@ __all__ = [
     "PaperStrategyIdentity",
     "PublicDataJob",
     "ResolvedManifest",
+    "SecretValue",
     "Universe",
     "UniverseSelection",
     "VenueAuthorization",
     "VenueCredentialReferences",
     "VenueExecutionConfiguration",
     "VenueInstrument",
+    "VenueSecrets",
+    "VenueSecretsError",
+    "read_secret_fields",
 ]

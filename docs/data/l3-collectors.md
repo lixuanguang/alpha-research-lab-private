@@ -75,9 +75,9 @@ chmod 600 secrets/coinbase.secrets
 Fill these fields locally, without quotes:
 
 ```text
-COINBASE_API_KEY=
-COINBASE_API_SECRET=
-COINBASE_API_PASSPHRASE=
+API_KEY=
+API_SECRET=
+API_PASSPHRASE=
 ```
 
 The collector reads only the explicitly supplied `--secrets` path. It performs no

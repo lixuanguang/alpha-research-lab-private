@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./secrets/**)",
+      "Read(**/*.secrets)",
+      "Read(**/*.env)",
+      "Edit(./secrets/**)",
+      "Edit(**/*.secrets)",
+      "Bash(cat:*secrets*)",
+      "Bash(head:*secrets*)",
+      "Bash(tail:*secrets*)",
+      "Bash(less:*secrets*)",
+      "Bash(more:*secrets*)",
+      "Bash(grep:*secrets*)",
+      "Bash(sed:*secrets*)",
+      "Bash(awk:*secrets*)",
+      "Bash(strings:*secrets*)",
+      "Bash(xxd:*secrets*)",
+      "Bash(od:*secrets*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-secrets.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "sandbox": {
+    "credentials": {
+      "files": [
+        { "path": "secrets", "mode": "deny" }
+      ]
+    }
+  }
+}
