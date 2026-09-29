@@ -92,8 +92,8 @@ monitoring mark without modeled fills or policy checkpoints; invalid source
 input still faults promptly. A valid but momentarily one-sided or crossed book
 is unpriced and faults only if no eligible market follows within the smaller of
 source freshness and capture idle time. The retained `SharedBookDelivery.market_effects=false`
-marks skipped economics for exact replay, while legacy envelopes omitting that
-optional field preserve the earlier per-book behavior. This is a declared paper
+marks skipped economics for exact replay; envelopes omitting that optional
+field applied that book's market effects. This is a declared paper
 market model rather than native-feed downsampling or MR15 throughput evidence.
 
 The immutable deployment can bind multiple explicit source/scenario identities

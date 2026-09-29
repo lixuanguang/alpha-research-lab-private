@@ -126,7 +126,7 @@ No financial arithmetic, temporal cutoff, calendar or cost model changed.
 **R1 is not accepted.** The independent numerical and recovery checks below
 passed on authored inputs. Native publication/replay is measured separately and
 does not yet feed the required 72-hour costed study. The
-[compact evidence record](research-capacity-evidence.json) retains raw-file
+compact evidence record (removed 2026-09-29; kept in git history) retains raw-file
 digests, source/configuration identities, baseline refusals and stage samples.
 All observations are local to the declared host; no distributed capacity is
 inferred.
@@ -314,7 +314,7 @@ trades over one hour, with unknown original knowledge clocks. No retained
 candidate provides the required original-clock BTC/ETH history across all six
 instrument-days. Full inventory bytes and the rerunnable verifier are retained
 under `logs/research-capacity/r1-input-inventory/`, with digests in the existing
-[evidence record](research-capacity-evidence.json).
+evidence record (removed 2026-09-29; kept in git history).
 
 The exact missing prerequisite is 72 consecutive UTC hours for both selected
 spot instruments, with at least 100,000 admitted unique native records, original
@@ -344,8 +344,8 @@ Native publication now has a versioned line stream, with raw reconstruction and
 canonical verification before atomic visibility. It retains one full native
 observation at a time rather than an entire history. The new path accepts a
 finite selection of up to one million raw positions per input, still subject to
-source and byte limits; legacy in-memory `BookInput.admit` remains capped at
-10,000. This is a storage change with a measured consumer, not a cap-only fix.
+source and byte limits; the in-memory `BookInput.admit` envelope remains capped
+at 10,000. This is a storage change with a measured consumer, not a cap-only fix.
 Each observation preserves exact levels/orders, state identity, source position,
 quality transitions and original clocks. It does not grant a new quality scope.
 
@@ -353,14 +353,14 @@ quality transitions and original clocks. It does not grant a new quality scope.
 query/replay consumers share that session under the existing protected immutable
 store contract; returned records and provenance are isolated, and changed
 canonical files are refused. A session does not re-read original raw bytes on
-every query; callers must keep both stores and their ancestors protected. Streamed replay retains a lookahead and delivery batch, preserves
-legacy cursor identities for v1 inputs and uses a distinct v2 identity. Legacy
-snapshots remain readable; older readers cannot read v2. Close an unfinished
+every query; callers must keep both stores and their ancestors protected.
+Streamed replay retains a lookahead and delivery batch and reads only
+`book-dataset-v2` snapshots. Close an unfinished
 stepping replay with `close()` to release its file stream and any tie spill;
 separately obtained batch iterators must be exhausted or closed by their caller.
 Resume using a completed cursor and independently retained consumer state.
 Live queries perform an existence prescan before delivery so every batch retains
-the legacy no-values explanation when needed; this can require two canonical
+the no-values explanation when needed; this can require two canonical
 hashes and two decoding passes. The empty archive measurements below do not
 measure that populated live-query cost.
 
@@ -373,9 +373,7 @@ actual offline Feast chunks, interruption and restore, but cannot replace the
 missing representative corpus. Combined native-publication-to-research R1
 execution remains pending that corpus.
 
-Rollback restores the previous implementation and preserves v2 data and failed
-attempts. Existing v1 snapshots remain usable; opening v2 after rollback requires
-the newer reader. No numerical contract, timestamp meaning, threshold, trading
+No numerical contract, timestamp meaning, threshold, trading
 limit or holdout selection changes.
 
 
@@ -514,7 +512,7 @@ The final root smoke wheel differs from the measured root wheel only in the
 packaged `market_data/README.md` and wheel RECORD; installed production bytes
 and metadata are identical. Unchanged scheduler and MR14 runtime evidence is
 reused only within its original scope. Exact commands and artifact/log digests
-are retained in the [existing evidence record](research-capacity-evidence.json).
+are retained in the existing evidence record (removed 2026-09-29; kept in git history).
 
 R1 needs the original-clock corpus described above, the combined native-to-study
 workflow on that corpus, representative scheduled-close and populated query
@@ -700,7 +698,7 @@ backup/restore and retention checks. Keep cold initialization separate; report
 remaining dependencies without claiming R1 or sustained MR15 acceptance.**
 
 The final local `make check` and all three performance tests passed. The
-[canonical evidence](research-capacity-evidence.json) appends the acquisition
+canonical evidence (removed 2026-09-29; kept in git history) appends the acquisition
 assessment, exact run/ownership/status references and unchanged-budget dependency;
 every pre-existing evidence value is preserved. The collectors remain
 `waiting_start` at the final observation; arming is not corpus acceptance.

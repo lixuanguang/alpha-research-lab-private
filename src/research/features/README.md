@@ -188,7 +188,7 @@ late and expired observations stay explicit; no zero fill is introduced.
 
 The [separate local worker](../../../configs/development/research-worker/README.md)
 keeps Feast's pandas-below-3 dependency out of the core pandas 3.0.5 runtime.
-The selected legacy offline path requires an eligibility-filtered immutable source
+The offline Feast path requires an eligibility-filtered immutable source
 and pins actual registry/source state. A normal event-time join alone is insufficient
 for delayed availability or revisions. The generalized local online path above
 publishes its own immutable, causally selected Feast generation.

@@ -43,7 +43,7 @@ research/paper/shadow mode, mode-scoped credential reference, execution capabili
 profile, reference history, maximum quantity and quote currency. Credential
 values never appear in the configuration. A production mode, executable profile,
 foreign environment or mismatched credential mode fails before reading an intent.
-The legacy admission state schema is `none-v1`; its requests do not mutate the
+The admission state schema is `none-v1`; admission requests do not mutate the
 paper order journal.
 
 `ExecutionRequest` separately supplies an `OrderIntent`, account cash/holdings,
@@ -210,7 +210,7 @@ an `AccountConfiguration` in explicit `venue_test` mode and the existing account
 journal. The configuration includes the expected physical `venue_account_id`,
 canonical/native instrument mapping, current reference history and credential
 environment-variable references. `inspect`, `quote`, `admit` and `coordinate`
-need no credentials. The legacy `account` command rejects this mode, preventing
+need no credentials. The modeled-event `account` command rejects this mode, preventing
 its modeled event requests from masquerading as native venue facts.
 
 ```sh
@@ -450,8 +450,8 @@ after the last selected book cause `paper_market` matching and active strategy
 evaluation. Intermediate eligible books update the monitoring mark without
 matching orders, posting paper fills or advancing strategy checkpoints. Source
 invalidation still faults immediately. Retained `SharedBookDelivery` records
-mark skipped economics with `market_effects=false` for exact replay; legacy
-records that omit the field preserve per-book behavior. This models selected
+mark skipped economics with `market_effects=false` for exact replay; records
+that omit the field applied that book's market effects. This models selected
 paper opportunities and does not qualify feed throughput or MR15 capacity.
 
 The supervisor consumes at most one durable frame per source per pass. When the

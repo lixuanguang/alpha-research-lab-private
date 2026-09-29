@@ -394,7 +394,7 @@ compares the exact current stop identity, requires a newer complete independent
 reconciliation and fresh marks, and rechecks gross funding and budgets. Unknown
 sends, unconfirmed cancellation and account contradictions prevent recovery.
 Known accepted open orders can survive recovery with their reservations intact.
-Legacy `block()` reasons remain independent and cannot be cleared by this API.
+`block()` reasons remain independent and cannot be cleared by this API.
 
 `cancel` records requests on direct orders and physical net parents without
 creating terminal outcomes. Local control history and recovery generations are
@@ -461,7 +461,7 @@ strategy's position. Accepted means reserved, never filled or liquidated. A late
 eligible public quote produces ordinary model events: partial fills and unavailable
 liquidity remain visible; no fill is fabricated. Economic faults, unknown outcomes,
 stale/disconnected input and insufficient inventory return explicit rejection
-reasons. The legacy permanent `block` is an independent protective fault, distinct
+reasons. The permanent `block` is an independent protective fault, distinct
 from the reversible operational stop.
 
 Historical workspace restores are quarantined before publication. They remain

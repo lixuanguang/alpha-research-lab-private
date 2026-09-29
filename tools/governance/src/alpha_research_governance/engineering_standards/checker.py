@@ -15,6 +15,9 @@ from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
 
 # project library imports
+from alpha_research_governance.engineering_standards.format_compatibility import (
+    FormatCompatibilityChecker,
+)
 from alpha_research_governance.engineering_standards.python_standards import (
     DEFAULT_SOURCE_ROOTS,
     PythonStandardsChecker,
@@ -237,6 +240,7 @@ def validate_repository(
     findings = (
         *tooling_configuration_findings(repository_root),
         *SourceLayoutChecker.findings(repository_root),
+        *FormatCompatibilityChecker.findings(repository_root),
         *source_tree_findings(
             repository_root,
             source_roots=source_roots,

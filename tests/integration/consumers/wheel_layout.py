@@ -97,7 +97,7 @@ def main() -> None:
         timeout=120,
     )
     assert InstalledIdentity.sha256() != ImplementationIdentity.sha256()
-    print("Installed APIs, resources, historical snapshot and OKX book command verified.")
+    print("Installed APIs, resources and OKX book command verified.")
 
 
 if __name__ == "__main__":
