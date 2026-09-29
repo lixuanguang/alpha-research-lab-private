@@ -465,3 +465,75 @@ Coinbase live acceptance still requires verified Exchange access. The existing
 supervised CLI path remains raw-capture-only and refuses snapshot flags; independent
 supervision follows its separate contract. Artifact verification remains required for any
 deployment. No new venue connection is needed to replay an existing saved recording.
+
+## Finite public collection with segment rollover
+
+The separate `alpha-collect capture-run` path collects public OKX/Bitfinex books
+through one fixed UTC window of at most 73 hours. It keeps the existing socket,
+native parser and sequence state across storage rollover. `CaptureConfig` still
+limits each segment to one hour, one million messages and one billion encoded
+bytes. [CaptureRunConfig](../../src/configuration/capture_run.py) additionally
+requires explicit `start_at`, `ready_by`, `stop_at`, whole-run message/byte limits,
+segment count and reconnect count. No account, trading grant or risk limit is
+activated or extended.
+
+```sh
+alpha-collect capture-run --config /absolute/public-source.json \
+  --window /absolute/fixed-window.json --run-directory /absolute/new-run
+alpha-collect capture-run-replay --run-directory /absolute/new-run \
+  --max-seconds 7200
+```
+
+The process owns `owner.lock` while waiting for the declared start and while
+collecting. `run-request.json` pins the source, implementation and UTC window;
+`progress.json` records PID, actual readiness, committed progress, the fixed
+expected source completion and exact stop/resume instructions. Stop by creating
+`stop-requested` in the run directory or sending SIGTERM/SIGINT. Receipt stops,
+accepted queue entries drain, and the original journals seal. Persistence
+failure propagates rather than becoming a source reconnect. Filesystem stalls
+cannot be given a successful drain deadline; a forced process stop leaves an
+interrupted prefix for recovery.
+
+Each segment retains its original `CaptureRecord` bytes and receipt nanoseconds,
+native event clocks and sequence messages. Its optional `CaptureSegment` binds
+the immutable run identity, ordinal, previous request and previous raw digest.
+Rollover adds no session, end, gap or fabricated native snapshot. Per-record
+cursors retain the acknowledged byte prefix and digest. The terminal
+`run-summary.json` records live state and keeps `replay_verification=pending`;
+the separate finite replay command compares every saved record and exact live
+summary. Starting or stopping collection does not accept corpus coverage.
+
+Resume an interrupted run with the originally installed collector bytes:
+
+```sh
+alpha-collect capture-run --run-directory /absolute/interrupted-run --resume
+```
+
+Resume verifies all committed predecessors, preserves the untouched unknown
+journal tail, seals only the durable prefix and records an interruption gap
+before a fresh connection and native snapshot. Replay and sealing time consume
+the remaining fixed window. A changed request/deadline, concurrent owner or
+already terminal run is refused. Source gaps, overload, frame/message/byte limits
+and missed readiness remain explicit; the collector never extends the UTC stop
+to replace them. A user stop is terminal; explicit resume applies to an
+interrupted run, not an already ended recording.
+
+`max_bytes` counts unique encoded journal bytes, not occupied disk. Normal
+journal/object publication can retain two copies; interrupted-prefix sealing can
+temporarily add another copy of one bounded segment. Metadata, original unknown
+tails and other retained inputs also need reserved space. Check aggregate source,
+workspace and retention budgets before launch and before every manual resume.
+Include abandoned sealing files and both sources' remaining journal/publication
+growth; refuse a resume that can exceed the selected occupied-space cap without
+deleting any reconstruction evidence. Selecting a collection staging ceiling
+does not change a research acceptance profile. No compression or
+reconstruction-record discard is implemented.
+
+Pass the ordered segment directories to the existing `DatasetPublication`.
+`BookInput.read` binds the exact predecessor descriptors, and `SourceAdapters`
+replays original predecessors before projecting a suffix with no new snapshot.
+Raw identities, clocks and suffix positions stay attributable. Publication copies
+the predecessor objects for portable reopening. This preserves ingestion
+compatibility; it does not establish full-run publication throughput or R1
+workspace/retention budgets. A suffix currently reconstructs its complete
+predecessor chain, so publishing every long-run segment repeats that work.

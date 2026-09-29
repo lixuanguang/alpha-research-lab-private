@@ -19487,5 +19487,152 @@
       "Recovery preserves economic facts and progress; independent recovery-suffix economic replay remains unqualified.",
       "Sustained processing, capture rollover, longer finite service/handoff, retention, replay and extended authority remain open."
     ]
+  },
+  "bounded_stage1_closure": {
+    "recorded_at": "2026-09-29T01:55:26.102020+00:00",
+    "base_commit": "ec34b8bb38e88fc67f7c27237b16ef1513a382c7",
+    "status": "bounded_gaps_partially_closed_remaining_dependencies_explicit",
+    "MR15_acceptance": false,
+    "stage2_acceptance": false,
+    "integrated_features": {
+      "status": "implemented_partial_evidence_full_cohort_not_qualified",
+      "report": {
+        "path": "logs/capacity-closure/feature-partial-final.json",
+        "sha256": "99930dd5eca84ae6771bdccfd4bd103bb1d311c48bd8847cbbfbacbf62a31010",
+        "bytes": 22813
+      },
+      "initial": "separate60second1920requestspass;independent economics and existing gates pass",
+      "recovery": "four60secondintervalspass;fifth retains real latency failure with1920ready exact-parity requests",
+      "materialization_observations_per_source": 240,
+      "materialization_p99": "unmeasured_fewer_than1000",
+      "retrieval_failure_ms": {
+        "p95": 106.036,
+        "p99": 207.481,
+        "targets": [
+          75,
+          200
+        ]
+      },
+      "topology": "four sources,four owners,eight instances;one-second two-value versions;five-secondTTL;three-second selected-book cadence;concurrent depth/dashboard readers",
+      "diagnosis": {
+        "path": "logs/capacity-closure/feature-v5-latency-diagnostic-data.json",
+        "sha256": "ed2aebf27f8a3b0854f9fe2463a8e69368b895fb81ea93a85662e66d6811c025",
+        "bytes": 15260
+      },
+      "overlap": {
+        "path": "logs/capacity-closure/feature-v5-latency-boundary-overlap.json",
+        "sha256": "e10a2c86222e75b0f07585cb35a0eafa494899f23aa746dba0a3ffa3a6d55a09",
+        "bytes": 8073
+      }
+    },
+    "resources": {
+      "diagnosis": {
+        "path": "logs/capacity-closure/v5-resource-history-diagnosis.json",
+        "sha256": "858489ab765972e8e61726dda79be9176f09f853b30fdac948fa098dc5a1a725",
+        "bytes": 5678
+      },
+      "eligible_CPU_deltas_from_four_passing_recoveries": 236,
+      "CPU_p95": "unmeasured_fewer_than1000",
+      "fifth_interval_rows": 58,
+      "missing_one_second_slots": [
+        23,
+        26
+      ],
+      "cause": "Observed process-discovery plus occupied-disk scans exceededone second at slots22and25; exact58rowsretained, not inflated. State-filegrowth contributescost but solecause unproven.",
+      "physical_io": "unsupported_on_Darwin;logical_file_bytes_separate"
+    },
+    "recovery_suffix": {
+      "qualified": true,
+      "proof": {
+        "path": "logs/runtime-capacity/bounded-evidence/recovery-suffix-final.json",
+        "sha256": "7705796544b3848e87af47376c04f7fdf6111e7aed76bd1ee8356eefe6243198",
+        "bytes": 97571
+      },
+      "comparisons": "all four accounts; exact economics, checkpoints, original operator controls and source/selection identities"
+    },
+    "fresh_public_routes": {
+      "okx": {
+        "result": "healthy60.005seconds121health witnesses;606BTC608ETH observed messages; complete native parity; no1000-sample public latency claim",
+        "summary": {
+          "path": "logs/runtime-capacity/latency-query-10/closure-public-okx/steady/summary.json",
+          "sha256": "bee96d166b91cd7fc1e44b74c6e2702b0558963cc9e8ef0cfe0f93a76120fbfe",
+          "bytes": 7624
+        }
+      },
+      "bitfinex": {
+        "result": "healthy minute not qualified: ETH5000-message cap at59.313604seconds; actual last book two-sided; retain earlier one-sided ETH protection evidence",
+        "diagnosis": {
+          "path": "logs/runtime-capacity/bounded-evidence/public-bitfinex-diagnosis.json",
+          "sha256": "e452d5894f2a88d04d7b403dee2a740f8617bc7c40c7ae111df740c29cb85a1b",
+          "bytes": 9973
+        }
+      }
+    },
+    "populated_queries": {
+      "pilot": {
+        "path": "logs/runtime-capacity/bounded-evidence/history-pilot3/summary.json",
+        "sha256": "529bc518167e65881bf58ac2f6068392001364d9e9b70e4761a0ac996a0d6fbf",
+        "bytes": 10545
+      },
+      "diagnosis": {
+        "path": "logs/runtime-capacity/bounded-evidence/history-cold-diagnosis/diagnosis.json",
+        "sha256": "8210cbc262e257250601651577d612168bee1a04337f44e0d9b153fd93ab521a",
+        "bytes": 3326
+      },
+      "continuation": {
+        "path": "logs/runtime-capacity/bounded-evidence/cold-query-dependency.json",
+        "sha256": "4bf0254ab1f475a7d81eb346bc611d7009be0d6cc7917feb225720962216e85d",
+        "bytes": 6760
+      },
+      "result": "four observations per boundary/cache class: ranges only. Actual2286 native rows/source and separate authored10000-event one-hour dashboards. OS cache uncontrolled. Resolve OKX cold full-index loading cost before1000/class qualification."
+    },
+    "remaining_dependencies": [
+      "Integrated feature latency and complete same-boundary materialization/CPU sampling remain open; stop repeated signed qualification until coupled contention and sampler overruns are isolated.",
+      "Cold query sampling and representative multiday history; application-cold does not imply filesystem-cold.",
+      "Committed checkpoint percentiles: two actual commits/account initially, zero recovery; need1000 actual committed observations/account in compatible finite workload.",
+      "Healthy Bitfinex public minute requires a source-envelope decision or qualifying lower observed rate.",
+      "Physical process I/O counters unsupported on Darwin; logical bytes are separate.",
+      "Sustained MR15 stage2 remains separate: longer service handoff/grants,24h trial,72h runtime retention,7d telemetry and4x replay."
+    ],
+    "impact_and_reuse": {
+      "signed_runtime": "Candidate-10 implementation7f31316338bacfb945de79d00ac87b7460739a0087e7e91b3f64294e9e6e68bb and its four signed releases remain unchanged. Existing processing, steady economics, native parity, loaded protection and recovery fences/progress retain their original scope.",
+      "collector": "Additive public finite-run and segment-lineage paths. Legacy CaptureRequest omits default None and BookInput omits UNSET predecessors, preserving original serialized identities. Existing live receipt, execution, authority, risk, scheduler and feature-store algorithms are unchanged. Affected legacy/rollover tests and final installed real replay/publication/reopen renew new paths.",
+      "features": "New integration consumers reuse existing versioned feature APIs and native causal admission. v5 initial and four recovery intervals pass correctness/retrieval plus original gates; fifth retains latency and sampler-cadence failure. No full materialization or CPU percentile qualification is claimed. Failed v1/v2/v4 runs and v3 grant expiry retained, never pooled.",
+      "research": "Existing authored R1/Feast/recovery/backup software evidence is reused only within its original authored/partial-native scope. No representative R1 acceptance or forecast is inferred."
+    },
+    "validation": {
+      "path": "logs/capacity-closure/final-validation.json",
+      "sha256": "d37edd54c3446377ae64a08f3c7bbc94e10d37965560c7840a1ced9088e4acea",
+      "bytes": 943
+    },
+    "failures_retained": [
+      {
+        "path": "logs/capacity-closure/feature-v5-latency-diagnostic-data.json",
+        "sha256": "ed2aebf27f8a3b0854f9fe2463a8e69368b895fb81ea93a85662e66d6811c025",
+        "bytes": 15260
+      },
+      {
+        "path": "logs/capacity-closure/v5-resource-history-diagnosis.json",
+        "sha256": "858489ab765972e8e61726dda79be9176f09f853b30fdac948fa098dc5a1a725",
+        "bytes": 5678
+      },
+      {
+        "path": "logs/capacity-closure/feature-consumer-diagnosis-v3.json",
+        "sha256": "e46a0dea16f62ab2b224108c446275ab1b69a382e0de490fc441c65dbb8f6f42",
+        "bytes": 3367
+      },
+      {
+        "path": "logs/capacity-closure/feature-v4-native-diagnosis.json",
+        "sha256": "5910cf48374953b77ad10edf8ec08a19b2c05d383dc63b5eda4b457208484453",
+        "bytes": 4057
+      },
+      {
+        "path": "logs/capacity-closure/feature-v5-retained-admission.json",
+        "sha256": "a3b5ce0c9b86890c27f0fc7d7e278dce4907b95f00971ae31eeb186f3a3f36cf",
+        "bytes": 4484
+      }
+    ],
+    "local_evidence_only": true,
+    "hosted_ci": false
   }
 }

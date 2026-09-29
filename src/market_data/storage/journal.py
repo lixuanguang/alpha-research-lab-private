@@ -9,6 +9,7 @@ import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import BinaryIO
 
 # project library imports
@@ -162,6 +163,62 @@ class CaptureJournal:
         )
         self._write_new(self.root / "manifest.pending", self.codec.encode_json(descriptor))
         os.replace(self.root / "manifest.pending", self.root / "manifest.json")
+        self._sync_directory(self.root)
+        return descriptor
+
+    def committed_cursor(self) -> CaptureCursor:
+        """Verify and return the exact durable prefix, including interrupted journals."""
+        with (self.root / "journal.jsonl").open("rb") as source:
+            self._verify_cursor(source)
+        return self.codec.decode_json((self.root / "cursor.json").read_bytes(), CaptureCursor)
+
+    def seal_interrupted(self) -> RawObject:
+        """Publish only the committed prefix while retaining the untouched unknown tail.
+
+        The original journal is never truncated or appended to. A resumed run
+        must persist an explicit gap and acquire a new native session separately.
+        Repeated sealing verifies an already published descriptor without changing it.
+        """
+        cursor = self.committed_cursor()
+        manifest = self.root / "manifest.json"
+        if manifest.exists():
+            descriptor = self.codec.decode_json(manifest.read_bytes(), RawObject)
+            if descriptor.sha256 != cursor.sha256 or descriptor.size_bytes != cursor.offset:
+                raise ValueError("sealed capture differs from committed cursor")
+            with RawStore(self.root).open(descriptor=descriptor, request=self.request.binding):
+                return descriptor
+        with NamedTemporaryFile(dir=self.root, prefix="committed-prefix-", delete=False) as output:
+            prefix = Path(output.name)
+            with (self.root / "journal.jsonl").open("rb") as source:
+                remaining = cursor.offset
+                while remaining:
+                    chunk = source.read(min(remaining, 65536))
+                    if not chunk:
+                        raise ValueError("committed capture prefix is truncated")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+        with prefix.open("rb") as source:
+            line = source.readline(self.request.config.max_bytes + 1)
+        received_ns = 1 if not line else self.codec.decode_json(line, CaptureRecord).received_ns
+        timestamp = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(microseconds=received_ns // 1000)
+        descriptor = RawFiles.describe(
+            prefix,
+            request=self.request.binding,
+            retrieval_reference=f"live:{self.request.recording_id}",
+            ts_received=timestamp,
+            ts_ingested=max(timestamp, datetime.now(UTC)),
+        )
+        RawStore(self.root).publish(prefix, descriptor=descriptor, request=self.request.binding)
+        with NamedTemporaryFile(dir=self.root, prefix="manifest-", delete=False) as output:
+            output.write(self.codec.encode_json(descriptor))
+            output.flush()
+            os.fsync(output.fileno())
+            pending = Path(output.name)
+        os.replace(pending, manifest)
+        self._sync_directory(self.root)
+        prefix.unlink()
         self._sync_directory(self.root)
         return descriptor
 

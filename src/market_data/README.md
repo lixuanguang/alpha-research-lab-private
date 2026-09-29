@@ -70,6 +70,16 @@ propagates and leaves an inspectable interrupted journal. `alpha-collect` alone
 adds optional snapshot publication; another consumer can reuse the collection
 service without importing that application.
 
+`CaptureRunRunner` supplies the separate finite public collection path with
+fixed UTC start/readiness/stop and durable segment lineage. Storage rollover
+preserves the open socket and native state; explicit resume retains an
+interruption gap before acquiring a fresh native snapshot. `BookInput` and
+`SourceAdapters` reconstruct suffix segments from their original predecessors,
+while `SavedCaptureRun` independently verifies the completed live trace. The
+[collector guide](../../docs/data/l3-collectors.md#finite-public-collection-with-segment-rollover)
+owns limits, process ownership and stop/resume commands. This collection path
+does not extend any paper-service lifetime or grant corpus acceptance.
+
 Raw bytes are bound to the complete `SourceRequest` and its request identity.
 Historical manifests and old reports retain their original implementation
 identity; resume with the matching wheel/configuration or start a new run. Do

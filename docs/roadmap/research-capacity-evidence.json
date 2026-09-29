@@ -3791,5 +3791,125 @@
       "research_acceptance": false,
       "runtime_acceptance": false
     }
+  },
+  "original_clock_acquisition": {
+    "recorded_at": "2026-09-29T01:55:26.102020+00:00",
+    "base_commit": "ec34b8bb38e88fc67f7c27237b16ef1513a382c7",
+    "R1_acceptance": false,
+    "status": "acquisition_armed_pending_original_clock_coverage_and_unchanged_capacity_budgets",
+    "inventory": {
+      "as_of": "2026-09-28T15:00:00Z",
+      "report": {
+        "path": "logs/capacity-closure/source-inventory.json",
+        "sha256": "68905abc8502f40c4ada8ad2df27cba9eee85b8e4b1ee27fbf7bf5d2220cdb9e",
+        "bytes": 148059
+      },
+      "complete_qualifying_instrument_days": 0,
+      "public_recordings": 73,
+      "admitted_native_positions": 34246,
+      "uniqueness": "within each immutable recording, not global across overlapping recordings",
+      "archive_unique_compressed_bytes": 873744146,
+      "archive_admission": "no original receipt/availability; six million-record prefixes are not complete daily coverage"
+    },
+    "compatibility": {
+      "original_sample": {
+        "path": "logs/capacity-closure/acquisition-sample/sample-qualification.json",
+        "sha256": "d67585fd6c70fb06437f450543bfdfe2b1bedfbda12b937033b884e58e25fe8f",
+        "bytes": 6110
+      },
+      "final_rollover": {
+        "path": "logs/capacity-closure/rollover-sample-final/qualification.json",
+        "sha256": "2deb4ae548b5b710b9af3dd973a1adf78c62bfe15e3ace8d4c66508c27473fc2",
+        "bytes": 4936
+      },
+      "result": "real final installed public input;five segments/source;one native snapshot/session;zero gaps;independent replay,all suffix publication,reopen pass"
+    },
+    "decision": {
+      "user": "Allow32GiB acquisition staging;keepR1 budgets unchanged",
+      "staging_cap_bytes": 34359738368,
+      "frozen_R1": {
+        "source_bytes": 2147483648,
+        "workspace_bytes": 10737418240,
+        "thirty_day_bytes": 107374182400,
+        "feature_rows": 8640,
+        "trials": 4,
+        "active_workers": 2
+      }
+    },
+    "acquisition": {
+      "run": {
+        "path": "logs/capacity-closure/acquisition-run.json",
+        "sha256": "de1a853ed4cc04d885782a95206d80d706d95c072ffd3c1e5a50243178c77da7",
+        "bytes": 5465
+      },
+      "ownership": {
+        "path": "logs/capacity-closure/acquisition-ownership.json",
+        "sha256": "b7a4ceee5c63484470637b24c46b76811adb357f377d67b81e6fe057703eb6af",
+        "bytes": 5917
+      },
+      "latest_status": {
+        "path": "logs/capacity-closure/acquisition-status-final.json",
+        "sha256": "25a85e041f76e2de95eacdfe4bb3db1794579c8f0aefc2fd956067b199ba79d6",
+        "bytes": 2159
+      },
+      "missed_original_window": {
+        "path": "logs/capacity-closure/acquisition-window-missed.json",
+        "sha256": "bd1a4f8f82ce27f386a35c61b9d3644fa82c84fad521cbefb4cda1a7f36845b3",
+        "bytes": 441
+      },
+      "plan": {
+        "path": "logs/capacity-closure/acquisition-plan.json",
+        "sha256": "2ec291fa1471a11bb051143b1868e204a5880dee6e46ab15e1ef02ffce668cd0",
+        "bytes": 3656
+      },
+      "budget_preflight": {
+        "path": "logs/capacity-closure/acquisition-budget-preflight.log",
+        "sha256": "f791fe78961060e54c1758cf982c6f75cd301f16a18b33e65bd0ec46b5e1c578",
+        "bytes": 577
+      },
+      "start": "2026-09-29T23:00:00Z",
+      "stop": "2026-10-03T00:00:00Z",
+      "required_UTC_days": [
+        "2026-09-30",
+        "2026-10-01",
+        "2026-10-02"
+      ],
+      "status_at_ownership_check": "waiting_start;zero acquired coverage",
+      "collector_implementation": "fc3d794c127f9903b539f4a4d8a69dfa4bb96bbcc0914d31dcc8c6cdb40ab097",
+      "authority": "public market data only;no paper lifetime/grant/risk extension",
+      "resume_wrapper": {
+        "path": "logs/capacity-closure/resume_acquisition.py",
+        "sha256": "919f42480f61ed449b241983ccd564c936dc55b7da2aca6ced7743a2304495a8",
+        "bytes": 4105
+      },
+      "completion": "fixed stop;never automatically extend to hide gaps"
+    },
+    "capacity_dependency": {
+      "forecast73h_unique_raw_gib": 12.125,
+      "forecast73h_two_copy_raw_gib": 24.25,
+      "forecast73h_full_state_canonical_gib": 188.3,
+      "forecast30day_raw_canonical_gib": 1976.9,
+      "basis": "real60-second original-clock sample,extrapolation only",
+      "needed": "lossless compatible compact ingestion and measured predecessor-chain publication cost within unchanged budgets;no automatic source or workspace budget increase"
+    },
+    "remaining": [
+      "72 consecutive original-clock UTC hours,two exact spot source identities,six complete instrument-days,at least100000 admitted unique native records.",
+      "Representative native→scheduled features→historical PIT/Feast→four trials/two workers→report/reopen;8640 feature rows;separate cold initialization.",
+      "Independent backup/restore and retention qualification on the accepted corpus."
+    ],
+    "continuation_prompt": "docs/roadmap/research-capacity.md#armed-acquisition-and-continuation",
+    "impact_and_reuse": {
+      "signed_runtime": "Candidate-10 implementation7f31316338bacfb945de79d00ac87b7460739a0087e7e91b3f64294e9e6e68bb and its four signed releases remain unchanged. Existing processing, steady economics, native parity, loaded protection and recovery fences/progress retain their original scope.",
+      "collector": "Additive public finite-run and segment-lineage paths. Legacy CaptureRequest omits default None and BookInput omits UNSET predecessors, preserving original serialized identities. Existing live receipt, execution, authority, risk, scheduler and feature-store algorithms are unchanged. Affected legacy/rollover tests and final installed real replay/publication/reopen renew new paths.",
+      "features": "New integration consumers reuse existing versioned feature APIs and native causal admission. v5 initial and four recovery intervals pass correctness/retrieval plus original gates; fifth retains latency and sampler-cadence failure. No full materialization or CPU percentile qualification is claimed. Failed v1/v2/v4 runs and v3 grant expiry retained, never pooled.",
+      "research": "Existing authored R1/Feast/recovery/backup software evidence is reused only within its original authored/partial-native scope. No representative R1 acceptance or forecast is inferred."
+    },
+    "validation": {
+      "path": "logs/capacity-closure/final-validation.json",
+      "sha256": "d37edd54c3446377ae64a08f3c7bbc94e10d37965560c7840a1ced9088e4acea",
+      "bytes": 943
+    },
+    "local_evidence_only": true,
+    "hosted_ci": false
   }
 }

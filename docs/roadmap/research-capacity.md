@@ -1,7 +1,8 @@
 # MR15 research launch capacity
 
 Owner: quant development. Status: numeric profiles and measured diagnostic
-changes delivered; representative research acceptance pending. The R1 continuation
+changes delivered; finite original-clock acquisition armed under a separate
+approved 32 GiB staging cap; representative research acceptance pending. The historical R1 continuation
 starts from reviewed `main` at `613bcb0` on `codex/mr15-r1-native-capacity`. Profile declared
 before qualification on 2026-09-27. Baseline: `main` at `9106a48`.
 MR15 remains open until both this profile and the
@@ -527,3 +528,163 @@ MR17 remain pending. The next independent runtime task is the existing
 its finite result must not be promoted to 24-hour acceptance. Live trading
 remains KIV pending untouched OOS and forward-paper profitability after all
 transaction costs, slippage and applicable gas.
+
+## Original-clock acquisition continuation (2026-09-28)
+
+The continuation starts at `ec34b8b`; R1 counts and budgets remain frozen. A fresh
+60-second public OKX BTC-USDT/ETH-USDT sample preserved original socket receipts,
+native event/sequence clocks, one snapshot per instrument, no gaps or duplicates,
+and exact saved-input replay. Native publication and reopening admitted the real
+sample; the retained assessment is under `logs/capacity-closure/`. These seconds
+do not establish full-day coverage. The six September 20–22 archives still have
+unknown historical receipt/availability, and their retained partial reconstructions
+do not establish all six instrument-days. Free Tardis [first-day samples](https://docs.tardis.dev/api/http-api-reference)
+do not supply three consecutive days; additional archive downloads cannot repair
+missing original knowledge clocks.
+
+Observed OKX encoded rates project approximately 12.1 GiB unique raw journal bytes
+over 73 hours, or 24.3 GiB with retained publication copies, before metadata. This
+is an extrapolation from a minute, not a guaranteed daily rate. On 2026-09-28 the
+user explicitly approved a **separate 32 GiB acquisition staging cap**, retaining
+R1's **2 GiB source, 10 GiB workspace and 100 GiB thirty-day input forecast** limits.
+No acceptance budget is raised. At the sampled full-state canonical expansion,
+representative publication/storage also needs a separate measured solution; raw
+capture alone does not resolve that dependency. Lossless compression experiments
+are estimates only until the actual ingestion path supports and verifies them.
+
+The intended fixed acquisition window is **2026-09-28 23:00:00 UTC through
+2026-10-02 00:00:00 UTC**, covering September 29, September 30 and October 1.
+Both source processes must be ready before the first required midnight. Retain
+actual startup, snapshots, segment identities, durable cursors, sequence quality
+and every gap. A late start, missing interval or hard-cap stop stays incomplete;
+the run never extends its deadline to conceal it. The finite public collector
+may preserve a live connection across storage rollover; a process restart must
+declare a gap and obtain a fresh native snapshot. Collection grants no paper or
+trading authority. The durable run record will own exact commands, process
+identity, progress, stop/resume behavior and final bounds before activation.
+
+
+### Source coverage and admission limits
+
+The inventory at 2026-09-28 15:00 UTC independently checks retained raw hashes,
+request identities and native reconstruction. Its 78 candidate recordings include
+73 completed captures and five incomplete attempts; 264 fixture or unqualified
+provenance recordings are excluded. Counts below are unique admitted native
+positions within each immutable recording, not asserted global exchange-event
+uniqueness across overlapping recordings. Exact disjoint UTC intervals, original
+IDs, sequence gaps, duplicates, outcomes and raw hashes are retained in
+`logs/capacity-closure/source-inventory.json`.
+
+| Original public source | Completed recordings | Admitted native positions | Unique raw bytes | Longest retained interval |
+| --- | ---: | ---: | ---: | ---: |
+| OKX BTC-USDT | 33 | 4,284 | 5,521,546 | 63.244 s |
+| OKX ETH-USDT | 4 | 2,261 | 3,192,592 | 63.247 s |
+| Bitfinex BTC/USD | 32 | 17,463 | 2,433,794 | 63.148 s |
+| Bitfinex ETH/USD | 4 | 10,238 | 1,399,332 | 62.966 s |
+
+These short intervals span September 15–28 and leave explicit unobserved periods;
+they cannot be stitched into continuity. OKX retains native event milliseconds,
+sequence and original receipt nanoseconds. Bitfinex R0 has original receipts and
+sequence but no native event timestamp. Observation availability follows the
+existing original-receipt contract; durable publication is separately measured.
+Neither venue uses download time as historical availability.
+
+The six September 20–22 daily archives contain 764,320,959 unique compressed
+bytes and six independently verified million-record prefixes, each covering
+only about 5.5–9.3 hours. The older September 8 BTC archive adds 109,423,187 unique
+bytes; repeated downloads and the older ETH copy add no unique archive bytes.
+All retained archive bytes total 873,744,146 after hash deduplication. Original
+row receipt/availability and source-sequence continuity are unavailable, so
+none supplies an admitted original-clock R1 instrument-day. The historical ETH
+archive ID `5ff4f1a3-f2e1-5662-b60f-70e24d2ad521` remains distinct from the live
+ETH ID `7c03e264-bd70-4e5e-bcf7-fb9db7d4c843`; USD and USDT remain distinct.
+
+The fresh OKX sample's 1,185 frames occupy 2,981,654 raw bytes. Existing native
+publication produced 46,307,308 canonical bytes in 2.740 seconds and reopened
+in 1.304 seconds. A separate real 23-second rollover check preserved one
+connection/snapshot across five segments per source, with no gaps; independent
+chain replay, all suffix publications and reopening passed. These are small
+compatibility proofs, not representative capacity. The current suffix publication
+replays predecessor chains and still needs a measured compact ingestion solution
+before a 73-hour corpus can meet the frozen R1 publication/storage limits.
+At the observed rate, full-state canonical output projects to 188.3 GiB and
+30-day raw-plus-canonical retention to approximately 1,976.9 GiB.
+
+R1 remains pending: zero qualifying complete instrument-days in the inventory,
+no accepted 72-hour corpus, and no representative 8,640-row/four-trial/two-worker
+workflow. Acquisition staging approval changes none of those acceptance facts.
+
+### Fixed window readiness correction
+
+The September 28 23:00 UTC start was missed before any long-run collector was
+armed; that planned window has zero coverage. It is retained in
+`logs/capacity-closure/acquisition-window-missed.json`. The replacement window
+is **2026-09-29 23:00:00 UTC to 2026-10-03 00:00:00 UTC**, with required readiness
+before September 30 00:00 UTC, covering September 30, October 1 and October 2.
+This is a new pre-activation declaration, not an extension or relabeling of a
+running acquisition. The same 32 GiB staging cap and frozen R1 budgets apply.
+
+### Armed acquisition and continuation
+
+The final installed collector `fc3d794c127f9903b539f4a4d8a69dfa4bb96bbcc0914d31dcc8c6cdb40ab097`
+was armed at September 28 23:51:08 UTC. BTC/ETH process IDs 65954/65956 held
+exclusive run locks and reported `waiting_start`; separate finite `caffeinate`
+owners keep the Mac awake while those processes live. This records ownership,
+not actual startup readiness or accepted coverage. Progress is durable under
+`data/okx/research-corpus-20260930/{btc,eth}/progress.json`; the exact commands,
+request/config hashes, stop/resume instructions and expected completion are in
+`logs/capacity-closure/acquisition-run.json`. The observed ownership proof is
+`acquisition-ownership.json` in that same ignored directory.
+
+Per source, the fixed run permits 3,000,000 messages, 7 GiB of unique encoded
+records, 150 segments and at most 32 reconnects. Segments retain the declared
+30-minute/75,000-message/256 MiB limits. The two-copy raw ceiling is 28 GiB; the
+remaining staging reserve accounts for bounded unknown tails, sealing scratch
+and metadata. No needed record is discarded. Initial/resume preflight preserves
+a separate 10 GiB workspace free reserve. Actual worst-case occupied-byte
+preflight passed within 32 GiB. Every manual resume must repeat that check,
+including retained crash tails and temporary files.
+
+The final real compatibility sample retained five segments/source, one original
+snapshot and one session each, no gaps or duplicates, original clocks and exact
+independent replay. Every suffix published and reopened through the existing
+native dataset path. This renews the installed rollover proof after the final
+progress-counter correction; it does not qualify multi-day publication capacity.
+
+To stop one source, create its durable `stop-requested` file. Automatic network
+reconnects preserve explicit gaps and obtain a fresh snapshot; process crashes
+require an explicit budget-checked resume. From the repository root:
+
+```sh
+# Inspect both durable progress records and acquisition-run.json first.
+/usr/bin/python3 logs/capacity-closure/resume_acquisition.py btc
+# Only after a crash, before the fixed deadline, with no live owner or stop marker:
+/usr/bin/python3 logs/capacity-closure/resume_acquisition.py btc --resume
+# After the fixed stop, verify each retained chain separately (repeat for eth):
+/private/tmp/capacity-closure-collector/bin/alpha-collect capture-run-replay \
+  --run-directory data/okx/research-corpus-20260930/btc --max-seconds 7200
+```
+
+Keep raw segments for 30 days and run/provenance records for 90 days after the
+fixed stop; no automatic cleanup is configured. Retained journal/publication
+copies share a disk and do not establish independent backup. Backup/restore,
+retention acceptance and corpus admission remain part of R1. A gap, missed
+readiness deadline or exhausted cap remains visible and cannot extend the run.
+
+Next bounded prompt: **Read the durable acquisition record and both current
+progress/summary files. After October 3 00:00 UTC, independently replay the exact
+OKX chains and assess September 30–October 2 original-clock continuity, all six
+instrument-days and at least 100,000 admitted unique native records. Preserve
+source IDs, every gap and the unchanged R1 2 GiB/10 GiB/100 GiB budgets. Diagnose
+the measured raw/canonical storage and predecessor-replay costs before attempting
+representative publication. Only with a qualifying corpus and compatible budgets
+run native publication → scheduled features → historical PIT/Feast → four trials
+with two workers → report/reopen, exactly 8,640 feature rows, recovery, independent
+backup/restore and retention checks. Keep cold initialization separate; report
+remaining dependencies without claiming R1 or sustained MR15 acceptance.**
+
+The final local `make check` and all three performance tests passed. The
+[canonical evidence](research-capacity-evidence.json) appends the acquisition
+assessment, exact run/ownership/status references and unchanged-budget dependency;
+every pre-existing evidence value is preserved. The collectors remain
+`waiting_start` at the final observation; arming is not corpus acceptance.

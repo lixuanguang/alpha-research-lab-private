@@ -185,6 +185,14 @@ class SourceAdapters:
             if selection.capture is not None:
                 replay = CaptureReplay(selection.capture.config, book_factory=BookAdapters.create)
                 codec = DomainCodec()
+                for ancestor in selection.capture_chain()[:-1]:
+                    with store.open(
+                        descriptor=ancestor.raw, request=ancestor.capture.binding
+                    ) as prior:
+                        while line := prior.readline(ancestor.capture.config.max_bytes + 1):
+                            if not line.endswith(b"\n"):
+                                raise ValueError("incomplete capture predecessor message")
+                            replay.apply(codec.decode_json(line, CaptureRecord))
                 record: CaptureRecord | None = None
                 for position in range(selection.max_records):
                     line = source.readline(selection.capture.config.max_bytes + 1)
@@ -198,7 +206,7 @@ class SourceAdapters:
                 # Completion is structural; unselected native events remain outside admission.
                 for line in source:
                     record = codec.decode_json(line, CaptureRecord)
-                if record is None or record.kind != "end":
+                if record is None or (record.kind != "end" and selection.capture.segment is None):
                     raise ValueError("book input lacks a completed capture boundary")
             elif selection.archive is not None:
                 config = selection.archive.config

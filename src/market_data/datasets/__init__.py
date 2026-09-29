@@ -8,6 +8,7 @@ from market_data.datasets.books import (
     BookInput,
     BookPartition,
     BookSnapshot,
+    CaptureAncestor,
 )
 from market_data.datasets.catalog import SnapshotCatalog
 from market_data.datasets.manifests import DatasetInput, DatasetManifest, DatasetPartition
@@ -27,6 +28,7 @@ __all__ = [
     "BookInput",
     "BookPartition",
     "BookSnapshot",
+    "CaptureAncestor",
     "DatasetInput",
     "DatasetManifest",
     "DatasetPartition",

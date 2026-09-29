@@ -17,6 +17,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
@@ -26,6 +27,7 @@ from typing import Literal, Protocol, cast
 # third party library imports
 import msgspec
 import psutil  # type: ignore[import-untyped]  # [owner=runtime; rationale=locked diagnostic dependency has no bundled typing stubs; expires=2027-02-01]
+from capacity_features import CapacityFeatureObserver
 
 # project library imports
 from applications.execute.source_service import _DecodedBookObservation
@@ -429,6 +431,75 @@ class _DashboardReader:
             "scan_unavailable_reason": "telemetry_store_scan_bytes_not_exposed",
         }
 
+    def wait_for_schema(self, output: Path, deadline: float) -> dict[str, object]:
+        """Wait only at startup for a committed telemetry schema within the shared deadline."""
+        started = time.monotonic()
+        attempt = 0
+        while (remaining := deadline - time.monotonic()) > 0:
+            status = "not_created"
+            detail: str | None = None
+            if self.store.path.is_file():
+                try:
+                    with closing(
+                        sqlite3.connect(
+                            f"{self.store.path.resolve().as_uri()}?mode=ro",
+                            uri=True,
+                            timeout=min(0.05, remaining),
+                        )
+                    ) as connection:
+                        connection.execute("BEGIN")
+                        tables = cast(
+                            list[tuple[str]],
+                            connection.execute(
+                                "SELECT name FROM sqlite_master WHERE type='table'"
+                            ).fetchall(),
+                        )
+                        names = {row[0] for row in tables}
+                        if not names:
+                            status = "schema_not_committed"
+                        elif names != {"metadata", "events"}:
+                            raise ValueError("dashboard startup selected a nontelemetry schema")
+                        else:
+                            metadata = cast(
+                                list[tuple[object, ...]],
+                                connection.execute(
+                                    "SELECT version, floor FROM metadata"
+                                ).fetchall(),
+                            )
+                            if len(metadata) != 1 or metadata[0][0] != "telemetry-store-v1":
+                                raise ValueError(
+                                    "dashboard startup has unsupported telemetry metadata"
+                                )
+                            status = "ready"
+                except sqlite3.OperationalError as error:
+                    if error.sqlite_errorcode not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                        raise
+                    status, detail = "sqlite_locked", str(error)
+            with (output / "schema-readiness.jsonl").open("ab") as stream:
+                stream.write(
+                    self.codec.encode_json(
+                        {
+                            "attempt": attempt,
+                            "at": datetime.now(UTC),
+                            "monotonic_ns": time.monotonic_ns(),
+                            "status": status,
+                            "error": detail,
+                        }
+                    )
+                    + b"\n"
+                )
+            attempt += 1
+            if status == "ready" and time.monotonic() < deadline:
+                return {
+                    "status": status,
+                    "attempts": attempt,
+                    "seconds": time.monotonic() - started,
+                }
+            time.sleep(max(0.0, min(0.02, deadline - time.monotonic())))
+        raise TimeoutError(
+            "dashboard telemetry schema did not become ready within startup deadline"
+        )
+
 
 class _ResourceSampler:
     """Sample selected service process trees and occupied roots every second."""
@@ -643,6 +714,8 @@ class CapacityReadObserver:
         process_pids: tuple[int, ...],
         occupied_roots: tuple[Path, ...] = (),
         duration_seconds: int = 60,
+        features: bool = False,
+        feature_cohort: Literal["initial_steady", "recovery_steady"] = "initial_steady",
     ) -> None:
         """Bind a fresh evidence directory and explicit local process/disk scope.
 
@@ -655,6 +728,8 @@ class CapacityReadObserver:
         self.process_pids = process_pids
         self.occupied_roots = occupied_roots or (service_root,)
         self.duration_seconds = duration_seconds
+        self.features = features
+        self.feature_cohort = feature_cohort
         self.codec = DomainCodec()
         self._samples: dict[str, list[float]] = {"depth_bbo": [], "dashboard": []}
         self._failures: dict[str, int] = {"depth_bbo": 0, "dashboard": 0}
@@ -748,7 +823,11 @@ class CapacityReadObserver:
                 process_pids=(os.getpid(),),
                 duration_seconds=duration_seconds,
             )
+            startup_deadline = control.recv()
+            if type(startup_deadline) is not float or not math.isfinite(startup_deadline):
+                raise ValueError("dashboard reader received no valid startup deadline")
             reader = _DashboardReader.open(service_root, account_id, mode)
+            schema_readiness = reader.wait_for_schema(output, startup_deadline)
             warmup = reader.read(datetime.now(UTC))
             (output / "startup.json").write_bytes(
                 codec.encode_json(
@@ -758,6 +837,7 @@ class CapacityReadObserver:
                         "seconds": (time.monotonic_ns() - startup_started) / 1_000_000_000,
                         "cache_class": "warm_initialized_components_and_exact_payload_reuse",
                         "warmup": warmup,
+                        "schema_readiness": schema_readiness,
                     }
                 )
             )
@@ -946,8 +1026,8 @@ class CapacityReadObserver:
         startup/discovery interval is excluded from all warm latency percentiles.
         An optional callback runs as soon as the steady readers stop, before
         independent raw replay; it can request orderly service shutdown.
-        A genuine integrated feature store is absent from the current service
-        configuration, so feature latency and parity remain explicitly unmeasured.
+        Optional feature serving composes the retained native sources with the
+        existing versioned store during this same finite interval.
         """
         self.output.mkdir(parents=True, exist_ok=False)
         discovery_started = time.perf_counter()
@@ -977,6 +1057,19 @@ class CapacityReadObserver:
                 )
             )
             raise ValueError("steady read interval requires a retained delivery per source")
+        feature_observer = (
+            CapacityFeatureObserver(
+                self.output / "features",
+                config,
+                index,
+                measurement_root=self.service_root.parent / "measurements",
+                cohort=self.feature_cohort,
+            )
+            if self.features
+            else None
+        )
+        if feature_observer is not None:
+            feature_observer.prepare()
         sampler_started = time.perf_counter()
         context = multiprocessing.get_context("spawn")
         parent_control, child_control = cast(
@@ -1030,6 +1123,8 @@ class CapacityReadObserver:
                     reader_child.close()
                 dashboard_processes.append((account.account_id, reader_process, reader_control))
             reader_deadline = time.monotonic() + 5
+            for _, _, reader_control in dashboard_processes:
+                reader_control.send(reader_deadline)
             for account_id, _, reader_control in dashboard_processes:
                 if (
                     not reader_control.poll(max(0.0, reader_deadline - time.monotonic()))
@@ -1058,6 +1153,19 @@ class CapacityReadObserver:
                         "phase": startup_phase,
                         "error": type(error).__name__,
                         "reason": str(error),
+                        "dashboard_reader_processes": {
+                            account_id: {
+                                "pid": reader_process.pid,
+                                "exitcode": reader_process.exitcode,
+                                "alive_after_join": reader_process.is_alive(),
+                            }
+                            for account_id, reader_process, _ in dashboard_processes
+                        },
+                        "resource_sampler_process": {
+                            "pid": sampler_process.pid,
+                            "exitcode": sampler_process.exitcode,
+                            "alive_after_join": sampler_process.is_alive(),
+                        },
                     }
                 )
             )
@@ -1079,6 +1187,8 @@ class CapacityReadObserver:
         )
         for thread in threads:
             thread.start()
+        if feature_observer is not None:
+            feature_observer.start(started, stop)
         remaining = stop - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)
@@ -1119,6 +1229,15 @@ class CapacityReadObserver:
             if reader_process.exitcode != 0 and postprocess_error is None:
                 postprocess_phase = "dashboard_reader"
                 postprocess_error = RuntimeError(f"dashboard reader {account_id} failed")
+        feature_summary: dict[str, object] = {
+            "status": "not_measured",
+            "reason": "integrated_feature_workload_not_selected",
+        }
+        if feature_observer is not None:
+            feature_summary = feature_observer.finish(join_deadline)
+            if feature_summary["status"] == "fail" and postprocess_error is None:
+                postprocess_phase = "integrated_feature_serving"
+                postprocess_error = RuntimeError("integrated feature workload did not complete")
         if postprocess_error is None:
             postprocess_phase = "native_replay_parity"
             try:
@@ -1198,10 +1317,7 @@ class CapacityReadObserver:
             },
             "depth_bbo": self._summary(self._samples["depth_bbo"], self._failures["depth_bbo"]),
             "dashboard": self._summary(self._samples["dashboard"], self._failures["dashboard"]),
-            "feature": {
-                "status": "not_measured",
-                "reason": "no_integrated_versioned_feature_materialization_or_serving_path",
-            },
+            "feature": feature_summary,
             "resources": resources,
             "native_replay_parity": parity,
             "postprocess_status": "pass" if postprocess_error is None else "fail",

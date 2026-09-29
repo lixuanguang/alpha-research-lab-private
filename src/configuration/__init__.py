@@ -22,6 +22,7 @@ from configuration.capabilities import (
     CapabilitySelection,
 )
 from configuration.capture import CaptureConfig
+from configuration.capture_run import CaptureRunConfig
 from configuration.data_jobs import Configuration, DataJob, ResolvedManifest, Universe
 from configuration.decisions import (
     DecisionRun,
@@ -73,6 +74,7 @@ __all__ = [
     "CapabilityRequirement",
     "CapabilitySelection",
     "CaptureConfig",
+    "CaptureRunConfig",
     "Configuration",
     "CredentialReference",
     "DataCapability",

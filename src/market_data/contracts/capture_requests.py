@@ -11,6 +11,7 @@ import msgspec
 
 # project library imports
 from configuration import CaptureConfig, UniverseSelection
+from market_data.contracts.capture_segments import CaptureSegment
 from market_data.contracts.raw import RequestBinding
 from serialization import DomainCodec
 
@@ -24,10 +25,15 @@ class CaptureRequest(
     recording_id: str
     implementation_identity: str
     universes: UniverseSelection | None = None
+    segment: CaptureSegment | None = None
 
     def __post_init__(self) -> None:
         """Validate the immutable identity used by shared raw-object storage."""
         self.config.__post_init__()
+        if self.segment is not None:
+            if type(self.segment) is not CaptureSegment:
+                raise ValueError("capture requires typed segment lineage")
+            self.segment.__post_init__()
         if self.universes is not None:
             if type(self.universes) is not UniverseSelection:
                 raise ValueError("capture requires typed universe scopes")

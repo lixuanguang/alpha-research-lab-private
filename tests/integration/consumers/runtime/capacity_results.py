@@ -974,10 +974,21 @@ class CapacityResultsCollector:
             else None,
             "per_target": groups,
             "four_reader_workload": workloads,
-            "feature": {
+            "feature": self._feature_reads(),
+        }
+
+    def _feature_reads(self) -> dict[str, object]:
+        """Link actual feature evidence while retaining insufficient sample counts."""
+        path = None if self.read_root is None else self.read_root / "features" / "summary.json"
+        if path is None or not path.is_file():
+            return {
                 "status": "unmeasured",
-                "reason": "no_integrated_versioned_feature_materialization_or_serving_path",
-            },
+                "reason": "integrated_feature_workload_not_selected",
+            }
+        return {
+            **msgspec.json.decode(path.read_bytes(), type=dict[str, object]),
+            "evidence_path": str(path),
+            "evidence_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
 
     def collect(self) -> dict[str, object]:

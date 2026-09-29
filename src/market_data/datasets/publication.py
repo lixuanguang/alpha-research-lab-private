@@ -79,6 +79,14 @@ class DatasetPublication:
                 descriptor=selected.raw,
                 request=selected.request.binding,
             )
+            for ancestor in selected.capture_chain()[:-1]:
+                if not 0 <= ancestor.raw.size_bytes <= max_bytes:
+                    raise ValueError("book predecessor raw input exceeds max_bytes")
+                store.publish(
+                    directory.parent / ancestor.capture.recording_id / ancestor.raw.sha256,
+                    descriptor=ancestor.raw,
+                    request=ancestor.capture.binding,
+                )
         return SnapshotStore(
             destination, store, readers=self._readers, manifest_type=BookDatasetManifest
         ).publish_book_streams(

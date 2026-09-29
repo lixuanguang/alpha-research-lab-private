@@ -141,11 +141,13 @@ class CapacityTrial:
         variant: CapacityVariant = "base",
         recover: bool = False,
         faults: bool = False,
+        features: bool = False,
     ) -> None:
         """Bind predeclared configuration and exact signed installation paths."""
         self.root, self.output, self.launcher = root, output, launcher
         self.public_venue, self.variant = public_venue, variant
         self.recover, self.faults = recover, faults
+        self.features = features
         self.codec = DomainCodec()
         self.config = self.codec.decode_json(
             (root / "preparation/services-initial.json").read_bytes(), PaperServiceConfiguration
@@ -656,6 +658,8 @@ class CapacityTrial:
             "implementation": InstalledIdentity.sha256(),
             "public_venue": self.public_venue,
             "variant": self.variant,
+            "features": self.features,
+            "recover": self.recover,
             "fixture_identity": hashlib.sha256(
                 Path(__file__).with_name("capacity_inputs.py").read_bytes()
             ).hexdigest(),
@@ -690,8 +694,11 @@ class CapacityTrial:
                         self.root / f"target-{item.account_id}" / "state"
                         for item in self.config.accounts
                     ),
+                    *((self.output / "reads" / "features",) if self.features else ()),
                 ),
                 duration_seconds=60,
+                features=self.features,
+                feature_cohort="recovery_steady" if self.recover else "initial_steady",
             ).run(on_interval_complete=self._finish_healthy_interval)
             result["measurement_and_postprocess_seconds"] = time.monotonic() - start
         except Exception as error:
@@ -801,6 +808,7 @@ class _Arguments(argparse.Namespace):
     variant: CapacityVariant
     recover: bool
     faults: bool
+    features: bool
 
 
 def main() -> None:
@@ -818,6 +826,7 @@ def main() -> None:
     )
     parser.add_argument("--recover", action="store_true")
     parser.add_argument("--faults", action="store_true")
+    parser.add_argument("--features", action="store_true")
     args = parser.parse_args(namespace=_Arguments())
     if args.faults and (args.public_venue is not None or args.variant != "base"):
         parser.error("burst fault drills require four base fixture sources")
@@ -833,6 +842,7 @@ def main() -> None:
                     variant=args.variant,
                     recover=args.recover,
                     faults=args.faults,
+                    features=args.features,
                 ).run()
             )
             .decode()

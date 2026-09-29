@@ -8,6 +8,7 @@ from market_data.contracts.binance import BinanceMarketEvent, DepthSnapshot, Dep
 from market_data.contracts.book_observations import BookObservation
 from market_data.contracts.capture_records import CaptureCursor, CaptureRecord
 from market_data.contracts.capture_requests import CaptureRequest
+from market_data.contracts.capture_segments import CaptureRunRequest, CaptureSegment
 from market_data.contracts.consolidated_quotes import (
     BookLookup,
     ConsolidatedBookQuote,
@@ -63,6 +64,8 @@ __all__ = [
     "CaptureCursor",
     "CaptureRecord",
     "CaptureRequest",
+    "CaptureRunRequest",
+    "CaptureSegment",
     "CaptureSlice",
     "ConsolidatedBookQuote",
     "ConsolidatedQuoteSide",

@@ -4,6 +4,7 @@
 from typing import TYPE_CHECKING
 
 # project library imports
+from market_data.storage.capture_run import CaptureRunJournal
 from market_data.storage.journal import CaptureJournal
 from market_data.storage.objects import RawFiles
 from market_data.storage.raw import RawStore
@@ -30,6 +31,7 @@ def __getattr__(name: str) -> object:
 
 __all__ = [
     "CaptureJournal",
+    "CaptureRunJournal",
     "DatasetVersion",
     "LakeFSStorage",
     "RawFiles",

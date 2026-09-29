@@ -4,18 +4,42 @@ from __future__ import annotations
 
 # standard library imports
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
 # third party library imports
+import pytest
 from capacity_inputs import CapacityWorkload
-from capacity_parity import CapacityEconomicParity
+from capacity_parity import CapacityEconomicParity, CapacityRecoveryEconomicParity
+from msgspec.structs import replace
 
 # project library imports
-from execution import AccountExecutionResult, AccountJournal, AccountQuote
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
-from runtime import LiveBookDelivery, SharedBookDelivery
+from accounting import AccountLedger
+from applications.execute.service_inputs import ServiceBookInputs
+from configuration import BookRegistryConfiguration, BookSelection
+from execution import (
+    AccountControl,
+    AccountExecutionRequest,
+    AccountExecutionResult,
+    AccountJournal,
+    AccountObservation,
+    AccountQuote,
+    PaperMarket,
+)
+from financial_units import ExactRatio
+from market_data.adapters.sources import BookAdapters
+from market_data.books import BookRegistry
+from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level
+from research.observations import LiveBookDecisionSource
+from runtime import (
+    LiveBookDelivery,
+    SharedBookDelivery,
+    SharedDecisionRuntime,
+    SharedPaperCaptureObserver,
+    SharedStrategyInput,
+)
 from serialization import DomainCodec
 
 
@@ -143,3 +167,158 @@ class TestCapacityParity:
             assert comparison[field]["signed"] == signed[field]
             assert comparison[field]["replay"] == replay[field]
             assert comparison[field]["signed_sha256"] != comparison[field]["replay_sha256"]
+
+    @staticmethod
+    def _selection_fixture(tmp_path: Path) -> tuple[SharedPaperCaptureObserver, SharedBookDelivery]:
+        """Construct one genuine causal projection with the prepared two-instance policy path."""
+        at = datetime(2026, 9, 28, tzinfo=UTC)
+        root = tmp_path / "selection"
+        workload = CapacityWorkload(
+            opening_at=at, socket_root=Path("/private/tmp/capacity-selection-test-sockets")
+        )
+        workload.prepare(root / "preparation")
+        service = workload.service_configuration()
+        trial = root / "trial"
+        (trial / "operating/runs/one").mkdir(parents=True)
+        codec = DomainCodec()
+        (trial / "configuration.json").write_bytes(codec.encode_json(service))
+        (trial / "summary.json").write_bytes(codec.encode_json({"implementation": "f" * 64}))
+        parity = CapacityEconomicParity(root, trial)
+        account, source = service.accounts[0], service.sources[0]
+        venue = workload.venue_workload(source.capture.venue)
+        request = CaptureRequest(
+            config=source.capture,
+            recording_id=str(uuid4()),
+            implementation_identity="f" * 64,
+        )
+        bindings = parity._bindings(account, source)
+        inputs = ServiceBookInputs(
+            tuple(binding.instance_id for binding in bindings),
+            source.freshness_us,
+            source.market_interval_us,
+        )
+        observer = SharedPaperCaptureObserver(
+            source=LiveBookDecisionSource(request, inputs.requirement, history_capacity=1000),
+            books=BookRegistry(
+                BookRegistryConfiguration(
+                    selections=(
+                        BookSelection.from_capture(
+                            source.capture,
+                            source_id=request.identity,
+                            capability=BookAdapters.capability(source.capture),
+                            max_age_ns=source.freshness_us * 1000,
+                            allow_degraded=True,
+                        ),
+                    ),
+                    equivalences=(),
+                    history_capacity=1000,
+                )
+            ),
+            journal=(
+                journal := AccountJournal(tmp_path / "account.sqlite3", account.configuration)
+            ),
+            runtime=SharedDecisionRuntime(journal, bindings),
+            account_id=account.account_id,
+            scenario=source.scenario,
+            inputs=inputs,
+            delivery_path=None,
+            market_interval_us=source.market_interval_us,
+        )
+        available_at = at + timedelta(seconds=1)
+        received_ns = int(available_at.timestamp()) * 1_000_000_000
+        record = CaptureRecord(kind="frame", epoch=0, received_ns=received_ns, raw=b"{}")
+        book = BookObservation(
+            position=0,
+            epoch=0,
+            received_ns=received_ns,
+            source_time=str(received_ns // 1_000_000),
+            sequence=10,
+            outcome="snapshot",
+            status="degraded",
+            reason="depth_without_checksum",
+            state_identity="0" * 64,
+            bids=((Decimal("99"), Level(size=Decimal("4"), order_count=1)),),
+            asks=((Decimal("100"), Level(size=Decimal("4"), order_count=1)),),
+        )
+        retained = LiveBookDelivery(record=record, book=book, available_at=available_at)
+        independently_projected = LiveBookDecisionSource(
+            request, inputs.requirement, history_capacity=1000
+        )
+        independently_projected._accept_validated(record, book, available_at=available_at)
+        market = PaperMarket(
+            identity="1" * 64,
+            at=available_at,
+            bid=venue.price("99", source.scenario.adverse.per),
+            ask=venue.price("100", source.scenario.adverse.per),
+            bid_quantity=venue.quantity("4", source.scenario.adverse.per),
+            ask_quantity=venue.quantity("4", source.scenario.adverse.per),
+        )
+        return observer, SharedBookDelivery(
+            source=retained,
+            inputs=inputs.build(
+                independently_projected.read(str(source.scenario.instrument_id), available_at),
+                market,
+            ),
+            coordinated_at=available_at + timedelta(microseconds=1),
+        )
+
+    def test_suffix_recomputes_feature_values_before_economic_effects(self, tmp_path: Path) -> None:
+        """Reject a value substitution even when native lineage is unchanged."""
+        observer, delivery = self._selection_fixture(tmp_path)
+        item = delivery.inputs[0]
+        changed_values: tuple[ExactRatio | None, ...] = (
+            ExactRatio(numerator="101", denominator="1"),
+            *item.context.features.values[1:],
+        )
+        changed = replace(
+            item,
+            context=replace(
+                item.context,
+                features=replace(
+                    item.context.features,
+                    values=changed_values,
+                ),
+            ),
+        )
+        changed_inputs: tuple[SharedStrategyInput, ...] = (changed, *delivery.inputs[1:])
+        substituted = replace(delivery, inputs=changed_inputs)
+        with pytest.raises(ValueError, match="exact feature values differ"):
+            CapacityEconomicParity._apply_selected_delivery(observer, substituted)
+        assert observer.journal.checkpoint(item.instance_id) is None
+        assert observer.journal.net_orders() == ()
+
+    def test_recovery_reconciliation_compares_independent_economics(self, tmp_path: Path) -> None:
+        """Original operator clocks cannot reconcile an incorrect independently rebuilt balance."""
+        at = datetime(2026, 9, 28, tzinfo=UTC)
+        workload = CapacityWorkload(
+            opening_at=at, socket_root=Path("/private/tmp/capacity-reconcile-test-sockets")
+        )
+        account = workload.service_configuration().accounts[0]
+        journal = AccountJournal(tmp_path / "account.sqlite3", account.configuration)
+        stopped = AccountControl(
+            identity="stop",
+            account_id=account.account_id,
+            kind="stop",
+            at=at + timedelta(seconds=1),
+            reason="test independent recovery economics",
+        )
+        request = AccountExecutionRequest(action="control", control=stopped)
+        expected = AccountExecutionResult(
+            accounts=journal.accounts(), orders=(), control=journal.control(stopped)
+        )
+        CapacityRecoveryEconomicParity._apply_operator(journal, request, expected)
+        snapshot = AccountLedger(journal.accounts()[0].ledger).snapshot()
+        changed = replace(snapshot, posting_ids=("invented",))
+        observation = AccountObservation(
+            identity="original-observation",
+            at=at + timedelta(seconds=2),
+            snapshot=changed,
+            open_orders=(),
+        )
+        request = AccountExecutionRequest(action="reconcile", observation=observation)
+        with pytest.raises(ValueError, match="facts do not reconcile"):
+            CapacityRecoveryEconomicParity._apply_operator(
+                journal,
+                request,
+                AccountExecutionResult(accounts=journal.accounts(), orders=(), reconciled=True),
+            )

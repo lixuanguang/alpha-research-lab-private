@@ -5,8 +5,10 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import os
+import sqlite3
 import threading
 import time
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, cast
@@ -16,7 +18,7 @@ from uuid import uuid4
 import msgspec
 import pytest
 from capacity_inputs import CapacityWorkload
-from capacity_reads import CapacityReadObserver, _RetainedBookIndex, _SourceIndex
+from capacity_reads import CapacityReadObserver, _DashboardReader, _RetainedBookIndex, _SourceIndex
 from capacity_results import CapacityResultsCollector
 from msgspec.structs import replace
 from paper_services import PaperServiceWorkload
@@ -358,6 +360,81 @@ class TestCapacityReads:
         assert due <= began <= completed
         assert sample["seconds"] == (completed - began) / 1_000_000_000
 
+    def test_dashboard_startup_waits_for_committed_schema_before_warmup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An existing empty SQLite file stays unready until its schema transaction commits."""
+        journal = tmp_path / "monitoring" / "telemetry.sqlite3"
+        journal.parent.mkdir()
+        sqlite3.connect(journal).close()
+        output = tmp_path / "readiness"
+        output.mkdir()
+        reader = _DashboardReader.open(tmp_path, "shared", "paper")
+        first_attempt, committed = threading.Event(), threading.Event()
+        outcomes: list[dict[str, object]] = []
+        failures: list[Exception] = []
+
+        def await_commit(_seconds: float) -> None:
+            """Hold the readiness loop after its actual initial schema observation."""
+            first_attempt.set()
+            assert committed.wait(2)
+
+        def wait_for_schema() -> None:
+            """Capture the bounded actual reader result without losing thread errors."""
+            try:
+                outcomes.append(reader.wait_for_schema(output, time.monotonic() + 2))
+            except Exception as error:
+                failures.append(error)
+
+        monkeypatch.setattr(time, "sleep", await_commit)
+        with closing(sqlite3.connect(journal)) as writer:
+            writer.execute("BEGIN IMMEDIATE")
+            writer.execute("CREATE TABLE metadata (version TEXT NOT NULL, floor TEXT)")
+            writer.execute("INSERT INTO metadata VALUES ('telemetry-store-v1', NULL)")
+            writer.execute(
+                "CREATE TABLE events (scope TEXT, mode TEXT, name TEXT, version TEXT, "
+                "sample TEXT, revision INTEGER, at TEXT, available TEXT, "
+                "recorded TEXT, payload BLOB)"
+            )
+            worker = threading.Thread(target=wait_for_schema, daemon=True)
+            worker.start()
+            try:
+                assert first_attempt.wait(2)
+                with pytest.raises(sqlite3.OperationalError, match="no such table: metadata"):
+                    reader.read(datetime.now(UTC))
+                writer.commit()
+            finally:
+                committed.set()
+            worker.join(2)
+        assert not worker.is_alive() and not failures
+        assert len(outcomes) == 1 and outcomes[0]["status"] == "ready"
+        attempts = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in (output / "schema-readiness.jsonl").read_bytes().splitlines()
+        ]
+        assert [item["status"] for item in attempts] == ["schema_not_committed", "ready"]
+        assert reader.read(datetime.now(UTC))["event_count"] == 0
+
+    def test_dashboard_schema_readiness_respects_deadline_and_rejects_foreign_schema(
+        self, tmp_path: Path
+    ) -> None:
+        """Startup waiting cannot become an indefinite or broad query retry loop."""
+        journal = tmp_path / "monitoring" / "telemetry.sqlite3"
+        journal.parent.mkdir()
+        sqlite3.connect(journal).close()
+        reader = _DashboardReader.open(tmp_path, "shared", "paper")
+        output = tmp_path / "readiness"
+        output.mkdir()
+        began = time.monotonic()
+        with pytest.raises(TimeoutError, match="within startup deadline"):
+            reader.wait_for_schema(output, began + 0.04)
+        assert time.monotonic() - began < 0.5
+        with closing(sqlite3.connect(journal)) as writer:
+            writer.execute("CREATE TABLE unrelated (value TEXT)")
+            writer.commit()
+        with pytest.raises(ValueError, match="nontelemetry schema"):
+            reader.wait_for_schema(output, time.monotonic() + 1)
+
     def test_insufficient_warm_sample_count_has_no_percentiles(self) -> None:
         """Refuse a p99 claim from a short startup or steady observation."""
         short = CapacityReadObserver._summary([0.01, 0.02], 1)
@@ -432,6 +509,9 @@ class TestCapacityReads:
             socket_root=Path("/private/tmp/capacity-read-test"),
         ).service_configuration()
         output = tmp_path / "reads"
+        journal = tmp_path / "monitoring" / "telemetry.sqlite3"
+        journal.parent.mkdir()
+        TelemetryStore(journal).append(())
         observer = CapacityReadObserver(
             output, tmp_path, process_pids=(os.getpid(),), duration_seconds=1
         )
@@ -480,6 +560,9 @@ class TestCapacityReads:
             socket_root=Path("/private/tmp/capacity-read-test"),
         ).service_configuration()
         output = tmp_path / "reads"
+        journal = tmp_path / "monitoring" / "telemetry.sqlite3"
+        journal.parent.mkdir()
+        TelemetryStore(journal).append(())
         observer = CapacityReadObserver(
             output, tmp_path, process_pids=(os.getpid(),), duration_seconds=1
         )

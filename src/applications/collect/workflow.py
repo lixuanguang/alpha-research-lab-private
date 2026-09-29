@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import signal
 import sys
 import time
 from pathlib import Path
@@ -15,14 +16,15 @@ from uuid import uuid4
 from websockets.exceptions import WebSocketException
 
 # project library imports
-from configuration import CaptureConfig, UniverseSelection
+from applications.collect.rollover import CaptureRunSignals, collect_run
+from configuration import CaptureConfig, CaptureRunConfig, UniverseSelection
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.adapters.transport import VenueSubscriptions, VenueTransport
 from market_data.adapters.venues.coinbase import CoinbaseAccessError, CoinbaseCredentials
 from market_data.collection import CaptureRunner
-from market_data.contracts import CaptureRequest
+from market_data.contracts import CaptureRequest, CaptureRunRequest
 from market_data.datasets import DatasetPublication
-from market_data.replay import SavedCapture
+from market_data.replay import SavedCapture, SavedCaptureRun
 from market_data.storage import RawStore
 from runtime import ImplementationIdentity, InstalledIdentity, ProcessSupervisor
 from serialization import DomainCodec
@@ -223,7 +225,7 @@ class CaptureArguments(argparse.Namespace):
     """Typed installed command arguments; no credential values are accepted on the command line."""
 
     action: str
-    config: Path
+    config: Path | None
     output: Path
     secrets: Path | None
     capture: Path
@@ -232,6 +234,10 @@ class CaptureArguments(argparse.Namespace):
     snapshot_records: int | None
     health_config: Path | None
     universes: Path | None
+    run_directory: Path
+    window: Path | None
+    resume: bool
+    max_seconds: int
 
 
 def main() -> None:
@@ -256,15 +262,77 @@ def main() -> None:
     replay_parser = commands.add_parser("replay")
     replay_parser.add_argument("--capture", type=Path, required=True)
     replay_parser.add_argument("--interrupted", action="store_true")
+    run_parser = commands.add_parser("capture-run")
+    run_parser.add_argument("--run-directory", type=Path, required=True)
+    run_parser.add_argument("--config", type=Path)
+    run_parser.add_argument("--window", type=Path)
+    run_parser.add_argument("--universes", type=Path)
+    run_parser.add_argument("--resume", action="store_true")
+    run_replay_parser = commands.add_parser("capture-run-replay")
+    run_replay_parser.add_argument("--run-directory", type=Path, required=True)
+    run_replay_parser.add_argument("--max-seconds", type=int, required=True)
     arguments = parser.parse_args(namespace=CaptureArguments())
     try:
-        if arguments.action == "replay":
+        if arguments.action == "capture-run":
+            implementation_identity = InstalledIdentity.sha256()
+            if arguments.resume:
+                if any(
+                    value is not None
+                    for value in (arguments.config, arguments.window, arguments.universes)
+                ):
+                    raise ValueError(
+                        "resume uses only the exact retained source/window/universe request"
+                    )
+                request = DomainCodec().decode_json(
+                    (arguments.run_directory / "run-request.json").read_bytes(), CaptureRunRequest
+                )
+                if request.implementation_identity != implementation_identity:
+                    raise ValueError(
+                        "resume requires the originally installed collector implementation"
+                    )
+            else:
+                if arguments.config is None or arguments.window is None:
+                    raise ValueError("capture-run requires explicit --config and --window")
+                request = CaptureRunRequest(
+                    config=CaptureConfig.read(arguments.config),
+                    window=CaptureRunConfig.read(arguments.window),
+                    run_id=str(uuid4()),
+                    implementation_identity=implementation_identity,
+                    universes=None
+                    if arguments.universes is None
+                    else UniverseSelection.read(arguments.universes),
+                )
+            stopping = CaptureRunSignals()
+            previous_term = signal.signal(signal.SIGTERM, stopping.request)
+            previous_int = signal.signal(signal.SIGINT, stopping.request)
+            try:
+                result = asyncio.run(
+                    collect_run(
+                        request,
+                        arguments.run_directory,
+                        resume=arguments.resume,
+                        stop_requested=stopping.requested,
+                    )
+                )
+            finally:
+                signal.signal(signal.SIGTERM, previous_term)
+                signal.signal(signal.SIGINT, previous_int)
+        elif arguments.action == "capture-run-replay":
+            replay = SavedCaptureRun.read(
+                arguments.run_directory,
+                book_factory=BookAdapters.create,
+                max_seconds=arguments.max_seconds,
+            )
+            result = {**replay.summary(), "replay_parity": True}
+        elif arguments.action == "replay":
             result = SavedCapture.read(
                 arguments.capture,
                 book_factory=BookAdapters.create,
                 completed=not arguments.interrupted,
             ).summary()
         else:
+            if arguments.config is None:
+                raise ValueError("capture or probe requires an explicit configuration")
             config = CaptureConfig.read(arguments.config)
             if arguments.action == "probe":
                 raw = VenueTransport(config).discover()
@@ -315,6 +383,10 @@ def main() -> None:
                         )
                     )
         print(DomainCodec().encode_json(result).decode(), flush=True)
+        if arguments.action == "capture-run" and (
+            result.get("gaps") or not result.get("reached_stop_deadline")
+        ):
+            raise SystemExit(2)
         if arguments.action == "capture" and (
             result.get("gaps")
             or (

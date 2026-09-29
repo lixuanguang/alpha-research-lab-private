@@ -23,6 +23,24 @@ from market_data.validation import QualityReport
 from serialization import DomainCodec
 
 
+class CaptureAncestor(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
+    """Retain an exact preceding raw/request pair needed to reconstruct a suffix segment."""
+
+    capture: CaptureRequest
+    raw: RawObject
+
+    def __post_init__(self) -> None:
+        """Reject untyped or mismatched native predecessor provenance."""
+        if type(self.capture) is not CaptureRequest or type(self.raw) is not RawObject:
+            raise ValueError("capture ancestor requires typed original provenance")
+        self.capture.__post_init__()
+        self.raw.__post_init__()
+        if self.raw.request_identity != self.capture.identity:
+            raise ValueError("capture ancestor raw differs from its request")
+        if self.raw.size_bytes > self.capture.config.max_bytes:
+            raise ValueError("capture ancestor exceeds its original segment byte bound")
+
+
 class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Bind a selected raw prefix to native configuration, clocks and original provenance."""
 
@@ -31,6 +49,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
     capture: CaptureRequest | None = None
     archive: OKXArchiveRequest | None = None
     index: bytes = b""
+    predecessors: tuple[CaptureAncestor, ...] | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Require exactly one supported request and preserve archive discovery evidence."""
@@ -56,6 +75,51 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             raise ValueError("book archive discovery differs from retained request")
         if self.capture is not None and self.index:
             raise ValueError("live capture cannot acquire archive discovery evidence")
+        if self.predecessors is not msgspec.UNSET and (
+            type(self.predecessors) is not tuple
+            or len(self.predecessors) > 511
+            or any(type(item) is not CaptureAncestor for item in self.predecessors)
+        ):
+            raise ValueError("book input requires bounded typed capture predecessors")
+        if self.predecessors is not msgspec.UNSET and self.capture is None:
+            raise ValueError("archive input cannot acquire capture predecessors")
+        if self.capture is not None:
+            self.capture_chain()
+
+    def capture_chain(self) -> tuple[CaptureAncestor, ...]:
+        """Validate exact segment linkage and expose original replay order without duplicates."""
+        if self.capture is None:
+            return ()
+        previous = () if self.predecessors is msgspec.UNSET else self.predecessors
+        chain = (*previous, CaptureAncestor(capture=self.capture, raw=self.raw))
+        segment = self.capture.segment
+        if segment is None:
+            if previous:
+                raise ValueError("legacy capture cannot acquire segment predecessors")
+            return chain
+        if segment.ordinal != len(previous):
+            raise ValueError("book suffix requires all original capture predecessors")
+        for ordinal, item in enumerate(chain):
+            item.__post_init__()
+            part = item.capture.segment
+            if (
+                part is None
+                or part.ordinal != ordinal
+                or part.run_identity != segment.run_identity
+                or item.capture.config != self.capture.config
+                or item.capture.implementation_identity != self.capture.implementation_identity
+                or item.capture.universes != self.capture.universes
+            ):
+                raise ValueError("book capture predecessor chain differs from selected run")
+            if ordinal:
+                prior = chain[ordinal - 1]
+                if (
+                    part.previous_recording_id != prior.capture.recording_id
+                    or part.previous_request_identity != prior.capture.identity
+                    or part.previous_sha256 != prior.raw.sha256
+                ):
+                    raise ValueError("book capture predecessor bytes or request differ")
+        return chain
 
     @property
     def request(self) -> CaptureRequest | OKXArchiveRequest:
@@ -88,7 +152,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
         payload = cls._read_bytes(directory / "request.json", 1_048_576)
         fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
         capture = "recording_id" in fields
-        return cls(
+        selected = cls(
             raw=codec.decode_json(
                 cls._read_bytes(directory / "manifest.json", 1_048_576), RawObject
             ),
@@ -96,7 +160,43 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             capture=codec.decode_json(payload, CaptureRequest) if capture else None,
             archive=None if capture else codec.decode_json(payload, OKXArchiveRequest),
             index=b"" if capture else cls._read_bytes(directory / "index.json", 1_048_576),
+            predecessors=cls._predecessors(directory, payload) if capture else msgspec.UNSET,
         )
+        return selected
+
+    @classmethod
+    def _predecessors(
+        cls, directory: Path, payload: bytes
+    ) -> tuple[CaptureAncestor, ...] | msgspec.UnsetType:
+        """Resolve sibling segment identities before any suffix bytes are admitted."""
+        codec = DomainCodec()
+        request = codec.decode_json(payload, CaptureRequest)
+        if request.segment is None or request.segment.ordinal == 0:
+            return msgspec.UNSET
+        ancestors: list[CaptureAncestor] = []
+        part = request.segment
+        while part.ordinal:
+            if len(ancestors) >= 511 or part.previous_recording_id is None:
+                raise ValueError("book predecessor chain exceeds its bound or is incomplete")
+            parent = directory.parent / part.previous_recording_id
+            ancestor = CaptureAncestor(
+                capture=codec.decode_json(
+                    cls._read_bytes(parent / "request.json", 1_048_576), CaptureRequest
+                ),
+                raw=codec.decode_json(
+                    cls._read_bytes(parent / "manifest.json", 1_048_576), RawObject
+                ),
+            )
+            if (
+                ancestor.capture.identity != part.previous_request_identity
+                or ancestor.raw.sha256 != part.previous_sha256
+                or ancestor.capture.segment is None
+                or ancestor.capture.segment.ordinal != part.ordinal - 1
+            ):
+                raise ValueError("book predecessor differs from selected segment lineage")
+            ancestors.append(ancestor)
+            part = ancestor.capture.segment
+        return tuple(reversed(ancestors))
 
     def admit(self, store: RawStore, *, readers: DatasetReaders, max_bytes: int) -> QualityReport:
         """Reconstruct a bounded prefix, retaining controls and refusing malformed messages.

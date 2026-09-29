@@ -2,7 +2,8 @@
 
 Owner: quant development. Status: **bounded stage-1 processing, native/economic
 parity, four-owner recovery, receipt/BBO latency and warm queries qualified;
-feature, cold-cache, public-route and sustained-operation gaps remain; stage 2 gated**. Updated 2026-09-28 (Singapore; observations use UTC)
+feature serving implemented with partial qualification; cold-cache, public-route,
+checkpoint/CPU sampling and sustained-operation gaps remain; stage 2 gated**. Updated 2026-09-29 (Singapore; observations use UTC)
 after the bounded [MR14 service record](multi-instance-paper.md). The
 [roadmap](README.md#runtime-operations-and-handoff) owns MR15 delivery status;
 the [runtime design](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices)
@@ -788,3 +789,211 @@ remain identical to the four signed archives. No hosted CI ran. This closes the
 bounded stage-1 latency and warm-query slice only; the feature, cold-cache,
 fresh public-health, sustained-service and other limitations declared above
 remain open, and stage 2 stays gated.
+
+### Remaining bounded stage-1 declaration (2026-09-28, baseline ec34b8b)
+
+This continuation preserves candidate 10 and its historical manifests. The
+milestones are public-source qualification and finite corpus acquisition;
+integrated feature serving; independent recovery-suffix and populated-history
+query evidence; then representative R1 only after corpus admission. Collector
+rollover is public-data acquisition only. Account lifetimes, grants, risk limits,
+four owners, four sources, eight instances and three-second selection are unchanged.
+Reversal retains new recordings and failed attempts and restores the previous
+implementation; old recording/request identities must remain readable and exact.
+
+The feature sampling plan declares one initial 60-second steady interval and
+seventeen separate, homogeneous 60-second replacement-owner intervals. Each uses
+the same installed bytes, native fixture, four two-value feature definitions,
+one-second per-instrument cadence, five-second TTL, eight readers at four
+lookups/second, and concurrent depth/dashboard readers. Each interval requires
+1,920 retrieval calls; the replacement-owner materialization cohort supplies
+1,020 two-value publications **per source**, without counting the two scalar
+values as two observations. Keep initial steady and replacement-owner cohorts
+separate and refuse incompatible definitions, clocks, cache classes or input
+configurations. Scheduled response and operation durations remain separate.
+Only complete healthy intervals contribute to a passing cohort; retain failures
+and do not silently replace them. Existing cumulative 80-order/100-unit limits
+and the original one-hour authority expiry remain binding. Refuse another
+invocation without the existing authority headroom; do not extend a service or
+grant to finish a percentile. Diagnose the first failing boundary before a retry.
+
+Independent replay must include the recovery operator controls and exact native
+suffix, not only prefix preservation. Populated-history queries must retain the
+actual history size and returned/scan bytes, distinguish application initialization
+from warm requests, and label filesystem caches uncontrolled. A fresh object is
+not physical cold disk. Fewer than 1,000 compatible observations leave percentile
+claims pending, including CPU and checkpoint boundaries. Unsupported physical I/O
+byte counters remain unavailable; logical bytes and block operations are separate.
+
+Candidate-10 processing, native/economic parity, recovery preservation/fencing/
+progress, latency, warm-query and adverse-input evidence remains valid for its
+unchanged installed bytes. New integrated feature load needs fresh qualification;
+new collector rollover needs its own continuity, interruption and ingestion proof.
+The later sustained lifetime/handoff, extended finite grants, 24-hour integrated
+trial, 72-hour runtime retention, seven-day telemetry and 4x replay stay in stage 2.
+
+
+The first feature consumer cohort retained an initial pass and one replacement
+pass, then stopped on replacement interval 2: 1,919 of 1,920 reads passed. One
+reader sampled its cutoff before a concurrently activated version. The store
+correctly returned `future` with no value; the observer incorrectly compared it
+with the value available offline at that later version cutoff. The retained
+clocks locate activation inside that read. This is a consumer coordination defect,
+not evidence of a native/economic regression or a store causal leak.
+
+Before requalification, the corrected consumer serializes each source's activation
+and query-cutoff selection; queue/lock waiting remains inside measured response
+and service latency. Its deterministic concurrent-publication regression must
+pass before another signed run. A separate initial-plus-seventeen cohort uses
+fresh ordinary one-hour grants and fresh account journals, unchanged 80-order /
+100-unit limits, and the same candidate-10 signed releases. Existing grants and
+service lifetimes are not extended. Preserve all first-cohort attempts and exclude
+them from the changed-consumer materialization/CPU populations. The original
+sampling counts, stop-on-first-failure rule and percentile thresholds remain.
+
+The corrected consumer's initial trial passed, but its first recovery stopped
+before measurement when two dashboard readers encountered the telemetry file
+before the writer committed its schema. The next cohort adds only a committed
+schema readiness wait within the existing shared five-second startup deadline;
+steady queries are not retried. It retains the failed startup and cleanup record,
+uses a fresh initial-plus-seventeen cohort, and pools no earlier observations.
+
+### Independent suffix, fresh routes and populated-history boundaries
+
+The new independent replay of candidate 10's original recovery suffix qualifies.
+For each of four accounts it replays the baseline, the seven retained operator
+controls and the exact selected native suffix in a fresh unmanaged oracle.
+Ledger, orders, net orders, fills, costs, traces, checkpoints and original
+source/selection identities match exactly. The 84 selections in each prefix or
+suffix are recomputed, not copied from a preservation assertion. The report is
+`logs/runtime-capacity/bounded-evidence/recovery-suffix-final.json`; unmanaged
+replay adds no trading authority. Original signed owner fencing/progress and
+protection evidence remains applicable to the unchanged implementation.
+
+Fresh OKX public operation supplied 606 BTC and 608 ETH messages and a complete
+healthy 60.005-second interval with 121 health witnesses. Both native streams
+have complete delivery parity, drained shutdown and bounded queues. The other
+venue remained the authored load in this route-specific trial. The public sample
+counts do not establish 1,000-sample latency percentiles. Fresh Bitfinex ETH hit
+the unchanged 5,000-message ceiling after 59.313604 seconds (84.30 messages/s),
+ending before a healthy minute was complete. Its last observed book was two-sided;
+this is a finite source-envelope incompatibility, not the earlier one-sided case.
+All trial PIDs are absent and all four accounts stopped after both attempts.
+Keep the prior one-sided Bitfinex ETH protection proof. Another healthy public
+Bitfinex trial requires a specific source-budget decision or qualifying observed
+rate; no cap is silently increased and no failed attempt is discarded.
+
+The populated-history diagnostic retained actual native source histories of
+2,286 rows/source (about 73.5 MB per OKX source and 8.22 MB per Bitfinex source)
+and separate, explicitly authored one-hour dashboards with 10,000 events/account.
+Four application-cold observations per query class gave depth ranges of
+4.043–4.135 seconds for OKX and 0.816–0.986 seconds for Bitfinex; dashboard range
+was 0.865–0.868 seconds. Warm dashboard calls on this larger history took
+0.675–0.679 seconds. Exact cutoff/result parity passed. These are diagnostic
+ranges, not percentile acceptance or a percentile runtime failure. Profiling
+attributes approximately 99.9% of cold depth time to complete native index
+loading, including decoding/validation. The retained cold-query dependency
+record gives a fresh-output continuation for 1,000 observations per boundary;
+resolve the demonstrated OKX initialization cost before that expensive run.
+Filesystem-cache state is uncontrolled, and actual multi-day populated native
+history remains unavailable. Earlier warm qualification retains its original
+history scope only.
+
+Checkpoint timing still has two actual committed observations/account initially
+and zero new committed observations in recovery. Acknowledged rejected requests
+and 21 selected books are not additional committed checkpoints. The current
+finite economic workload cannot supply 1,000 per-account committed observations
+without a separate workload/authority decision. Darwin physical read/write byte
+counters are unsupported; logical file bytes, occupied storage and fsync durations
+are reported separately and never relabeled as physical I/O or a runtime failure.
+
+The v3 consumer initial run passed all 1,920 feature retrievals, independent
+economics and existing measurement/topology gates. Its grants expired before
+recovery launch; no recovery was attempted under expired authority. The unchanged
+v3 consumers are frozen for `closure-features-v4`, using fresh ordinary one-hour
+grants and the same predeclared initial-plus-17 recovery schedule. The initial
+run remains excluded from recovery materialization/CPU aggregates. The driver
+stops on first failure or insufficient original grant headroom; no grant,
+service lifetime, threshold, source or risk limit is extended.
+
+The v4 initial and first recovery passed. The second recovery retained nine
+Bitfinex ETH missing feature versions and 72 non-ready lookups. Exact native
+lineage shows sequence-only heartbeats, not durable I/O loss: the generic book
+registry erased a legal unchanged-market boundary. The v5 consumer reuses the
+existing causal native decision source, preserves the prior market clock, and
+refreshes the retained prefix at each publication. All nine retained prefixes
+now admit the original genuine market update; 63 affected tests and strict
+static checks pass. This change renews the entire homogeneous initial-plus-17
+recovery cohort. No v1–v4 materialization or CPU rows enter v5 aggregates. Two
+independently owned public collectors are waiting for their fixed future start
+during v5; no market acquisition, builds or other qualification run concurrently.
+The existing runtime limits and one-hour grants remain unchanged.
+
+### Next bounded continuation after this closure
+
+Read the current runtime/research capacity summaries and durable acquisition
+record. Keep candidate-10's signed qualification and the passing feature
+intervals within their exact measured scope. While the fixed public collection
+waits or runs, resolve the measured full-index cold depth initialization cost
+using the populated-history diagnostic, then renew application-cold/warm
+proofs with 1,000 observations per boundary/cache class. Treat a controlled
+filesystem-cold protocol as separate evidence. The current paper workload
+yields only two committed checkpoints/account; identify a compatible finite
+workload/authority decision before checkpoint percentile sampling. Healthy
+Bitfinex public operation needs a specific source-envelope decision or an actual
+qualifying lower rate; retain the previous one-sided protection case.
+
+At acquisition completion, follow the exact R1 continuation in
+[research capacity](research-capacity.md#armed-acquisition-and-continuation).
+Do not extend the acquisition deadline, paper service lifetimes, grants or risk
+limits. Keep sustained stage 2—longer service handoff, extended finite grants,
+24-hour integrated operation, 72-hour runtime retention, seven-day telemetry
+and 4x replay—as a separate milestone.
+
+### Final bounded feature outcome and stop decision
+
+The v5 initial interval and four recovery intervals passed all 1,920 ready
+feature lookups each, exact offline/online parity, source/selection identity,
+existing receipt/BBO and warm-query gates, topology and economic preservation.
+The initial interval remains separate. The fifth recovery returned all 1,920
+lookups ready with exact parity, but response p95/p99 was **106/207 ms**, exceeding
+75/200 ms; the attempt remains a measured latency failure. Both Bitfinex books
+had 60 version observations but only 59 distinct native input positions. These
+are not admitted as 60 independent durable materialization observations.
+
+Only four recovery intervals qualified: **240 materializations/source and 236
+CPU deltas**, insufficient for the required percentile claims. The fifth sampler
+retained 58 rows, missing seconds 23 and 26 after observed process-discovery and
+occupied-disk scans exceeded one second at seconds 22 and 25. No rows are
+invented and no CPU percentile failure is inferred from missing measurements.
+Persistent service-request files grew across recoveries; per-trial dashboard
+telemetry did not grow. Their scan cost and broader
+scheduling/store contention are observed, but a single causal bottleneck is
+not established. Native admission already runs outside the publication lock.
+Only 18 of 213 responses above 75 ms overlapped the inferred same-source
+publisher window, so a producer-lock-only explanation is unsupported.
+
+After the user identified repeated qualification attempts as a loop, further
+signed runs and implementation expansion stopped. The final v5 consumer is
+retained with its passing checks and failed fifth interval. The remaining bounded
+dependency is a focused contention/sampler diagnosis with a concrete correction
+and adequate predeclared sampling before another signed run—not another full
+cohort retry. `logs/capacity-closure/feature-partial-final.json` holds compact
+per-interval results and exact retained-report hashes. Integrated feature
+capacity, materialization p99 and CPU p95 are **not fully qualified**.
+
+Final local validation on September 29: `make check` passed all static, typing,
+governance, dependency/security and installed-wheel smoke checks, with **1,987
+tests passed, two optional skips and three performance deselections**. The
+separate `make performance-test` passed all three tests. No hosted CI ran. All
+observed paper-trial processes exited and all four accounts stopped. The
+[canonical evidence](runtime-capacity-evidence.json) appends this closure without
+changing any historical evidence value; bulk records stay outside Git.
+
+Candidate-10's signed implementation and financial/runtime algorithms remain
+unchanged. Additive collector lineage and public-run paths preserve legacy
+serialized identities; affected capture/publication/replay regressions and the
+final installed real sample cover those changes. The new feature consumer's
+passing and failing loaded intervals are separately retained. Existing protection,
+processing, native/economic parity and recovery evidence is reused only within
+its original scope, not promoted to full feature or sustained acceptance.
