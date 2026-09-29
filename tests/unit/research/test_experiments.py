@@ -4,9 +4,11 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import random
 import shutil
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -32,6 +34,7 @@ from serialization import DomainCodec
 
 _START = datetime(2024, 6, 1, tzinfo=UTC)
 _CODEC = DomainCodec()
+_FIT_MODES: tuple[Literal["labels", "features", "none"], ...] = ("labels", "features", "none")
 
 
 class TestExperiments:
@@ -173,6 +176,100 @@ class TestExperiments:
         assert replace(split, samples=(adjacent,)).fitting_rows() == ()
         window = split.validation
         assert window.contains(self._time(10)) and not window.contains(self._time(12))
+
+    def test_exclusions_match_an_all_pairs_interval_check(self) -> None:
+        """Agree with checking every training row against every evaluation interval."""
+        generator = random.Random(20260929)
+        reasons: set[str] = set()
+        for _ in range(300):
+            split = self._generated_split(generator)
+            expected = self._all_pairs_exclusions(split)
+            assert split.exclusions() == expected
+            reasons.update(reason for _, reason in expected)
+        # The draws reach the purge, embargo and admission branches, not just early refusals.
+        assert {"purged overlapping information", "embargoed shared information"} <= reasons
+        assert "fitting not applicable" in reasons
+
+    @classmethod
+    def _generated_split(cls, generator: random.Random) -> TemporalSplit:
+        """Draw a small hourly fold whose intervals often touch or sit exactly one gap apart."""
+        training_end = generator.randint(3, 10)
+        fit_cutoff = training_end + generator.randint(0, 2)
+        validation_start = fit_cutoff + generator.randint(0, 2)
+        validation_end = validation_start + generator.randint(1, 3)
+        holdout_start = validation_end + generator.randint(0, 3)
+        holdout_end = holdout_start + generator.randint(1, 3)
+        samples: list[SampleInterval] = []
+        for index in range(generator.randint(8, 24)):
+            decision = generator.randint(-2, holdout_end + 2)
+            end = decision + generator.randint(0, 3)
+            label = generator.choice((None, end, end + 1, end + 3))
+            samples.append(
+                SampleInterval(
+                    row_id=f"row-{index:02d}",
+                    input_sha256=hashlib.sha256(str(index).encode()).hexdigest(),
+                    decision_at=cls._time(decision),
+                    information_start=cls._time(decision - generator.randint(0, 3)),
+                    information_end=cls._time(end),
+                    features_available_at=cls._time(decision + generator.choice((0, 0, 0, 1))),
+                    label_available_at=None if label is None else cls._time(label),
+                )
+            )
+        fit_mode = generator.choice(_FIT_MODES)
+        is_fitted = fit_mode != "none"
+        return TemporalSplit(
+            training=TimeWindow(start=cls._time(0), end=cls._time(training_end))
+            if is_fitted
+            else None,
+            validation=TimeWindow(start=cls._time(validation_start), end=cls._time(validation_end)),
+            holdout=TimeWindow(start=cls._time(holdout_start), end=cls._time(holdout_end)),
+            samples=tuple(samples),
+            fit_mode=fit_mode,
+            fit_cutoff=cls._time(fit_cutoff) if is_fitted else None,
+            # A gap one microsecond short of an hour refuses what an exact hour embargoes.
+            embargo_us=generator.choice((0, 1, 3_599_999_999, 3_600_000_000, 7_200_000_000)),
+            rationale="Generated fold compared with an all-pairs interval check.",
+        )
+
+    @staticmethod
+    def _all_pairs_exclusions(split: TemporalSplit) -> tuple[tuple[str, str], ...]:
+        """Recompute each row's first refusal by scanning every evaluation interval."""
+        protected = [
+            (split.validation.start, split.validation.end),
+            (split.holdout.start, split.holdout.end),
+        ]
+        protected.extend(
+            (row.information_start, row.information_end)
+            for row in split.samples
+            if split.validation.contains(row.decision_at) or split.holdout.contains(row.decision_at)
+        )
+        gap = timedelta(microseconds=split.embargo_us)
+        refusals: list[tuple[str, str]] = []
+        for row_id in sorted(row.row_id for row in split.samples):
+            row = next(row for row in split.samples if row.row_id == row_id)
+            if split.training is None or split.fit_cutoff is None:
+                refusals.append((row_id, "fitting not applicable"))
+            elif not split.training.contains(row.decision_at):
+                refusals.append((row_id, "outside training partition"))
+            elif row.features_available_at > row.decision_at:
+                refusals.append((row_id, "features unavailable at decision"))
+            elif row.information_end > split.fit_cutoff:
+                refusals.append((row_id, "information extends beyond fitting cutoff"))
+            elif split.fit_mode == "labels" and (
+                row.label_available_at is None or row.label_available_at > split.fit_cutoff
+            ):
+                refusals.append((row_id, "label unavailable at fitting cutoff"))
+            elif any(
+                row.information_start <= end and row.information_end >= start
+                for start, end in protected
+            ):
+                refusals.append((row_id, "purged overlapping information"))
+            elif any(
+                row.information_start - end <= gap and start - row.information_end <= gap
+                for start, end in protected
+            ):
+                refusals.append((row_id, "embargoed shared information"))
+        return tuple(refusals)
 
     def test_semantic_identity_reload_and_changed_inputs(self) -> None:
         """Reorder mappings without changing identity; any influencing choice changes the run."""
@@ -488,3 +585,51 @@ class TestExperiments:
                     invocation="replace sample with holdout",
                 )
             assert sum(item.status == "rejected" for item in store.histories()) == 2
+
+
+class TestTemporalSplitScaling:
+    """Bound split exclusion cost as training and evaluation samples accumulate."""
+
+    @pytest.mark.performance
+    def test_exclusions_grow_near_linearly_with_samples(self) -> None:
+        """Purge and embargo checks stay near linear in the sample count."""
+        medians: list[float] = []
+        for count in (2_000, 8_000):
+            split = self._minute_split(count)
+            samples: list[float] = []
+            for _ in range(5):
+                started = time.perf_counter()
+                split.exclusions()
+                samples.append(time.perf_counter() - started)
+            medians.append(sorted(samples)[2])
+        print(f"split exclusions at 2000/8000 samples: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Checking every training row against every evaluation interval grew about 15x here.
+        assert medians[1] < 6 * medians[0]
+
+    @staticmethod
+    def _minute_split(count: int) -> TemporalSplit:
+        """Split one-minute samples with ten-minute information intervals 60/20/20."""
+        step = timedelta(minutes=1)
+        validation_start = _START + (count * 3 // 5) * step
+        holdout_start = _START + (count * 4 // 5) * step
+        return TemporalSplit(
+            training=TimeWindow(start=_START - 10 * step, end=validation_start),
+            validation=TimeWindow(start=validation_start, end=holdout_start),
+            holdout=TimeWindow(start=holdout_start, end=_START + (count + 10) * step),
+            samples=tuple(
+                SampleInterval(
+                    row_id=f"row-{index:07d}",
+                    input_sha256=hashlib.sha256(str(index).encode()).hexdigest(),
+                    decision_at=_START + index * step,
+                    information_start=_START + (index - 5) * step,
+                    information_end=_START + (index + 5) * step,
+                    features_available_at=_START + index * step,
+                    label_available_at=_START + (index + 5) * step,
+                )
+                for index in range(count)
+            ),
+            fit_mode="labels",
+            fit_cutoff=validation_start,
+            embargo_us=600_000_000,
+            rationale="Ten-minute embargo around one-minute samples.",
+        )

@@ -94,6 +94,13 @@ requires it, but is not an implemented fallback. There is no automatic L2 choice
 The current endpoint is the global Exchange feed; MiCA-specific DMA endpoints
 and other account routing require separate verification before adding support.
 
+The adapter seeds its source clock from the REST snapshot's `time` and refuses a
+bridged update timed earlier; Coinbase documents bridging by sequence only. After
+an authenticated capture, run a copy of the
+[bridge conformance consumer](../../tests/integration/consumers/capture/coinbase_bridge_conformance.py)
+with `python -I coinbase_bridge_conformance.py --search data/coinbase --output <new file>`.
+Change the adapter only if real snapshot/bridge pairs show that conflict.
+
 ## Input, persistence and failure meaning
 
 The library owns validation in `data/live/`, venue lifecycle in

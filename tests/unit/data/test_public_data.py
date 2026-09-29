@@ -6,24 +6,30 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from functools import partial
+from itertools import pairwise
 from pathlib import Path
 
 # third party library imports
 import pytest
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 from test_book_datasets import TestBookDatasets as _Books
 
 # project library imports
 from configuration import CaptureConfig, PublicDataJob
 from financial_units import Currency, Dimension, ExactRatio, Price, Quantity, QuantityKind
 from market_data.acquisition import PublicAcquisition, PublicIngestion
+from market_data.acquisition.public import PendingResponse
 from market_data.adapters.sources import SourceAdapters
 from market_data.contracts import (
     CaptureRecord,
     CaptureRequest,
+    PublicReceipt,
     PublicRequest,
     RawObject,
     RequestBinding,
@@ -99,6 +105,27 @@ class _Transport:
         if not self.payloads:
             raise AssertionError("unexpected public source request")
         return self.payloads.pop(0)
+
+
+class _PollingTransport:
+    """Answer both references, then distinct capture pages, timing every request."""
+
+    def __init__(self) -> None:
+        """Start before the first reference request."""
+        self.requested: list[float] = []
+
+    def get(self, host: str, path: str) -> bytes:
+        """Return the next response with fresh trade IDs and record when it was asked for."""
+        self.requested.append(time.perf_counter())
+        count = len(self.requested)
+        if count <= 2:
+            return (_OKX_REFERENCE, _BITFINEX_REFERENCE)[count - 1]
+        if "okx" in host:
+            return _OKX_TRADES.replace(b'"20"', f'"{2 * count}"'.encode()).replace(
+                b'"19"', f'"{2 * count - 1}"'.encode()
+            )
+        newer = f"[{2 * count + 1},1790164800200,-0.15,101.2]"
+        return f"[{newer},[{2 * count},1790164800100,0.25,101.3]]".encode()
 
 
 class _LostAcknowledgement(RawStore):
@@ -433,6 +460,113 @@ class TestPublicData:
                 clock=clock.now,
                 sleep=clock.sleep,
             )
+
+    def test_checkpoint_steps_refuse_exactly_what_whole_validation_refuses(
+        self, tmp_path: Path
+    ) -> None:
+        """Adding a response or receipt checks only it, with whole-state outcomes and messages."""
+        completed, _ = self._acquire(tmp_path)
+        state = replace(completed, complete=False, finished_at=None)
+        last = state.receipts[-1]
+        later = last.raw.ts_ingested + timedelta(seconds=1)
+        foreign = replace(last.request, job_identity="f" * 64)
+        pendings = (
+            PendingResponse(request=last.request, payload=b"[]", received=later),
+            PendingResponse(request=last.request, payload=b"[]", received=_START),
+            PendingResponse(request=foreign, payload=b"[]", received=later),
+            PendingResponse(
+                request=last.request, payload=bytes(state.job.max_bytes), received=later
+            ),
+        )
+        for base in (state, completed):
+            for pending in pendings:
+                self._assert_same_outcome(
+                    partial(base._with_pending, pending),
+                    partial(self._whole_with_pending, base, pending),
+                )
+        assert state.pending is None
+        raw = replace(last.raw, ts_received=later, ts_ingested=later)
+        assert completed.finished_at is not None
+        beyond = completed.finished_at + timedelta(seconds=1)
+        receipts = (
+            PublicReceipt(request=last.request, raw=raw),
+            PublicReceipt(request=last.request, raw=replace(raw, ts_received=_START)),
+            PublicReceipt(
+                request=foreign, raw=replace(raw, request_identity=foreign.binding.identity)
+            ),
+            PublicReceipt(request=last.request, raw=replace(raw, size_bytes=state.job.max_bytes)),
+            PublicReceipt(
+                request=last.request, raw=replace(raw, ts_received=beyond, ts_ingested=beyond)
+            ),
+        )
+        unsafe = PublicReceipt(request=last.request, raw=replace(raw))
+        force_setattr(unsafe.raw, "sha256", "not-a-digest")
+        pending_state = replace(state, pending=pendings[0])
+        for base in (pending_state, completed):
+            for receipt in (*receipts, unsafe):
+                self._assert_same_outcome(
+                    partial(base._with_receipt, receipt),
+                    partial(self._whole_with_receipt, base, receipt),
+                )
+        assert pending_state.pending == pendings[0] and pending_state.receipts == state.receipts
+
+    @staticmethod
+    def _whole_with_pending(base: PublicAcquisition, pending: PendingResponse) -> PublicAcquisition:
+        """Validate the whole successor that holds a new pending response."""
+        return replace(base, pending=pending)
+
+    @staticmethod
+    def _whole_with_receipt(base: PublicAcquisition, receipt: PublicReceipt) -> PublicAcquisition:
+        """Validate the whole successor that commits one more receipt."""
+        receipts: tuple[PublicReceipt, ...] = (*base.receipts, receipt)
+        return replace(base, receipts=receipts, pending=None)
+
+    @staticmethod
+    def _assert_same_outcome(
+        step: Callable[[], PublicAcquisition], whole: Callable[[], PublicAcquisition]
+    ) -> None:
+        """Require an incremental checkpoint step to match validating the whole successor."""
+        try:
+            expected = whole()
+        except ValueError as error:
+            with pytest.raises(ValueError) as refused:
+                step()
+            assert str(refused.value) == str(error)
+            return
+        actual = step()
+        actual.__post_init__()
+        assert actual == expected
+        assert DomainCodec().encode_json(actual) == DomainCodec().encode_json(expected)
+
+    @pytest.mark.performance
+    def test_capture_page_cost_does_not_grow_with_saved_pages(self, tmp_path: Path) -> None:
+        """A new capture page costs about the same after 50 or 200 saved pages."""
+        medians: list[float] = []
+        for pages in (50, 200):
+            root = tmp_path / str(pages)
+            (root / "raw").mkdir(parents=True)
+            job = replace(
+                self._job(),
+                mode="capture",
+                end=_START + timedelta(seconds=5 * pages),
+                max_pages=1000,
+            )
+            transport, clock = _PollingTransport(), _Clock(_START)
+            state = PublicIngestion(SourceAdapters(), RawStore(root / "raw")).resume(
+                job,
+                implementation_identity="a" * 64,
+                path=root / "acquisition.json",
+                transport=transport,
+                clock=clock.now,
+                sleep=clock.sleep,
+            )
+            assert len(state.receipts) == pages + 2
+            gaps = sorted(later - earlier for earlier, later in pairwise(transport.requested[-22:]))
+            medians.append(gaps[len(gaps) // 2])
+        print(f"capture page at 50/200 saved pages: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Re-verifying every saved page and receipt per page grew about fourfold here; the
+        # checkpoint rewrite still grows slowly with the saved receipts.
+        assert medians[1] < 2.5 * medians[0]
 
     def test_clock_regression_retains_pending_and_rejects_reordered_knowledge(
         self, tmp_path: Path

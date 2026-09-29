@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import copy
 import os
 from collections.abc import Callable
 from datetime import datetime
@@ -11,7 +12,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Literal
 
 # third party library imports
-from msgspec.structs import replace
+from msgspec.structs import force_setattr, replace
 
 # project library imports
 from configuration import PublicDataJob
@@ -21,6 +22,7 @@ from market_data.contracts import (
     PublicSources,
     PublicTransport,
     RequestBinding,
+    TradePage,
 )
 from market_data.storage import RawFiles, RawStore
 from reference_data.catalogs import InstrumentDefinition, ReferenceHistory
@@ -78,12 +80,14 @@ class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
                 raise ValueError("capture cannot complete before its selected end")
         if len(self.receipts) > self.job.max_pages + len(self.job.universes.collection):
             raise ValueError("public acquisition exceeds page budget")
+        # The job identity hashes the whole job; compute it once, not per receipt.
+        job_identity = self.job.identity
         last: datetime | None = None
         for receipt in self.receipts:
             if type(receipt) is not PublicReceipt:
                 raise ValueError("invalid public receipt record")
             receipt.__post_init__()
-            self._request(receipt.request)
+            self._request(receipt.request, job_identity)
             if last is not None and receipt.raw.ts_received < last:
                 raise ValueError("public receipt clock regressed")
             last = receipt.raw.ts_ingested
@@ -92,26 +96,80 @@ class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
         used = sum(r.raw.size_bytes for r in self.receipts)
         if self.pending is not None:
             self.pending.__post_init__()
-            self._request(self.pending.request)
+            self._request(self.pending.request, job_identity)
             used += len(self.pending.payload)
             if last is not None and self.pending.received < last:
                 raise ValueError("pending receipt clock regressed")
         if used > self.job.max_bytes:
             raise ValueError("public acquisition exceeds aggregate raw budget")
 
-    def _request(self, request: PublicRequest) -> None:
+    def _request(self, request: PublicRequest, job_identity: str) -> None:
         """Ensure requests cannot escape the selected collection or implementation."""
         if (
-            request.job_identity != self.job.identity
+            request.job_identity != job_identity
             or request.implementation_identity != self.implementation_identity
             or request.instrument not in self.job.instruments
         ):
             raise ValueError("public request differs from resolved job")
         self.job.universes.require(request.instrument.instrument_id, "collection")
 
+    def _with_pending(self, pending: PendingResponse) -> PublicAcquisition:
+        """Return this validated state holding a new pending response.
+
+        Only the new response is checked, with the checks and messages that
+        __post_init__ applies to it. Every retained receipt was checked when it
+        was added; checking all of them again made each page cost grow with the
+        saved history.
+        """
+        if type(pending) is not PendingResponse:
+            raise ValueError("invalid public acquisition receipts")
+        if self.complete:
+            raise ValueError("completed acquisition cannot have pending bytes")
+        pending.__post_init__()
+        self._request(pending.request, self.job.identity)
+        if self.receipts and pending.received < self.receipts[-1].raw.ts_ingested:
+            raise ValueError("pending receipt clock regressed")
+        if self._receipt_bytes() + len(pending.payload) > self.job.max_bytes:
+            raise ValueError("public acquisition exceeds aggregate raw budget")
+        successor = copy.copy(self)
+        force_setattr(successor, "pending", pending)
+        return successor
+
+    def _with_receipt(self, receipt: PublicReceipt) -> PublicAcquisition:
+        """Return this validated state with its pending response committed as a receipt.
+
+        Only the new receipt and the budgets it changes are checked, in the order
+        and with the messages of __post_init__.
+        """
+        if len(self.receipts) + 1 > self.job.max_pages + len(self.job.universes.collection):
+            raise ValueError("public acquisition exceeds page budget")
+        if type(receipt) is not PublicReceipt:
+            raise ValueError("invalid public receipt record")
+        receipt.__post_init__()
+        self._request(receipt.request, self.job.identity)
+        if self.receipts and receipt.raw.ts_received < self.receipts[-1].raw.ts_ingested:
+            raise ValueError("public receipt clock regressed")
+        if self.finished_at is not None and receipt.raw.ts_ingested > self.finished_at:
+            raise ValueError("completion precedes durable input")
+        if self._receipt_bytes() + receipt.raw.size_bytes > self.job.max_bytes:
+            raise ValueError("public acquisition exceeds aggregate raw budget")
+        receipts: tuple[PublicReceipt, ...] = (*self.receipts, receipt)
+        successor = copy.copy(self)
+        force_setattr(successor, "receipts", receipts)
+        force_setattr(successor, "pending", None)
+        return successor
+
+    def _receipt_bytes(self) -> int:
+        """Sum the retained raw bytes of committed receipts."""
+        return sum(r.raw.size_bytes for r in self.receipts)
+
     def save(self, path: Path) -> None:
         """Atomically fsync the single-writer checkpoint; uncertain writes must be reopened."""
         self.__post_init__()
+        self._write(path)
+
+    def _write(self, path: Path) -> None:
+        """Atomically fsync this already validated state as the checkpoint."""
         with NamedTemporaryFile(dir=path.parent, prefix=".public-", delete=False) as output:
             staging = Path(output.name)
             try:
@@ -179,8 +237,10 @@ class PublicIngestion:
             state = DomainCodec().decode_json(payload, PublicAcquisition)
             if state.job != job or state.implementation_identity != implementation_identity:
                 raise ValueError("resume requires identical job and installed implementation")
+        # Verify the saved prefix once; each page committed below is verified as it lands.
+        continuation = self._continuation(state)
         while True:
-            request = self.next_request(state)
+            request = continuation.next_request(state)
             if state.complete:
                 if request is not None:
                     raise ValueError("completed public acquisition has unfinished requests")
@@ -203,20 +263,16 @@ class PublicIngestion:
                 state = replace(state, complete=True, finished_at=now)
                 state.save(path)
                 return state
-            if (
-                request.kind == "trades"
-                and sum(r.request.kind == "trades" for r in state.receipts) >= job.max_pages
-            ):
+            if request.kind == "trades" and continuation.trade_pages >= job.max_pages:
                 raise ValueError("public ingestion page budget exhausted; saved prefix retained")
             adapter = self._sources.public(request.instrument)
             if state.pending is None:
                 host, endpoint = adapter.endpoint(job, request)
                 payload = transport.get(host, endpoint)
-                state = replace(
-                    state,
-                    pending=PendingResponse(request=request, payload=payload, received=clock()),
+                state = state._with_pending(
+                    PendingResponse(request=request, payload=payload, received=clock())
                 )
-                state.save(path)
+                state._write(path)
             pending = state.pending
             if pending is None or pending.request != request:
                 raise ValueError("pending public request differs from verified continuation")
@@ -239,16 +295,9 @@ class PublicIngestion:
                 if ingested < raw.ts_ingested:
                     raise ValueError("public ingestion clock regressed during publication")
                 raw = replace(raw, ts_ingested=ingested)
-            receipts: tuple[PublicReceipt, ...] = (
-                *state.receipts,
-                PublicReceipt(request=request, raw=raw),
-            )
-            state = replace(
-                state,
-                receipts=receipts,
-                pending=None,
-            )
-            state.save(path)
+            state = state._with_receipt(PublicReceipt(request=request, raw=raw))
+            state._write(path)
+            self._verify(state.job, continuation, state.receipts[-1])
             if request.kind == "trades":
                 sleep(job.poll_seconds)
 
@@ -259,56 +308,31 @@ class PublicIngestion:
         reordered/foreign response descriptors. Capture completion proves only a
         bounded sample, never continuity between polling receipts.
         """
+        return self._continuation(state).next_request(state)
+
+    def _continuation(self, state: PublicAcquisition) -> _Continuation:
+        """Validate a whole acquisition and replay every saved response in order."""
         state.__post_init__()
-        cursors: dict[InstrumentId, str | None] = {}
-        counts: dict[InstrumentId, int] = {}
-        done: set[InstrumentId] = set()
+        continuation = _Continuation(state.job)
         for receipt in state.receipts:
-            request = receipt.request
-            instrument = request.instrument.instrument_id
-            adapter = self._sources.public(request.instrument)
-            adapter.endpoint(state.job, request)
-            with self._store.open(descriptor=receipt.raw, request=request.binding) as source:
-                payload = source.read(state.job.max_bytes + 1)
-            if request.kind == "reference":
-                if instrument in counts:
-                    raise ValueError("duplicate or reordered reference receipt")
-                adapter.reference(request.instrument, payload, receipt.raw.ts_received)
-                counts[instrument], cursors[instrument] = 0, None
-            else:
-                if (
-                    instrument not in counts
-                    or instrument in done
-                    or request.ordinal != counts[instrument]
-                    or request.cursor != cursors[instrument]
-                ):
-                    raise ValueError("public page is not the verified source continuation")
-                page = adapter.trades(state.job, request, payload)
-                counts[instrument] += 1
-                cursors[instrument] = page.next_cursor
-                if state.job.mode == "backfill" and page.next_cursor is None:
-                    done.add(instrument)
-        selected = tuple(
-            i for i in state.job.instruments if i.instrument_id in state.job.universes.collection
-        )
-        if state.complete and state.job.mode == "capture":
-            if not self._has_pages(state):
-                raise ValueError("completed capture lacks selected input receipts")
-            return None
-        remaining = [i for i in selected if i.instrument_id not in done]
-        if not remaining:
-            return None
-        # Round robin guarantees each selected capture gets an observation.
-        definition = min(remaining, key=_RequestPriority(counts))
-        identity = definition.instrument_id
-        return PublicRequest(
-            job_identity=state.job.identity,
-            implementation_identity=state.implementation_identity,
-            instrument=definition,
-            kind="reference" if identity not in counts else "trades",
-            cursor=cursors.get(identity),
-            ordinal=counts.get(identity, 0),
-        )
+            self._verify(state.job, continuation, receipt)
+        return continuation
+
+    def _verify(
+        self, job: PublicDataJob, continuation: _Continuation, receipt: PublicReceipt
+    ) -> None:
+        """Reopen one committed response from the raw store, re-decode it and advance."""
+        request = receipt.request
+        adapter = self._sources.public(request.instrument)
+        adapter.endpoint(job, request)
+        with self._store.open(descriptor=receipt.raw, request=request.binding) as source:
+            payload = source.read(job.max_bytes + 1)
+        continuation.require(request)
+        if request.kind == "reference":
+            adapter.reference(request.instrument, payload, receipt.raw.ts_received)
+            continuation.advance(request, None)
+        else:
+            continuation.advance(request, adapter.trades(job, request, payload))
 
     def references(self, state: PublicAcquisition) -> ReferenceHistory:
         """Reopen original reference responses into a pinned bitemporal history."""
@@ -346,3 +370,92 @@ class _RequestPriority:
     def __call__(self, instrument: InstrumentDefinition) -> int:
         """Prefer unobserved reference bindings, then the fewest captured pages."""
         return self._counts.get(instrument.instrument_id, -1)
+
+
+class _Continuation:
+    """Track each listing's verified page count, cursor and backfill completion.
+
+    Built by replaying every saved response once on resume, then advanced by one
+    committed response at a time, so choosing the next request does not reopen and
+    re-decode the whole saved prefix for every new page.
+    """
+
+    def __init__(self, job: PublicDataJob) -> None:
+        """Start before any reference or trade response of the job."""
+        self._job = job
+        self._cursors: dict[InstrumentId, str | None] = {}
+        self._counts: dict[InstrumentId, int] = {}
+        self._done: set[InstrumentId] = set()
+
+    @property
+    def trade_pages(self) -> int:
+        """Count the trade responses advanced so far across every listing."""
+        return sum(self._counts.values())
+
+    def require(self, request: PublicRequest) -> None:
+        """Refuse a response that is not its listing's next reference or trade page.
+
+        Raises:
+            ValueError: The response repeats a reference or breaks page continuity.
+        """
+        instrument = request.instrument.instrument_id
+        if request.kind == "reference":
+            if instrument in self._counts:
+                raise ValueError("duplicate or reordered reference receipt")
+        elif (
+            instrument not in self._counts
+            or instrument in self._done
+            or request.ordinal != self._counts[instrument]
+            or request.cursor != self._cursors[instrument]
+        ):
+            raise ValueError("public page is not the verified source continuation")
+
+    def advance(self, request: PublicRequest, page: TradePage | None) -> None:
+        """Move a listing past a required response that its adapter has decoded.
+
+        Args:
+            request: Response request already accepted by require().
+            page: Decoded trade page, or None for a reference response.
+        """
+        instrument = request.instrument.instrument_id
+        if page is None:
+            self._counts[instrument], self._cursors[instrument] = 0, None
+            return
+        self._counts[instrument] += 1
+        self._cursors[instrument] = page.next_cursor
+        if self._job.mode == "backfill" and page.next_cursor is None:
+            self._done.add(instrument)
+
+    def next_request(self, state: PublicAcquisition) -> PublicRequest | None:
+        """Choose the next request from the verified continuation of this state.
+
+        Args:
+            state: Acquisition whose committed receipts have all been advanced here.
+
+        Returns:
+            Next reference or trade request, or None when nothing remains.
+
+        Raises:
+            ValueError: A completed capture lacks a trade response for a listing.
+        """
+        selected = tuple(
+            i for i in state.job.instruments if i.instrument_id in state.job.universes.collection
+        )
+        if state.complete and state.job.mode == "capture":
+            if not PublicIngestion._has_pages(state):
+                raise ValueError("completed capture lacks selected input receipts")
+            return None
+        remaining = [i for i in selected if i.instrument_id not in self._done]
+        if not remaining:
+            return None
+        # Round robin guarantees each selected capture gets an observation.
+        definition = min(remaining, key=_RequestPriority(self._counts))
+        identity = definition.instrument_id
+        return PublicRequest(
+            job_identity=state.job.identity,
+            implementation_identity=state.implementation_identity,
+            instrument=definition,
+            kind="reference" if identity not in self._counts else "trades",
+            cursor=self._cursors.get(identity),
+            ordinal=self._counts.get(identity, 0),
+        )

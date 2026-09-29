@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import asyncio
 import hashlib
+import time
 from collections.abc import Callable
 from dataclasses import replace as replace_dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
@@ -1100,6 +1101,38 @@ class TestPaperCandidateRuntime:
             )
         assert runtime.checkpoint().blocked == "operator-block"
         runtime.release()
+
+    @pytest.mark.performance
+    def test_restart_adds_one_step_read_per_retained_quote(self, tmp_path: Path) -> None:
+        """Each retained quote adds about one step decode to a restart, not a lookup of its own."""
+        restarts: list[float] = []
+        reads: list[float] = []
+        for count in (50, 200):
+            path = tmp_path / f"{count}.sqlite3"
+            runtime = self._runtime(path)
+            runtime.open(owner="first", at=_AT)
+            for second in range(count):
+                runtime.market(self._market(runtime, second))
+            runtime.release()
+            restart_samples: list[float] = []
+            read_samples: list[float] = []
+            for attempt in range(5):
+                restored = self._runtime(path)
+                started = time.perf_counter()
+                restored.open(owner=f"restart-{attempt}", at=_AT + timedelta(seconds=count))
+                restart_samples.append(time.perf_counter() - started)
+                started = time.perf_counter()
+                restored.journal.steps()
+                read_samples.append(time.perf_counter() - started)
+                restored.release()
+            restarts.append(sorted(restart_samples)[2])
+            reads.append(sorted(read_samples)[2])
+        print(
+            f"restart at 50/200 quotes: {restarts[0]:.6f}s/{restarts[1]:.6f}s; "
+            f"reading every step: {reads[0]:.6f}s/{reads[1]:.6f}s"
+        )
+        # A connection and query per retained quote made this about 5.6 here.
+        assert restarts[1] - restarts[0] < 2.5 * (reads[1] - reads[0])
 
     def test_interrupted_market_finishes_before_recovery_advances_clock(
         self, tmp_path: Path

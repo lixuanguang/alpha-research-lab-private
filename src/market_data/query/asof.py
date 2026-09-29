@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import bisect
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,7 @@ from serialization import DomainCodec, WireRecord
 type InputBinding = tuple[str, str, InstrumentId]
 type PointEvent = TradeRevision | Occurrence
 type EconomicOrder = tuple[datetime, int, datetime, int, int]
+type _Version = tuple[datetime | None, datetime, TradeRevision]
 
 
 class _Partition(WireRecord, frozen=True, kw_only=True):
@@ -189,6 +191,8 @@ class AsOfSelector:
         self._history = canonical
         self._partitions = partitions
         self._precedence = precedence
+        self._ranks = {binding: rank for rank, binding in enumerate(precedence)}
+        self._indexes = tuple(_RevisionIndex(partition) for partition in partitions)
 
     @property
     def history(self) -> tuple[bytes, ...]:
@@ -283,28 +287,25 @@ class AsOfSelector:
                 "as-of selection requires a positive window and unique supported instruments"
             )
         selected: dict[EconomicOrder, PointEvent] = {}
-        for partition in self._partitions:
+        for index in self._indexes:
+            partition = index.partition
             request = partition.request
             if request.instrument.instrument_id not in instruments:
                 continue
-            for head in partition.revisions:
-                version: TradeRevision | None = head
-                while version is not None and (
-                    version.ts_knowledge is None or version.ts_knowledge > known_at
-                ):
-                    version = version.previous
-                if version is None:
+            # Chains with no version valid in [start, end) cannot pass the window test.
+            for chain in index.chains(start, end):
+                for version_known_at, instant, version in chain:
+                    if version_known_at is not None and version_known_at <= known_at:
+                        break
+                else:
                     continue
-                instant = min(self._valid_from(item) for item in version.occurrences)
+                if not start <= instant < end:
+                    continue
                 membership = partition.eligibility.select(
                     request.instrument.instrument_id, valid_at=instant, known_at=known_at
                 )
-                if (
-                    start <= instant < end
-                    and isinstance(membership, EligibilityAssertion)
-                    and membership.state == "included"
-                ):
-                    self._insert(selected, version, version.ts_knowledge, version.occurrences)
+                if isinstance(membership, EligibilityAssertion) and membership.state == "included":
+                    self._insert(selected, version, version_known_at, version.occurrences)
             for control in partition.controls:
                 event = control.event
                 if (
@@ -329,7 +330,7 @@ class AsOfSelector:
             raise ValueError("cannot order a revision with unknown availability")
         position = min(
             (
-                self._precedence.index(self._binding(item.request)),
+                self._ranks[self._binding(item.request)],
                 item.request.start,
                 item.position,
                 item.record_index,
@@ -360,3 +361,65 @@ class AsOfSelector:
             request.manifest.job.stream,
             request.instrument.instrument_id,
         )
+
+
+class _RevisionIndex:
+    """Index one verified partition's revision chains by the instants they can select.
+
+    Built once after admission verification, from the same cached partition that
+    selection already trusts. Each chain keeps its versions newest first with their
+    effective knowledge and earliest valid instant, so a query neither walks nor
+    re-validates every revision. Chains whose versions share one instant are sorted
+    by it; the rare chains whose corrections move the instant are tested per query.
+    """
+
+    def __init__(self, partition: _Partition) -> None:
+        """Compute each chain's knowledge and instants once and sort fixed-instant chains."""
+        self.partition = partition
+        chains: list[tuple[_Version, ...]] = []
+        for head in partition.revisions:
+            versions: list[_Version] = []
+            version: TradeRevision | None = head
+            while version is not None:
+                instant = min(AsOfSelector._valid_from(item) for item in version.occurrences)
+                versions.append((version.ts_knowledge, instant, version))
+                version = version.previous
+            chains.append(tuple(versions))
+        self._chains = tuple(chains)
+        fixed: list[tuple[datetime, int]] = []
+        moved: list[tuple[datetime, datetime, int]] = []
+        for position, chain in enumerate(chains):
+            instants = [instant for _, instant, _ in chain]
+            if min(instants) == max(instants):
+                fixed.append((instants[0], position))
+            else:
+                moved.append((min(instants), max(instants), position))
+        fixed.sort()
+        self._fixed_instants = [instant for instant, _ in fixed]
+        self._fixed_positions = [position for _, position in fixed]
+        self._moved = tuple(moved)
+        bounds = [instant for chain in chains for _, instant, _ in chain]
+        self._span = (min(bounds), max(bounds)) if bounds else None
+
+    def chains(self, start: datetime, end: datetime) -> tuple[tuple[_Version, ...], ...]:
+        """Return, in admission order, every chain with a version valid in [start, end).
+
+        Args:
+            start: Inclusive UTC business-window start.
+            end: Exclusive UTC business-window end.
+
+        Returns:
+            Chains of (knowledge, instant, version), newest version first. A returned
+            chain's selected version may still fall outside the window.
+        """
+        if self._span is None or self._span[1] < start or self._span[0] >= end:
+            return ()
+        positions = self._fixed_positions[
+            bisect.bisect_left(self._fixed_instants, start) : bisect.bisect_left(
+                self._fixed_instants, end
+            )
+        ]
+        positions.extend(
+            position for low, high, position in self._moved if low < end and high >= start
+        )
+        return tuple(self._chains[position] for position in sorted(positions))
