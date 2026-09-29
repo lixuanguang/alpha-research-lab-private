@@ -459,7 +459,7 @@ class PaperMatchEvaluator:
         return hashlib.sha256(
             self._codec.encode_json(
                 (
-                    "paper-match-v2",
+                    "paper-match",
                     account_id,
                     self._scenario_identity,
                     market.identity,
@@ -475,10 +475,10 @@ class PaperMatcher:
 
     Marketable GTC/IOC orders take displayed liquidity at the observed touch.
     Post-only orders reject if marketable at their first later quote; resting
-    orders fill only when a subsequent touch crosses their limit. Legacy fixture
-    cancellation completes at the next received quote; a selected versioned
-    scenario applies its explicit delay. These conservative declared rules are
-    deterministic software assumptions, not inferred exchange mechanics.
+    orders fill only when a subsequent touch crosses their limit. The selected
+    versioned scenario applies its explicit delays, adverse cost and take
+    fraction. These conservative declared rules are deterministic software
+    assumptions, not inferred exchange mechanics.
     """
 
     def __init__(
@@ -487,128 +487,25 @@ class PaperMatcher:
         *,
         fee_rate: Decimal,
         lot: Quantity,
-        scenario: PaperExecutionScenario | None = None,
+        scenario: PaperExecutionScenario,
     ) -> None:
-        """Bind exact fee rounding and lot size to an already fenced journal."""
+        """Bind exact fee rounding, lot size and scenario to an already fenced journal."""
         DecimalGrid.require_decimal(fee_rate)
         lot.model_copy()
         if not Decimal(0) <= fee_rate < Decimal(1) or lot.value <= 0:
             raise ValueError("invalid paper matching costs or lot")
-        if scenario is not None:
-            scenario.__post_init__()
-            if (
-                scenario.fee_rate != fee_rate
-                or scenario.instrument_id != lot.dimension.instrument_id
-            ):
-                raise ValueError("paper matcher and authored scenario differ")
-        self._journal, self._fee_rate, self._lot, self._scenario = journal, fee_rate, lot, scenario
-        self._fees = PaperFeeSchedule(fee_rate)
+        scenario.__post_init__()
+        if scenario.fee_rate != fee_rate or scenario.instrument_id != lot.dimension.instrument_id:
+            raise ValueError("paper matcher and authored scenario differ")
+        self._journal, self._lot, self._scenario = journal, lot, scenario
 
     def match(self, market: PaperMarket, *, epoch: int) -> None:
-        """Apply a quote once per order, recovering a partly committed quote after restart.
+        """Claim a quote and apply its modeled effects in one journal transaction.
 
-        Already posted fills consume the same quote's liquidity on replay. Unknown
-        outcomes remain reserved and require explicit reconciliation; matching
-        cannot turn uncertainty into an automatic resend or an invented fill.
+        Unknown outcomes remain reserved and require explicit reconciliation;
+        matching cannot turn uncertainty into an automatic resend or an invented fill.
         """
         market.__post_init__()
         if market.bid.per != self._lot.dimension:
             raise ValueError("paper market belongs to another instrument")
-        if self._scenario is not None:
-            self._journal.match_scenario_market(epoch=epoch, market=market, scenario=self._scenario)
-            return
-        self._journal.claim_market(
-            epoch=epoch,
-            identity=market.identity,
-            payload=DomainCodec().encode_json(market),
-        )
-        consumed_buy, consumed_sell = Fraction(0), Fraction(0)
-        prior = self._journal.events()
-        identities = {item.event.identity for item in prior}
-        for item in prior:
-            if item.event.identity == self._identity(market, item.order, "fill"):
-                fill = item.event.fill
-                if fill is not None:
-                    if fill.quantity.value > 0:
-                        consumed_buy += Fraction(fill.quantity.value)
-                    else:
-                        consumed_sell -= Fraction(fill.quantity.value)
-        available = {
-            "buy": max(Fraction(0), Fraction(market.ask_quantity.value) - consumed_buy),
-            "sell": max(Fraction(0), Fraction(market.bid_quantity.value) - consumed_sell),
-        }
-        for order in self._journal.orders():
-            if order.is_terminal or order.status == "unknown" or market.at <= order.decision_at:
-                continue
-            if order.status in ("cancel_requested", "cancel_ack"):
-                self._event(market, order, "cancelled", epoch)
-                continue
-            touch = market.ask if order.intent.side == "buy" else market.bid
-            crosses = (
-                touch.value <= order.intent.limit.value
-                if order.intent.side == "buy"
-                else touch.value >= order.intent.limit.value
-            )
-            if not order.accepted:
-                self._event(market, order, "request_ack", epoch)
-                if order.intent.time_in_force == "post-only" and crosses:
-                    self._event(market, order, "rejected", epoch)
-                    continue
-                self._event(market, order, "accepted", epoch)
-            fill_id = self._identity(market, order, "fill")
-            if crosses and fill_id not in identities:
-                size = self._fees.affordable(
-                    order,
-                    min(Fraction(order.remaining.value), available[order.intent.side]),
-                    touch,
-                    Fraction(self._lot.value),
-                )
-                if size:
-                    signed = size if order.intent.side == "buy" else -size
-                    quantity = Quantity(
-                        value=DecimalGrid.exact_decimal(signed), dimension=self._lot.dimension
-                    )
-                    fee = self._fees.fee(size, touch)
-                    fill = Fill(
-                        identity=fill_id,
-                        decision_at=order.decision_at,
-                        filled_at=market.at,
-                        quantity=quantity,
-                        reference=touch,
-                        effective=touch,
-                        fee=fee,
-                    )
-                    self._journal.apply_event(
-                        epoch=epoch,
-                        event=OrderEvent(
-                            identity=fill_id,
-                            order_id=order.identity,
-                            at=market.at,
-                            kind="fill",
-                            fill=fill,
-                        ),
-                    )
-                    available[order.intent.side] -= size
-            if order.intent.time_in_force == "ioc":
-                current = next(o for o in self._journal.orders() if o.identity == order.identity)
-                if not current.is_terminal:
-                    self._event(market, order, "cancelled", epoch)
-
-    def _event(self, market: PaperMarket, order: OrderState, kind: EventKind, epoch: int) -> None:
-        """Append one deterministic non-fill matching observation."""
-        if kind not in ("request_ack", "accepted", "rejected", "cancelled"):
-            raise ValueError("unsupported matching event")
-        self._journal.apply_event(
-            epoch=epoch,
-            event=OrderEvent(
-                identity=self._identity(market, order, kind),
-                order_id=order.identity,
-                at=market.at,
-                kind=kind,
-            ),
-        )
-
-    @staticmethod
-    def _identity(market: PaperMarket, order: OrderState, kind: str) -> str:
-        """Bind effects to exact market bytes, order and event kind across retries."""
-        return hashlib.sha256(DomainCodec().encode_json((market, order.identity, kind))).hexdigest()
+        self._journal.match_scenario_market(epoch=epoch, market=market, scenario=self._scenario)

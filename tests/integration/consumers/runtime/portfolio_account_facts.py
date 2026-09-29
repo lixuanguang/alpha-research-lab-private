@@ -187,8 +187,8 @@ class PortfolioAccountFacts:
             context=PortfolioContext(
                 portfolio_id="reference-portfolio",
                 strategy_id=strategy_id,
-                model_revision="reference-v1",
-                config_revision="paper-v1",
+                model_revision="reference",
+                config_revision="paper",
                 horizon="one-minute",
                 reason="authored-fixture",
                 venue=self.venue,
@@ -243,7 +243,7 @@ class PortfolioAccountFacts:
     def allocated_fill_id(self, physical_id: str, child_id: str) -> str:
         """Derive the documented child lineage for an observation."""
         return hashlib.sha256(
-            self.codec.encode_json(("allocated-physical-fill-v1", physical_id, child_id))
+            self.codec.encode_json(("allocated-physical-fill", physical_id, child_id))
         ).hexdigest()
 
     def verify_balances(

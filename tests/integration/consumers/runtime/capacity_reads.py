@@ -473,7 +473,7 @@ class _DashboardReader:
                                     "SELECT version, floor FROM metadata"
                                 ).fetchall(),
                             )
-                            if len(metadata) != 1 or metadata[0][0] != "telemetry-store-v1":
+                            if len(metadata) != 1 or metadata[0][0] != "telemetry-store":
                                 raise ValueError(
                                     "dashboard startup has unsupported telemetry metadata"
                                 )

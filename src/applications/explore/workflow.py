@@ -75,8 +75,8 @@ def inspect_eda(
         if len(payload) > 1_048_576:
             raise ValueError("EDA config exceeds one MiB")
         fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
-        version = codec.decode_json(fields.get("schema_version", b'"eda-query-v1"'), str)
-        if version == "research-selection-v1":
+        version = codec.decode_json(fields.get("schema_version", b'"eda-query"'), str)
+        if version == "research-selection":
             selection = codec.decode_json(payload, ResearchSelection)
             record.update(
                 config=selection,
@@ -166,8 +166,8 @@ def inspect_experiment(
         snapshots: Existing immutable snapshot root; missing inputs fail the retained attempt.
         raw: Retained originals required for snapshot admission.
         attempts: Local retained single-writer root containing the complete family history.
-        tracking: Explicit ClearML destination for formal tracked invocations; omitted for
-            compatibility with existing local exploratory consumers.
+        tracking: Explicit ClearML destination for formal tracked invocations; omit it
+            for a local exploratory run.
         feature_registry: Optional feature implementation registry used only by FeatureStudy;
             omitted to preserve the installed trailing-return implementation.
 
@@ -186,10 +186,10 @@ def inspect_experiment(
     if len(payload) > 1_048_576:
         raise ValueError("study config exceeds one MiB")
     fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
-    version = codec.decode_json(fields.get("schema_version", b'"exploration-study-v1"'), str)
+    version = codec.decode_json(fields.get("schema_version", b'"exploration-study"'), str)
     study: ExplorationStudy | FeatureStudy = (
         codec.decode_json(payload, FeatureStudy)
-        if version == "feature-study-v1"
+        if version == "feature-study"
         else codec.decode_json(payload, ExplorationStudy)
     )
     spec = study.specification(

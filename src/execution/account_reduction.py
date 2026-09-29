@@ -228,7 +228,7 @@ class AccountReduction:
         ):
             raise ValueError("stale_paper_market")
         identity = hashlib.sha256(
-            self.admission.codec.encode_json(("paper-reduction-v1", request.identity))
+            self.admission.codec.encode_json(("paper-reduction", request.identity))
         ).hexdigest()
         decision = AccountDecision(
             account_id=request.account_id,

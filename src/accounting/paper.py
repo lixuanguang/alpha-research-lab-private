@@ -206,13 +206,13 @@ class PaperAccountReport(WireRecord, frozen=True):
     gas_policy: PaperGasPolicy
     account: PaperScopeReport
     instances: tuple[PaperScopeReport, ...]
-    schema_version: str = "paper-account-report-v1"
+    schema_version: str = "paper-account-report"
 
     def __post_init__(self) -> None:
         """Require a versioned cutoff and account-scoped immutable projections."""
         self._require_utc(self.cutoff, field_name="paper report cutoff")
         if (
-            self.schema_version != "paper-account-report-v1"
+            self.schema_version != "paper-account-report"
             or type(self.max_mark_age_us) is not int
             or self.max_mark_age_us < 0
             or self.max_mark_age_us > 2**63 - 1

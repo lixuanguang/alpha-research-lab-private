@@ -172,7 +172,7 @@ each policy in its own `DecisionSession`. Session identity binds the selected
 account configuration, instance, entity, policy, portfolio context and fee
 reserve. Target/exposure and order/quote decisions both pass through the same
 independent account admission. Policy continuations use the
-`shared-decision-v1` checkpoint and are committed with their portfolio batch.
+`shared-decision` checkpoint and are committed with their portfolio batch.
 Each request carries the digest of the previously saved instance checkpoint;
 the account transaction checks that precondition before committing, so a stale
 concurrent decision cannot overwrite a newer policy state. Exact batch retries
@@ -232,16 +232,15 @@ freshness and capture idle time, measured on retained delivery clocks.
 The interval is positive, defaults to 3,000,000 microseconds and cannot exceed
 either source freshness or capture idle time. The exact source configuration and
 `SharedBookInputs` identity both bind it. `SharedBookDelivery.market_effects=false`
-retains an unselected book for exact replay; old envelopes with that optional
-field omitted retain their prior per-book economic behavior. This is a selected-
+retains an unselected book for exact replay. This is a selected-
 book paper model, not a measured feed or throughput capacity claim.
 
-When `PaperConfiguration.execution` selects a versioned scenario, the dedicated
+`PaperConfiguration.execution` selects a required versioned scenario. The dedicated
 journal pins its bytes and atomically commits each quote, modeled events and
 same-touch liquidity debt. Entry and cancel delays use later eligible received
 quotes; effective prices include adverse movement within the order limit, with
 half-even quote fees. This top-of-book model has no exchange response clock or
-queue position. Existing scenario-less fixtures preserve their original binding.
+queue position.
 
 Owner: `runtime`; application composition belongs to
 [`applications.paper`](../applications/paper/README.md), order state and modeled

@@ -76,7 +76,7 @@ class _Case:
         self.spec = IntentSimulationSpec(
             instance="alpha",
             entity=self.entity,
-            source_identity="saved-fixture-v1",
+            source_identity="saved-fixture",
             start=self.start,
             end=self.at(10),
             initial_cash=self.money("1000"),
@@ -109,8 +109,8 @@ class _Case:
             instance="alpha",
             entity=self.entity,
             at=self.at(at),
-            policy="fixture-policy-v1",
-            feature_identity="fixture-feature-v1",
+            policy="fixture-policy",
+            feature_identity="fixture-feature",
             model_identity=None,
             intent=intent,
         )
@@ -472,7 +472,7 @@ class TestIntentSimulation:
             source_at=receipt_at,
             known_at=receipt_at,
             book=canonical,
-            clock_assumption="receipt-as-matching-v1",
+            clock_assumption="receipt-as-matching",
         )
         result = case.run(
             (case.decision(2, TargetIntent(quantity=case.quantity("1"))),),
@@ -480,6 +480,6 @@ class TestIntentSimulation:
         )
         assert result.ledger.fills[0].filled_at == case.at(3)
         assert canonical.source_time is None
-        assert any("receipt-as-matching-v1" in limit for limit in result.limitations)
+        assert any("receipt-as-matching" in limit for limit in result.limitations)
         with pytest.raises(ValueError, match="receipt-matching clock"):
             replace(receipt, source_at=case.at(1)).__post_init__()

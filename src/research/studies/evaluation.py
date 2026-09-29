@@ -17,7 +17,7 @@ from serialization import WireRecord
 class EvaluationRecord(WireRecord, frozen=True, kw_only=True):
     """Record exact squared prediction errors with sample, version and outcome clocks."""
 
-    schema_version: Literal["model-evaluation-v1"] = "model-evaluation-v1"
+    schema_version: Literal["model-evaluation"] = "model-evaluation"
     dataset_sha256: str
     split_identity: str
     window: TimeWindow
@@ -34,7 +34,7 @@ class EvaluationRecord(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Reject absent provenance, malformed results and non-UTC outcome availability."""
         if (
-            self.schema_version != "model-evaluation-v1"
+            self.schema_version != "model-evaluation"
             or self.partition not in ("validation", "holdout")
             or self.selection not in ("accepted", "rejected")
             or self.metric != "mean((prediction-forward_return)**2)"

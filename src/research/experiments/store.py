@@ -21,7 +21,7 @@ from serialization import DomainCodec, WireRecord
 class AttemptStart(WireRecord, frozen=True, kw_only=True):
     """Bind one execution to a semantic specification and retained invocation bytes."""
 
-    schema_version: Literal["experiment-attempt-v1"] = "experiment-attempt-v1"
+    schema_version: Literal["experiment-attempt"] = "experiment-attempt"
     attempt_id: str
     run_identity: str
     spec: ExperimentSpec
@@ -32,7 +32,7 @@ class AttemptStart(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Verify the semantic identity instead of trusting saved or copied records."""
         if (
-            self.schema_version != "experiment-attempt-v1"
+            self.schema_version != "experiment-attempt"
             or type(self.attempt_id) is not str
             or re.fullmatch(r"[0-9a-f]{32}", self.attempt_id) is None
         ):
@@ -333,7 +333,7 @@ class AttemptStore:
             if path.read_bytes() != payload:
                 raise ValueError("retained artifact cannot be replaced")
         else:
-            # Share immutable content within this store while keeping legacy per-attempt paths.
+            # Share immutable content within this store; each attempt path links to it.
             content = self._root / "artifacts"
             if not content.exists():
                 content.mkdir()
@@ -424,7 +424,7 @@ class AttemptStore:
         return self._codec.encode_json(
             spec.split.holdout
             if spec.split is not None
-            else ("unfitted-engineering-sample-v1", spec.engineering_sample)
+            else ("unfitted-engineering-sample", spec.engineering_sample)
         )
 
     def _require_writer(self) -> None:

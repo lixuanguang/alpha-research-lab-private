@@ -70,14 +70,16 @@ class SnapshotCatalog:
             if remaining < 0:
                 raise ValueError("catalog exceeds aggregate max_bytes")
             fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
-            version = codec.decode_json(fields.get("schema_version", b"null"), str)
+            version = codec.decode_json(fields.get("schema_version", b'""'), str)
             manifest: DatasetManifest | BookDatasetManifest | PublicTradeManifest
-            if version in ("book-dataset-v1", "book-dataset-v2"):
+            if version.startswith("book-dataset"):
                 manifest = codec.decode_json(payload, BookDatasetManifest)
-            elif version == "public-trades-v1":
+            elif version == "public-trades":
                 manifest = codec.decode_json(payload, PublicTradeManifest)
-            else:
+            elif "tier" in fields:
                 manifest = codec.decode_json(payload, DatasetManifest)
+            else:
+                raise ValueError("unsupported dataset manifest schema")
             if manifest.identity != directory.name:
                 raise ValueError("catalog manifest identity mismatch")
             manifests.append(manifest)

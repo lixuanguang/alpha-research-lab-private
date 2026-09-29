@@ -106,7 +106,7 @@ class DashboardConfig(WireRecord, frozen=True):
     title: str
     panels: tuple[DashboardPanel, ...]
     alerts: tuple[AlertRule, ...] = ()
-    schema_version: Literal["dashboard-config-v1"] = "dashboard-config-v1"
+    schema_version: Literal["dashboard-config"] = "dashboard-config"
 
     def __post_init__(self) -> None:
         """Keep selections distinct and the persisted dashboard finite."""
@@ -127,7 +127,7 @@ class DashboardConfig(WireRecord, frozen=True):
             raise ValueError("dashboard panel titles must be distinct")
         if len({rule.identity for rule in self.alerts}) != len(self.alerts):
             raise ValueError("dashboard alert rule identities must be distinct")
-        if self.schema_version != "dashboard-config-v1":
+        if self.schema_version != "dashboard-config":
             raise ValueError("unsupported dashboard configuration schema")
 
     @property
@@ -309,7 +309,7 @@ class _DashboardManifest(WireRecord, frozen=True):
 
     json_sha256: str
     html_sha256: str
-    schema_version: Literal["dashboard-manifest-v1"] = "dashboard-manifest-v1"
+    schema_version: Literal["dashboard-manifest"] = "dashboard-manifest"
 
     def __post_init__(self) -> None:
         """Require complete content digests and a known manifest version."""
@@ -320,7 +320,7 @@ class _DashboardManifest(WireRecord, frozen=True):
                 or any(char not in "0123456789abcdef" for char in digest)
             ):
                 raise ValueError("dashboard manifest requires SHA256 digests")
-        if self.schema_version != "dashboard-manifest-v1":
+        if self.schema_version != "dashboard-manifest":
             raise ValueError("unsupported dashboard manifest schema")
 
 
@@ -332,7 +332,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
     events: tuple[MonitoringEvent, ...]
     results: tuple[MetricResult, ...]
     alert_results: tuple[AlertEvaluation, ...] = ()
-    schema_version: Literal["dashboard-snapshot-v1"] = "dashboard-snapshot-v1"
+    schema_version: Literal["dashboard-snapshot"] = "dashboard-snapshot"
 
     def __post_init__(self) -> None:
         """Bind alert states and delivery attempts to the same selected evidence."""
@@ -359,7 +359,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
                 or evaluation.delivery.control_sha256 != evidence.identity
             ):
                 raise ValueError("dashboard alert delivery differs from retained evidence")
-        if self.schema_version != "dashboard-snapshot-v1":
+        if self.schema_version != "dashboard-snapshot":
             raise ValueError("unsupported dashboard snapshot schema")
 
     def _evidence(self) -> _DashboardEvidence:

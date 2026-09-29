@@ -29,7 +29,7 @@ from research.features import (
     TrailingReturn,
     WindowPolicy,
 )
-from research.studies import FeatureLabelPayload
+from research.results import FeatureStudyResult
 from serialization import DomainCodec
 
 _START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -49,10 +49,10 @@ class TestBoundedFeatureAnalysis:
             units="dimensionless",
             ttl_us=60_000_000,
             sdk_version="0.66.0",
-            definition_version="trailing-return-v1",
+            definition_version="trailing-return",
             definition_bytes=b"analysis definition",
             registry_bytes=b"analysis registry",
-            source_version="analysis-source-v1",
+            source_version="analysis-source",
             source_sha256=_SOURCE_SHA256,
         )
 
@@ -214,8 +214,8 @@ class TestBoundedFeatureAnalysis:
             ),
             value=ExactRatio(numerator="1", denominator="100"),
         )
-        payload = FeatureLabelPayload(
-            schema_version="feature-study-result-v1",
+        payload = FeatureStudyResult(
+            schema_version="feature-study-result",
             selection_identity="1" * 64,
             feature_definition=definition,
             label_definition=None,

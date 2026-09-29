@@ -57,7 +57,7 @@ add a key or change this policy. Protect the target and policy with local accoun
 permissions; this scope does not provide hostile same-user process isolation.
 
 Keep builder private keys outside source and release directories, with mode 0600.
-OpenSSH signing uses the namespace `alpha-research-release-v1`. The builder owns
+OpenSSH signing uses the namespace `alpha-research-release`. The builder owns
 source/build and vulnerability evidence; the signature authenticates that
 assertion, not an independent hosted builder or reproducible native dependency
 build. For rotation, provision the replacement public key through the same trusted
@@ -93,8 +93,8 @@ uv run --frozen alpha-governance-artifacts rollback \
 These are parameterized commands, not authorization for a new deployment.
 `ReleaseBuild` selects identity/origin/expiry and `ReleaseRuntime` selects
 application, mode, target, shared-contract version and configuration/state
-schemas. Execution uses `execution-admission-v1`; collector uses the existing
-`CaptureConfig` schema `1`. Initial empty state uses `none-v1`; `--state PATH`
+schemas. Execution uses `execution-admission`; collector uses the existing
+`CaptureConfig` schema `1`. Initial empty state uses `none`; `--state PATH`
 can bind an explicitly quiesced snapshot. The initial state envelope must not be
 supplied by that directory. The application owns the meaning of a nonempty state
 schema; a declared schema alone is not reconciliation or migration evidence.
@@ -142,13 +142,13 @@ owns exact request fields; the [account journal](../../src/execution/README.md#a
 owns phase, uncertainty and reconciliation semantics.
 
 An installed account target is a signed execution `paper` or `shadow` release with
-`config_schema=account-runtime-v1` and `state_schema=account-journal-v4`, and the
+`config_schema=account-runtime` and `state_schema=account-journal`, and the
 independently provisioned installation policy admits both schemas. The initial
 empty state creates a journal from signed configuration under the installation
 fence. Upgrade/rollback validates a consistent copy of the latest journal, including
 every history table, through the candidate installed reader before switching the
 release. A lost journal, incompatible config/schema or nonregular state refuses the
-switch. The dedicated `paper-runtime-v1` command remains a standalone development
+switch. The dedicated `paper-runtime` command remains a standalone development
 interface; it is not admitted by this account installation contract. Activation,
 grants and owner claims follow the
 [managed procedure below](#managed-public-paper-activation-and-recovery).
@@ -236,8 +236,8 @@ retains the remaining integrated acceptance boundary.
 
 ## Managed public-paper activation and recovery
 
-Use a fresh signed execution `paper` target with `config_schema=account-runtime-v1`
-and `state_schema=account-journal-v4`. The independently provisioned policy must
+Use a fresh signed execution `paper` target with `config_schema=account-runtime`
+and `state_schema=account-journal`. The independently provisioned policy must
 admit both schemas. The execution/contracts wheel closure remains independent
 of the collector and research distributions. The signed launcher supplies its
 verified release digest and fixes configuration/state paths; installation grants

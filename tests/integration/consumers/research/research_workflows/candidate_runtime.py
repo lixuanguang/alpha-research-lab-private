@@ -15,7 +15,12 @@ from msgspec.structs import replace
 # project library imports
 from accounting import Ledger, LedgerState
 from applications.paper import PaperRunResult, PaperTimer, run_paper
-from configuration import CandidateDeployment, CapabilityRegistry, PaperConfiguration
+from configuration import (
+    CandidateDeployment,
+    CapabilityRegistry,
+    PaperConfiguration,
+    PaperExecutionScenario,
+)
 from execution import PaperMarket, PaperOrderJournal
 from financial_units import Money
 from research.experiments import CandidateBundle, CandidateManifest
@@ -100,7 +105,7 @@ class _FeatureCandidateAcceptance:
                 revision_identity=_CandidateAcceptance._sha(DomainCodec().encode_json(vector)),
             ),
         )
-        version = f"{name}-selected-v1"
+        version = f"{name}-selected"
         snapshot = self.store.materialize(definition, version, vector.decision_at, (vector.entity,))
         self.store.activate(definition, version)
         offline = replace(
@@ -196,7 +201,7 @@ class _FeatureCandidateAcceptance:
         assert lost_step.status == "paused" and lost_step.reason == "feature-service-unavailable"
         assert lost_paper.orders == () and lost_paper.ledger.fills == ()
         assert lost_paper.checkpoint.candidate.policy.last_at is None
-        changed_version = f"{name}-changed-v2"
+        changed_version = f"{name}-changed"
         self.store.materialize(definition, changed_version, vector.decision_at, (vector.entity,))
         self.store.activate(definition, changed_version)
         changed_session = CandidateSession(loader.load(bundle, online))
@@ -251,6 +256,16 @@ class _PaperCandidateAcceptance:
             maximum_fee=Money(value=Decimal("1"), currency=scenario.currency),
             fee_rate=Decimal("0.002"),
             market_max_age_us=5_000_000,
+            execution=PaperExecutionScenario(
+                venue="okx",
+                instrument_id=scenario.quantity("1").dimension.instrument_id,
+                entry_delay_us=0,
+                cancel_delay_us=0,
+                adverse=scenario.price("0"),
+                fee_rate=Decimal("0.002"),
+                take_fraction=Decimal("1"),
+                gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
+            ),
         )
 
     @staticmethod

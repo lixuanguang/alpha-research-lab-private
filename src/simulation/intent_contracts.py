@@ -53,7 +53,7 @@ class IntentMarket(WireRecord, frozen=True):
     known_at: datetime
     book: BookObservation | None
     trades: tuple[IntentTrade, ...] = ()
-    clock_assumption: Literal["source-and-knowledge", "receipt-as-matching-v1"] = (
+    clock_assumption: Literal["source-and-knowledge", "receipt-as-matching"] = (
         "source-and-knowledge"
     )
 
@@ -69,7 +69,7 @@ class IntentMarket(WireRecord, frozen=True):
             or type(self.instrument) is not str
             or not self.instrument
             or self.channel != "l2"
-            or self.clock_assumption not in ("source-and-knowledge", "receipt-as-matching-v1")
+            or self.clock_assumption not in ("source-and-knowledge", "receipt-as-matching")
             or type(self.trades) is not tuple
             or (self.book is None and not self.trades)
         ):
@@ -96,7 +96,7 @@ class IntentMarket(WireRecord, frozen=True):
                 ) * 1000
                 if known_ns < self.book.received_ns:
                     raise ValueError("market knowledge precedes canonical book receipt")
-        elif self.clock_assumption == "receipt-as-matching-v1":
+        elif self.clock_assumption == "receipt-as-matching":
             raise ValueError("receipt-matching trades require a canonical received book")
         for trade in self.trades:
             if type(trade) is not IntentTrade:
@@ -153,7 +153,7 @@ class IntentSimulationSpec(WireRecord, frozen=True):
     cost_identity: str
     reference_history: ReferenceHistory | None = None
     reference_max_age_us: int | None = None
-    schema_version: str = "offline-intent-simulation-v1"
+    schema_version: str = "offline-intent-simulation"
 
     def __post_init__(self) -> None:
         """Require a finite UTC study window and exact single-instrument cash account."""
@@ -170,7 +170,7 @@ class IntentSimulationSpec(WireRecord, frozen=True):
                     self.cost_identity,
                 )
             )
-            or self.schema_version != "offline-intent-simulation-v1"
+            or self.schema_version != "offline-intent-simulation"
         ):
             raise ValueError("intent simulation requires complete versioned identities")
         if type(self.initial_cash) is not Money or type(self.limits) is not SpotLimits:

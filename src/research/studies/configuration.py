@@ -7,9 +7,6 @@ import hashlib
 from datetime import timedelta
 from pathlib import Path
 
-# third party library imports
-import msgspec
-
 # project library imports
 from research.experiments import ExperimentSpec, Fingerprint, TemporalSplit, TimeWindow
 from research.features import TrailingReturn
@@ -26,10 +23,10 @@ class BacktestRun(WireRecord, frozen=True):
     economics: BacktestSpec
     report: ReportPolicy
     split: TemporalSplit | None
-    engineering_sample: TimeWindow | msgspec.UnsetType = msgspec.UNSET
+    engineering_sample: TimeWindow | None = None
     feature: TrailingReturn | None = None
     versioned_inputs_sha256: str | None = None
-    schema_version: str = "configured-backtest-v1"
+    schema_version: str = "configured-backtest"
 
     def __post_init__(self) -> None:
         """Reject unsupported selections and access to reserved final holdout observations."""
@@ -37,15 +34,14 @@ class BacktestRun(WireRecord, frozen=True):
         if self.versioned_inputs_sha256 is not None:
             Fingerprint(name="versioned-inputs", sha256=self.versioned_inputs_sha256)
         if (
-            self.schema_version
-            not in ("configured-backtest-v1", "configured-engineering-sample-v1")
+            self.schema_version not in ("configured-backtest", "configured-engineering-sample")
             or type(self.economics) is not BacktestSpec
             or type(self.report) is not ReportPolicy
         ):
             raise ValueError("unsupported configured economic research schema")
         self.economics.__post_init__()
         self.report.__post_init__()
-        if self.schema_version == "configured-engineering-sample-v1":
+        if self.schema_version == "configured-engineering-sample":
             if self.split is not None or type(self.engineering_sample) is not TimeWindow:
                 raise ValueError("engineering sample requires its interval and no temporal split")
             self.engineering_sample.__post_init__()
@@ -55,10 +51,7 @@ class BacktestRun(WireRecord, frozen=True):
             ):
                 raise ValueError("engineering sample must exactly match economic interval")
         else:
-            if (
-                type(self.split) is not TemporalSplit
-                or self.engineering_sample is not msgspec.UNSET
-            ):
+            if type(self.split) is not TemporalSplit or self.engineering_sample is not None:
                 raise ValueError("validation study requires its temporal split")
             self.split.__post_init__()
         if self.feature is not None:
@@ -123,9 +116,7 @@ class BacktestRun(WireRecord, frozen=True):
         """
         return ExperimentSpec(
             schema_version=(
-                "experiment-spec-v1"
-                if self.split is not None
-                else "experiment-engineering-sample-v1"
+                "experiment-spec" if self.split is not None else "experiment-engineering-sample"
             ),
             family=self.family,
             inputs=(

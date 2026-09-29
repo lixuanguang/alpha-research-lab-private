@@ -30,10 +30,10 @@ microseconds for spot archives from 2025-01-01. These rows supply
 neither recorder capture nor historical knowledge clocks or disconnect markers.
 Do not pass them through the Tardis decoder or invent its required capture prefix.
 
-`exchange-time-only-v1` is the acquisition selection's explicit time policy.
+`exchange-time-only` is the acquisition selection's explicit time policy.
 Local receipt/ingestion describe acquisition today and remain preserved on repeat.
 The row decoder preserves absent-capture provenance and the cutoff selector
-preserves unknown availability. An explicit `event-time-assumption-v1` research
+preserves unknown availability. An explicit `event-time-assumption` research
 scenario may assume event-time availability without claiming historical knowability.
 The Tardis-specific capture rules below remain valid for their existing inputs.
 

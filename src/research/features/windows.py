@@ -216,7 +216,7 @@ class TrailingReturn(WireRecord, frozen=True, kw_only=True):
     decision. There is no fit, imputation, resampling or executable-price claim.
     """
 
-    schema_version: Literal["trailing-return-v1"] = "trailing-return-v1"
+    schema_version: Literal["trailing-return"] = "trailing-return"
     units: Literal["dimensionless"] = "dimensionless"
     policy: WindowPolicy
     cadence_us: int
@@ -224,7 +224,7 @@ class TrailingReturn(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Require supported formula/units and explicit cadence and processing delay."""
-        if self.schema_version != "trailing-return-v1" or self.units != "dimensionless":
+        if self.schema_version != "trailing-return" or self.units != "dimensionless":
             raise ValueError("unsupported trailing-return definition")
         if type(self.policy) is not WindowPolicy:
             raise TypeError("trailing return requires WindowPolicy")
@@ -379,7 +379,7 @@ class FeatureRegistry:
     def __init__(self) -> None:
         """Register the existing trailing-return implementation by default."""
         self._factories: dict[str, FeatureFactory] = {}
-        self.register("trailing-return-v1", self._validate_trailing_return)
+        self.register("trailing-return", self._validate_trailing_return)
 
     @property
     def identities(self) -> tuple[str, ...]:

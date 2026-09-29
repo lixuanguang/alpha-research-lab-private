@@ -8,7 +8,7 @@ It cannot submit orders, release a risk block or change account state.
 
 ## Events, queries and retention
 
-`MonitoringEvent` (`monitoring-event-v1`) retains a named semantic version,
+`MonitoringEvent` (`monitoring-event`) retains a named semantic version,
 exact rational value and units, or an explicit missing reason. Fixed bounded
 context fields correlate scope/mode, release, strategy, model, dataset, source,
 study, account, instrument, venue, order, fill, state epoch and incident.
@@ -48,7 +48,7 @@ are bounded to 50 ms; filesystem latency itself is not bounded by that setting.
 ## Metric and chart extension
 
 Register an injected `MonitoringMetric` with `MetricRegistry`. `MetricSpec`
-(`metric-spec-v1`) pins the implementation digest, semantic version, named input
+(`metric-spec`) pins the implementation digest, semantic version, named input
 versions/units, output units, operating applicability, aggregation, missingness
 and optional freshness budget. Configuration selects identities; it does not
 import arbitrary code. A selected semantic version never consumes a newer one.

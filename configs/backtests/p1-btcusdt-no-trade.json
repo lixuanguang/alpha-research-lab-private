@@ -31,7 +31,7 @@
     },
     "value": "1000.00000000"
   },
-  "instance": "p1-btcusdt-return-v1",
+  "instance": "p1-btcusdt-no-trade",
   "limits": {
     "lot": {
       "dimension": {
@@ -76,7 +76,7 @@
     },
     "value": "0.00100"
   },
-  "rule": "completed-price-momentum-v1",
-  "schema_version": "spot-backtest-v1",
+  "rule": "no-trade",
+  "schema_version": "spot-backtest",
   "start": "2024-06-01T00:00:00Z"
 }

@@ -32,7 +32,7 @@ class RetainedResult(WireRecord, frozen=True, kw_only=True):
 class ModelStudy(WireRecord, frozen=True, kw_only=True):
     """Freeze one model question, exact inputs, fold, acceptance rule and outcome cutoff."""
 
-    schema_version: Literal["model-study-v1"] = "model-study-v1"
+    schema_version: Literal["model-study"] = "model-study"
     family: str
     question: str
     sources: tuple[RetainedResult, ...]
@@ -44,12 +44,12 @@ class ModelStudy(WireRecord, frozen=True, kw_only=True):
     definition: LinearDefinition | None
     available_at: datetime | None
     models: tuple[RetainedResult, ...] = ()
-    estimator_implementation: str = "linear-return-v1"
+    estimator_implementation: str = "linear-return"
 
     def __post_init__(self) -> None:
         """Require exactly construction or reload, with explicit historical availability."""
         if (
-            self.schema_version != "model-study-v1"
+            self.schema_version != "model-study"
             or not self.family.strip()
             or not self.question.strip()
             or not self.selection_reason.strip()

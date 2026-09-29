@@ -38,7 +38,7 @@ class ForwardReturn(WireRecord, frozen=True, kw_only=True):
     permitted and expose full information intervals for temporal purging.
     """
 
-    schema_version: Literal["forward-return-v1"] = "forward-return-v1"
+    schema_version: Literal["forward-return"] = "forward-return"
     units: Literal["dimensionless"] = "dimensionless"
     horizon_us: int
     availability_delay_us: int
@@ -46,7 +46,7 @@ class ForwardReturn(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Reject unsupported definitions and invalid horizon or delay."""
-        if self.schema_version != "forward-return-v1" or self.units != "dimensionless":
+        if self.schema_version != "forward-return" or self.units != "dimensionless":
             raise ValueError("unsupported forward-return definition")
         if type(self.policy) is not WindowPolicy:
             raise TypeError("forward return requires WindowPolicy")

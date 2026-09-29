@@ -227,8 +227,23 @@ class TestSourceQualification:
         manifest = SnapshotStore(inputs.snapshots, inputs.raw, readers=SourceAdapters()).read(
             identity, max_bytes=1_000_000
         )
-        assert manifest.schema_version == "3" and manifest.scope == "causal_qualified"
+        assert manifest.tier == "qualified" and manifest.scope == "causal_qualified"
+        assert manifest.canonical_schema == "canonical-trade-partition-qualified"
+        assert manifest.availability_policy == "qualified-provider-reviewed"
         assert _CODEC.decode_json(_CODEC.encode_json(manifest), DatasetManifest) == manifest
+        numbered = inputs.snapshots.parent / "numbered-manifest.json"
+        numbered.write_bytes(
+            _CODEC.encode_json(manifest).replace(b'"tier":"qualified"', b'"schema_version":"3"')
+        )
+        with pytest.raises(ValueError, match="unsupported dataset manifest schema"):
+            DatasetManifest.read(
+                numbered,
+                identity=identity,
+                partitions=inputs.snapshots / identity,
+                store=inputs.raw,
+                max_bytes=1_000_000,
+                readers=SourceAdapters(),
+            )
         binding = (
             inputs.request.instrument.source,
             "trade",
@@ -271,7 +286,7 @@ class TestSourceQualification:
                 assert isinstance(event, ArchiveTrade)
                 assert event.ts_source_received is None and event.ts_knowledge is None
         economic = _CODEC.decode_json(
-            (_ROOT / "configs/backtests/p1-btcusdt-return-v1.json").read_bytes(), BacktestSpec
+            (_ROOT / "configs/backtests/p1-btcusdt-return.json").read_bytes(), BacktestSpec
         )
         result = run_backtest(reader, economic)
         assert isinstance(result, EconomicResult)
@@ -430,8 +445,8 @@ class TestSourceQualification:
         """No strict bundle is inferred from native rows, authored status or schema labels."""
         selected = replace(
             inputs.selected,
-            qualification=msgspec.UNSET,
-            prior_acquisitions=msgspec.UNSET,
+            qualification=None,
+            prior_acquisitions=(),
             corrections=(),
         )
         report = inputs.report(selected)
@@ -440,13 +455,8 @@ class TestSourceQualification:
         with pytest.raises(ValueError, match="qualification"):
             replace(inputs.selected, policy=replace(inputs.selected.policy, use="exploratory"))
         manifest, _ = inputs.publisher.assemble((inputs.selected,), inputs.raw, max_bytes=1_000_000)
-        with pytest.raises(ValueError, match="version"):
-            replace(
-                manifest,
-                schema_version="1",
-                canonical_schema="canonical-trade-partition-v1",
-                availability_policy="original-or-evidenced-later-v1",
-            )
+        with pytest.raises(ValueError, match="tier differs"):
+            replace(manifest, tier="exploratory")
 
     @pytest.mark.parametrize("damage", ["missing", "changed"])
     def test_reopening_detects_damaged_original_archive(self, inputs: _Inputs, damage: str) -> None:
@@ -489,7 +499,7 @@ class TestSourceQualification:
         """Version history cannot import another selection or bypass the qualified boundary."""
         selected = inputs.selected
         with pytest.raises(ValueError, match="qualified acquisition history"):
-            replace(selected, qualification=msgspec.UNSET)
+            replace(selected, qualification=None)
         with pytest.raises(ValueError, match="duplicated"):
             replace(selected, prior_acquisitions=(selected.acquisition,))
         with pytest.raises(ValueError, match="foreign"):

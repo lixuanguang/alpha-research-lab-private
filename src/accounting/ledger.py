@@ -103,11 +103,11 @@ class LedgerState(WireRecord, frozen=True):
     initial_cash: Money
     dimension: Dimension
     fills: tuple[Fill, ...] = ()
-    schema_version: str = "spot-ledger-v1"
+    schema_version: str = "spot-ledger"
 
     def __post_init__(self) -> None:
         """Reject invalid initial state or duplicate applied identities."""
-        if self.schema_version != "spot-ledger-v1" or type(self.initial_cash) is not Money:
+        if self.schema_version != "spot-ledger" or type(self.initial_cash) is not Money:
             raise ValueError("unsupported spot ledger state")
         self.initial_cash.model_copy()
         if type(self.dimension) is not Dimension or type(self.fills) is not tuple:

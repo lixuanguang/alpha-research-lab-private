@@ -471,8 +471,8 @@ class InstalledVenueScenario:
                     context=PortfolioContext(
                         portfolio_id="reference-portfolio",
                         strategy_id=instance,
-                        model_revision="fixed-policy-v1",
-                        config_revision="fixed-test-v1",
+                        model_revision="fixed-policy",
+                        config_revision="fixed-test",
                         horizon="one-minute",
                         reason="bounded-test-order",
                         venue=self.venue,

@@ -33,8 +33,8 @@
       "mode": "historical",
       "pipeline": "acquisition.fetch",
       "partition": "utc-day",
-      "capture_policy": "exchange-time-only-v1",
-      "source_revision": "publisher-checksum-at-retrieval-v1",
+      "capture_policy": "exchange-time-only",
+      "source_revision": "publisher-checksum-at-retrieval",
       "rights_reference": "binance-public-data-2026-09-15-private-research",
       "start": "2024-06-01T00:00:00Z",
       "end": "2024-06-01T01:00:00Z"
@@ -50,8 +50,8 @@
       "mode": "historical",
       "pipeline": "acquisition.fetch",
       "partition": "utc-day",
-      "capture_policy": "exchange-time-only-v1",
-      "source_revision": "publisher-checksum-at-retrieval-v1",
+      "capture_policy": "exchange-time-only",
+      "source_revision": "publisher-checksum-at-retrieval",
       "rights_reference": "binance-public-data-2026-09-15-private-research",
       "start": "2024-06-01T00:00:00Z",
       "end": "2024-06-01T01:00:00Z"

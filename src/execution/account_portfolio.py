@@ -391,7 +391,7 @@ class PortfolioCoordinator:
                     fill_id = hashlib.sha256(
                         self.codec.encode_json(
                             (
-                                "internal-cross-v1",
+                                "internal-cross",
                                 batch.identity,
                                 bid.identity,
                                 ask.identity,
@@ -541,7 +541,7 @@ class PortfolioCoordinator:
             parent_id = hashlib.sha256(
                 self.codec.encode_json(
                     (
-                        "physical-net-v1",
+                        "physical-net",
                         account_id,
                         at,
                         tuple(child.order.identity for child in group),

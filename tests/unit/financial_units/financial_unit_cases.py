@@ -27,7 +27,7 @@ from reference_data.instruments import InstrumentId
 D = Decimal
 SHARES = Dimension(instrument_id=InstrumentId(UUID(int=1)), kind=QuantityKind.SHARE)
 CONTRACTS = Dimension(instrument_id=InstrumentId(UUID(int=2)), kind=QuantityKind.CONTRACT)
-CONTEXT = EvaluationContext(evaluation_date=date(2024, 1, 1), convention_revision="c03-v1")
+CONTEXT = EvaluationContext(evaluation_date=date(2024, 1, 1), convention_revision="c03")
 CONVENTION = RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.SIMPLE)
 FIXTURE = Path(__file__).parents[2] / "golden/financial_units/c03_units.json"
 

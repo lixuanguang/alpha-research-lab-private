@@ -29,9 +29,8 @@ from research.studies import (
 )
 ```
 
-`research.results.FeatureStudyResult` owns the unchanged
-`feature-study-result-v1` bytes shared by feature production, model admission
-and diagnostics. `FeatureLabelPayload` remains an alias for existing callers.
+`research.results.FeatureStudyResult` owns the `feature-study-result` bytes
+shared by feature production, model admission and diagnostics.
 Model admission retains its label, ordered-row and input-digest requirements;
 diagnostics retain their own missing-label and aligned-row rules.
 
@@ -88,9 +87,9 @@ Publication is explicit through `PublicationPolicy`:
   while the completed result remains readable and retryable.
 
 `applications.explore.publish_experiments(attempts)` retries retained outbox bytes
-without reevaluating folds or consuming holdouts. Older configured consumers
-retain their existing immediate-tracking signatures below. The new policy is
-also supported by the existing `ParameterComparison` controller.
+without reevaluating folds or consuming holdouts. Configured backtest consumers
+take a ClearML destination and publish immediately, as shown below;
+`ParameterComparison` takes a publication policy.
 
 The following is the result-reading portion of a workflow after the caller
 constructs its `components` through the public protocols:
@@ -151,7 +150,7 @@ belong to the [MR03 acceptance record](../../../docs/roadmap/README.md#mr03-deli
 verification. It requires the original capture's research universe, preserving
 the separate collection, research, strategy and trading declarations. A study's
 instance/entity is an offline selection, not account authorization.
-The explicit `receipt-as-matching-v1` scenario models matching at the original
+The explicit `receipt-as-matching` scenario models matching at the original
 receipt clock, rounded upward to microseconds; native exchange timestamps remain
 retained. Bitfinex visible orders are aggregated into depth without inferring
 queue priority. No trade prints are invented, so these book-only source runs
@@ -202,8 +201,7 @@ reads, starts an attempt before computation and retains read/computation
 failures, holdout reuse and abandoned work. A changed code/input/split identity
 creates a new attempt. Existing `inspect_eda` remains an exploratory interface;
 the attempt store cannot track arbitrary reads that bypass its consumer. Keep the
-matching wheel/environment with retained v1 records; an older wheel cannot
-consume newer records.
+matching wheel/environment with retained records.
 
 ## Research monitoring bridge
 
@@ -334,8 +332,8 @@ and an exact MSE limit. The cutoff and every observation information interval
 must precede the holdout. There is no fit, search, candidate selection or
 automatic operational transition.
 
-`WindowDiagnosticRun` verifies completed `feature-study-result-v1` bytes and
-retained `model-evaluation-v1` artifacts, including scientifically rejected
+`WindowDiagnosticRun` verifies completed `feature-study-result` bytes and
+retained `model-evaluation` artifacts, including scientifically rejected
 evaluations, their splits/sample records, source references and model state.
 Failed/incomplete or holdout-consuming sources are refused. Feature sources share
 the declared split and definitions; prediction sources preserve validation/
@@ -419,19 +417,19 @@ fixtures. No shared-service, deployment or trading authority is added.
 
 ## Unfitted engineering samples
 
-`BacktestRun(schema_version="configured-engineering-sample-v1", split=None,
+`BacktestRun(schema_version="configured-engineering-sample", split=None,
 engineering_sample=TimeWindow(...), ...)` uses an explicit half-open UTC sample
 exactly equal to `economics.start/end`; it has no train/validation/holdout
 interval. Reports retain sample scope, missing observations and source limits.
 A completed calculation is a software check, not empirical baseline acceptance
 or strategy selection.
 
-The frozen [P1 configurations](../../../configs/backtests/p1-btcusdt-return-v1.json)
+The frozen [P1 configurations](../../../configs/backtests/p1-btcusdt-return.json)
 remain unchanged `BacktestSpec` inputs. Pin the published snapshot and explicit
 `ReportPolicy`; preserve the original no-interest benchmark. Engineering samples
-use `experiment-engineering-sample-v1`, keep their own attempts/failures/outbox
+use `experiment-engineering-sample`, keep their own attempts/failures/outbox
 and cannot consume holdouts. Parameter comparison and validation diagnostics
-reject this mode. Existing v1 inputs omit the field and retain their identities.
+reject this mode. Other specs record `engineering_sample` as null.
 
 ## Ownership and verification
 

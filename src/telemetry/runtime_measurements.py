@@ -36,7 +36,7 @@ class RuntimeMeasurementJournal:
         if self._descriptor < 0:
             raise ValueError("runtime measurement journal is closed")
         payload = (
-            self._codec.encode_json({"schema_version": "runtime-measurement-v1", **observation})
+            self._codec.encode_json({"schema_version": "runtime-measurement", **observation})
             + b"\n"
         )
         view = memoryview(payload)

@@ -341,10 +341,10 @@ class _CandidateAcceptance:
             state=CandidateStateContract(
                 feature_mode="batch",
                 warmup_observations=0,
-                checkpoint_schema="candidate-checkpoint-v1",
+                checkpoint_schema="candidate-checkpoint",
                 on_gap=on_gap,
                 on_restart="restore",
-                policy_state_schema="decision-state-v1",
+                policy_state_schema="decision-state",
             ),
             metrics=(
                 CandidateMetricContract(

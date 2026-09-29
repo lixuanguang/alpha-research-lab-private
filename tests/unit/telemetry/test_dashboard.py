@@ -420,11 +420,11 @@ class TestDashboard:
         assert snapshot.results[0].status == "missing"
         assert snapshot.results[0].input_ids == ()
         assert snapshot.events == (newer,)
-        legacy = self._event("legacy", 2, self._ratio(1))
+        older = self._event("older", 2, self._ratio(1))
         chart = DashboardBuilder.build(
-            config, self._query(), (newer, legacy), MetricRegistry((metric,))
+            config, self._query(), (newer, older), MetricRegistry((metric,))
         )
-        assert chart.results[0].input_ids == (legacy.identity,)
+        assert chart.results[0].input_ids == (older.identity,)
         rendered = chart.render_html().decode()
         title_ids = [item.split('"', maxsplit=1)[0] for item in rendered.split('<title id="')[1:]]
         assert len(title_ids) == 2

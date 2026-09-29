@@ -51,7 +51,7 @@ class AccountConfiguration(WireRecord, frozen=True):
     accounts: tuple[OpeningAccount, ...]
     instruments: tuple[SpotLimits, ...]
     budgets: BudgetPolicy
-    schema_version: Literal["account-runtime-v1"] = "account-runtime-v1"
+    schema_version: Literal["account-runtime"] = "account-runtime"
 
     def __post_init__(self) -> None:
         """Reject ambiguous ownership, incompatible funding and unsupported products."""
@@ -61,7 +61,7 @@ class AccountConfiguration(WireRecord, frozen=True):
         self.budgets.__post_init__()
         if (
             self.mode not in ("paper", "shadow", "venue_test")
-            or self.schema_version != "account-runtime-v1"
+            or self.schema_version != "account-runtime"
         ):
             raise ValueError("unsupported account runtime mode or schema")
         if (

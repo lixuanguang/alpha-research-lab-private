@@ -142,12 +142,12 @@ class TestRuleRegistry:
         registry = RuleRegistry()
 
         assert registry.identities == (
-            "completed-price-momentum-v1",
-            "no-trade-v1",
-            "completed-price-reversal-v1",
+            "completed-price-momentum",
+            "no-trade",
+            "completed-price-reversal",
         )
-        first = registry.resolve("completed-price-reversal-v1")
-        second = registry.resolve("completed-price-reversal-v1")
+        first = registry.resolve("completed-price-reversal")
+        second = registry.resolve("completed-price-reversal")
         assert isinstance(first, Reversal)
         assert isinstance(second, Reversal)
         assert first is not second
@@ -156,7 +156,7 @@ class TestRuleRegistry:
         """Expose fall, equal and rise outcomes through the same exact target contract."""
         dimension = Dimension(instrument_id=InstrumentId(UUID(int=1)), kind=QuantityKind.BASE_UNIT)
         quantity = Quantity(value=Decimal("0.001"), dimension=dimension)
-        rule = RuleRegistry().resolve("completed-price-reversal-v1")
+        rule = RuleRegistry().resolve("completed-price-reversal")
         previous = self._observation(60, "110", 0)
 
         falling = rule.target(
@@ -183,8 +183,8 @@ class TestRuleRegistry:
 
     def test_rule_protocol_remains_the_injected_consumer_contract(self) -> None:
         """Keep registry results typed as the narrow target protocol."""
-        rule: TargetRule = RuleRegistry().resolve("completed-price-momentum-v1")
-        assert rule.identity == "completed-price-momentum-v1"
+        rule: TargetRule = RuleRegistry().resolve("completed-price-momentum")
+        assert rule.identity == "completed-price-momentum"
 
     def test_reversal_exact_run_and_checkpoint_isolation(self) -> None:
         """Keep independent momentum/reversal state and a pending reversal checkpoint."""
@@ -235,9 +235,9 @@ class TestResearchRegistries:
         """Allow a distinct evaluator while retaining identity, units and timing."""
         definition = self._feature()
         registry = FeatureRegistry()
-        registry.register("delegating-trailing-v1", _delegating_feature)
+        registry.register("delegating-trailing", _delegating_feature)
 
-        resolved = registry.resolve("delegating-trailing-v1", definition)
+        resolved = registry.resolve("delegating-trailing", definition)
 
         assert isinstance(resolved, _DelegatingFeature)
         assert id(resolved) != id(definition)
@@ -254,10 +254,10 @@ class TestResearchRegistries:
             mode="configured", assumptions="Injected exact estimator", intercept=zero, slope=zero
         )
         registry = EstimatorRegistry()
-        registry.register("delegating-linear-v1", _delegating_estimator)
+        registry.register("delegating-linear", _delegating_estimator)
 
-        first = registry.resolve("delegating-linear-v1", definition)
-        second = registry.resolve("delegating-linear-v1", definition)
+        first = registry.resolve("delegating-linear", definition)
+        second = registry.resolve("delegating-linear", definition)
 
         assert isinstance(first, _DelegatingEstimator)
         assert first is not second

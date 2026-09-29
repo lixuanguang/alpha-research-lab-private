@@ -105,7 +105,7 @@ class CapacityNativeFixture:
         return hashlib.sha256(
             self.codec.encode_json(
                 (
-                    "capacity-native-v2",
+                    "capacity-native",
                     self.source.capture,
                     self.frame_count,
                     self.burst_start,
@@ -560,7 +560,7 @@ class CapacityWorkload:
             "reconnect",
         )
         summary: dict[str, object] = {
-            "schema_version": "runtime-capacity-preparation-v1",
+            "schema_version": "runtime-capacity-preparation",
             "mode": self.mode,
             "implementation": "resolved-after-signed-install",
             "selection": service.identity,
@@ -631,7 +631,7 @@ class CapacityWorkload:
             )
             records.append((account.account_id, deployment.identity, authorization.identity))
         summary: dict[str, object] = {
-            "schema_version": "runtime-capacity-authority-v1",
+            "schema_version": "runtime-capacity-authority",
             "releases": releases,
             "accounts": tuple(records),
         }

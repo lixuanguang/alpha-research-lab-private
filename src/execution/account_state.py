@@ -200,12 +200,12 @@ class _FirmHead(WireRecord, frozen=True):
 
     history: _HistorySummary
     state: _FirmState
-    schema_version: Literal["account-journal-v4"] = "account-journal-v4"
+    schema_version: Literal["account-journal"] = "account-journal"
 
     def __post_init__(self) -> None:
         """Reject other schemas and keep committed history out of the head."""
         if (
-            self.schema_version != "account-journal-v4"
+            self.schema_version != "account-journal"
             or self.state.decisions
             or self.state.portfolio_batches
             or self.state.paper_traces

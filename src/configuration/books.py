@@ -24,12 +24,12 @@ class BookTiming(WireRecord, frozen=True):
     response_us: int
     cadence_us: int
     stale_us: int
-    schema_version: str = "constant-book-delays-v1"
+    schema_version: str = "constant-book-delays"
 
     def __post_init__(self) -> None:
         """Require bounded delays, positive entry/cadence and an explicit research model."""
         if (
-            self.schema_version != "constant-book-delays-v1"
+            self.schema_version != "constant-book-delays"
             or any(
                 type(value) is not int or not 0 <= value <= 86_400_000_000
                 for value in (
@@ -100,14 +100,14 @@ class BookRun(WireRecord, frozen=True):
     end: datetime
     timing: BookTiming
     instances: tuple[BookInstance, ...]
-    schema_version: str = "l2-spot-research-v1"
+    schema_version: str = "l2-spot-research"
 
     def __post_init__(self) -> None:
         """Validate source, UTC window, bounds and spot dimensions before any replay."""
         self._require_utc(self.start, field_name="start")
         self._require_utc(self.end, field_name="end")
         if (
-            self.schema_version != "l2-spot-research-v1"
+            self.schema_version != "l2-spot-research"
             or type(self.history) is not OKXHistoryConfig
             or type(self.timing) is not BookTiming
             or type(self.instances) is not tuple

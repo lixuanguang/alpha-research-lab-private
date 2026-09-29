@@ -94,7 +94,7 @@ class PublicTradePartition(WireRecord, frozen=True, kw_only=True):
 class PublicTradeManifest(WireRecord, frozen=True, kw_only=True):
     """Pin a bounded public-trade snapshot without claiming historical completeness."""
 
-    schema_version: Literal["public-trades-v1"] = "public-trades-v1"
+    schema_version: Literal["public-trades"] = "public-trades"
     partitions: tuple[PublicTradePartition, ...]
     normalization_identity: str
     scope: Literal["locally_observed"] = "locally_observed"
@@ -102,7 +102,7 @@ class PublicTradeManifest(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Keep one complete multi-instrument job under its existing admission limits."""
         if (
-            self.schema_version != "public-trades-v1"
+            self.schema_version != "public-trades"
             or self.scope != "locally_observed"
             or type(self.partitions) is not tuple
             or len(self.partitions) != 1

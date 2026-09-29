@@ -97,7 +97,7 @@ class TestAcquisition:
         reports: list[str],
         *,
         max_bytes: int = 4096,
-        rights: str = "synthetic-local-fixtures-v1",
+        rights: str = "synthetic-local-fixtures",
     ) -> RawObject:
         """Call the installed pipeline with independent original local clock readings."""
         clocks = iter((_RECEIVED, _RECEIVED + timedelta(seconds=1)))
@@ -321,7 +321,7 @@ class TestAcquisition:
                 report=reports.append,
                 timeout_seconds=timeout,
                 max_bytes=32,
-                permitted_rights_reference="synthetic-local-fixtures-v1",
+                permitted_rights_reference="synthetic-local-fixtures",
             )
         assert '"status":"failed"' in reports[-1]
 
@@ -355,7 +355,7 @@ class TestAcquisition:
                     report=reports.append,
                     timeout_seconds=1.0,
                     max_bytes=32,
-                    permitted_rights_reference="synthetic-local-fixtures-v1",
+                    permitted_rights_reference="synthetic-local-fixtures",
                     api_key=key,
                 )
             assert "secret" not in str(error.value)

@@ -46,7 +46,7 @@ class TestConfiguration:
                 == "3125723d3760b4a35238b75a493e1d1e2a6956c66566ac7231c35a0afb59bad6"
             )
             assert _CODEC.decode_json(_CODEC.encode_json(manifest), ResolvedManifest) == manifest
-            assert manifest.job.rights_reference == "synthetic-local-fixtures-v1"
+            assert manifest.job.rights_reference == "synthetic-local-fixtures"
             with pytest.raises(AttributeError):
                 setattr(manifest, "implementation_identity", "b" * 64)
 
@@ -97,7 +97,7 @@ class TestConfiguration:
         )
         assert replace(original, implementation_identity="f" * 64).identity != original.identity
         assert (
-            replace(original, job=replace(original.job, source_revision="synthetic-v2")).identity
+            replace(original, job=replace(original.job, source_revision="synthetic")).identity
             != original.identity
         )
         assert (
@@ -118,11 +118,11 @@ class TestConfiguration:
             ('"stream": "trade"', '"stream": "depth@100ms"', "stream"),
             ('"universe": "btc"', '"universe": "absent"', "missing universe binding"),
             (
-                '"rights_reference": "synthetic-local-fixtures-v1"',
+                '"rights_reference": "synthetic-local-fixtures"',
                 '"unknown": "value"',
                 "unknown field",
             ),
-            ('"rights_reference": "synthetic-local-fixtures-v1",', "", "rights_reference"),
+            ('"rights_reference": "synthetic-local-fixtures",', "", "rights_reference"),
             ("2024-06-01T01:00:00Z", "2024-06-01T00:00:00Z", "nonempty"),
             ("2024-06-01T01:00:00Z", "2024-06-01T00:00:00.000001Z", "minute-aligned"),
             ("2024-06-01T00:00:00Z", "2024-06-01T00:00:00", "timezone-aware"),

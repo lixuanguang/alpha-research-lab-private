@@ -37,14 +37,14 @@ class WorkspaceFile(WireRecord, frozen=True, kw_only=True):
 class WorkspaceManifest(WireRecord, frozen=True, kw_only=True):
     """Describe the exact component tree published in one backup."""
 
-    schema_version: Literal["workspace-backup-v1"]
+    schema_version: Literal["workspace-backup"]
     components: tuple[str, ...]
     directories: tuple[str, ...]
     files: tuple[WorkspaceFile, ...]
 
     def __post_init__(self) -> None:
         """Reject duplicate or unsafe archive names before any restore path is built."""
-        if self.schema_version != "workspace-backup-v1":
+        if self.schema_version != "workspace-backup":
             raise ValueError("unsupported workspace backup schema")
         if not self.components or len(set(self.components)) != len(self.components):
             raise ValueError("workspace backup requires unique components")
@@ -148,7 +148,7 @@ class WorkspaceBackup:
                 if before != after:
                     raise ValueError("workspace changed during backup; quiesce all producers")
                 manifest = WorkspaceManifest(
-                    schema_version="workspace-backup-v1",
+                    schema_version="workspace-backup",
                     components=components,
                     directories=directories,
                     files=tuple(files),

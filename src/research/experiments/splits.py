@@ -138,7 +138,7 @@ class TemporalSplit(WireRecord, frozen=True, kw_only=True):
     is permitted with an authored rationale. This is not random cross-validation.
     """
 
-    schema_version: Literal["temporal-split-v1"] = "temporal-split-v1"
+    schema_version: Literal["temporal-split"] = "temporal-split"
     training: TimeWindow | None
     validation: TimeWindow
     holdout: TimeWindow
@@ -150,7 +150,7 @@ class TemporalSplit(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Require ordered disjoint partitions and explicit fitting inapplicability."""
-        if self.schema_version != "temporal-split-v1":
+        if self.schema_version != "temporal-split":
             raise ValueError("unsupported temporal split schema")
         for window in (self.validation, self.holdout):
             if type(window) is not TimeWindow:

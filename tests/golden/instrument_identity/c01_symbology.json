@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "fixture_id": "c01-symbology-golden-v1",
+  "fixture_id": "c01-symbology-golden",
   "synthetic": true,
   "description": "Auditable C01 identity, reuse, delist/relist, and correction scenarios; no record asserts a live instrument master.",
   "identities": [

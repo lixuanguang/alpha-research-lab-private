@@ -48,7 +48,8 @@ class TestDomainCodec:
             with pytest.raises(ValueError):
                 codec.decode_json(b'{"code":"USD","minor_unit":"0"}', Currency)
             assert codec.decode_json(encoded, Money) == amount
-            assert codec.decode_json(b'"USD"', Currency) == amount.currency
+            with pytest.raises(ValueError, match="unsupported currency schema"):
+                codec.decode_json(b'"USD"', Currency)
         other = DomainCodec()
         assert other.decode_json(encoded, Money) == amount
         assert other.encode_json(amount) == encoded
@@ -81,7 +82,7 @@ class TestDomainCodec:
         ],
     )
     def test_money_decoder_rejects_inexact_or_invalid_wire_values(self, payload: bytes) -> None:
-        """Reject malformed currency objects, legacy unknown strings and numeric coercion."""
+        """Reject malformed currency objects, bare currency codes and numeric coercion."""
         with pytest.raises(ValueError):
             _CODEC.decode_json(payload, Money)
 
@@ -89,13 +90,12 @@ class TestDomainCodec:
         "currency_definition",
         _DomainCodecFixture._packaged_currency_definitions(),
     )
-    def test_money_decoder_reads_known_legacy_currency_strings(
+    def test_money_decoder_refuses_bare_currency_codes(
         self,
         currency_definition: tuple[str, str],
     ) -> None:
-        """Keep every authored legacy amount code readable with its configured quantum."""
-        code, quantum = currency_definition
+        """Refuse even a packaged code unless the amount carries its complete currency object."""
+        code, _ = currency_definition
         payload = ('{"value":"1","currency":"' + code + '"}').encode()
-        decoded = _CODEC.decode_json(payload, Money)
-        assert decoded.currency == Currency.from_code(code)
-        assert decoded.currency.minor_unit == Decimal(quantum)
+        with pytest.raises(ValueError, match="unsupported currency schema"):
+            _CODEC.decode_json(payload, Money)

@@ -89,7 +89,7 @@ class TestExperiments:
         return ExperimentSpec(
             family="diagnostic-comparison",
             inputs=(Fingerprint(name="dataset", sha256="a" * 64),),
-            components=(Fingerprint(name="diagnostic-v1", sha256="b" * 64),),
+            components=(Fingerprint(name="diagnostic", sha256="b" * 64),),
             parameters=(("window", "2"), ("missing", "reject")),
             seeds=(("diagnostic", 23),),
             environment_sha256="c" * 64,
@@ -289,7 +289,7 @@ class TestExperiments:
         assert reordered.identity == spec.identity
         variants = (
             replace(spec, inputs=(Fingerprint(name="dataset", sha256="d" * 64),)),
-            replace(spec, components=(Fingerprint(name="diagnostic-v2", sha256="b" * 64),)),
+            replace(spec, components=(Fingerprint(name="other-diagnostic", sha256="b" * 64),)),
             replace(spec, parameters=(("window", "3"),)),
             replace(spec, seeds=(("diagnostic", 24),)),
             replace(spec, environment_sha256="d" * 64),
@@ -327,9 +327,7 @@ class TestExperiments:
             _ = spec.identity
         with pytest.raises(ValueError):
             _CODEC.decode_json(
-                _CODEC.encode_json(self._spec()).replace(
-                    b'"experiment-spec-v1"', b'"future-version"'
-                ),
+                _CODEC.encode_json(self._spec()).replace(b'"experiment-spec"', b'"future-version"'),
                 ExperimentSpec,
             )
 
@@ -555,12 +553,12 @@ class TestExperiments:
         validation = self._spec()
         sample = replace(
             validation,
-            schema_version="experiment-engineering-sample-v1",
+            schema_version="experiment-engineering-sample",
             split=None,
             engineering_sample=TimeWindow(start=self._time(0), end=self._time(1)),
         )
         assert _CODEC.decode_json(_CODEC.encode_json(sample), ExperimentSpec) == sample
-        assert b"engineering_sample" not in _CODEC.encode_json(validation)
+        assert b'"engineering_sample":null' in _CODEC.encode_json(validation)
         assert sample.identity != validation.identity
         with AttemptStore(tmp_path) as store:
             original = store.start(validation, at=self._time(30), invocation="validation")

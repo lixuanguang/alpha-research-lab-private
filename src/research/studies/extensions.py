@@ -385,11 +385,11 @@ class StudyReport(WireRecord, frozen=True, kw_only=True):
     metrics: tuple[MetricValue, ...]
     charts: tuple[ChartSpec, ...]
     limitations: tuple[str, ...] = ()
-    schema_version: Literal["study-report-v1"] = "study-report-v1"
+    schema_version: Literal["study-report"] = "study-report"
 
     def __post_init__(self) -> None:
         """Reject any report that replaced, omitted or duplicated selected outputs."""
-        if self.schema_version != "study-report-v1":
+        if self.schema_version != "study-report":
             raise ValueError("unsupported study report schema")
         Fingerprint(name="study", sha256=self.study_identity)
         if (

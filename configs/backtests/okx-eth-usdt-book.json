@@ -1,5 +1,5 @@
 {
-  "schema_version": "l2-spot-research-v1",
+  "schema_version": "l2-spot-research",
   "history": {
     "symbol": "ETH-USDT",
     "instrument_id": "5ff4f1a3-f2e1-5662-b60f-70e24d2ad521",
@@ -17,7 +17,7 @@
   "start": "2026-09-20T00:00:00Z",
   "end": "2026-09-20T00:06:00.500000Z",
   "timing": {
-    "schema_version": "constant-book-delays-v1",
+    "schema_version": "constant-book-delays",
     "feed_us": 100000,
     "processing_us": 10000,
     "entry_us": 20000,
@@ -28,7 +28,7 @@
   "instances": [
     {
       "instance": "imbalance",
-      "rule": "book-imbalance-v1",
+      "rule": "book-imbalance",
       "quantity": {
         "dimension": {
           "instrument_id": {
@@ -87,7 +87,7 @@
     },
     {
       "instance": "no-trade",
-      "rule": "book-no-trade-v1",
+      "rule": "book-no-trade",
       "quantity": {
         "dimension": {
           "instrument_id": {

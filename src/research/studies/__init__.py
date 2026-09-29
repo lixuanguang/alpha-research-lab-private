@@ -14,7 +14,6 @@ from research.studies.diagnostics import (
     DiagnosticDrop,
     DiagnosticMetric,
     FactorDirection,
-    FeatureLabelPayload,
     PriceConvention,
     QuantileRule,
 )
@@ -87,7 +86,6 @@ __all__ = [
     "EconomicReport",
     "EvaluationRecord",
     "FactorDirection",
-    "FeatureLabelPayload",
     "FoldSummary",
     "LedgerCurveChart",
     "LedgerPoint",

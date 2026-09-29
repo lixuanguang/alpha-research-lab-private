@@ -24,11 +24,11 @@ class LinearDefinition(WireRecord, frozen=True, kw_only=True):
     assumptions: str
     intercept: ExactRatio | None = None
     slope: ExactRatio | None = None
-    schema_version: Literal["linear-return-v1"] = "linear-return-v1"
+    schema_version: Literal["linear-return"] = "linear-return"
 
     def __post_init__(self) -> None:
         """Require explicit assumptions and coefficients only when no fitting applies."""
-        if self.schema_version != "linear-return-v1" or not self.assumptions.strip():
+        if self.schema_version != "linear-return" or not self.assumptions.strip():
             raise ValueError("model requires a supported definition and assumptions")
         if self.mode == "configured":
             if type(self.intercept) is not ExactRatio or type(self.slope) is not ExactRatio:
@@ -45,11 +45,11 @@ class LinearState(WireRecord, frozen=True, kw_only=True):
     center: ExactRatio
     intercept: ExactRatio
     slope: ExactRatio
-    schema_version: Literal["linear-state-v1"] = "linear-state-v1"
+    schema_version: Literal["linear-state"] = "linear-state"
 
     def __post_init__(self) -> None:
         """Refuse incompatible or approximate model state."""
-        if self.schema_version != "linear-state-v1":
+        if self.schema_version != "linear-state":
             raise ValueError("unsupported linear state")
         for value in (self.center, self.intercept, self.slope):
             if type(value) is not ExactRatio:
@@ -73,7 +73,7 @@ class LinearState(WireRecord, frozen=True, kw_only=True):
 class ModelVersion(WireRecord, frozen=True, kw_only=True):
     """Retain usable state bytes independently of evaluation and external mutable model IDs."""
 
-    schema_version: Literal["model-version-v1"] = "model-version-v1"
+    schema_version: Literal["model-version"] = "model-version"
     definition: LinearDefinition
     signature: ModelSignature
     creation_attempt: str
@@ -96,7 +96,7 @@ class ModelVersion(WireRecord, frozen=True, kw_only=True):
             or any(type(row) is not str or not row.strip() for row in self.fit_rows)
         ):
             raise TypeError("model requires immutable typed definition, signature, rows and bytes")
-        if self.schema_version != "model-version-v1":
+        if self.schema_version != "model-version":
             raise ValueError("unsupported model manifest")
         self.definition.__post_init__()
         self.signature.__post_init__()
@@ -369,7 +369,7 @@ class EstimatorRegistry:
     def __init__(self) -> None:
         """Register the existing exact linear estimator by default."""
         self._factories: dict[str, EstimatorFactory] = {}
-        self.register("linear-return-v1", self._resolve_linear)
+        self.register("linear-return", self._resolve_linear)
 
     @property
     def identities(self) -> tuple[str, ...]:

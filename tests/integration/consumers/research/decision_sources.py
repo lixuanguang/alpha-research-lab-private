@@ -105,7 +105,7 @@ def main() -> None:
         )
         source = SavedDecisionSource(reader, chosen, requirements)
         schema = FeatureSchema(
-            implementation="named-projection-v1",
+            implementation="named-projection",
             inputs=requirements,
             outputs=(
                 NumericField(name="trade_size", units=instrument.base_currency),

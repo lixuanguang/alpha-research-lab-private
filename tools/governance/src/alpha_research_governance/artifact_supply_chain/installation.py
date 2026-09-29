@@ -40,7 +40,7 @@ from alpha_research_governance.artifact_supply_chain.records import (
 class InstallationReceipt(ImmutableModel):
     """Record one complete immutable environment and its preserved local state binding."""
 
-    schema_version: Literal["installation-receipt-v1"] = "installation-receipt-v1"
+    schema_version: Literal["installation-receipt"] = "installation-receipt"
     release: Digest
     slot: str
     runtime: ReleaseRuntime
@@ -426,7 +426,7 @@ class LocalInstallation:
     @staticmethod
     def _account_runtime(runtime: ReleaseRuntime) -> bool:
         """Identify the signed local account contract without changing other releases."""
-        return runtime.application == "execution" and runtime.config_schema == "account-runtime-v1"
+        return runtime.application == "execution" and runtime.config_schema == "account-runtime"
 
     def _run_account_inspect(self, release_slot: Path, journal: Path) -> None:
         """Ask the candidate installed code to decode its signed config and account state."""
@@ -530,8 +530,8 @@ class LocalInstallation:
     def _require_paper_release_scope(payload: bytes, release_identity: str) -> None:
         """Refuse a candidate code release absent from the durable paper deployment."""
         head = TypeAdapter(dict[str, object]).validate_json(payload)
-        if head.get("schema_version") != "account-journal-v4":
-            raise ValueError("account journal schema is not account-journal-v4")
+        if head.get("schema_version") != "account-journal":
+            raise ValueError("account journal schema is not account-journal")
         state = TypeAdapter(dict[str, object]).validate_python(head.get("state"))
         activations = TypeAdapter(list[dict[str, object]]).validate_python(
             state.get("paper_activations", [])

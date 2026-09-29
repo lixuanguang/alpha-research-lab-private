@@ -166,7 +166,7 @@ class SnapshotStore[
                 staged.rename(staging / digest)
                 partitions.append(BookPartition(digest, selection))
             manifest = BookDatasetManifest(
-                schema_version="book-dataset-v2",
+                schema_version="book-dataset",
                 normalization_identity=normalization_identity,
                 partitions=tuple(partitions),
             )

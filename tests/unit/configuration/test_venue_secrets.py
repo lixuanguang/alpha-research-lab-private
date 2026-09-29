@@ -7,6 +7,7 @@ import pickle
 import resource
 from pathlib import Path
 from types import TracebackType
+from typing import cast
 
 # third party library imports
 import pytest
@@ -33,7 +34,8 @@ def _frame_strings(error: BaseException) -> list[str]:
         while traceback is not None:
             frame = traceback.tb_frame
             if frame.f_code.co_filename != __file__:
-                found += [v for v in frame.f_locals.values() if isinstance(v, str)]
+                values = cast(dict[str, object], frame.f_locals).values()
+                found += [v for v in values if isinstance(v, str)]
             traceback = traceback.tb_next
     return found
 

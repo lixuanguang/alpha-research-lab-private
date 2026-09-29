@@ -65,12 +65,12 @@ class VectorbtResult(WireRecord, frozen=True):
     absolute_tolerance: float
     relative_tolerance: float
     scope: str
-    schema_version: str = "vectorbt-comparison-v1"
+    schema_version: str = "vectorbt-comparison"
 
     def __post_init__(self) -> None:
         """Reject unsupported engine claims, malformed sequences and nonfinite projections."""
         if (
-            self.schema_version != "vectorbt-comparison-v1"
+            self.schema_version != "vectorbt-comparison"
             or self.engine != "vectorbt/numba"
             or len(self.reference_sha256) != 64
         ):

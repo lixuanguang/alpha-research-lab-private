@@ -1,5 +1,5 @@
 {
-  "schema_version": "public-data-job-v1",
+  "schema_version": "public-data-job",
   "name": "public-spot-trades",
   "instruments": [
     {

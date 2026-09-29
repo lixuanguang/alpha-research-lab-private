@@ -250,11 +250,11 @@ class ClearMLPublication:
                     parameters["comparison/variant"] = variant_sha256
                     fields = msgspec.json.decode(history.start.request, type=dict[str, msgspec.Raw])
                     schema = self._codec.decode_json(
-                        fields.get("schema_version", b'"configured-backtest-v1"'), str
+                        fields.get("schema_version", b'"configured-backtest"'), str
                     )
                     if schema in (
-                        "configured-backtest-v1",
-                        "configured-engineering-sample-v1",
+                        "configured-backtest",
+                        "configured-engineering-sample",
                     ):
                         variant = self._codec.decode_json(history.start.request, BacktestRun)
                         variant.__post_init__()

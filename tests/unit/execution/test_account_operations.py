@@ -367,10 +367,10 @@ class TestAccountOperations:
         assert still_blocked.reason == "account_recovery_has_unresolved_order_outcome"
         assert reopened.orders()[0].order.remaining == order.remaining
 
-    def test_fault_requires_fresh_quote_state_and_legacy_block_remains(
+    def test_fault_requires_fresh_quote_state_and_permanent_block_remains(
         self, tmp_path: Path
     ) -> None:
-        """A matched snapshot alone cannot bypass stale inputs or legacy operator blocks."""
+        """A matched snapshot alone cannot bypass stale inputs or permanent operator blocks."""
         journal = self._ready(tmp_path / "fault.sqlite3")
         assert (
             journal.control(
@@ -391,9 +391,9 @@ class TestAccountOperations:
         assert stale_quote.status == "rejected"
         assert stale_quote.reason == "account_recovery_requires_fresh_quote"
         journal.observe(AccountQuote(price=self._price(), at=self._at(69)))
-        journal.block("east", "legacy block")
+        journal.block("east", "permanent block")
         blocked = journal.control(
-            self._control("legacy-bypass", "east", "restart", self._at(70), expected="fault")
+            self._control("block-bypass", "east", "restart", self._at(70), expected="fault")
         )
         assert blocked.status == "rejected"
         assert blocked.reason == "account_blocked"
@@ -464,7 +464,7 @@ class TestAccountOperations:
                 "tuple[bytes]", connection.execute("SELECT payload FROM firm WHERE id=1").fetchone()
             )
             unknown = row[0].replace(
-                b'"schema_version":"account-journal-v4"',
+                b'"schema_version":"account-journal"',
                 b'"schema_version":"unknown-account-journal"',
             )
             assert unknown != row[0]

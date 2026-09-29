@@ -522,7 +522,7 @@ class _TrackedFeastWorker:
         if self.operation == "online-boundary":
             operation = (
                 "online-generation"
-                if b'"feast-materialize-request-v1"' in request
+                if b'"feast-materialize-request"' in request
                 else "online-retrieval"
             )
         started = time.perf_counter()
@@ -545,7 +545,7 @@ class _Market:
         """Pin the synthetic source clocks and entity; no original receipt clocks are claimed."""
         self.entity, self.decisions = entity, decisions
         self.identity = hashlib.sha256(
-            DomainCodec().encode_json((entity, decisions, "constant-book-v1"))
+            DomainCodec().encode_json((entity, decisions, "constant-book"))
         ).hexdigest()
 
     def read(self, window: TimeWindow) -> tuple[IntentMarket, ...]:
@@ -612,7 +612,7 @@ class _RoundTripPolicy:
         self.count, self.entry = count, entry
         self.identity = hashlib.sha256(
             DomainCodec().encode_json(
-                ("capacity-round-trip-v1", field, quantity, currency, count, entry)
+                ("capacity-round-trip", field, quantity, currency, count, entry)
             )
         ).hexdigest()
 
@@ -747,7 +747,7 @@ class _Workload:
         self.source = NumericHistorySource(rows, (requirement,))
         self.kernel = RunningMeanFeature(
             FeatureSchema(
-                implementation="running-mean-v1",
+                implementation="running-mean",
                 inputs=(requirement,),
                 outputs=(self.field,),
                 parameters=(),
@@ -862,10 +862,10 @@ class _Workload:
             units="dimensionless",
             ttl_us=60_000_000,
             sdk_version="0.66.0",
-            definition_version="capacity-running-mean-v1",
+            definition_version="capacity-running-mean",
             definition_bytes=definition_path.read_bytes(),
             registry_bytes=registry.read_bytes(),
-            source_version="authored-capacity-feature-v1",
+            source_version="authored-capacity-feature",
             source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
             join_key="instrument",
             repository_path=str(repository),

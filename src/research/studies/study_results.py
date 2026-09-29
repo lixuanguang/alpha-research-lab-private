@@ -127,12 +127,12 @@ class StudyResult(WireRecord, frozen=True):
 
     config: DecisionStudy
     folds: tuple[StudyFoldResult, ...]
-    schema_version: Literal["decision-study-result-v1"] = "decision-study-result-v1"
+    schema_version: Literal["decision-study-result"] = "decision-study-result"
 
     def __post_init__(self) -> None:
         """Reject omitted/reordered folds and foreign state before exposing a result."""
         self.config.__post_init__()
-        if self.schema_version != "decision-study-result-v1" or type(self.folds) is not tuple:
+        if self.schema_version != "decision-study-result" or type(self.folds) is not tuple:
             raise ValueError("invalid study result schema")
         if tuple(f.name for f in self.folds) != tuple(f.name for f in self.config.folds):
             raise ValueError("result folds differ from configured study")

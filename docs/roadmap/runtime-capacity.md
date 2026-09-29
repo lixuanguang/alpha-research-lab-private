@@ -229,7 +229,7 @@ signed authority, matching, journal schemas or budgets.
 
 The signed candidate was exercised on 2026-09-27. **Stage 1 is implemented and
 measured, but is not accepted against the unchanged targets.** The
-[compact evidence index](runtime-capacity-evidence.json) binds the retained
+compact evidence index (removed 2026-09-29; kept in git history) binds the retained
 local runs, configuration/grant identities, four release identities, source
 measurements, failed attempts and validation. Large native journals, account
 facts, query results and individual samples remain in ignored
@@ -532,7 +532,7 @@ runtime source files matched each signed archive and the installed identity;
 the maintained consumers matched their retained run copies. Fresh one-hour
 grants were issued after validation, with the same 80-order, 100-unit and
 installed risk limits. Exact release, configuration, authority and fixture
-identities are in the [evidence index](runtime-capacity-evidence.json), under
+identities are in the evidence index (removed 2026-09-29; kept in git history), under
 `requalification`; its original characterization fields and attempts remain
 historical evidence.
 
@@ -689,10 +689,10 @@ capture rollover, longer service/handoff and extended authority remain open.
 Stage 2 stays gated. No account journal, grant or durable capture migration is
 introduced by these repairs.
 
-The [canonical index](runtime-capacity-evidence.json) retains the original
+The canonical index (removed 2026-09-29; kept in git history) retains the original
 characterization and processing/recovery requalification sections. Its unchanged
 artifact lists moved to the hash-linked
-[historical manifest](runtime-capacity-artifact-manifest.json) to keep each file
+historical manifest (removed 2026-09-29; kept in git history) to keep each file
 within the existing 1 MB scanner limit. The 442 original and 2,050 requalification
 entries remain exact; restoring both lists reconstructs the pre-split JSON.
 Current closure evidence should link retained reports rather than duplicate
@@ -760,7 +760,7 @@ It retains full trace reporting and uses fresh Boolean membership only where the
 observer previously transferred history to answer that question. Four newly
 signed releases bind implementation
 `7f31316338bacfb945de79d00ac87b7460739a0087e7e91b3f64294e9e6e68bb`.
-The [canonical index](runtime-capacity-evidence.json) links the compact closure
+The canonical index (removed 2026-09-29; kept in git history) links the compact closure
 record at `logs/runtime-capacity/latency-query-10/closure-evidence.json`.
 
 | Measured boundary | Steady | Replacement-owner recovery |
@@ -802,8 +802,6 @@ integrated feature serving; independent recovery-suffix and populated-history
 query evidence; then representative R1 only after corpus admission. Collector
 rollover is public-data acquisition only. Account lifetimes, grants, risk limits,
 four owners, four sources, eight instances and three-second selection are unchanged.
-Reversal retains new recordings and failed attempts and restores the previous
-implementation; old recording/request identities must remain readable and exact.
 
 The feature sampling plan declares one initial 60-second steady interval and
 seventeen separate, homogeneous 60-second replacement-owner intervals. Each uses
@@ -993,11 +991,11 @@ governance, dependency/security and installed-wheel smoke checks, with **1,987
 tests passed, two optional skips and three performance deselections**. The
 separate `make performance-test` passed all three tests. No hosted CI ran. All
 observed paper-trial processes exited and all four accounts stopped. The
-[canonical evidence](runtime-capacity-evidence.json) appends this closure without
+canonical evidence (removed 2026-09-29; kept in git history) appends this closure without
 changing any historical evidence value; bulk records stay outside Git.
 
 Candidate-10's signed implementation and financial/runtime algorithms remain
-unchanged. Additive collector lineage and public-run paths preserve legacy
+unchanged. Additive collector lineage and public-run paths keep existing
 serialized identities; affected capture/publication/replay regressions and the
 final installed real sample cover those changes. The new feature consumer's
 passing and failing loaded intervals are separately retained. Existing protection,
@@ -1106,8 +1104,8 @@ The owner decided the three remaining stage-1 gaps after their costs were report
 the commit adding this section, frozen by hash, with drivers and evidence under ignored
 `logs/runtime-capacity/stage1-residual/`, ported from the
 [account journal stage-1 drivers](account-journal-history.md#signed-stage-1-declaration-2026-09-29).
-Four signed `paper` targets with `account-runtime-v1` configuration and
-`account-journal-v4` state, built by the ephemeral local builder key with a new
+Four signed `paper` targets with `account-runtime` configuration and
+`account-journal` state, built by the ephemeral local builder key with a new
 seven-day policy trusting only it; fresh journals, disabled deployments and ordinary
 one-hour grants; no grant, lifetime, budget or risk limit changes. Each step runs once
 and the cohort stops at the first failure.
@@ -1140,7 +1138,7 @@ feature serving and stage 2 are outside this cohort.
 
 The cohort at declaration commit `20d5b27`, installed implementation `51063b91…`,
 stopped at step 5; the compact record is `stage1_residual` in the
-[canonical evidence](runtime-capacity-evidence.json).
+canonical evidence (removed 2026-09-29; kept in git history).
 
 - **Requalification of the changed runtime passed.** Steady (60.003 s, 121 health
   witnesses) and recovery (60.001 s, 122 witnesses) met every unchanged gate, with

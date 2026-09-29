@@ -328,7 +328,7 @@ class TestMonitoringMetrics:
             DomainCodec().decode_json(
                 DomainCodec()
                 .encode_json(first)
-                .replace(b"monitoring-event-v1", b"monitoring-event-v9"),
+                .replace(b"monitoring-event", b"monitoring-event-unsupported"),
                 MonitoringEvent,
             )
 

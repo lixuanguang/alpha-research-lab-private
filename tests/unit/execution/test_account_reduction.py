@@ -267,15 +267,15 @@ class TestAccountReduction:
             strategies=(
                 PaperStrategyIdentity(
                     instance_id="alpha",
-                    policy_identity="policy-alpha-v1",
-                    candidate_identity="candidate-alpha-v1",
-                    model_identity="no-model-v1",
-                    feature_identity="feature-alpha-v1",
+                    policy_identity="policy-alpha",
+                    candidate_identity="candidate-alpha",
+                    model_identity="no-model",
+                    feature_identity="feature-alpha",
                 ),
             ),
-            input_identity="public-okx-book-v1",
+            input_identity="public-okx-book",
             scenario=cls._scenario(),
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
         )
         admin.install_paper(deployment)
         clock.at = cls._at(11)

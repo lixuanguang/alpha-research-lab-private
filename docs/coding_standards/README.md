@@ -3,7 +3,7 @@
 This is the repository's single engineering guide. It applies to Python source,
 tests, scripts, configuration-owned snippets, and the native stubs under
 `tools/typing/stubs`. It governs new code and code materially changed by a
-patch; it does not require unrelated legacy code to be rewritten in that patch.
+patch; it does not require unrelated existing code to be rewritten in that patch.
 The OOP target also covers existing owned Python implementation, with remaining
 work recorded under [Python scope and migration](#python-scope-and-migration).
 Repository configuration and the owning target contract take precedence when
@@ -33,7 +33,7 @@ entry points are:
 | `make format-check` / `make format` | Check or apply Ruff formatting to `src`, `tests`, governance tooling, and owned stubs |
 | `make lint` | Ruff lint and import checks over the same Python scope |
 | `make typecheck` | Strict mypy over the same scope, followed by native `stubtest` |
-| `make engineering-standards-check` | Local import, explicit-`Any`, docstring, suppression, and tool-configuration checks |
+| `make engineering-standards-check` | Local import, explicit-`Any`, docstring, suppression, tool-configuration, and [format-compatibility wording](#format-changes-replace-in-place) checks |
 | `make security` | Bandit over runtime and governance source |
 | `make check` | Complete source checks and installed-wheel smoke validation |
 
@@ -55,8 +55,10 @@ success does not replace domain review or grant release or activation authority.
 
 The checker scans every `.py` and `.pyi` file recursively under exactly:
 `src`, `tests`, `tools/governance/src`, and `tools/typing/stubs`, including files
-that Git does not track. A missing root, unreadable source, malformed
-configuration, or finding fails closed. It has no source-rule waiver or
+that Git does not track. It also scans every UTF-8 text file under `src` for
+[format-compatibility wording](#format-changes-replace-in-place), and under `src`,
+`tools`, `tests` and `configs` (outside hidden directories) for revision-suffixed names. A missing root,
+unreadable source, malformed configuration, or finding fails closed. It has no source-rule waiver or
 function-registration mechanism. The checker does not yet enforce the
 orchestrator-only function rule or assess class cohesion; those are review
 requirements pending the [OOP migration](../roadmap/README.md#delivery-order-and-dependencies).
@@ -142,6 +144,23 @@ inputs, testing, and artifact boundaries; directory proximity does not make an
 API public. Declare direct dependencies in the owning metadata and lock, and do
 not rely on a mutable environment, path mutation, transitive imports, or an
 editable install at runtime.
+
+### Format changes replace in place
+
+A change to a persisted or wire format replaces the old format in place. Readers
+MUST accept only the current format and refuse anything else with a clear
+"unsupported ... schema" `ValueError`. They MUST NOT read, upgrade, convert or
+shim an earlier format, and no alias, fallback branch or deprecation period may
+keep one alive. Tests for a removed format check that it is refused. Rebuild
+derived artifacts from the raw layer with the new code; update every README and
+document that described the old format in the same change.
+
+New internal names, format tags and identifiers MUST NOT carry a `_vN` or `-vN`
+revision suffix; name a format for what it is. External API paths and
+third-party versions keep their own names. The engineering checker rejects runtime
+text under `src/` that labels code or documentation as kept for an earlier format,
+and any `_vN`/`-vN` name in `src/`, `tools/`, `tests/` or `configs/` except the
+external references listed in `FormatCompatibilityChecker`.
 
 ### Stable names and test-support layout
 

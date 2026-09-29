@@ -1,6 +1,6 @@
 """Run bounded Alphalens diagnostics over a verified MR3 result payload.
 
-The adapter consumes the existing ``feature-study-result-v1`` wire contract.
+The adapter consumes the existing ``feature-study-result`` wire contract.
 It never calculates a label from prices and never treats a pending label as an
 observation.  Alphalens Reloaded and pandas are pinned core dependencies; they
 are imported only when a report is run to keep experiment identity and
@@ -30,10 +30,10 @@ if TYPE_CHECKING:
 
 
 type FactorDirection = Literal["ascending", "descending"]
-type QuantileRule = Literal["equal-frequency-qcut-v1"]
-type PriceConvention = Literal["forward-last-over-frozen-base-v1"]
+type QuantileRule = Literal["equal-frequency-qcut"]
+type PriceConvention = Literal["forward-last-over-frozen-base"]
 
-_PRICE_CONVENTION: PriceConvention = "forward-last-over-frozen-base-v1"
+_PRICE_CONVENTION: PriceConvention = "forward-last-over-frozen-base"
 
 
 class DiagnosticDrop(WireRecord, frozen=True, kw_only=True):
@@ -82,14 +82,10 @@ class DiagnosticMetric(WireRecord, frozen=True, kw_only=True):
             raise ValueError("diagnostic metric value must be finite")
 
 
-# Preserve the established reporting name while sharing the canonical result type.
-FeatureLabelPayload = FeatureStudyResult
-
-
 class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
     """Declare one bounded cross-sectional Alphalens comparison."""
 
-    schema_version: Literal["alphalens-study-v1"] = "alphalens-study-v1"
+    schema_version: Literal["alphalens-study"] = "alphalens-study"
     selection_identity: str
     universe: tuple[str, ...] = ()
     factor_direction: FactorDirection = "ascending"
@@ -97,7 +93,7 @@ class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
     price_convention: PriceConvention = _PRICE_CONVENTION
     groups: tuple[tuple[str, str], ...] = ()
     quantiles: int = 5
-    quantile_rule: QuantileRule = "equal-frequency-qcut-v1"
+    quantile_rule: QuantileRule = "equal-frequency-qcut"
     demeaned: bool = True
     group_adjust: bool = False
     known_at: datetime | None = None
@@ -105,15 +101,15 @@ class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Validate source, universe, factor, horizon and quantile choices."""
         if (
-            self.schema_version != "alphalens-study-v1"
-            or not FeatureLabelPayload.is_fingerprint(self.selection_identity)
+            self.schema_version != "alphalens-study"
+            or not FeatureStudyResult.is_fingerprint(self.selection_identity)
             or self.factor_direction not in ("ascending", "descending")
             or type(self.horizon_us) is not int
             or not 0 <= self.horizon_us <= 31_536_000_000_000
             or self.price_convention != _PRICE_CONVENTION
             or type(self.quantiles) is not int
             or not 2 <= self.quantiles <= 20
-            or self.quantile_rule != "equal-frequency-qcut-v1"
+            or self.quantile_rule != "equal-frequency-qcut"
             or type(self.demeaned) is not bool
             or type(self.group_adjust) is not bool
         ):
@@ -150,7 +146,7 @@ class AlphalensStudy(WireRecord, frozen=True, kw_only=True):
 class AlphalensReport(WireRecord, frozen=True, kw_only=True):
     """Retain Alphalens metrics, exclusions and ClearML-ready report bytes."""
 
-    schema_version: Literal["alphalens-report-v1"] = "alphalens-report-v1"
+    schema_version: Literal["alphalens-report"] = "alphalens-report"
     selection_identity: str
     universe: tuple[str, ...]
     factor_direction: FactorDirection
@@ -175,8 +171,8 @@ class AlphalensReport(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Validate immutable metadata, metrics and nonempty report artifacts."""
         if (
-            self.schema_version != "alphalens-report-v1"
-            or not FeatureLabelPayload.is_fingerprint(self.selection_identity)
+            self.schema_version != "alphalens-report"
+            or not FeatureStudyResult.is_fingerprint(self.selection_identity)
             or type(self.report_json) is not bytes
             or not self.report_json
             or type(self.report_html) is not bytes
@@ -185,7 +181,7 @@ class AlphalensReport(WireRecord, frozen=True, kw_only=True):
             or self.horizon_us < 0
             or type(self.quantiles) is not int
             or self.quantiles < 2
-            or self.quantile_rule != "equal-frequency-qcut-v1"
+            or self.quantile_rule != "equal-frequency-qcut"
             or type(self.demeaned) is not bool
             or type(self.group_adjust) is not bool
             or self.price_convention != _PRICE_CONVENTION
@@ -236,13 +232,13 @@ class AlphalensDiagnostics:
     _MAX_ROWS = 1024
 
     def evaluate(
-        self, study: AlphalensStudy, payload: FeatureLabelPayload | bytes
+        self, study: AlphalensStudy, payload: FeatureStudyResult | bytes
     ) -> AlphalensReport:
         """Run IC, quantile-return and turnover calculations for one declared study.
 
         Args:
             study: Explicit factor direction, universe, horizon, groups and quantiles.
-            payload: Verified ``FeatureLabelPayload`` or retained JSON bytes.
+            payload: Verified ``FeatureStudyResult`` or retained JSON bytes.
 
         Returns:
             A typed report retaining exclusions and JSON/HTML artifact bytes.
@@ -252,9 +248,9 @@ class AlphalensDiagnostics:
             ValueError: Payload definitions or source selection conflict with the study.
         """
         study.__post_init__()
-        source = FeatureLabelPayload.decode(payload) if isinstance(payload, bytes) else payload
-        if type(source) is not FeatureLabelPayload:
-            raise TypeError("Alphalens requires a FeatureLabelPayload")
+        source = FeatureStudyResult.decode(payload) if isinstance(payload, bytes) else payload
+        if type(source) is not FeatureStudyResult:
+            raise TypeError("Alphalens requires a FeatureStudyResult")
         source.__post_init__()
         self._check_source(study, source)
         horizon = self._effective_horizon(study, source)
@@ -382,7 +378,7 @@ class AlphalensDiagnostics:
         )
 
     @staticmethod
-    def _effective_horizon(study: AlphalensStudy, payload: FeatureLabelPayload) -> int:
+    def _effective_horizon(study: AlphalensStudy, payload: FeatureStudyResult) -> int:
         """Resolve the report horizon from the retained label definition."""
         if payload.label_definition is None:
             return study.horizon_us
@@ -392,7 +388,7 @@ class AlphalensDiagnostics:
         return horizon
 
     @staticmethod
-    def _check_source(study: AlphalensStudy, payload: FeatureLabelPayload) -> None:
+    def _check_source(study: AlphalensStudy, payload: FeatureStudyResult) -> None:
         """Reject source-selection, universe and group mappings absent from the payload."""
         if study.price_convention != _PRICE_CONVENTION:
             raise ValueError("unsupported Alphalens price convention")
@@ -405,7 +401,7 @@ class AlphalensDiagnostics:
             raise ValueError("Alphalens group mapping includes an asset absent from the payload")
 
     def _observations(
-        self, study: AlphalensStudy, payload: FeatureLabelPayload
+        self, study: AlphalensStudy, payload: FeatureStudyResult
     ) -> tuple[tuple[_Observation, ...], tuple[DiagnosticDrop, ...], tuple[DiagnosticDrop, ...]]:
         """Admit only complete factor/label rows whose labels were then available."""
         labels = dict(payload.labels)
@@ -414,7 +410,7 @@ class AlphalensDiagnostics:
         late: list[DiagnosticDrop] = []
         groups = dict(study.groups)
         for row_id, feature, label, sample in payload.aligned_rows():
-            asset = FeatureLabelPayload.asset_name(feature.window.binding)
+            asset = FeatureStudyResult.asset_name(feature.window.binding)
             if study.universe and asset not in study.universe:
                 dropped.append(
                     DiagnosticDrop(
@@ -509,7 +505,7 @@ class AlphalensDiagnostics:
 
     @staticmethod
     def _expected_label_availability(
-        payload: FeatureLabelPayload, label: LabelValue | None
+        payload: FeatureStudyResult, label: LabelValue | None
     ) -> datetime | None:
         """Infer only the declared publication clock for a pending retained label."""
         if label is None or payload.label_definition is None:
@@ -787,7 +783,7 @@ class AlphalensDiagnostics:
     ) -> AlphalensReport:
         """Materialize a typed summary and deterministic ClearML-ready artifacts."""
         summary = {
-            "schema_version": "alphalens-report-v1",
+            "schema_version": "alphalens-report",
             "selection_identity": study.selection_identity,
             "universe": universe,
             "factor_direction": study.factor_direction,

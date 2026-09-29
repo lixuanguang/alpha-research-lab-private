@@ -40,7 +40,7 @@ class TestStudyMonitoring:
     spec = MetricSpec(
         name="prediction-error",
         version="1",
-        implementation_sha256=hashlib.sha256(b"delayed-label-error-v1").hexdigest(),
+        implementation_sha256=hashlib.sha256(b"delayed-label-error").hexdigest(),
         inputs=(
             MetricInput(name=StudyMonitoringExporter.prediction_name, version="1", units="ratio"),
             MetricInput(name=StudyMonitoringExporter.outcome_name, version="1", units="ratio"),

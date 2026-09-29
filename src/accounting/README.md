@@ -15,7 +15,7 @@ owns the wider risk and reconciliation acceptance status.
 The package-level `Fill`, `LedgerState`, `Ledger`, `LedgerBalance`, `LedgerMark`
 and `RationalMoney` exports preserve the existing API. `LedgerState` binds one
 initial `Money` balance, one `Dimension`, a complete ordered fill history and
-the `spot-ledger-v1` schema. `Ledger.apply(fill)` posts a signed quantity once,
+the `spot-ledger` schema. `Ledger.apply(fill)` posts a signed quantity once,
 rejects insufficient cash or inventory, and updates exact cash, holdings, fees,
 turnover, basis and realized attribution. Its `Fill` combines the execution
 price and a nonnegative quote-currency fee. It requires a strictly later UTC
@@ -37,7 +37,7 @@ correction, multi-instrument or multi-currency API.
 Import `AccountPosting`, `AccountState`, `AccountLedger`, `AccountSnapshot` and
 `EffectiveAccountPosting` from `accounting.accounts`. `AccountState` declares an
 account ID, a nonempty ordered tuple of complete `Currency` values with unique
-codes, every posting in knowledge order, and the `account-postings-v1` schema.
+codes, every posting in knowledge order, and the `account-postings` schema.
 It starts with zero cash and zero inventory. An identified `transfer` posting
 supplies initial capital; no implicit funding or FX conversion occurs.
 

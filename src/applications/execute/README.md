@@ -38,12 +38,12 @@ It is available in the independently installed execution wheel without research
 dependencies. The programmatic `MonitoringApplication` is exported with the
 other execution application APIs.
 
-`ExecutionConfiguration` (`execution-admission-v1`) binds the environment,
+`ExecutionConfiguration` (`execution-admission`) binds the environment,
 research/paper/shadow mode, mode-scoped credential reference, execution capability
 profile, reference history, maximum quantity and quote currency. Credential
 values never appear in the configuration. A production mode, executable profile,
 foreign environment or mismatched credential mode fails before reading an intent.
-The legacy admission state schema is `none-v1`; its requests do not mutate the
+The admission state schema is `none`; admission requests do not mutate the
 paper order journal.
 
 `ExecutionRequest` separately supplies an `OrderIntent`, account cash/holdings,
@@ -69,7 +69,7 @@ alpha-execute paper --config /absolute/paper-config.json \
 ```
 
 The last form inspects the local paper account without a request. `paper` loads
-`PaperConfiguration` (`paper-runtime-v1`) with a dedicated flat initial account,
+`PaperConfiguration` (`paper-runtime`) with a dedicated flat initial account,
 fixed spot tick/lot/holding limits, bounded fee and market scenario. The journal
 binds the full configuration identity and explicit instance; changing either
 cannot reopen the same state. Fixed authored grids have `qualification=fixture`
@@ -102,8 +102,8 @@ distinct durable events. See the [paper journal](../../execution/README.md) for
 reservations, fencing and known reconciliation limits. Physical venue account
 reconciliation and venue adapters remain separate work.
 
-The optional `PaperConfiguration.execution` scenario preserves legacy fixture
-requests. Integrated native-paper runs select its explicit venue/instrument,
+Every `PaperConfiguration` requires an `execution` scenario; a configuration
+without one is refused. The scenario selects its explicit venue/instrument,
 entry/cancel delays, adverse price, fee rate, take fraction and off-chain gas
 reason. Tick/lot rules come from the existing spot limits. A changed scenario or
 quote identity cannot reopen prior matched state. The same evaluator serves
@@ -157,7 +157,7 @@ alpha-execute account --config /absolute/accounts.json \
   --journal /absolute/accounts.sqlite3
 ```
 
-`AccountConfiguration` pins `account-runtime-v1`, local `paper`/`shadow` mode,
+`AccountConfiguration` pins `account-runtime`, local `paper`/`shadow` mode,
 opening currency funding, spot instrument mechanics and a `BudgetPolicy`.
 `AccountExecutionRequest` selects exactly one action: `quote` records the
 independent market observation; `admit` submits an attributable `AccountDecision`;
@@ -205,12 +205,12 @@ observations or venue-rule qualification.
 
 ## Test-venue commands
 
-`alpha-execute venue` uses `VenueExecutionConfiguration` (`venue-execution-v1`),
+`alpha-execute venue` uses `VenueExecutionConfiguration` (`venue-execution`),
 an `AccountConfiguration` in explicit `venue_test` mode and the existing account
 journal. The configuration includes the expected physical `venue_account_id`,
 canonical/native instrument mapping, current reference history and credential
 environment-variable references. `inspect`, `quote`, `admit` and `coordinate`
-need no credentials. The legacy `account` command rejects this mode, preventing
+need no credentials. The modeled-event `account` command rejects this mode, preventing
 its modeled event requests from masquerading as native venue facts.
 
 ```sh
@@ -314,8 +314,8 @@ installed commands. It is quant-development software evidence, not a venue test.
 
 ## Managed paper activation requests
 
-The signed target uses execution `paper`, `account-runtime-v1` configuration
-and `account-journal-v4` state. `AccountExecutionRequest` and
+The signed target uses execution `paper`, `account-runtime` configuration
+and `account-journal` state. `AccountExecutionRequest` and
 `AccountExecutionResult` are execution-owned public wire APIs. The existing
 `alpha-execute account` command accepts these additional actions:
 
@@ -450,8 +450,8 @@ after the last selected book cause `paper_market` matching and active strategy
 evaluation. Intermediate eligible books update the monitoring mark without
 matching orders, posting paper fills or advancing strategy checkpoints. Source
 invalidation still faults immediately. Retained `SharedBookDelivery` records
-mark skipped economics with `market_effects=false` for exact replay; legacy
-records that omit the field preserve per-book behavior. This models selected
+record `market_effects` explicitly: `false` marks skipped economics for exact
+replay, `true` means that book's market effects were applied. This models selected
 paper opportunities and does not qualify feed throughput or MR15 capacity.
 
 The supervisor consumes at most one durable frame per source per pass. When the

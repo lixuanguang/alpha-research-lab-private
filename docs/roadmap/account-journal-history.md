@@ -41,19 +41,14 @@ for an instance, and to produce reports. None needs the full history in memory.
 
 ## Policy
 
-- `account-journal-v4` is the only account state schema. Code, governance records,
+- `account-journal` is the only account state schema. Code, governance records,
   installation policy and `PaperDeployment.state_schema` admit nothing else, and no
   earlier journal format is read, converted or migrated.
-- Journals written before this change are not readable by this code. Retained
-  evidence journals are read with the release that wrote them.
 - Every installed account release is managed: the installer passes its release
   identity to every account command, and activation is recorded only by the
   presence of `paper_activations`.
-- Earlier releases fail closed on these journals: the `firm` row remains, holding
-  a head that whole-state decoders reject. Removing the row is not acceptable,
-  because older code would create a newly funded journal.
-- Rollback across this change means stopping, retaining the journal as evidence and
-  installing an earlier release on fresh state.
+- Migration and rollback: completed 2026-09-29; journals in earlier formats are
+  refused, never converted.
 
 ## Storage layout
 
@@ -88,7 +83,7 @@ hashes every table.
 3. **Governance and deployment.** Release records, installation policy, the
    installer's paper-scope and pristine-state checks, `PaperDeployment` and the
    [operations runbook](../governance/operations.md) admit only
-   `account-journal-v4`; unmanaged installed account releases and the signed account
+   `account-journal`; unmanaged installed account releases and the signed account
    installation consumer were removed.
 
 ## Qualification declaration (2026-09-29)
@@ -97,8 +92,9 @@ Declared before any measurement. One run; a missed target is recorded as a failu
 and is not retried with a changed workload, method or target. The run uses the
 [history capacity consumer](../../tests/integration/consumers/runtime/account_history_capacity.py)
 at the commit that adds this declaration, and retains raw results under ignored
-`logs/account-history/qualification-1/`; the compact record will be
-`docs/roadmap/account-journal-history-evidence.json`.
+`logs/account-history/qualification-1/`; the compact record was
+`docs/roadmap/account-journal-history-evidence.json` (removed 2026-09-29; kept in
+git history).
 
 **Host.** The declared Apple M1 Max, 10 logical cores, 64 GiB RAM, macOS 27.0,
 APFS, on AC power. The filesystem cache is uncontrolled and warm after the first
@@ -149,7 +145,7 @@ any stage-2 use and need a separate go-ahead.
 ## Qualification result (2026-09-29)
 
 One run at the declaration commit `d63f54c` on the declared host, with nothing else
-running. Compact record: [account-journal-history-evidence.json](account-journal-history-evidence.json);
+running. Compact record: account-journal-history-evidence.json (removed 2026-09-29; kept in git history);
 raw samples stay under ignored `logs/account-history/qualification-1/`.
 
 **Storage: passed.** At the full 24-hour history of one account:
@@ -224,8 +220,8 @@ no historical one-sided replay (superseded by the
 and an added recovery-suffix parity.
 
 **Candidate and authority.** Four signed execution `paper` targets (OKX shared and
-isolated, Bitfinex shared and isolated) with `account-runtime-v1` configuration and
-`account-journal-v4` state. They are built by a new ephemeral local builder,
+isolated, Bitfinex shared and isolated) with `account-runtime` configuration and
+`account-journal` state. They are built by a new ephemeral local builder,
 `local-account-history`, whose private key is mode 0600 outside the repository; the
 earlier builder key did not survive a host restart. Its installation policy trusts
 only that builder for seven days and admits only those two schemas. Dependencies are
@@ -260,7 +256,7 @@ cohort.
 Passed at declaration commit `c80912b`, installed implementation `aacae36c…`, with
 four signed releases of that frozen source. Every phase ran once; the compact record
 is `signed_stage1` in
-[account-journal-history-evidence.json](account-journal-history-evidence.json).
+account-journal-history-evidence.json (removed 2026-09-29; kept in git history).
 
 | Phase | Result |
 | --- | --- |

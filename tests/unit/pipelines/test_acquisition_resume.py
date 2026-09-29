@@ -82,7 +82,7 @@ class TestAcquisitionResume:
             report=reports.append,
             timeout_seconds=1.0,
             max_bytes=4096,
-            permitted_rights_reference="synthetic-local-fixtures-v1",
+            permitted_rights_reference="synthetic-local-fixtures",
             retry_delays=retry_delays,
         )
 

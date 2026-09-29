@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Literal
 
 # third party library imports
-import msgspec
 import pytest
 from msgspec.structs import replace
 
@@ -165,7 +164,7 @@ class TestPaperSourceScopes:
             strategies=(cls._strategy("alpha"), cls._strategy("beta")),
             input_identity="okx-first-book",
             scenario=cls._scenario(cls.first, "okx"),
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
             submission_authority="shadow" if config.mode == "shadow" else "paper",
             additional_sources=(
                 PaperSourceBinding(
@@ -586,32 +585,13 @@ class TestPaperSourceScopes:
                 )
             )
 
-    def test_legacy_wire_bytes_and_conflicting_sources(self) -> None:
-        """An absent extension preserves v1 JSON and rejects ambiguous overrides."""
+    def test_explicit_empty_sources_and_conflicting_sources(self) -> None:
+        """No overrides encode as an explicit empty tuple; ambiguous overrides reject."""
         config = self._config()
         extended = self._deployment(config)
-        legacy = replace(extended, additional_sources=msgspec.UNSET)
-        codec = DomainCodec()
-        expected = codec.encode_json(
-            {
-                "account_id": legacy.account_id,
-                "configuration_sha256": legacy.configuration_sha256,
-                "releases": legacy.releases,
-                "strategies": legacy.strategies,
-                "input_identity": legacy.input_identity,
-                "scenario": legacy.scenario,
-                "state_identity": legacy.state_identity,
-                "enabled": legacy.enabled,
-                "submission_authority": legacy.submission_authority,
-                "state_schema": legacy.state_schema,
-                "schema_version": legacy.schema_version,
-            }
-        )
-        assert codec.encode_json(legacy) == expected
-        assert legacy.identity == hashlib.sha256(expected).hexdigest()
-        assert codec.decode_json(expected, PaperDeployment) == legacy
-        with pytest.raises(ValueError, match="omits empty source overrides"):
-            replace(legacy, additional_sources=())
+        single = replace(extended, additional_sources=())
+        assert b'"additional_sources":[]' in DomainCodec().encode_json(single)
+        assert single.source_bindings[1].input_identity == single.input_identity
         with pytest.raises(ValueError, match="source instance differs"):
             replace(
                 extended,

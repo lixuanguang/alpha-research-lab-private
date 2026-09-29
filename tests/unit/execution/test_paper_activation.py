@@ -166,15 +166,15 @@ class TestPaperActivation:
             strategies=(
                 PaperStrategyIdentity(
                     instance_id="alpha",
-                    policy_identity="policy-alpha-v1",
-                    candidate_identity="candidate-alpha-v1",
-                    model_identity="no-model-v1",
-                    feature_identity="feature-alpha-v1",
+                    policy_identity="policy-alpha",
+                    candidate_identity="candidate-alpha",
+                    model_identity="no-model",
+                    feature_identity="feature-alpha",
                 ),
             ),
-            input_identity="public-okx-book-v1",
+            input_identity="public-okx-book",
             scenario=cls._scenario(),
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
         )
 
     @classmethod
@@ -359,7 +359,7 @@ class TestPaperActivation:
                     "SELECT json_extract(payload, '$.schema_version') FROM firm WHERE id=1"
                 ).fetchone(),
             )
-        assert row == ("account-journal-v4",)
+        assert row == ("account-journal",)
         assert AccountJournal.verify(path, config) == admin.accounts()
         assert AccountJournal(path, config, clock=clock).paper_activations() == (activation,)
         restart = AccountControl(
@@ -498,8 +498,8 @@ class TestPaperActivation:
         valid_context = PortfolioContext(
             portfolio_id="managed-portfolio",
             strategy_id="alpha",
-            model_revision="no-model-v1",
-            config_revision="config-v1",
+            model_revision="no-model",
+            config_revision="config",
             horizon="one-minute",
             reason="bounded-paper-order",
             venue="okx",

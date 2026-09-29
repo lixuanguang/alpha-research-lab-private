@@ -18,6 +18,9 @@ from alpha_research_governance.engineering_standards import (
     validate_repository,
     validate_suppression_line,
 )
+from alpha_research_governance.engineering_standards.format_compatibility import (
+    FormatCompatibilityChecker,
+)
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 VALIDATION_DATE = date(2026, 9, 7)
@@ -189,6 +192,73 @@ class TestEngineeringStandards:
 
         assert main([str(tmp_path / "missing")]) == 1
         assert "missing Python standards source root" in capsys.readouterr().err
+
+
+class TestFormatCompatibilityChecker:
+    """Reject runtime text that labels code or documentation as kept for an old format."""
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "# Keep legacy readers for v1 manifests.",
+            "Backward compatible decoding of old journals.",
+            "backward-compat alias",
+            "LEGACY path",
+        ],
+    )
+    def test_rejects_compatibility_wording_in_any_runtime_text(
+        self, tmp_path: Path, line: str
+    ) -> None:
+        """Report the exact file and line in Python and Markdown sources alike."""
+        package = tmp_path / "src/package"
+        package.mkdir(parents=True)
+        (package / "module.py").write_text('"""Module."""\n')
+        (package / "README.md").write_text(f"# Package\n\n{line}\n")
+        (package / "data.bin").write_bytes(b"\xff\xfe legacy")
+
+        findings = FormatCompatibilityChecker.findings(tmp_path)
+
+        assert len(findings) == 1
+        assert findings[0].startswith("src/package/README.md:3: format changes replace in place")
+
+    def test_accepts_current_wording_and_missing_root(self, tmp_path: Path) -> None:
+        """Current-format wording passes, and an absent runtime root yields no findings."""
+        assert FormatCompatibilityChecker.findings(tmp_path) == ()
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src/README.md").write_text("Unsupported schemas are refused.\n")
+        assert FormatCompatibilityChecker.findings(tmp_path) == ()
+
+    def test_rejects_revision_suffixed_names_but_not_listed_external_paths(
+        self, tmp_path: Path
+    ) -> None:
+        """Owned code, tests and configs cannot name formats by revision."""
+        suffix = "-" + "v2"
+        (tmp_path / "configs").mkdir()
+        (tmp_path / "configs/job.json").write_text(f'{{"schema": "job{suffix}"}}\n')
+        (tmp_path / "tests").mkdir()
+        (tmp_path / "tests/test_x.py").write_text(f"handler_{suffix[1:]} = 1\n")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src/README.md").write_text("See https://www.okx.com/docs" + "-" + "v5/en/\n")
+        (tmp_path / "src/.venv").mkdir()
+        (tmp_path / "src/.venv/vendor.py").write_text(f"third_party{suffix} = 1\n")
+
+        findings = FormatCompatibilityChecker.findings(tmp_path)
+
+        assert sorted(finding.split(": ")[0] for finding in findings) == [
+            "configs/job.json:1",
+            "tests/test_x.py:1",
+        ]
+        assert all("revision suffix" in finding for finding in findings)
+
+    def test_repository_runtime_text_has_no_compatibility_wording(self) -> None:
+        """Keep the checked-in runtime tree free of old-format compatibility wording."""
+        assert FormatCompatibilityChecker.findings(REPOSITORY_ROOT) == ()
+
+    def test_validate_repository_reports_compatibility_wording(self, tmp_path: Path) -> None:
+        """The engineering command fails closed on the wording finding."""
+        root = _fixture_root(tmp_path, '"""Keep the legacy reader."""\n')
+        with pytest.raises(EngineeringStandardsError, match="format changes replace in place"):
+            validate_repository(root, validation_date=VALIDATION_DATE)
 
 
 if __name__ == "__main__":

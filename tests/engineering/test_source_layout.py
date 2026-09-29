@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # standard library imports
-import hashlib
 from importlib.machinery import ModuleSpec
 from importlib.metadata import PathDistribution
 from pathlib import Path
@@ -14,11 +13,7 @@ import pytest
 
 # project library imports
 from alpha_research_governance.engineering_standards.source_layout import SourceLayoutChecker
-from market_data.adapters.sources import SourceAdapters
-from market_data.datasets import SnapshotStore
-from market_data.storage import RawStore
 from runtime import ImplementationIdentity, InstalledIdentity, RuntimeFiles
-from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[2]
 
@@ -253,24 +248,3 @@ class TestInstalledRuntimeIdentity:
         for root in RuntimeFiles.roots:
             assert f"{root}/py.typed" in inputs
         assert InstalledIdentity.sha256() != ImplementationIdentity.sha256()
-
-    def test_old_snapshot_keeps_stored_identity_and_exact_canonical_bytes(self) -> None:
-        """Reopen data produced by the pre-refactor code, with new code identity kept separate."""
-        root = _ROOT / "tests/fixtures/datasets/historical_snapshot"
-        snapshot_id = "23378e41e37533c74a41a3ce5bfa4046aa659ae3bd4131b08321c72dc3a448b9"
-        snapshot = SnapshotStore(
-            root / "snapshots", RawStore(root / "raw"), readers=SourceAdapters()
-        ).read(snapshot_id, max_bytes=262_144)
-        assert snapshot.identity == snapshot_id
-        assert snapshot.normalization_identity != ImplementationIdentity.sha256()
-        request = snapshot.partitions[0].acquisition.run
-        assert (
-            request.implementation_identity
-            == "ba478bfc5f722da7217f94a042e1ef0117531d74730e381522d62b30645604d1"
-        )
-        for partition in snapshot.partitions:
-            canonical = (root / "snapshots" / snapshot_id / partition.sha256).read_bytes()
-            assert hashlib.sha256(canonical).hexdigest() == partition.sha256
-        codec = DomainCodec()
-        original = (root / "snapshots" / snapshot_id / "manifest.json").read_bytes()
-        assert codec.encode_json(snapshot) == original

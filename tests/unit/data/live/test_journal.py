@@ -154,8 +154,8 @@ class TestCaptureJournal:
         replay = SavedCapture.read(journal.root, book_factory=BookAdapters.create, completed=False)
         assert not replay.ended and replay.invalid and replay.gaps
 
-    def test_legacy_completed_and_interrupted_reading(self, tmp_path: Path) -> None:
-        """Retain old capture bytes and explicit legacy-prefix inspection without a cursor."""
+    def test_cursorless_interrupted_reading_is_refused(self, tmp_path: Path) -> None:
+        """Completed bytes need only their manifest; prefix inspection requires a cursor."""
         journal = self.journal(tmp_path / "capture")
         journal.append(_SESSION)
         journal.append(_FRAME)
@@ -163,9 +163,8 @@ class TestCaptureJournal:
         journal.finish(_SESSION.received_ns)
         (journal.root / "cursor.json").unlink()
         assert SavedCapture.read(journal.root, book_factory=BookAdapters.create).messages == 1
-        assert SavedCapture.read(
-            journal.root, book_factory=BookAdapters.create, completed=False
-        ).invalid
+        with pytest.raises(ValueError, match="unsupported capture journal schema"):
+            SavedCapture.read(journal.root, book_factory=BookAdapters.create, completed=False)
 
     def test_process_death(self, tmp_path: Path) -> None:
         """Kill a child after acknowledgement and an unsynced tail; retain exactly the cursor."""
@@ -245,17 +244,12 @@ os.kill(os.getpid(), signal.SIGKILL)
         with pytest.raises(ValueError):
             DomainCodec().decode_json(payload, CaptureCursor)
 
-    def test_oversized_metadata_and_legacy_input(self, tmp_path: Path) -> None:
-        """Keep cursor metadata and legacy inspection bounded without silently clipping."""
+    def test_oversized_cursor_metadata(self, tmp_path: Path) -> None:
+        """Keep cursor metadata bounded without silently clipping."""
         journal = self.journal(tmp_path / "capture")
         cursor_path = journal.root / "cursor.json"
         cursor_path.write_bytes(cursor_path.read_bytes() + b" " * 1024)
         with pytest.raises(ValueError, match="metadata bound"):
-            next(journal.records(completed=False))
-        cursor_path.unlink()
-        with (journal.root / "journal.jsonl").open("wb") as output:
-            output.truncate(journal.request.config.max_bytes + 1)
-        with pytest.raises(ValueError, match="storage bound"):
             next(journal.records(completed=False))
 
     def test_new_parent_directory_sync_failure(self, tmp_path: Path) -> None:

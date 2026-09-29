@@ -40,10 +40,8 @@ and examples migrated together without changing retained record schemas.
 Opening an attempt store does not initialize ClearML, Optuna, pandas, NumPy,
 exchange-calendars, QuantLib or study implementations. Calendar and native
 day-count libraries load when their operations run.
-`research.results.FeatureStudyResult` retains the unchanged
-`feature-study-result-v1` shape shared by feature production, model admission
-and diagnostics. Existing `research.studies.FeatureLabelPayload` callers remain
-supported as an alias.
+`research.results.FeatureStudyResult` is the `feature-study-result` shape
+shared by feature production, model admission and diagnostics.
 
 ## Reproducible inputs and execution attempts
 

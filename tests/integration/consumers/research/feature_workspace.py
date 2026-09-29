@@ -82,7 +82,7 @@ class _FeatureWorkspace:
         self.source = NumericHistorySource(self.rows, (self.requirement,))
         self.kernel = RunningMeanFeature(
             FeatureSchema(
-                implementation="running-mean-v1",
+                implementation="running-mean",
                 inputs=(self.requirement,),
                 outputs=(self.requirement.field,),
                 parameters=(),
@@ -130,7 +130,7 @@ class _FeatureWorkspace:
             decisions=tuple(self.at(second) for second in seconds),
             source_version=self.source.identity,
             source_sha256=self.lineage,
-            dataset_version="authored-source-v1",
+            dataset_version="authored-source",
             dataset_sha256=self.lineage,
             version=version,
             bridge=self.bridge,

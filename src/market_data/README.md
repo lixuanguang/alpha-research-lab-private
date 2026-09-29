@@ -327,8 +327,8 @@ New foreground book captures can use
 `--universes /absolute/public-spot-universes.json`, with the maintained
 [scope example](../../configs/live/public-spot-universes.json). The complete scope
 is part of `CaptureRequest` and therefore of raw, snapshot and query provenance;
-collection and research membership are enforced separately. Existing requests
-without this field keep their original wire identity and legacy bounded meaning.
+collection and research membership are enforced separately. A request without
+this field is unscoped and records `universes` as null.
 Scoped supervised capture is explicitly unsupported until its runtime consumer
 retains the scope too.
 
@@ -534,7 +534,7 @@ report and saved checkpoint to resume.
 the authored archive job. It binds the filename and SHA-256 sidecar, validates a
 single-member unencrypted deflate ZIP/CRC and sends no credentials. The supported
 combination is `binance-archive/binance/spot/raw/trade`,
-`historical/acquisition.fetch`, `utc-day`, `exchange-time-only-v1`, with a
+`historical/acquisition.fetch`, `utc-day`, `exchange-time-only`, with a
 minute-aligned nonempty selection inside one UTC day. Each selected instrument
 uses a full-day request; cross-midnight/Tardis policies fail before HTTP.
 
@@ -599,9 +599,8 @@ nonidentical overlaps within one source/stream/instrument fail rather than being
 merged.
 
 `DatasetManifest.read` verifies manifest identity, raw/canonical bytes, source
-readers and admission before returning. Version 1 trade manifests retain their
-identities; book publication uses the separate `book-dataset-v1` and
-`book-dataset-v2` families. A
+readers and admission before returning. Trade manifests name their evidence
+`tier`; book publication uses the separate `book-dataset` format. A
 manifest path or `latest` alias is never a substitute for an explicit identity.
 
 ## Publish and reopen an atomic snapshot
@@ -684,7 +683,7 @@ availability or terminal. Equal-time callbacks run `source`, `expiry`, `fill`,
 availability is unschedulable, and phase callbacks are not orders or fills.
 
 `ReplayCursor` binds the query, consumer configuration and
-`reference-replay-v1` ordering policy. Restore it with consumer observations,
+`reference-replay` ordering policy. Restore it with consumer observations,
 pending intents, schedules, applied fills and ledger state; identity, clock and
 source-prefix checks must agree. A callback failure poisons the instance until
 restoration. Replay owns event stepping; later consumers own risk, fills,
@@ -733,18 +732,17 @@ and [research study protocol](../../examples/study-protocol.md#research-ticket).
 `DatasetPublication.publish_books` accepts completed Bitfinex R0, Coinbase
 Exchange L3 or OKX native capture/archive directories, an existing `RawStore`,
 an existing snapshot directory and explicit `max_records`/`max_bytes`. The
-`book-dataset-v2` format writes a typed source header followed by one exact
+`book-dataset` format writes a typed source header followed by one exact
 `BookObservation` JSON line per original raw position. Publication keeps one
 observation plus the native visible state in memory, then independently replays
 the retained raw input against every staged line before the directory is made
-visible. The manifest and partition digests identify exact bytes. Previously
-published `book-dataset-v1` envelopes remain readable with their old identities;
-trade manifests/readers remain unchanged.
+visible. The manifest and partition digests identify exact bytes. Any other
+book dataset schema is refused.
 
 At most 1,000,000 raw positions per input are selectable for streamed publication,
 subject to each source's own record limit and the caller's raw/canonical byte cap.
-The legacy in-memory `BookInput.admit` reference envelope remains limited to
-10,000 positions; the online `BookCapture` parity buffer retains its own 10,000
+The in-memory `BookInput.admit` reference envelope is limited to 10,000
+positions; the online `BookCapture` parity buffer retains its own 10,000
 position bound. Publication reports use `BookAdmissionReport` with counts and a
 digest, without carrying the whole canonical file in memory. L3 orders keep native
 IDs and sizes; L2 levels keep aggregate sizes and counts; zero-size updates delete levels. Adjacent duplicates retain positions
@@ -769,14 +767,14 @@ never exposes input early.
 
 `BookSnapshot.read` admits the complete pinned snapshot once and provides
 `selection`, `partition` and `observations` for repeated queries and replay.
-Returned evidence is independently decoded. Each v2 observation traversal checks
+Returned evidence is independently decoded. Each observation traversal checks
 the selected file digest on an open descriptor before yielding its first row;
 the cheap `verify_partition` check detects a replaced or modified path after
 session opening under the required protected immutable-store contract. Its
 `require_limit` check applies a consumer's per-file cap to actual manifest,
 canonical and retained raw sizes. Optional `BookSnapshot.read(report=...)` sinks
-receive `BookAdmissionReport` values; the legacy generic snapshot report sink
-requires full `QualityReport.canonical` bytes and is unavailable for v2. Sessions
+receive `BookAdmissionReport` values; the generic snapshot report sink, which
+requires full `QualityReport.canonical` bytes, is refused for books. Sessions
 require protected stores and never grant a source availability clock that was not
 captured originally.
 
@@ -850,8 +848,8 @@ alpha-dataset publish --inputs /absolute/reviewed/dataset-input.json \
 ```
 
 This is a bounded evidence gate, not an evidence registry or provider
-authentication service. Existing v1/v2 records remain readable; mixed admission
-scopes in one snapshot remain unsupported. A successful software fixture does not
+authentication service. Mixed admission scopes in one snapshot remain
+unsupported. A successful software fixture does not
 supply the historical evidence needed to admit a real sample.
 
 For deeper implementation coverage, use the focused [unit and integration

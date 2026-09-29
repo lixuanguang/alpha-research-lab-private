@@ -106,7 +106,7 @@ class TestPublicPaperWorkflow:
         verification = msgspec.json.decode(
             (output / "replay-verification.json").read_bytes(), type=dict[str, object]
         )
-        assert verification["schema_version"] == "public-paper-replay-v1"
+        assert verification["schema_version"] == "public-paper-replay"
         assert verification["equal"] is True
         assert verification["monitoring_equal"] is True
         assert verification["monitoring_inserted"] == 0

@@ -145,7 +145,7 @@ def test_shadow_monitor_retains_pending_instance_zero_economics_once(tmp_path: P
         ),
         input_identity="book",
         scenario=scenario,
-        state_identity="paper-account-state-v1",
+        state_identity="paper-account-state",
         submission_authority="shadow",
     )
     authorization = PaperAuthorization(

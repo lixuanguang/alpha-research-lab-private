@@ -27,9 +27,9 @@ class ServiceBookInputs:
     )
 
     def __init__(
-        self, instances: tuple[str, ...], freshness_us: int, market_interval_us: int = 0
+        self, instances: tuple[str, ...], freshness_us: int, market_interval_us: int
     ) -> None:
-        """Bind selected consumers, source freshness and optional admission cadence."""
+        """Bind selected consumers, source freshness and admission cadence (0 admits every book)."""
         if (
             type(freshness_us) is not int
             or freshness_us <= 0
@@ -43,13 +43,12 @@ class ServiceBookInputs:
     @property
     def identity(self) -> str:
         """Identify the pure feature formula independently of active consumers."""
-        definition: tuple[object, ...] = (
-            "service-book-features-v1",
+        definition = (
+            "service-book-features",
             self.fields,
             self.freshness_us,
+            self.market_interval_us,
         )
-        if self.market_interval_us:
-            definition = (*definition, self.market_interval_us)
         return hashlib.sha256(DomainCodec().encode_json(definition)).hexdigest()
 
     @property

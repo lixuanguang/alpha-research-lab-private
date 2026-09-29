@@ -79,7 +79,7 @@ class _FeatureSource:
             name=f"{source.name}-visible-touch",
             entity_type="instrument",
             schema=FeatureSchema(
-                implementation="named-projection-v1",
+                implementation="named-projection",
                 inputs=tuple(
                     InputRequirement(
                         name=source.name,
@@ -205,7 +205,7 @@ class _FeatureSource:
                 if msgspec.json.decode(line, type=_ProbeKind).kind == "capture_boundary":
                     probe = msgspec.json.decode(line, type=_DurableProbe)
                     if (
-                        probe.schema_version != "runtime-measurement-v1"
+                        probe.schema_version != "runtime-measurement"
                         or probe.cursor < 1
                         or probe.durable_ns < 0
                         or self.durable_probes.get(probe.cursor, probe.durable_ns)
@@ -266,7 +266,7 @@ class CapacityFeatureObserver:
             self.publish(feature_source, datetime.now(UTC), slot=-1, due_ns=time.monotonic_ns())
         self.initialization_seconds = time.monotonic() - began
         plan = {
-            "schema_version": "finite-feature-sampling-v1",
+            "schema_version": "finite-feature-sampling",
             "implementation": InstalledIdentity.sha256(),
             "consumer_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "cache_class": "warm_initialized_versioned_sqlite_store_os_cache_uncontrolled",

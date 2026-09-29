@@ -129,9 +129,7 @@ class PhaseEvidence(ImmutableModel):
 class TrustedInstallationResult(ImmutableModel):
     """Retain concise review evidence without credentials or signing keys."""
 
-    schema_version: Literal["trusted-installation-acceptance-v2"] = (
-        "trusted-installation-acceptance-v2"
-    )
+    schema_version: Literal["trusted-installation-acceptance"] = "trusted-installation-acceptance"
     checked_at: datetime
     request_sha256: Digest
     upgrade_request_sha256: Digest

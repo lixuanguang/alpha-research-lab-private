@@ -419,7 +419,7 @@ def main() -> None:
         malformed = msgspec.json.decode(
             (malformed_root / "manifest.json").read_bytes(), type=dict[str, object]
         )
-        malformed["schema_version"] = "candidate-manifest-v2"
+        malformed["schema_version"] = "candidate-manifest-unsupported"
         altered_manifest = malformed_root / "altered-manifest.json"
         altered_manifest.write_bytes(codec.encode_json(malformed))
         altered_manifest.replace(malformed_root / "manifest.json")

@@ -249,7 +249,7 @@ class CapacitySourceCases:
         self.output.mkdir(parents=True, exist_ok=False)
         requests = tuple((source, self._request(source)) for source in self.service.sources)
         plan = {
-            "schema_version": "runtime-capacity-source-case-v1",
+            "schema_version": "runtime-capacity-source-case",
             "evidence_class": "source_component_only_no_account_or_four_owner_load_claim",
             "case": self.case,
             "declared_duration_seconds": self.case_seconds[self.case],
@@ -280,7 +280,7 @@ class CapacitySourceCases:
             *(self._capture(source, request) for source, request in requests)
         )
         report = {
-            "schema_version": "runtime-capacity-source-case-result-v1",
+            "schema_version": "runtime-capacity-source-case-result",
             "evidence_class": "source_component_only_no_account_or_four_owner_load_claim",
             "case": self.case,
             "plan": str(self.output / "case-plan.json"),

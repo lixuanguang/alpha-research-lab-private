@@ -130,7 +130,7 @@ class FeastWorkerCommand:
             payload: UTF-8 JSON produced by ``OfflineFeatureBridge``.
 
         Returns:
-            UTF-8 JSON matching ``offline-feature-result-v1``.
+            UTF-8 JSON matching ``offline-feature-result``.
 
         Raises:
             ValueError: The request, registry bytes or SDK result cannot prove the
@@ -138,7 +138,7 @@ class FeastWorkerCommand:
         """
         decoded: object = json.loads(payload.decode("utf-8"))
         request = self._mapping(decoded, "request")
-        if request.get("schema_version") != "offline-feature-request-v1":
+        if request.get("schema_version") != "offline-feature-request":
             raise ValueError("unsupported offline worker request schema")
         definition = self._mapping(request.get("definition"), "definition")
         if definition.get("eligibility") != "immutable-source":
@@ -213,7 +213,7 @@ class FeastWorkerCommand:
         dumper = cast(_JsonDumper, self._attribute(json, "dumps"))
         return dumper(
             {
-                "schema_version": "offline-feature-result-v1",
+                "schema_version": "offline-feature-result",
                 "request_identity": self._text(request.get("request_identity"), "request_identity"),
                 "definition_identity": self._text(
                     request.get("definition_identity"), "definition_identity"
@@ -361,7 +361,7 @@ class FeastWorkerCommand:
                 )
                 result.append(
                     {
-                        "schema_version": "feature-observation-v1",
+                        "schema_version": "feature-observation",
                         "definition_identity": definition_identity,
                         "source_version": source_version,
                         "source_sha256": source_sha256,

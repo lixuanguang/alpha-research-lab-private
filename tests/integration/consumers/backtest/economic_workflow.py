@@ -249,7 +249,7 @@ class _SavedEconomy:
                 economics=replace(
                     base.economics,
                     instance="synthetic-reversal",
-                    rule="completed-price-reversal-v1",
+                    rule="completed-price-reversal",
                 ),
             )
             selected = ComparisonStudy(

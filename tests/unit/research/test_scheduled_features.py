@@ -126,8 +126,8 @@ class TestScheduledFeatures:
         assert all(point.event_at >= closes[-1] for point in state.points)
         assert all(event_at >= closes[-1] for event_at, _ in state.gaps)
 
-    def test_value_only_checkpoint_restores_and_new_schedule_bound(self) -> None:
-        """Recover old state once and admit up to 8,192 scheduled closes."""
+    def test_value_only_checkpoint_is_refused_and_new_schedule_bound(self) -> None:
+        """Refuse state without a resumable cursor and admit up to 8,192 scheduled closes."""
         definition, reader = self._definition(), self._reader()
         running = ScheduledFeatures(reader, definition)
         for second in (10, 20):
@@ -141,10 +141,8 @@ class TestScheduledFeatures:
             msgspec.json.encode(old_payload), ScheduledFeatureCheckpoint
         )
         assert old_state.cursor is None and old_state.observation_state is None
-        restored = ScheduledFeatures(reader, definition, checkpoint=old_state, batch_size=1)
-        third = definition.start + timedelta(seconds=30)
-        assert restored.evaluate(third) == running.evaluate(third)
-        assert restored.checkpoint == running.checkpoint
+        with pytest.raises(ValueError, match="unsupported value-only scheduled checkpoint schema"):
+            ScheduledFeatures(reader, definition, checkpoint=old_state, batch_size=1)
         replace(
             definition,
             end=definition.start + timedelta(seconds=definition.cadence_seconds * 8193),

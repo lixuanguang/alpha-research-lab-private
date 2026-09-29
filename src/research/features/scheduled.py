@@ -28,7 +28,7 @@ class ScheduledFeatureSpec(WireRecord, frozen=True):
     end: datetime
     cadence_seconds: int
     max_age_seconds: int
-    schema_version: Literal["scheduled-completed-feature-v1"] = "scheduled-completed-feature-v1"
+    schema_version: Literal["scheduled-completed-feature"] = "scheduled-completed-feature"
 
     def __post_init__(self) -> None:
         """Reject incompatible dimensions, clocks, versions and unbounded schedules."""
@@ -38,7 +38,7 @@ class ScheduledFeatureSpec(WireRecord, frozen=True):
             raise TypeError("scheduled feature requires an exact price dimension")
         self.tick.model_copy()
         if (
-            self.schema_version != "scheduled-completed-feature-v1"
+            self.schema_version != "scheduled-completed-feature"
             or type(self.instance) is not str
             or not self.instance.strip()
             or type(self.binding) is not tuple
@@ -99,7 +99,7 @@ class ScheduledFeatureCheckpoint(WireRecord, frozen=True):
     values_sha256: str
     cursor: ReplayCursor | None = None
     observation_state: ObservationState | None = None
-    schema_version: Literal["scheduled-feature-state-v1"] = "scheduled-feature-state-v1"
+    schema_version: Literal["scheduled-feature-state"] = "scheduled-feature-state"
 
     def __post_init__(self) -> None:
         """Validate compatible state, schedule, units, exact calculations and content digest."""
@@ -107,7 +107,7 @@ class ScheduledFeatureCheckpoint(WireRecord, frozen=True):
             raise TypeError("scheduled checkpoint requires definition and immutable values")
         self.definition.__post_init__()
         if (
-            self.schema_version != "scheduled-feature-state-v1"
+            self.schema_version != "scheduled-feature-state"
             or type(self.input_identity) is not str
             or re.fullmatch(r"[0-9a-f]{64}", self.input_identity) is None
             or self.values_sha256
@@ -262,6 +262,8 @@ class ScheduledFeatures:
                 or checkpoint.input_identity != reader.identity
             ):
                 raise ValueError("scheduled checkpoint definition or source changed")
+            if checkpoint.values and checkpoint.cursor is None:
+                raise ValueError("unsupported value-only scheduled checkpoint schema")
             self._values = checkpoint.values
             self._cursor = checkpoint.cursor
             self._observation_state = checkpoint.observation_state
@@ -359,21 +361,6 @@ class ScheduledFeatures:
         ):
             raise ValueError("scheduled feature quote currency differs from admitted source")
         self._replay, self._observations = replay, observations
-        if self._values and self._cursor is None:
-            self._restore_legacy_checkpoint()
-
-    def _restore_legacy_checkpoint(self) -> None:
-        """Reconstruct old value-only checkpoints once without changing their frozen trace."""
-        previous: Observation | None = None
-        state: ObservationState | None = None
-        for expected in self._values:
-            actual, state = self._advance(expected.observation.closed_at, previous)
-            if actual != expected:
-                raise ValueError("saved source differs from frozen scheduled checkpoint")
-            previous = actual.observation
-        if self._replay is None or state is None:
-            raise RuntimeError("scheduled replay disappeared during checkpoint recovery")
-        self._cursor, self._observation_state = self._replay.cursor, state
 
     def _advance(
         self, decision_at: datetime, previous: Observation | None
@@ -429,14 +416,11 @@ class ScheduledFeatureParity(WireRecord, frozen=True):
     restarted: ScheduledFeatureCheckpoint
     limitations: tuple[str, ...]
     scope: Literal["saved-input-batch"] = "saved-input-batch"
-    schema_version: Literal["scheduled-feature-parity-v1"] = "scheduled-feature-parity-v1"
+    schema_version: Literal["scheduled-feature-parity"] = "scheduled-feature-parity"
 
     def __post_init__(self) -> None:
         """Validate identities and compatible trace contracts without concealing disagreement."""
-        if (
-            self.scope != "saved-input-batch"
-            or self.schema_version != "scheduled-feature-parity-v1"
-        ):
+        if self.scope != "saved-input-batch" or self.schema_version != "scheduled-feature-parity":
             raise ValueError("unsupported scheduled feature parity scope or version")
         if (
             type(self.limitations) is not tuple

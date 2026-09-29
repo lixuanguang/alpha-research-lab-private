@@ -40,8 +40,8 @@ class CredentialReference(WireRecord, frozen=True, kw_only=True):
 class ExecutionInspection(WireRecord, frozen=True, kw_only=True):
     """Report the installed mode and schema without exposing a credential identifier."""
 
-    schema_version: Literal["execution-admission-v1"]
-    state_schema: Literal["none-v1"]
+    schema_version: Literal["execution-admission"]
+    state_schema: Literal["none"]
     mode: Literal["research", "paper", "shadow"]
     environment: str
     credential_mode: Literal["research", "paper", "shadow"]
@@ -52,8 +52,8 @@ class ExecutionInspection(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Keep inspection aligned with the accepted read-only deployment envelope."""
         if (
-            self.schema_version != "execution-admission-v1"
-            or self.state_schema != "none-v1"
+            self.schema_version != "execution-admission"
+            or self.state_schema != "none"
             or self.mode not in ("research", "paper", "shadow")
             or self.credential_mode != self.mode
             or self.submission_available is not False
@@ -70,7 +70,7 @@ class ExecutionInspection(WireRecord, frozen=True, kw_only=True):
 class ExecutionConfiguration(WireRecord, frozen=True, kw_only=True):
     """Bind a read-only installed execution profile and evidenced spot reference."""
 
-    schema_version: Literal["execution-admission-v1"] = "execution-admission-v1"
+    schema_version: Literal["execution-admission"] = "execution-admission"
     mode: ExecutionMode
     environment: str
     credential: CredentialReference
@@ -81,7 +81,7 @@ class ExecutionConfiguration(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Reject any executable authority or mismatch before reading an intent."""
-        if self.schema_version != "execution-admission-v1":
+        if self.schema_version != "execution-admission":
             raise ValueError("unsupported execution configuration schema")
         if self.mode not in ("research", "paper", "shadow"):
             raise ValueError("production submission is unavailable in this package")
@@ -135,7 +135,7 @@ class ExecutionConfiguration(WireRecord, frozen=True, kw_only=True):
             raise ValueError("production submission is unavailable in this package")
         return ExecutionInspection(
             schema_version=self.schema_version,
-            state_schema="none-v1",
+            state_schema="none",
             mode=self.mode,
             environment=self.environment,
             credential_mode=self.credential.mode,

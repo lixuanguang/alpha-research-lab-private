@@ -103,7 +103,7 @@ class _Scenario:
     def schema(source: NumericHistorySource, *, incremental: bool = False) -> FeatureSchema:
         """Define two explicitly ordered output columns and exact lifecycle semantics."""
         return FeatureSchema(
-            implementation="running-mean-v1" if incremental else "named-projection-v1",
+            implementation="running-mean" if incremental else "named-projection",
             inputs=source.requirements,
             outputs=(
                 NumericField(name="activity", units="score"),
@@ -165,7 +165,7 @@ class _Scenario:
         outcomes = tuple(
             Outcome(
                 feature_identity=row.identity,
-                definition="reference-outcome-v1",
+                definition="reference-outcome",
                 field=NumericField(name="change", units="score"),
                 information_start=row.decision_at,
                 information_end=row.decision_at + timedelta(seconds=1),
@@ -195,7 +195,7 @@ class _NormalizeFirst:
     @property
     def identity(self) -> str:
         """Pin first-column selection and exact train-mean normalization."""
-        return "normalize-first-column-v1"
+        return "normalize-first-column"
 
     def fit(self, rows: tuple[FeatureVector, ...]) -> bytes:
         """Fit the first column mean without seeing any validation values."""

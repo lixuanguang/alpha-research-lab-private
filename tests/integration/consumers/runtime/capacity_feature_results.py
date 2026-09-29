@@ -166,7 +166,7 @@ class FeatureCohortResults:
             for source, values in durations.items()
         }
         return {
-            "schema_version": "finite-feature-cohort-v1",
+            "schema_version": "finite-feature-cohort",
             "status": "pass"
             if all(result["status"] == "pass" for result in results.values())
             else "fail",

@@ -107,15 +107,11 @@ class _InstalledWheelCheck:
         inputs = smoke_root / "inputs"
         inputs.mkdir()
         for relative, name in (
-            ("configs/backtests/okx-eth-usdt-book-v1.json", "book-config.json"),
+            ("configs/backtests/okx-eth-usdt-book.json", "book-config.json"),
             ("tests/integration/consumers/backtest/book_workflow.py", "book_workflow.py"),
             ("tests/integration/consumers/wheel_layout.py", "wheel_layout.py"),
         ):
             shutil.copyfile(repository_root / relative, inputs / name)
-        shutil.copytree(
-            repository_root / "tests/fixtures/datasets/historical_snapshot",
-            inputs / "historical_snapshot",
-        )
         command = [str(python), "-I", str(inputs / "wheel_layout.py"), str(inputs)]
         subprocess.run(  # nosec B603  # [owner=platform; rationale=isolated interpreter smoke argv; expires=2027-03-01]
             command, cwd=smoke_root, env=environment, check=True

@@ -27,7 +27,7 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 class AnalysisQuery(WireRecord, frozen=True, kw_only=True):
     """Declare the only filters supported by the bounded analysis adapters."""
 
-    schema_version: Literal["bounded-analysis-query-v1"] = "bounded-analysis-query-v1"
+    schema_version: Literal["bounded-analysis-query"] = "bounded-analysis-query"
     entity_type: str | None = None
     entity_key: str | None = None
     start: datetime | None = None
@@ -60,7 +60,7 @@ class AnalysisQuery(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Reject unbounded intervals, naive clocks and arbitrary SQL inputs."""
-        if self.schema_version != "bounded-analysis-query-v1":
+        if self.schema_version != "bounded-analysis-query":
             raise ValueError("unsupported bounded analysis query schema")
         if self.entity_type is not None:
             self._text(self.entity_type, "entity_type")
@@ -109,7 +109,7 @@ class VerifiedFeatureRows:
         """Convert a verified MR3 feature result into retained analysis observations.
 
         Args:
-            payload: Complete ``feature-study-result-v1`` bytes from the causal reader.
+            payload: Complete ``feature-study-result`` bytes from the causal reader.
             expected_sha256: Digest of the exact retained result bytes.
             ttl_us: Explicit positive feature TTL in microseconds.
             feature_name: Stable name assigned to the projected feature column.
@@ -401,7 +401,7 @@ class VerifiedFeatureRows:
 class AnalysisResult(WireRecord, frozen=True, kw_only=True):
     """Retain one backend's bounded rows and the exact source/query identities."""
 
-    schema_version: Literal["bounded-analysis-result-v1"] = "bounded-analysis-result-v1"
+    schema_version: Literal["bounded-analysis-result"] = "bounded-analysis-result"
     backend: Literal["duckdb", "polars"]
     query_identity: str
     source_identity: str
@@ -409,7 +409,7 @@ class AnalysisResult(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Validate backend identity and preserve nullable exact feature records."""
-        if self.schema_version != "bounded-analysis-result-v1":
+        if self.schema_version != "bounded-analysis-result":
             raise ValueError("unsupported bounded analysis result schema")
         if self.backend not in ("duckdb", "polars"):
             raise ValueError("unsupported bounded analysis backend")
@@ -430,7 +430,7 @@ class AnalysisResult(WireRecord, frozen=True, kw_only=True):
 class AnalysisMismatch(WireRecord, frozen=True, kw_only=True):
     """Retain one exact backend/reference difference, including nullable values."""
 
-    schema_version: Literal["analysis-mismatch-v1"] = "analysis-mismatch-v1"
+    schema_version: Literal["analysis-mismatch"] = "analysis-mismatch"
     backend: Literal["duckdb", "polars"]
     row_identity: str
     expected_value: str | None
@@ -439,7 +439,7 @@ class AnalysisMismatch(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Validate mismatch identities while keeping values as exact strings."""
-        if self.schema_version != "analysis-mismatch-v1":
+        if self.schema_version != "analysis-mismatch":
             raise ValueError("unsupported analysis mismatch schema")
         if self.backend not in ("duckdb", "polars"):
             raise ValueError("unsupported analysis mismatch backend")
@@ -456,7 +456,7 @@ class AnalysisMismatch(WireRecord, frozen=True, kw_only=True):
 class AnalysisComparison(WireRecord, frozen=True, kw_only=True):
     """Compare DuckDB and Polars outputs with the retained native reference rows."""
 
-    schema_version: Literal["bounded-analysis-comparison-v1"] = "bounded-analysis-comparison-v1"
+    schema_version: Literal["bounded-analysis-comparison"] = "bounded-analysis-comparison"
     query_identity: str
     source_identity: str
     duckdb: AnalysisResult
@@ -465,7 +465,7 @@ class AnalysisComparison(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Require both backend results to describe the same verified source and query."""
-        if self.schema_version != "bounded-analysis-comparison-v1":
+        if self.schema_version != "bounded-analysis-comparison":
             raise ValueError("unsupported bounded analysis comparison schema")
         AnalysisQuery._digest(self.query_identity, "query_identity")
         AnalysisQuery._digest(self.source_identity, "source_identity")

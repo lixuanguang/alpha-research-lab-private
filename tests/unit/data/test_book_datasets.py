@@ -26,7 +26,6 @@ from market_data.adapters.venues.okx import OKXArchiveStore
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, OKXArchiveRequest
 from market_data.datasets import (
     BookDatasetManifest,
-    BookHistory,
     BookInput,
     BookPartition,
     BookSnapshot,
@@ -263,7 +262,7 @@ class TestBookDatasets:
                 manifest_type=BookDatasetManifest,
             ).read(identity, max_bytes=_LIMIT)
 
-    def test_stream_publication_exceeds_legacy_prefix_without_retaining_history(
+    def test_stream_publication_exceeds_envelope_prefix_without_retaining_history(
         self, tmp_path: Path
     ) -> None:
         """Admit 10,001 distinct raw rows and reconstruct exact final state from v2 lines."""
@@ -282,7 +281,6 @@ class TestBookDatasets:
             max_bytes=16_000_000,
         )
         selected = BookInput.read(archive, max_records=10_001)
-        assert snapshot.schema_version == "book-dataset-v2"
         assert snapshot.selection(selected.request.identity).raw == selected.raw
         count = 0
         last: BookObservation | None = None
@@ -293,7 +291,7 @@ class TestBookDatasets:
         assert last.position == 10_000
         assert last.bids[0][1].size == Decimal("10000")
         assert last.received_ns is None and last.epoch is None
-        with pytest.raises(ValueError, match="legacy book envelope"):
+        with pytest.raises(ValueError, match="book envelope requires"):
             selected.admit(RawStore(raw), readers=SourceAdapters(), max_bytes=16_000_000)
         with pytest.raises(ValueError, match="bounded prefix"):
             BookInput.read(archive, max_records=1_000_001)
@@ -331,43 +329,18 @@ class TestBookDatasets:
         with pytest.raises(ValueError, match="changed after admission"):
             next(session.observations(request_identity))
 
-    def test_legacy_snapshot_remains_readable_with_exact_bytes(self, tmp_path: Path) -> None:
-        """The new reader preserves old v1 envelopes and their canonical digest."""
-        archive = self._archive(tmp_path / "archive")
-        raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
-        raw.mkdir()
-        snapshots.mkdir()
-        selected = BookInput.read(archive, max_records=2)
-        RawStore(raw).publish(
-            archive / selected.raw.sha256,
-            descriptor=selected.raw,
-            request=selected.request.binding,
-        )
-        payload = selected.admit(RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT)
-        canonical = payload.require_canonical()
+    def test_old_book_dataset_schema_is_refused(self, tmp_path: Path) -> None:
+        """A manifest in the removed v1 envelope schema is refused, never read."""
+        selected = BookInput.read(self._archive(tmp_path / "archive"), max_records=2)
         manifest = BookDatasetManifest(
             normalization_identity="a" * 64,
-            partitions=(BookPartition(hashlib.sha256(canonical).hexdigest(), selected),),
+            partitions=(BookPartition("b" * 64, selected),),
         )
-        identity = SnapshotStore(
-            snapshots,
-            RawStore(raw),
-            readers=SourceAdapters(),
-            manifest_type=BookDatasetManifest,
-        ).publish(manifest, (canonical,), max_bytes=_LIMIT)
-        session = BookSnapshot.read(
-            snapshots,
-            RawStore(raw),
-            readers=SourceAdapters(),
-            identity=identity,
-            max_bytes=_LIMIT,
+        payload = _CODEC.encode_json(manifest).replace(
+            b'"book-dataset"', b'"book-dataset-envelope"'
         )
-        assert session.schema_version == "book-dataset-v1"
-        assert session.legacy_canonical(selected.request.identity) == canonical
-        assert (
-            tuple(session.observations(selected.request.identity))
-            == _CODEC.decode_json(canonical, BookHistory).observations
-        )
+        with pytest.raises(ValueError, match="unsupported book dataset schema"):
+            _CODEC.decode_json(payload, BookDatasetManifest)
 
     @pytest.mark.integration
     def test_installed_book_consumer(self, tmp_path: Path) -> None:

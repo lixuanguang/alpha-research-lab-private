@@ -43,7 +43,7 @@ normalized parent event and its child postings commit together, and conflicting
 retries or attribution breaks are rejected and retained by the account journal.
 
 Reopening with the same journal and bindings restores the account and each
-instance's `shared-decision-v1` policy continuation. The continuation digest is
+instance's `shared-decision` policy continuation. The continuation digest is
 an optimistic precondition on the account transaction, so a stale concurrent
 writer cannot replace a newer instance checkpoint. Selective instance stop and
 restart remain account-journal operations; unresolved shared parents retain
@@ -85,7 +85,7 @@ their formulas are engineering workloads, not profitability evidence.
 Output retains `manifest.json`, native `capture/`, fsynced `deliveries.jsonl`,
 `paper-result.json`, `execution-traces.json` and `cost-report.json`. The manifest
 pins configuration, source/implementation, book registry, policies, execution
-assumptions and `last_eligible_bid_v1` mark policy. Reports require fresh marks
+assumptions and `last_eligible_bid` mark policy. Reports require fresh marks
 for all open holdings and retain exact account/strategy P&L, fees and slippage.
 Slippage already paid through effective fill prices is disclosed without a second
 deduction. Gas is explicitly inapplicable for the off-chain spot profile, with

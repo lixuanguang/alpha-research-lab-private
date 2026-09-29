@@ -144,8 +144,8 @@ class TestIncrementalBookDepth:
         )
 
     @staticmethod
-    def _legacy_identity(orders: tuple[Order, ...], sequence: int, ready: bool) -> str:
-        """Recompute the pre-aggregate order-only fingerprint from canonical orders."""
+    def _order_identity(orders: tuple[Order, ...], sequence: int, ready: bool) -> str:
+        """Recompute the order-only fingerprint independently from canonical orders."""
         codec = DomainCodec()
         fingerprint = 0
         for order in orders:
@@ -207,7 +207,7 @@ class TestIncrementalBookDepth:
         orders: tuple[Order, ...],
         sequence: int,
     ) -> None:
-        """Compare native cache, saved representation, quote and legacy identity."""
+        """Compare native cache, saved representation, quote and order-only identity."""
         bids = self._expected_levels(orders, "buy")
         asks = self._expected_levels(orders, "sell")
         assert scenario.replay.book.orders == {order.order_id: order for order in orders}
@@ -218,7 +218,7 @@ class TestIncrementalBookDepth:
             sorted(order.order_id for order in orders)
         )
         assert row.bids == () and row.asks == ()
-        assert row.state_identity == self._legacy_identity(orders, sequence, True)
+        assert row.state_identity == self._order_identity(orders, sequence, True)
         assert quote.state_identity == row.state_identity
         assert quote.venue == "bitfinex" and quote.channel == scenario.config.channel
         assert quote.instrument_id == scenario.config.instrument_id

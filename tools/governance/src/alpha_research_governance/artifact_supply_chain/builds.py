@@ -240,19 +240,16 @@ class ReleaseBuilder:
         )
 
     def _run(self, arguments: list[str]) -> bytes:
-        """Run bounded build/provenance argv without exposing inherited credentials."""
-        result = subprocess.run(  # nosec B603  # [owner=platform; rationale=fixed source and build argv with pinned tool; expires=2027-03-01]
-            arguments,
-            cwd=self.repository,
-            check=False,
-            capture_output=True,
-            timeout=180,
-            env={
-                "PATH": "/usr/bin:/bin",
-                "HOME": str(self.repository / "logs/mr06/build-home"),
-                "LC_ALL": "C",
-            },
-        )
+        """Run bounded build/provenance argv with a fresh HOME and no inherited credentials."""
+        with TemporaryDirectory(prefix="ar-build-home-") as home:
+            result = subprocess.run(  # nosec B603  # [owner=platform; rationale=fixed source and build argv with pinned tool; expires=2027-03-01]
+                arguments,
+                cwd=self.repository,
+                check=False,
+                capture_output=True,
+                timeout=180,
+                env={"PATH": "/usr/bin:/bin", "HOME": home, "LC_ALL": "C"},
+            )
         if result.returncode != 0:
             raise ValueError(
                 f"release build failed: {result.stderr.decode(errors='replace')[-2000:]}"

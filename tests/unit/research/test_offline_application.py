@@ -37,14 +37,15 @@ from research.features import (
     TrailingReturn,
     WindowPolicy,
 )
-from research.studies import ClearMLDestination, FeatureLabelPayload, ResultManifest
+from research.results import FeatureStudyResult
+from research.studies import ClearMLDestination, ResultManifest
 from serialization import DomainCodec
 
 _CODEC = DomainCodec()
 _START = datetime(2026, 1, 1, tzinfo=UTC)
 _INSTRUMENT = InstrumentId(UUID("11111111-1111-4111-8111-111111111111"))
 _BINDING: InputBinding = ("fixture-source", "trade", _INSTRUMENT)
-_SOURCE_BYTES = b"offline-source-v1"
+_SOURCE_BYTES = b"offline-source"
 
 
 class _Worker:
@@ -139,8 +140,8 @@ class TestFormalOfflineFeatureComparison:
             ),
             value=ExactRatio(numerator="1", denominator="100"),
         )
-        payload = FeatureLabelPayload(
-            schema_version="feature-study-result-v1",
+        payload = FeatureStudyResult(
+            schema_version="feature-study-result",
             selection_identity="1" * 64,
             feature_definition=definition,
             label_definition=None,
@@ -173,10 +174,10 @@ class TestFormalOfflineFeatureComparison:
             units="dimensionless",
             ttl_us=10_000_000,
             sdk_version="0.66.0",
-            definition_version="trailing-return-v1",
+            definition_version="trailing-return",
             definition_bytes=b"offline definition",
             registry_bytes=b"offline registry",
-            source_version="offline-source-v1",
+            source_version="offline-source",
             source_sha256=hashlib.sha256(_SOURCE_BYTES).hexdigest(),
         )
         return OfflineFeatureRequest(

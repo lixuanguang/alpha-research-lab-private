@@ -32,6 +32,7 @@ from configuration import (
     CapabilityRequirement,
     CaptureConfig,
     PaperConfiguration,
+    PaperExecutionScenario,
 )
 from execution import PaperOrderJournal, StepRecord
 from financial_units import Currency, Dimension, ExactRatio, Money, QuantityKind
@@ -124,7 +125,7 @@ class _LiveCandidateConsumer:
                     name=f"fixture-{requirement.name}",
                     kind=requirement.kind,
                     implementation_identity=(
-                        f"native-{self.config.venue}-public-book-v1"
+                        f"native-{self.config.venue}-public-book"
                         if requirement.kind == "market_data"
                         else f"installed-fixture-{requirement.kind}"
                     ),
@@ -543,6 +544,16 @@ class _LiveCandidateConsumer:
             maximum_fee=Money(value=Decimal("1"), currency=scenario.currency),
             fee_rate=Decimal("0.002"),
             market_max_age_us=5_000_000,
+            execution=PaperExecutionScenario(
+                venue="okx" if config.venue == "okx" else "bitfinex",
+                instrument_id=scenario.quantity("1").dimension.instrument_id,
+                entry_delay_us=0,
+                cancel_delay_us=0,
+                adverse=scenario.price("0"),
+                fee_rate=Decimal("0.002"),
+                take_fraction=Decimal("1"),
+                gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
+            ),
         )
         (self.output / "candidate-deployment.json").write_bytes(codec.encode_json(deployment))
         (self.output / "capture-request.json").write_bytes(codec.encode_json(request))

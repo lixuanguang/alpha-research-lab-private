@@ -35,14 +35,14 @@ class PaperCheckpoint(WireRecord, frozen=True):
     market: PaperMarket | None
     order_sequence: int
     blocked: str | None
-    schema_version: Literal["paper-checkpoint-v1"] = "paper-checkpoint-v1"
+    schema_version: Literal["paper-checkpoint"] = "paper-checkpoint"
 
     def __post_init__(self) -> None:
         """Reject incompatible state, future markets and invalid event cursors."""
         self._require_utc(self.last_at, field_name="runtime event")
         self.candidate.__post_init__()
         if (
-            self.schema_version != "paper-checkpoint-v1"
+            self.schema_version != "paper-checkpoint"
             or len(self.binding_identity) != 64
             or type(self.order_sequence) is not int
             or self.order_sequence < 0
@@ -64,13 +64,13 @@ class PaperFaultEvidence(WireRecord, frozen=True):
 
     event: StrategyEvent
     observed_at: datetime
-    schema_version: Literal["paper-fault-v1"] = "paper-fault-v1"
+    schema_version: Literal["paper-fault"] = "paper-fault"
 
     def __post_init__(self) -> None:
         """Require an identified fault and an original UTC observation time."""
         self.event.__post_init__()
         self._require_utc(self.observed_at, field_name="observed paper fault")
-        if self.schema_version != "paper-fault-v1" or self.event.kind != "fault":
+        if self.schema_version != "paper-fault" or self.event.kind != "fault":
             raise ValueError("invalid paper fault evidence")
 
 
@@ -201,7 +201,7 @@ class PaperCandidateRuntime:
         self._admit_time(market.at)
         if market.bid.per != self.config.maximum.dimension:
             raise ValueError("paper market instrument differs from its account")
-        if self.config.execution is None or self.config.mode == "shadow":
+        if self.config.mode == "shadow":
             self.journal.claim_market(
                 epoch=self._fence(), identity=market.identity, payload=payload
             )

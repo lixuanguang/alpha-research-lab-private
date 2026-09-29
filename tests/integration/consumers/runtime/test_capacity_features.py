@@ -113,7 +113,7 @@ class TestCapacityFeatures:
                     timings.write(
                         codec.encode_json(
                             {
-                                "schema_version": "runtime-measurement-v1",
+                                "schema_version": "runtime-measurement",
                                 "kind": "capture_boundary",
                                 "cursor": position + 1,
                                 "durable_ns": durable_origin + position * 1_000_000,
@@ -448,7 +448,7 @@ class TestCapacityFeatures:
         payload = (
             DomainCodec().encode_json(
                 {
-                    "schema_version": "runtime-measurement-v1",
+                    "schema_version": "runtime-measurement",
                     "kind": "capture_boundary",
                     "cursor": 6,
                     "durable_ns": 1,

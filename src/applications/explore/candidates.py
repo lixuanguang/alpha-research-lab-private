@@ -29,11 +29,11 @@ class CandidateRunResult(WireRecord, frozen=True):
     binding_identity: str
     steps: tuple[CandidateStep, ...]
     checkpoint: CandidateCheckpoint
-    schema_version: Literal["candidate-run-result-v1"] = "candidate-run-result-v1"
+    schema_version: Literal["candidate-run-result"] = "candidate-run-result"
 
     def __post_init__(self) -> None:
         """Reject disconnected result/checkpoint identities and nonmonotonic traces."""
-        if self.schema_version != "candidate-run-result-v1" or type(self.steps) is not tuple:
+        if self.schema_version != "candidate-run-result" or type(self.steps) is not tuple:
             raise ValueError("unsupported candidate result schema")
         for digest in (self.candidate_identity, self.deployment_identity, self.binding_identity):
             if (

@@ -81,7 +81,7 @@ class VenueExecutionConfiguration(WireRecord, frozen=True, kw_only=True):
     reference: ReferenceHistory
     max_reference_age_us: int
     credentials: VenueCredentialReferences
-    schema_version: Literal["venue-execution-v1"] = "venue-execution-v1"
+    schema_version: Literal["venue-execution"] = "venue-execution"
 
     def __post_init__(self) -> None:
         """Reject venue, account, reference or currency ambiguity before dispatch."""
@@ -91,7 +91,7 @@ class VenueExecutionConfiguration(WireRecord, frozen=True, kw_only=True):
         if self.account.mode != "venue_test":
             raise ValueError("venue execution requires venue_test account state")
         if (
-            self.schema_version != "venue-execution-v1"
+            self.schema_version != "venue-execution"
             or (self.venue, self.environment)
             not in (("okx", "okx_demo"), ("bitfinex", "bitfinex_paper"))
             or type(self.account_id) is not str
@@ -173,14 +173,14 @@ class VenueAuthorization(WireRecord, frozen=True, kw_only=True):
     valid_until: datetime
     maximum_order_notional: Money
     submit_enabled: bool = False
-    schema_version: Literal["venue-authorization-v1"] = "venue-authorization-v1"
+    schema_version: Literal["venue-authorization"] = "venue-authorization"
 
     def __post_init__(self) -> None:
         """Require canonical identity, UTC interval and positive exact notional."""
         self._require_utc(self.valid_from, field_name="venue authority start")
         self._require_utc(self.valid_until, field_name="venue authority expiry")
         if (
-            self.schema_version != "venue-authorization-v1"
+            self.schema_version != "venue-authorization"
             or type(self.config_sha256) is not str
             or re.fullmatch(r"[a-f0-9]{64}", self.config_sha256) is None
             or type(self.account_id) is not str

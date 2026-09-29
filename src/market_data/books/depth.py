@@ -43,7 +43,7 @@ class BookDepth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 
     @classmethod
     def from_observation(cls, row: BookObservation) -> BookDepth:
-        """Aggregate legacy native orders or retain absolute L2 sizes without changing clocks.
+        """Aggregate native L3 orders or retain absolute L2 sizes without changing clocks.
 
         Args:
             row: Complete canonical observation, including control and invalid states.
@@ -87,7 +87,7 @@ class BookDepth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
 
     @classmethod
     def project(cls, row: BookObservation) -> BookObservation:
-        """Project legacy L3 into L2 while retaining native metadata and quality.
+        """Project L3 orders into L2 levels while retaining native metadata and quality.
 
         Args:
             row: Original canonical boundary; its bytes and identity remain authoritative.

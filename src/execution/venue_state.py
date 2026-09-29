@@ -48,11 +48,11 @@ class VenueState(WireRecord, frozen=True):
 
     ``fills_complete_through`` is the end of the last fill-history window whose
     reconciliation matched the physical account. Every execution the venue had
-    published by then with an earlier source time has been applied. Version 1
-    state predates the mark; its absent mark keeps the full opening window.
+    published by then with an earlier source time has been applied. An absent
+    mark keeps the full opening window.
     """
 
-    schema_version: str = "venue-journal-v2"
+    schema_version: str = "venue-journal"
     nonce: int = 0
     last_request_at: datetime | None = None
     dispatches: tuple[VenueDispatch, ...] = ()
@@ -64,14 +64,9 @@ class VenueState(WireRecord, frozen=True):
 
     def __post_init__(self) -> None:
         """Refuse incompatible state rather than guessing a recovery migration."""
-        if (
-            self.schema_version not in ("venue-journal-v1", "venue-journal-v2")
-            or (
-                self.schema_version == "venue-journal-v1"
-                and self.fills_complete_through is not None
-            )
-            or self.nonce < 0
-        ):
+        if self.schema_version != "venue-journal":
+            raise ValueError("unsupported venue journal schema")
+        if self.nonce < 0:
             raise ValueError("unsupported venue journal state")
         if self.fills_complete_through is not None:
             self._require_utc(self.fills_complete_through, field_name="venue fill mark")
@@ -132,9 +127,6 @@ class VenueStateStore:
             raise ValueError("venue journal state is missing")
         result = self._codec.decode_json(payload, VenueState)
         result.__post_init__()
-        if result.schema_version == "venue-journal-v1":
-            # The next save writes version 2; version 1 readers then refuse it.
-            result = replace(result, schema_version="venue-journal-v2")
         return result
 
     def save(self, state: VenueState) -> None:

@@ -32,11 +32,11 @@ class _BookReportManifest(WireRecord, frozen=True):
     features_sha256: str
     accounts_sha256: tuple[str, ...]
     limitations: tuple[str, ...]
-    schema_version: str = "l2-book-report-v2"
+    schema_version: str = "l2-book-report"
 
     def __post_init__(self) -> None:
         """Reject unsupported versions and malformed content references."""
-        if self.schema_version != "l2-book-report-v2":
+        if self.schema_version != "l2-book-report":
             raise ValueError("unsupported book report schema")
         if not self.accounts_sha256 or any(
             type(value) is not str or not re.fullmatch(r"[a-f0-9]{64}", value)
@@ -97,7 +97,6 @@ class BookReport(WireRecord, frozen=True):
     configuration: BookRun
     features: tuple[BookFeature, ...]
     accounts: tuple[BookCheckpoint, ...]
-    schema_version: str = "l2-book-report-v1"
     limitations: tuple[str, ...] = (
         "Engineering scenario only; no alpha, full-day coverage or live qualification claim.",
         "Original receipt times and source sequences remain unknown; continuity is unproven.",
@@ -129,8 +128,6 @@ class BookReport(WireRecord, frozen=True):
 
     def __post_init__(self) -> None:
         """Require complete matched accounts and source features before reporting success."""
-        if self.schema_version != "l2-book-report-v1":
-            raise ValueError("unsupported book report schema")
         if any(
             type(value) is not str or not re.fullmatch(r"[a-f0-9]{64}", value)
             for value in (
@@ -172,11 +169,10 @@ class BookReport(WireRecord, frozen=True):
 
     @classmethod
     def read(cls, path: Path) -> BookReport:
-        """Read a legacy embedded report or verify and resolve a v2 report bundle.
+        """Verify and resolve a report bundle.
 
-        Keep v2 report.json beside configuration.json, eda.json and checkpoint-N.json.
-        Companion bytes must match their recorded SHA-256 digests. Existing standalone
-        v1 reports need no companion files and retain their original decoding contract.
+        Keep report.json beside configuration.json, eda.json and checkpoint-N.json.
+        Companion bytes must match their recorded SHA-256 digests.
 
         Raises:
             OSError: The report or one of its companion files cannot be read.
@@ -184,15 +180,10 @@ class BookReport(WireRecord, frozen=True):
         """
         payload = path.read_bytes()
         fields = msgspec.json.decode(payload, type=dict[str, msgspec.Raw])
-        version = msgspec.json.decode(
-            fields.get("schema_version", b'"l2-book-report-v1"'), type=str
-        )
-        codec = DomainCodec()
-        if version == "l2-book-report-v1":
-            return codec.decode_json(payload, cls)
-        if version == "l2-book-report-v2":
-            return codec.decode_json(payload, _BookReportManifest).resolve(path.parent)
-        raise ValueError("unsupported book report schema")
+        version = msgspec.json.decode(fields.get("schema_version", b'""'), type=str)
+        if version != "l2-book-report":
+            raise ValueError("unsupported book report schema")
+        return DomainCodec().decode_json(payload, _BookReportManifest).resolve(path.parent)
 
     def encode_references(
         self,
@@ -201,7 +192,7 @@ class BookReport(WireRecord, frozen=True):
         features_sha256: str,
         accounts_sha256: tuple[str, ...],
     ) -> bytes:
-        """Encode a v2 report referencing the exact artifacts retained by its producer.
+        """Encode a report referencing the exact artifacts retained by its producer.
 
         Args:
             configuration_sha256: Digest of the adjacent configuration.json bytes.

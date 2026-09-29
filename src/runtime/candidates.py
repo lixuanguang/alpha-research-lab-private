@@ -196,7 +196,7 @@ class CandidateLoader:
             raise ValueError("candidate serving requires a packaged feature-store definition")
         if (
             manifest.state.on_restart == "restore"
-            and manifest.state.checkpoint_schema != "candidate-checkpoint-v1"
+            and manifest.state.checkpoint_schema != "candidate-checkpoint"
         ):
             raise ValueError("candidate checkpoint schema is unsupported")
         return LoadedCandidate(
@@ -256,12 +256,12 @@ class CandidateCheckpoint(WireRecord, frozen=True):
     policy: DecisionState
     observations: int
     sha256: str
-    schema_version: Literal["candidate-checkpoint-v1"] = "candidate-checkpoint-v1"
+    schema_version: Literal["candidate-checkpoint"] = "candidate-checkpoint"
 
     def __post_init__(self) -> None:
         """Reject disconnected state clocks and unsupported schema versions."""
         if (
-            self.schema_version != "candidate-checkpoint-v1"
+            self.schema_version != "candidate-checkpoint"
             or self.binding_identity != self.policy.run_identity
             or type(self.observations) is not int
             or self.observations < 0

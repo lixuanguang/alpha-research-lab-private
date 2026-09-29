@@ -185,7 +185,7 @@ class TestPaperAccountReporter:
             costs=(),
             gas_policy=self.gas,
         )
-        assert report.schema_version == "paper-account-report-v1"
+        assert report.schema_version == "paper-account-report"
         assert report.instances == ()
         assert tuple(item.nav.value for item in report.account.currencies) == (
             Decimal("1000"),

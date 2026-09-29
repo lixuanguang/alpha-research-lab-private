@@ -71,7 +71,7 @@ class TradeRevision(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
     _codec: ClassVar[DomainCodec] = DomainCodec()
     schema_version: Literal["1"] = "1"
     occurrences: tuple[Occurrence, ...]
-    availability: ArchiveAvailability | msgspec.UnsetType = msgspec.UNSET
+    availability: ArchiveAvailability | None = None
     previous: TradeRevision | None = None
     correction: Correction | None = None
 
@@ -91,7 +91,7 @@ class TradeRevision(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
         signatures = {self._signature(item) for item in self.occurrences}
         if len(signatures) != 1:
             raise ValueError("revision occurrences must share an economic key and payload")
-        if self.availability is not msgspec.UNSET:
+        if self.availability is not None:
             if type(self.availability) is not ArchiveAvailability or any(
                 not isinstance(item.event, ArchiveTrade) for item in self.occurrences
             ):

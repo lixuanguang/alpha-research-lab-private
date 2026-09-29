@@ -57,7 +57,7 @@ class _RetainedErrorMetric:
     spec = MetricSpec(
         name="retained-error",
         version="1",
-        implementation_sha256=hashlib.sha256(b"retained-error-test-definition-v1").hexdigest(),
+        implementation_sha256=hashlib.sha256(b"retained-error-test-definition").hexdigest(),
         inputs=(MetricInput(name="error<script>", version="1", units="ratio"),),
         units="ratio",
         modes=("research", "paper"),
@@ -110,7 +110,7 @@ class _ForecastErrorMetric:
         return MetricValue(
             definition=self.identity,
             name="Forecast error <custom>",
-            version="forecast-v1",
+            version="forecast",
             units="ratio",
             value=ExactRatio.from_fraction(sum(values, Fraction(0)) / len(values)),
             observations=observations,
@@ -240,7 +240,7 @@ class TestStudyReports:
     def _spec(cls) -> ExperimentSpec:
         """Construct a real engineering attempt for the artifact reader."""
         return ExperimentSpec(
-            schema_version="experiment-engineering-sample-v1",
+            schema_version="experiment-engineering-sample",
             family="typed-report-consumer",
             inputs=(Fingerprint(name="input", sha256="a" * 64),),
             components=(Fingerprint(name="implementation", sha256="b" * 64),),

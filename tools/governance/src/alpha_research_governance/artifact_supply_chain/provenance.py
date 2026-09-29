@@ -31,7 +31,7 @@ from alpha_research_governance.dependency_admission.wheel_archive import WheelAr
 class SourceSnapshot(ImmutableModel):
     """Retain source input identities separately from a possibly dirty base commit."""
 
-    schema_version: Literal["release-source-v1"] = "release-source-v1"
+    schema_version: Literal["release-source"] = "release-source"
     files: tuple[ReleaseFile, ...]
 
 

@@ -20,12 +20,12 @@ from reference_data.instruments import InstrumentId
 from research.experiments import AttemptStore, SampleInterval, TemporalSplit, TimeWindow
 from research.features import FeatureValue, PriceWindow, TrailingReturn, WindowPolicy
 from research.labels import ForwardReturn, LabelValue
+from research.results import FeatureStudyResult
 from research.studies import (
     ClearMLDestination,
     ClearMLPublication,
     DiagnosticSource,
     EvaluationRecord,
-    FeatureLabelPayload,
     WindowDiagnosticReport,
     WindowDiagnostics,
     WindowDiagnosticStudy,
@@ -52,7 +52,7 @@ class TestWindowDiagnostics:
         )
 
     @classmethod
-    def _fixture(cls) -> tuple[WindowDiagnosticStudy, FeatureLabelPayload, EvaluationRecord]:
+    def _fixture(cls) -> tuple[WindowDiagnosticStudy, FeatureStudyResult, EvaluationRecord]:
         """Build retained records with 10 observations per instrument and per window."""
         policy = WindowPolicy(lookback_us=60_000_000, min_trades=2, max_staleness_us=60_000_000)
         feature_definition = TrailingReturn(
@@ -136,8 +136,8 @@ class TestWindowDiagnostics:
             embargo_us=0,
             rationale="Fixed diagnostic, disjoint untouched holdout",
         )
-        payload = FeatureLabelPayload(
-            schema_version="feature-study-result-v1",
+        payload = FeatureStudyResult(
+            schema_version="feature-study-result",
             selection_identity="a" * 64,
             feature_definition=feature_definition,
             label_definition=label_definition,

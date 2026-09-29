@@ -97,7 +97,7 @@ class _RegistryScenario:
             (
                 BookEquivalence(
                     name="btc-usd",
-                    reference="authored:btc-usd:unit-v1",
+                    reference="authored:btc-usd:unit",
                     members=tuple(item.key for item in selections),
                     known_ns=known_ns,
                     valid_from_ns=valid_from_ns,

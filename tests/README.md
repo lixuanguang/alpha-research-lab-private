@@ -57,18 +57,16 @@ children. Real orchestration belongs to `src/applications/`.
 | [Bounded runtime capacity](integration/consumers/runtime/capacity_trial.py) | Fresh signed four-owner fixture/recovery runs, sampled healthy intervals, native/economic parity and loaded faults; [read observers](integration/consumers/runtime/capacity_reads.py) retain every paced request and [results](integration/consumers/runtime/capacity_results.py) require complete steady latency cohorts and successful per-reader schedules. Acceptance and remaining gates live in the [runtime profile](../docs/roadmap/runtime-capacity.md). |
 
 Wheel smoke installs the hash-locked runtime without governance, checks every
-shipped API/resource and installed identity, reopens the historical snapshot,
-and runs the existing book consumer with `--smoke`. This mode verifies one small
-synthetic OKX archive through the installed CLI and exact account report. The
+shipped API/resource and installed identity, and runs the existing book consumer
+with `--smoke`. This mode verifies one small synthetic OKX archive through the installed CLI and exact account report. The
 default book-consumer mode retains the complete recovery/failure scenario.
 Wheel smoke does not repeat all domain workflows or contact services.
 
 The smoke prints and retains its temporary wheel/environment directory. Keep
 needed evidence before explicitly cleaning it up. Do not synchronize or reinstall
-an environment while tests, notebooks or workers use it. The historical snapshot's
-original bytes and identity stay in `fixtures/datasets/historical_snapshot/`.
-Existing Binance/Tardis-shaped synthetic fixtures remain compatibility tests;
-new data-dependent work follows the [OKX/Bitfinex policy](../docs/roadmap/README.md#current-platform).
+an environment while tests, notebooks or workers use it. Existing
+Binance/Tardis-shaped synthetic fixtures remain regression tests; new
+data-dependent work follows the [OKX/Bitfinex policy](../docs/roadmap/README.md#current-platform).
 
 The trusted installation consumer requires two independently verified releases,
 an out-of-band trust policy, an absent target, and authored admission requests.
@@ -226,7 +224,7 @@ The consumer reconstructs separate native books, compares every boundary with th
 original decoder/projection, checks old cutoffs after later input and verifies a
 fresh rebuild. It retains selected/eligible coverage and original source identities.
 The native journals supply receipt only; the saved query workload explicitly uses
-`receipt-clock-as-availability-v1`. Original delivery is unknown in this workload.
+`receipt-clock-as-availability`. Original delivery is unknown in this workload.
 USD/USDT recordings remain separate. Authored comparable quotes demonstrate tied
 BBO and a paper fill at the selected venue even when another venue has a better
 ask. Paper restart cannot duplicate those modeled effects. This explicit retained

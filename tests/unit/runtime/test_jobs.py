@@ -96,7 +96,7 @@ class _StopAfterIdleWait(threading.Event):
     """Record the idle wait and stop synchronously without elapsed-time assertions."""
 
     def __init__(self) -> None:
-        """Retain wait arguments and bound legacy busy-loop execution."""
+        """Retain wait arguments and bound busy-loop execution."""
         super().__init__()
         self.wait_timeouts: list[float | None] = []
         self._checks = 0

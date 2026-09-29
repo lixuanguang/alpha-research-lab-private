@@ -123,7 +123,7 @@ class TransformVersion(WireRecord, frozen=True):
     available_at: datetime
     state: bytes
     state_sha256: str
-    schema_version: Literal["transform-version-v1"] = "transform-version-v1"
+    schema_version: Literal["transform-version"] = "transform-version"
 
     def __post_init__(self) -> None:
         """Reject changed bytes, unsupported schemas and invented pre-fit availability."""
@@ -134,7 +134,7 @@ class TransformVersion(WireRecord, frozen=True):
         self._require_utc(self.fit_cutoff, field_name="fit_cutoff")
         self._require_utc(self.available_at, field_name="available_at")
         if (
-            self.schema_version != "transform-version-v1"
+            self.schema_version != "transform-version"
             or type(self.state) is not bytes
             or hashlib.sha256(self.state).hexdigest() != self.state_sha256
             or self.available_at < self.fit_cutoff
@@ -253,7 +253,7 @@ class CenterColumns:
     @property
     def identity(self) -> str:
         """Version exact mean subtraction and strict complete-fit behavior."""
-        return "center-columns-v1"
+        return "center-columns"
 
     def fit(self, rows: tuple[FeatureVector, ...]) -> bytes:
         """Retain one exact mean per column; the caller supplies only admitted rows."""

@@ -74,7 +74,7 @@ class TestVenueCalendarBoundaryContracts(_CalendarTestData):
             CalendarSourceVersion(
                 calendar_version="v1",
                 base_source="exchange_calendars",
-                base_source_revision="source-v1",
+                base_source_revision="source",
                 adapter_name="exchange_calendars",
                 adapter_version=EXCHANGE_CALENDARS_VERSION,
                 authority=CalendarAuthority.REFERENCE_ONLY,

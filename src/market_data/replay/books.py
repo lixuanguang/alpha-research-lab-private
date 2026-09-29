@@ -16,7 +16,7 @@ from typing import cast
 
 # project library imports
 from market_data.contracts import BookObservation
-from market_data.datasets import BookHistory, BookInput, BookSnapshot, DatasetReaders
+from market_data.datasets import BookInput, BookSnapshot, DatasetReaders
 from market_data.query import EconomicOrder
 from market_data.replay.events import ReplayCursor, ReplayPhase, _EventSteps
 from market_data.storage import RawStore
@@ -29,49 +29,12 @@ class BookReplay:
     Receipt nanoseconds remain exact; scheduling rounds upwards to microseconds.
     Consumer state must be saved with the cursor. Unknown archive availability is
     never scheduled. Streamed snapshots retain only one lookahead and a delivery
-    batch; the legacy bytes constructor retains its explicitly bounded input.
+    batch.
     """
 
-    def __init__(
-        self,
-        canonical: bytes,
-        *,
-        terminal: datetime,
-        config_identity: str,
-        max_bytes: int,
-        batch_size: int,
-        cursor: ReplayCursor | None = None,
-        snapshot_identity: str | None = None,
-    ) -> None:
-        """Admit legacy reference bytes while preserving their existing replay identity.
-
-        Args:
-            canonical: Complete legacy BookHistory bytes, bounded by max_bytes.
-            terminal: Inclusive final UTC step time.
-            config_identity: Resolved consumer configuration SHA-256.
-            max_bytes: Positive canonical byte cap, not an RSS limit.
-            batch_size: Positive whole-message delivery bound, excluded from identity.
-            cursor: Completed cursor paired with independently saved consumer state.
-            snapshot_identity: Verified publication identity, or None for authored bytes.
-
-        Raises:
-            ValueError: History, bounds, ordering or checkpoint is invalid.
-        """
-        if type(max_bytes) is not int or max_bytes <= 0 or len(canonical) > max_bytes:
-            raise ValueError("book replay canonical input exceeds positive max_bytes")
-        self._canonical: bytes | None = canonical
-        self._snapshot: BookSnapshot | None = None
-        self._request_identity = ""
-        history = DomainCodec().decode_json(canonical, BookHistory)
-        self._input_bytes = DomainCodec().encode_json(history.input)
-        identity = hashlib.sha256(
-            DomainCodec().encode_json(
-                ("book-replay-v1", snapshot_identity, canonical, terminal, config_identity)
-            )
-        ).hexdigest()
-        if snapshot_identity is not None:
-            ReplayCursor(identity=snapshot_identity, clock=terminal, position=None)
-        self._initialize(identity, terminal, config_identity, batch_size, cursor)
+    _snapshot: BookSnapshot
+    _request_identity: str
+    _input_bytes: bytes
 
     @classmethod
     def read(
@@ -144,27 +107,15 @@ class BookReplay:
         Raises:
             ValueError: Selection, ordering, identity or checkpoint is incompatible.
         """
-        legacy = snapshot.legacy_canonical(request_identity)
-        if legacy is not None:
-            return cls(
-                legacy,
-                terminal=terminal,
-                config_identity=config_identity,
-                max_bytes=snapshot.max_bytes,
-                batch_size=batch_size,
-                cursor=cursor,
-                snapshot_identity=snapshot.identity,
-            )
         selected = snapshot.selection(request_identity)
         instance = cls.__new__(cls)
-        instance._canonical = None
         instance._snapshot = snapshot
         instance._request_identity = request_identity
         instance._input_bytes = DomainCodec().encode_json(selected)
         identity = hashlib.sha256(
             DomainCodec().encode_json(
                 (
-                    "book-replay-stream-v2",
+                    "book-replay-stream",
                     snapshot.identity,
                     snapshot.partition(request_identity).sha256,
                     terminal,
@@ -241,24 +192,16 @@ class BookReplay:
         yield from batched(self._observations(), self._batch_size)
 
     def _observations(self) -> Generator[BookObservation]:
-        """Decode privately owned legacy bytes or the verified bounded file stream."""
-        if self._snapshot is not None:
-            yield from self._snapshot.observations(self._request_identity)
-        elif self._canonical is not None:
-            yield from DomainCodec().decode_json(self._canonical, BookHistory).observations
-        else:
-            raise ValueError("book replay has no admitted canonical input")
+        """Decode the verified bounded file stream."""
+        yield from self._snapshot.observations(self._request_identity)
 
     def _known(self) -> Generator[tuple[EconomicOrder, BookObservation]]:
-        """Keep legacy equal-receipt sorting and streamed native source order identical."""
-        if self._canonical is not None:
-            yield from sorted(self._scheduled(), key=self._event_order)
-            return
+        """Stream native source order, ordering equal receipts by epoch then position."""
         # Native receipts are normally distinct, so keep only one pending row.
         # Capture permits a prior-epoch stale snapshot at the same receipt as a
-        # newer session. The legacy cursor orders that tie by epoch then raw
-        # position. Spill only tied groups to disk; even an all-tied partition
-        # cannot retain a second full book history in Python memory.
+        # newer session. The cursor orders that tie by epoch then raw position.
+        # Spill only tied groups to disk; even an all-tied partition cannot
+        # retain a second full book history in Python memory.
         spill: TemporaryDirectory[str] | None = None
         connection: sqlite3.Connection | None = None
         codec = DomainCodec()
@@ -332,16 +275,10 @@ class BookReplay:
             (key[4], epoch_key, codec.encode_json(row)),
         )
 
-    @staticmethod
-    def _event_order(item: tuple[EconomicOrder, BookObservation]) -> EconomicOrder:
-        """Sort legacy equal-receipt observations by their original replay contract."""
-        return item[0]
-
     def _scheduled(self) -> Generator[tuple[EconomicOrder, BookObservation]]:
         """Retain receipt regression checks and round nanoseconds upward for UTC steps."""
         if self.evidence.archive is not None:
-            if self._snapshot is not None:
-                self._snapshot.verify_partition(self._request_identity)
+            self._snapshot.verify_partition(self._request_identity)
             return
         previous_ns = 0
         with closing(self._observations()) as observations:

@@ -14,7 +14,7 @@ from serialization import WireRecord
 class ExplorationStudy(WireRecord, frozen=True, kw_only=True):
     """Select a validation or final-holdout inspection without inventing a model fit."""
 
-    schema_version: Literal["exploration-study-v1"] = "exploration-study-v1"
+    schema_version: Literal["exploration-study"] = "exploration-study"
     family: str
     question: str
     selection: ResearchSelection
@@ -23,7 +23,7 @@ class ExplorationStudy(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Require explicit no-fit scope and exact selected decision-window boundaries."""
-        if self.schema_version != "exploration-study-v1":
+        if self.schema_version != "exploration-study":
             raise ValueError("unsupported exploration study schema")
         for text in (self.family, self.question):
             if type(text) is not str or not text.strip():

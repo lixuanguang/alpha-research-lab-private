@@ -105,9 +105,9 @@ class DomainCodec:
 
     @staticmethod
     def _currency_value(value: object) -> Currency:
-        """Decode one explicit currency object or a retained known legacy code."""
+        """Decode one explicit currency object; a bare currency code is refused."""
         if isinstance(value, str):
-            return Currency.from_code(value)
+            raise ValueError("unsupported currency schema: expected code and minor_unit")
         fields = msgspec.convert(value, type=dict[str, object], strict=True)
         if set(fields) != {"code", "minor_unit"}:
             raise ValueError("currency object must contain exactly code and minor_unit")

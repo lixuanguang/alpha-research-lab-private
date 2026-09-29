@@ -157,7 +157,7 @@ def main() -> None:
             report=print,
             timeout_seconds=1.0,
             max_bytes=4096,
-            permitted_rights_reference="synthetic-local-fixtures-v1",
+            permitted_rights_reference="synthetic-local-fixtures",
         )
     print(f"completed={len(state.completed)} pending={state.pending is not None}")
 

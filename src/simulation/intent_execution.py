@@ -58,7 +58,7 @@ class SpotFeeModel:
     def identity(self) -> str:
         """Bind both liquidity classes and the implementation version."""
         return hashlib.sha256(
-            DomainCodec().encode_json(("spot-fee-model-v1", self.maker, self.taker))
+            DomainCodec().encode_json(("spot-fee-model", self.maker, self.taker))
         ).hexdigest()
 
     def fill(
@@ -183,7 +183,7 @@ class LimitOrderExecution:
     def identity(self) -> str:
         """Hash the complete model version and serialized assumptions."""
         return hashlib.sha256(
-            DomainCodec().encode_json(("l2-limit-intent-v2", self.config))
+            DomainCodec().encode_json(("l2-limit-intent", self.config))
         ).hexdigest()
 
     def run(
@@ -414,9 +414,9 @@ class LimitOrderExecution:
                 "trade depletion is counted once; hidden liquidity and venue priority are unknown",
                 "passive fills use source availability, so delayed trades may miss earlier fills",
                 "entry/cancel delays are fixed; no venue acknowledgements or deployed OMS",
-                "receipt-as-matching-v1 maps original receipt to modeled matching time;"
+                "receipt-as-matching maps original receipt to modeled matching time;"
                 " exchange-time fill fidelity is unproven"
-                if any(row.clock_assumption == "receipt-as-matching-v1" for row in market)
+                if any(row.clock_assumption == "receipt-as-matching" for row in market)
                 else "source-and-knowledge clocks are supplied with each market input",
                 "fixed SpotLimits are a declared synthetic reference when no history is selected"
                 if spec.reference_history is None

@@ -37,13 +37,13 @@ class FeatureAccessError(ValueError):
 class FeatureEntity(WireRecord, frozen=True, kw_only=True):
     """Retain an explicit Feast entity type and join key."""
 
-    schema_version: Literal["feature-entity-v1"] = "feature-entity-v1"
+    schema_version: Literal["feature-entity"] = "feature-entity"
     entity_type: str
     entity_key: str
 
     def __post_init__(self) -> None:
         """Reject ambiguous entity names or keys before they cross the worker boundary."""
-        if self.schema_version != "feature-entity-v1":
+        if self.schema_version != "feature-entity":
             raise ValueError("unsupported feature entity schema")
         OfflineFeatureDefinition._text(self.entity_type, "entity_type")
         OfflineFeatureDefinition._text(self.entity_key, "entity_key")
@@ -60,7 +60,7 @@ class OfflineFeatureDefinition(WireRecord, frozen=True, kw_only=True):
     those clocks fails closed.
     """
 
-    schema_version: Literal["offline-feature-definition-v1"] = "offline-feature-definition-v1"
+    schema_version: Literal["offline-feature-definition"] = "offline-feature-definition"
     feature_name: str
     feature_ref: str
     entity_type: str
@@ -115,7 +115,7 @@ class OfflineFeatureDefinition(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Validate the immutable feature-view manifest and its bounded TTL."""
-        if self.schema_version != "offline-feature-definition-v1":
+        if self.schema_version != "offline-feature-definition":
             raise ValueError("unsupported offline feature definition schema")
         for value, name in (
             (self.feature_name, "feature_name"),
@@ -173,7 +173,7 @@ class OfflineFeatureDefinition(WireRecord, frozen=True, kw_only=True):
 class FeatureObservation(WireRecord, frozen=True, kw_only=True):
     """Carry one exact nullable feature value and all clocks needed for admission."""
 
-    schema_version: Literal["feature-observation-v1"] = "feature-observation-v1"
+    schema_version: Literal["feature-observation"] = "feature-observation"
     definition_identity: str
     source_version: str
     source_sha256: str
@@ -191,7 +191,7 @@ class FeatureObservation(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Reject future clocks, malformed identity metadata and approximate values."""
-        if self.schema_version != "feature-observation-v1":
+        if self.schema_version != "feature-observation":
             raise ValueError("unsupported feature observation schema")
         OfflineFeatureDefinition._digest(self.definition_identity, "definition_identity")
         OfflineFeatureDefinition._text(self.source_version, "source_version")
@@ -250,7 +250,7 @@ class FeatureObservation(WireRecord, frozen=True, kw_only=True):
 class OfflineFeatureRequest(WireRecord, frozen=True, kw_only=True):
     """Describe a bounded entity/decision grid for one offline retrieval."""
 
-    schema_version: Literal["offline-feature-request-v1"] = "offline-feature-request-v1"
+    schema_version: Literal["offline-feature-request"] = "offline-feature-request"
     definition: OfflineFeatureDefinition
     entities: tuple[FeatureEntity, ...]
     decisions: tuple[datetime, ...]
@@ -259,7 +259,7 @@ class OfflineFeatureRequest(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Require a small unique grid and retain UTC decision clocks verbatim."""
-        if self.schema_version != "offline-feature-request-v1":
+        if self.schema_version != "offline-feature-request":
             raise ValueError("unsupported offline feature request schema")
         if type(self.definition) is not OfflineFeatureDefinition:
             raise TypeError("request requires OfflineFeatureDefinition")
@@ -316,7 +316,7 @@ class OfflineFeatureRequest(WireRecord, frozen=True, kw_only=True):
 class OfflineFeatureResult(WireRecord, frozen=True, kw_only=True):
     """Retain the worker's typed rows and the SDK/source bindings it actually used."""
 
-    schema_version: Literal["offline-feature-result-v1"] = "offline-feature-result-v1"
+    schema_version: Literal["offline-feature-result"] = "offline-feature-result"
     request_identity: str
     definition_identity: str
     registry_sha256: str
@@ -328,7 +328,7 @@ class OfflineFeatureResult(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Validate result metadata and keep result rows bounded and uniquely keyed."""
-        if self.schema_version != "offline-feature-result-v1":
+        if self.schema_version != "offline-feature-result":
             raise ValueError("unsupported offline feature result schema")
         OfflineFeatureDefinition._digest(self.request_identity, "request_identity")
         OfflineFeatureDefinition._digest(self.definition_identity, "definition_identity")
@@ -713,7 +713,7 @@ class OfflineFeatureAccess:
 class FeatureParity(WireRecord, frozen=True, kw_only=True):
     """Retain one exact Feast/reference comparison, including missingness."""
 
-    schema_version: Literal["feature-parity-v1"] = "feature-parity-v1"
+    schema_version: Literal["feature-parity"] = "feature-parity"
     row_identity: str
     feature_name: str
     entity_type: str
@@ -726,7 +726,7 @@ class FeatureParity(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Validate comparison identity, UTC clock and exact nullable values."""
-        if self.schema_version != "feature-parity-v1":
+        if self.schema_version != "feature-parity":
             raise ValueError("unsupported feature parity schema")
         OfflineFeatureDefinition._digest(self.row_identity, "row_identity")
         OfflineFeatureDefinition._text(self.feature_name, "feature_name")
@@ -750,14 +750,14 @@ class FeatureParity(WireRecord, frozen=True, kw_only=True):
 class OfflineFeatureComparison(WireRecord, frozen=True, kw_only=True):
     """Retain all bounded parity rows and their immutable request/definition identities."""
 
-    schema_version: Literal["offline-feature-comparison-v1"] = "offline-feature-comparison-v1"
+    schema_version: Literal["offline-feature-comparison"] = "offline-feature-comparison"
     request_identity: str
     definition_identity: str
     rows: tuple[FeatureParity, ...]
 
     def __post_init__(self) -> None:
         """Require one nonempty, bounded comparison with stable row identities."""
-        if self.schema_version != "offline-feature-comparison-v1":
+        if self.schema_version != "offline-feature-comparison":
             raise ValueError("unsupported offline feature comparison schema")
         OfflineFeatureDefinition._digest(self.request_identity, "request_identity")
         OfflineFeatureDefinition._digest(self.definition_identity, "definition_identity")

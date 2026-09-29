@@ -230,7 +230,7 @@ class PaperExecutionApplication:
             request = self._codec.decode_json(request_bytes, PaperExecutionRequest)
         request.__post_init__()
         binding_identity = hashlib.sha256(
-            self._codec.encode_json(("installed-paper-execution-v1", config.identity, instance))
+            self._codec.encode_json(("installed-paper-execution", config.identity, instance))
         ).hexdigest()
         limits = SpotLimits(
             maximum=config.maximum,

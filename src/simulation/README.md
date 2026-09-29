@@ -33,9 +33,8 @@ fill signal. Queue fraction is a sensitivity parameter, not measured queue posit
 postings and net return remain exact. Completion cancels outstanding orders and
 marks retained holdings against a fresh bid; it never invents a terminal sale.
 
-The execution identity is `l2-limit-intent-v2`, which distinguishes the corrected
-idle-order timing from `v1`. Retained specifications pinned to the earlier
-identity require the earlier executor or a new specification for the corrected model.
+The execution identity hashes the `l2-limit-intent` domain with the complete
+configuration.
 
 The [installed study consumer](../../tests/integration/consumers/research/decision_study.py)
 tests a losing target study and passive queue sensitivity through the same
@@ -86,7 +85,7 @@ initial quote cash, strategy size, independent limits, costs and clocks. The
 [synthetic example](../../tests/fixtures/economics/spec.json) uses the baseline's
 spot units and costs over four minutes. Its shorter synthetic window is software
 evidence, not a replacement for the frozen hour or its source requirements.
-Select `completed-price-momentum-v1` or `no-trade-v1`; unknown implementations
+Select `completed-price-momentum` or `no-trade`; unknown implementations
 fail. Each invocation owns independent holdings, observations and pending state.
 The same path is exercised for BTC and ETH without asset-specific code.
 

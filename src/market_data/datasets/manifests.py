@@ -35,9 +35,9 @@ class DatasetInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fie
     policy: QualityPolicy
     eligibility: EligibilityAssertions
     corrections: tuple[Correction, ...] = ()
-    capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
-    qualification: SourceQualification | msgspec.UnsetType = msgspec.UNSET
-    prior_acquisitions: tuple[AcquisitionManifest, ...] | msgspec.UnsetType = msgspec.UNSET
+    capture: ArchiveCapture | None = None
+    qualification: SourceQualification | None = None
+    prior_acquisitions: tuple[AcquisitionManifest, ...] = ()
 
     def __post_init__(self) -> None:
         """Require explicit typed admission inputs without admitting their observations.
@@ -49,26 +49,24 @@ class DatasetInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fie
             type(self.acquisition) is not AcquisitionManifest
             or type(self.policy) is not QualityPolicy
             or type(self.eligibility) is not EligibilityAssertions
-            or (self.capture is not msgspec.UNSET and type(self.capture) is not ArchiveCapture)
+            or (self.capture is not None and type(self.capture) is not ArchiveCapture)
             or (
-                self.qualification is not msgspec.UNSET
+                self.qualification is not None
                 and type(self.qualification) is not SourceQualification
             )
             or type(self.corrections) is not tuple
             or any(type(item) is not Correction for item in self.corrections)
         ):
             raise ValueError("dataset input requires typed acquisition and admission evidence")
-        if self.qualification is not msgspec.UNSET:
+        if self.qualification is not None:
             self.qualification.__post_init__()
             if self.policy.use != "causal":
                 raise ValueError("qualification requires strict causal policy")
-        if self.prior_acquisitions is not msgspec.UNSET:
-            if (
-                type(self.prior_acquisitions) is not tuple
-                or not self.prior_acquisitions
-                or self.qualification is msgspec.UNSET
-            ):
-                raise ValueError("prior archives require nonempty qualified acquisition history")
+        if type(self.prior_acquisitions) is not tuple:
+            raise ValueError("prior archives require an immutable acquisition history")
+        if self.prior_acquisitions:
+            if self.qualification is None:
+                raise ValueError("prior archives require qualified acquisition history")
             requests = SourceRequest.partition(self.acquisition.run)
             if len(requests) != 1:
                 raise ValueError("qualified archive history requires one source partition")
@@ -97,7 +95,7 @@ class DatasetInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fie
         self.__post_init__()
         return (
             self.acquisition,
-            *(() if self.prior_acquisitions is msgspec.UNSET else self.prior_acquisitions),
+            *self.prior_acquisitions,
         )
 
     @classmethod
@@ -188,9 +186,9 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
     policy: QualityPolicy
     eligibility: EligibilityAssertions
     corrections: tuple[Correction, ...] = ()
-    capture: ArchiveCapture | msgspec.UnsetType = msgspec.UNSET
-    qualification: SourceQualification | msgspec.UnsetType = msgspec.UNSET
-    prior_acquisitions: tuple[AcquisitionManifest, ...] | msgspec.UnsetType = msgspec.UNSET
+    capture: ArchiveCapture | None = None
+    qualification: SourceQualification | None = None
+    prior_acquisitions: tuple[AcquisitionManifest, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject incomplete, foreign or unsupported partition declarations.
@@ -204,7 +202,7 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
             type(self.acquisition) is not AcquisitionManifest
             or type(self.policy) is not QualityPolicy
             or type(self.eligibility) is not EligibilityAssertions
-            or (self.capture is not msgspec.UNSET and type(self.capture) is not ArchiveCapture)
+            or (self.capture is not None and type(self.capture) is not ArchiveCapture)
             or type(self.corrections) is not tuple
         ):
             raise ValueError("dataset partition requires typed admission inputs")
@@ -226,7 +224,7 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
             or self.acquisition.pending is not None
             or self.acquisition.run.catalog.identity != self.eligibility.catalog.identity
             or self.policy.use not in ("exploratory", "witnessed", "causal")
-            or (self.policy.use == "causal" and self.qualification is msgspec.UNSET)
+            or (self.policy.use == "causal" and self.qualification is None)
         ):
             raise ValueError(
                 "dataset requires one complete witnessed archive partition"
@@ -244,25 +242,21 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
 class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Identify ordered admitted partitions without claiming atomic snapshot publication.
 
-    Version 1 fixes canonical-trade-partition-v1, evidenced corrections and original
-    availability extended only by evidenced later corrections.
-    Version 2 retains native capture witnesses and separately scoped causal use.
-    Version 1 saved inputs preserve their original byte and semantic identities.
+    The tier names the strongest evidence among the partitions. ``exploratory``
+    keeps original availability extended only by evidenced later corrections;
+    ``witnessed`` adds native capture witnesses; ``qualified`` adds reviewed
+    provider qualification. The tier fixes the canonical partition schema and
+    availability policy.
     """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    schema_version: Literal["1", "2", "3"] = "1"
-    canonical_schema: Literal[
-        "canonical-trade-partition-v1",
-        "canonical-trade-partition-v2",
-        "canonical-trade-partition-v3",
-    ] = "canonical-trade-partition-v1"
-    correction_policy: Literal["evidenced-v1"] = "evidenced-v1"
-    availability_policy: Literal[
-        "original-or-evidenced-later-v1",
-        "native-witness-or-evidenced-later-v2",
-        "provider-qualified-v3",
-    ] = "original-or-evidenced-later-v1"
+    _availability: ClassVar[dict[str, str]] = {
+        "exploratory": "exploratory-original-or-evidenced-later",
+        "witnessed": "witnessed-native-or-evidenced-later",
+        "qualified": "qualified-provider-reviewed",
+    }
+    tier: Literal["exploratory", "witnessed", "qualified"]
+    correction_policy: Literal["evidenced"] = "evidenced"
     scope: Literal["exploratory_degraded", "causal_witnessed", "causal_qualified"] = (
         "exploratory_degraded"
     )
@@ -276,33 +270,28 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             ValueError: The format, scope, code identity or partition selection is invalid.
         """
         if (
-            (self.schema_version, self.canonical_schema, self.availability_policy)
-            not in (
-                ("1", "canonical-trade-partition-v1", "original-or-evidenced-later-v1"),
-                ("2", "canonical-trade-partition-v2", "native-witness-or-evidenced-later-v2"),
-                ("3", "canonical-trade-partition-v3", "provider-qualified-v3"),
-            )
-            or self.correction_policy != "evidenced-v1"
+            self.tier not in self._availability
+            or self.correction_policy != "evidenced"
             or self.scope not in ("exploratory_degraded", "causal_witnessed", "causal_qualified")
             or type(self.normalization_identity) is not str
             or re.fullmatch(r"[0-9a-f]{64}", self.normalization_identity) is None
             or type(self.partitions) is not tuple
             or not self.partitions
         ):
-            raise ValueError("unsupported dataset manifest version, scope or identity")
+            raise ValueError("unsupported dataset manifest tier, scope or identity")
         selected: set[str] = set()
         for partition in self.partitions:
             if type(partition) is not DatasetPartition:
                 raise ValueError("dataset requires DatasetPartition records")
             partition.__post_init__()
-            if self.schema_version != "3" and (
-                (self.schema_version == "2") != isinstance(partition.capture, ArchiveCapture)
+            if self.tier != "qualified" and (
+                (self.tier == "witnessed") != isinstance(partition.capture, ArchiveCapture)
             ):
-                raise ValueError("dataset version differs from capture admission inputs")
-            if (self.schema_version == "3") != isinstance(
+                raise ValueError("dataset tier differs from capture admission inputs")
+            if (self.tier == "qualified") != isinstance(
                 partition.qualification, SourceQualification
             ):
-                raise ValueError("dataset version differs from provider qualification")
+                raise ValueError("dataset tier differs from provider qualification")
             if (self.scope == "causal_qualified") != (partition.policy.use == "causal"):
                 raise ValueError("dataset scope differs from provider qualification")
             if (self.scope == "causal_witnessed") != (partition.policy.use == "witnessed"):
@@ -311,6 +300,16 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             if identity in selected:
                 raise ValueError("dataset contains a duplicate source partition")
             selected.add(identity)
+
+    @property
+    def canonical_schema(self) -> str:
+        """Name the canonical partition format fixed by this tier."""
+        return f"canonical-trade-partition-{self.tier}"
+
+    @property
+    def availability_policy(self) -> str:
+        """Name the availability rule fixed by this tier."""
+        return self._availability[self.tier]
 
     @property
     def identity(self) -> str:
@@ -361,6 +360,8 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             payload = source.read(max_bytes + 1)
         if len(payload) > max_bytes:
             raise ValueError("dataset manifest exceeds max_bytes")
+        if "tier" not in msgspec.json.decode(payload, type=dict[str, msgspec.Raw]):
+            raise ValueError("unsupported dataset manifest schema")
         manifest = cls._codec.decode_json(payload, cls)
         if manifest.identity != identity:
             raise ValueError("dataset manifest identity mismatch")

@@ -48,7 +48,6 @@ from research.features import (
 from research.labels import ForwardReturn
 from research.models import ModelDataset
 from research.results import FeatureStudyResult
-from research.studies import FeatureLabelPayload
 from serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
@@ -572,9 +571,8 @@ class TestFeatureStudies:
         )
         payload = study.evaluate(_AdmittedPrices(reader, request))
         result = FeatureStudyResult.decode(payload)
-        assert FeatureLabelPayload is FeatureStudyResult
-        legacy_fields = {
-            "schema_version": "feature-study-result-v1",
+        expected_fields = {
+            "schema_version": "feature-study-result",
             "selection_identity": study.selection.identity,
             "feature_definition": study.feature,
             "label_definition": study.label,
@@ -585,8 +583,8 @@ class TestFeatureStudies:
             "fitting": "not applicable: fixed diagnostic has no fitted state",
             "scope": "exploratory_degraded",
         }
-        assert _CODEC.encode_json(legacy_fields) == payload
-        assert _CODEC.encode_json(FeatureLabelPayload.decode(payload)) == payload
+        assert _CODEC.encode_json(expected_fields) == payload
+        assert _CODEC.encode_json(FeatureStudyResult.decode(payload)) == payload
         model = ModelDataset.from_results((payload,))
         assert model.rows[0].sample == result.samples[0]
         assert model.rows[1].label is None
@@ -602,11 +600,11 @@ class TestFeatureStudies:
         with pytest.raises(ValueError, match="model input digest, definition or interval mismatch"):
             ModelDataset.from_results((_CODEC.encode_json(tampered),))
         with pytest.raises(ValueError, match="unknown field"):
-            FeatureStudyResult.decode(_CODEC.encode_json({**legacy_fields, "unexpected": True}))
+            FeatureStudyResult.decode(_CODEC.encode_json({**expected_fields, "unexpected": True}))
 
     def test_formal_inspector_passes_registered_feature_engine(self, tmp_path: Path) -> None:
         """Resolve an injected feature engine through the formal retained workflow."""
-        study = replace(self._study(), feature_implementation="delegating-trailing-v1")
+        study = replace(self._study(), feature_implementation="delegating-trailing")
         config = tmp_path / "study.json"
         config.write_bytes(_CODEC.encode_json(study))
         request = TestPriceDiagnostics._request()
@@ -637,7 +635,7 @@ class TestFeatureStudies:
             return _DelegatingFeature(definition)
 
         registry = FeatureRegistry()
-        registry.register("delegating-trailing-v1", factory)
+        registry.register("delegating-trailing", factory)
         with (
             patch("applications.explore.workflow.ResearchReader", return_value=reader),
             patch(

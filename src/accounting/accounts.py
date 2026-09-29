@@ -179,7 +179,7 @@ class AccountState(WireRecord, frozen=True):
     account_id: str
     currencies: tuple[Currency, ...]
     postings: tuple[AccountPosting, ...] = ()
-    schema_version: str = "account-postings-v1"
+    schema_version: str = "account-postings"
 
     def __post_init__(self) -> None:
         """Require declared currencies and one account's identified facts."""
@@ -187,7 +187,7 @@ class AccountState(WireRecord, frozen=True):
             # This frozen object was already validated and replayed.
             return
         if (
-            self.schema_version != "account-postings-v1"
+            self.schema_version != "account-postings"
             or type(self.account_id) is not str
             or not self.account_id
             or type(self.currencies) is not tuple

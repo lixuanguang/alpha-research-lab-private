@@ -55,9 +55,7 @@ class CaptureSegment(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_f
             raise ValueError("suffix segment requires exact predecessor identities")
 
 
-class CaptureRunRequest(
-    msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True, omit_defaults=True
-):
+class CaptureRunRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Pin one public source, finite window, implementation and run identity."""
 
     config: CaptureConfig

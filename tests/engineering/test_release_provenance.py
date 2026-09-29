@@ -75,9 +75,9 @@ class TestReleaseProvenance:
             wheels=(),
             edges=(),
         )
-        state = StateEnvelope(schema_version="state-v1", application="collector", files=())
+        state = StateEnvelope(schema_version="state", application="collector", files=())
         contents = (
-            ("configuration/config.json", b'{"schema_version":"config-v1"}\n'),
+            ("configuration/config.json", b'{"schema_version":"config"}\n'),
             (
                 "provenance/audit.json",
                 b'{"dependencies":[{"name":"example","version":"1.0","vulns":[]}],"fixes":[]}\n',
@@ -105,8 +105,8 @@ class TestReleaseProvenance:
                 contract_version="1",
                 application="collector",
                 mode="collection",
-                config_schema="config-v1",
-                state_schema="state-v1",
+                config_schema="config",
+                state_schema="state",
             ),
             root_distribution="alpha-research-collector",
             files=tuple(ReleaseFile.describe(name, content) for name, content in contents),

@@ -77,9 +77,9 @@ INSTALLED_COMMAND=/absolute/installed/site-packages/applications/explore/command
   < /absolute/request.json > /absolute/result.json
 ```
 
-`request.json` is the bounded `offline-feature-request-v1` payload produced by
+`request.json` is the bounded `offline-feature-request` payload produced by
 the core bridge. The worker reads at most 16 MiB from stdin, imports Feast only
-inside the worker process, and writes one `offline-feature-result-v1` JSON
+inside the worker process, and writes one `offline-feature-result` JSON
 payload. A nonzero exit or malformed result is a bridge failure. Do not invoke
 the source file as a script; use the handoff above with the installed file so
 the worker executes the exact installed application bytes selected by the core
@@ -88,7 +88,7 @@ consumer.
 For online work, invoke the same installed command with
 `main(["feast-serving-worker"])`. A materialization request carries one
 authoritative `FeatureMaterialization` projection as
-`feast-serving-snapshot-v1`; a serving request names the exact generation and
+`feast-serving-snapshot`; a serving request names the exact generation and
 entity. The core `FeastServingBridge` supplies and validates these versioned
 JSON records. Keep the virtual environment executable path itself in the
 subprocess command: resolving its symlink to the base interpreter drops the
@@ -191,7 +191,7 @@ verifies all four file hashes and every online row. A failed stage cannot change
 the core store's active version; activation happens only after the application
 has a verified Feast receipt.
 
-The receipt is `feast-generation-v1`. `open_generation(snapshot, root)` checks
+The receipt is `feast-generation`. `open_generation(snapshot, root)` checks
 its pinned bytes after restart or backup/restore without rematerializing. The
 paths inside the Feast repository are relative, so a copied generation remains
 readable at a new workspace root. Serving checks file hashes again in the

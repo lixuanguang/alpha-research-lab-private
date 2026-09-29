@@ -7,9 +7,6 @@ import hashlib
 from datetime import datetime
 from typing import Literal
 
-# third party library imports
-import msgspec
-
 # project library imports
 from configuration.accounts import AccountConfiguration
 from configuration.paper import PaperExecutionScenario
@@ -77,22 +74,22 @@ class PaperDeployment(WireRecord, frozen=True):
     state_identity: str
     enabled: bool = False
     submission_authority: Literal["paper", "shadow"] = "paper"
-    state_schema: Literal["account-journal-v4"] = "account-journal-v4"
-    schema_version: Literal["paper-deployment-v1"] = "paper-deployment-v1"
-    additional_sources: tuple[PaperSourceBinding, ...] | msgspec.UnsetType = msgspec.UNSET
+    state_schema: Literal["account-journal"] = "account-journal"
+    schema_version: Literal["paper-deployment"] = "paper-deployment"
+    additional_sources: tuple[PaperSourceBinding, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject production flags, missing bindings and incompatible state readers."""
         if (
             self.enabled is not False
             or self.submission_authority not in ("paper", "shadow")
-            or self.state_schema != "account-journal-v4"
-            or self.schema_version != "paper-deployment-v1"
+            or self.state_schema != "account-journal"
+            or self.schema_version != "paper-deployment"
             or type(self.account_id) is not str
             or not self.account_id
             or type(self.input_identity) is not str
             or not self.input_identity
-            or self.state_identity != "paper-account-state-v1"
+            or self.state_identity != "paper-account-state"
             or type(self.releases) is not tuple
             or not self.releases
             or len(set(self.releases)) != len(self.releases)
@@ -111,22 +108,19 @@ class PaperDeployment(WireRecord, frozen=True):
         if type(self.scenario) is not PaperExecutionScenario:
             raise TypeError("paper deployment requires an execution scenario")
         self.scenario.__post_init__()
-        if self.additional_sources is not msgspec.UNSET:
-            if type(self.additional_sources) is not tuple:
+        if type(self.additional_sources) is not tuple:
+            raise TypeError("paper deployment requires source bindings")
+        selected = {item.instance_id for item in self.strategies[1:]}
+        seen: set[str] = set()
+        for source in self.additional_sources:
+            if type(source) is not PaperSourceBinding:
                 raise TypeError("paper deployment requires source bindings")
-            if not self.additional_sources:
-                raise ValueError("paper deployment omits empty source overrides")
-            selected = {item.instance_id for item in self.strategies[1:]}
-            seen: set[str] = set()
-            for source in self.additional_sources:
-                if type(source) is not PaperSourceBinding:
-                    raise TypeError("paper deployment requires source bindings")
-                source.__post_init__()
-                if source.instance_id not in selected or source.instance_id in seen:
-                    raise ValueError("paper deployment source instance differs")
-                if (source.input_identity, source.scenario) == (self.input_identity, self.scenario):
-                    raise ValueError("paper deployment source override is redundant")
-                seen.add(source.instance_id)
+            source.__post_init__()
+            if source.instance_id not in selected or source.instance_id in seen:
+                raise ValueError("paper deployment source instance differs")
+            if (source.input_identity, source.scenario) == (self.input_identity, self.scenario):
+                raise ValueError("paper deployment source override is redundant")
+            seen.add(source.instance_id)
         by_instrument: dict[object, tuple[str, PaperExecutionScenario]] = {}
         for source in self.source_bindings:
             instrument_id = source.scenario.instrument_id
@@ -137,9 +131,8 @@ class PaperDeployment(WireRecord, frozen=True):
 
     @property
     def source_bindings(self) -> tuple[PaperSourceBinding, ...]:
-        """Resolve each strategy's exact source, retaining legacy shared scope."""
-        extras = () if self.additional_sources is msgspec.UNSET else self.additional_sources
-        overrides = {item.instance_id: item for item in extras}
+        """Resolve each strategy's exact source, defaulting to the deployment's shared scope."""
+        overrides = {item.instance_id: item for item in self.additional_sources}
         return tuple(
             overrides.get(
                 strategy.instance_id,
@@ -236,7 +229,7 @@ class PaperAuthorization(WireRecord, frozen=True):
     maximum_order_notional: Money
     maximum_orders: int
     submission_authority: Literal["paper", "shadow"] = "paper"
-    schema_version: Literal["paper-authorization-v1"] = "paper-authorization-v1"
+    schema_version: Literal["paper-authorization"] = "paper-authorization"
 
     def __post_init__(self) -> None:
         """Require explicit positive bounds and a half-open UTC validity interval."""
@@ -247,7 +240,7 @@ class PaperAuthorization(WireRecord, frozen=True):
             type(self.identity) is not str
             or not self.identity
             or self.submission_authority not in ("paper", "shadow")
-            or self.schema_version != "paper-authorization-v1"
+            or self.schema_version != "paper-authorization"
             or self.expires_at <= self.valid_from
             or type(self.quantities) is not tuple
             or not self.quantities

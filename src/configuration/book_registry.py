@@ -155,7 +155,7 @@ class BookEquivalence(WireRecord, frozen=True):
 class BookRegistryConfiguration(WireRecord, frozen=True, kw_only=True):
     """Pin book admission, equivalent markets and a finite per-book history budget."""
 
-    schema_version: Literal["book-registry-v1"] = "book-registry-v1"
+    schema_version: Literal["book-registry"] = "book-registry"
     selections: tuple[BookSelection, ...]
     equivalences: tuple[BookEquivalence, ...]
     history_capacity: int
@@ -163,7 +163,7 @@ class BookRegistryConfiguration(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Resolve mappings and reject currency, product, asset or unit mismatches."""
         if (
-            self.schema_version != "book-registry-v1"
+            self.schema_version != "book-registry"
             or type(self.history_capacity) is not int
             or self.history_capacity < 1
         ):

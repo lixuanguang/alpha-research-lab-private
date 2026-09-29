@@ -110,7 +110,7 @@ class _PipelineAcceptance:
             if not key.startswith("retained/")
         }
         selected = BacktestRun.read(self.source / "configured.json")
-        changed = replace(selected, economics=replace(selected.economics, rule="no-trade-v1"))
+        changed = replace(selected, economics=replace(selected.economics, rule="no-trade"))
         parameters.update(
             {
                 "Run/configuration": self.codec.encode_json(changed).decode(),

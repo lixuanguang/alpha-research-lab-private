@@ -40,7 +40,7 @@ class TestEligibilitySelection:
         """Compare the actual selector before and after appending future information."""
         history = self._history()
         original, _, _, correction = history.assertions
-        before = replace(history, schema_version="1", assertions=history.assertions[:-1])
+        before = replace(history, assertions=history.assertions[:-1])
         before_bytes = _CODEC.encode_json(before)
         rebuilt = before.append(correction)
         assert rebuilt == history and _CODEC.encode_json(before) == before_bytes
@@ -63,19 +63,17 @@ class TestEligibilitySelection:
         with pytest.raises(AttributeError):
             setattr(original, "state", "excluded")
 
-    def test_legacy_wire_fields_and_unknown_version_rejection(self) -> None:
-        """Preserve version-1 wire fields while rejecting unsupported complete histories."""
+    def test_explicit_wire_fields_and_numbered_schema_rejection(self) -> None:
+        """Encode every field explicitly and refuse any other eligibility schema."""
         history = self._history()
         path = _ROOT / "tests/fixtures/eligibility/assumptions-and-membership.json"
-        legacy = EligibilityAssertions.read(path, catalog=history.catalog)
-        assert b'"supersedes"' not in _CODEC.encode_json(legacy)
-        with pytest.raises(ValueError, match="schema version"):
-            replace(history, schema_version="3")
-        with pytest.raises(msgspec.ValidationError):
+        membership = EligibilityAssertions.read(path, catalog=history.catalog)
+        assert b'"supersedes":null' in _CODEC.encode_json(membership)
+        payload = _CODEC.encode_json(history)
+        assert payload.endswith(b',"schema_version":"1"}')
+        with pytest.raises(ValueError, match="unsupported eligibility schema"):
             _CODEC.decode_json(
-                _CODEC.encode_json(history).replace(
-                    b'"schema_version":"2"', b'"schema_version":"3"'
-                ),
+                payload.removesuffix(b',"schema_version":"1"}') + b',"schema_version":"2"}',
                 EligibilityAssertions,
             )
 
@@ -159,7 +157,7 @@ class TestEligibilitySelection:
             original,
             ts_knowledge=correction.ts_knowledge + timedelta(hours=1),
             supersedes=correction.identity,
-            evidence=replace(correction.evidence, identity="synthetic:mr12:restored-v3"),
+            evidence=replace(correction.evidence, identity="synthetic:mr12:restored"),
         )
         latest = history.append(restored)
         for cutoff, expected in (
@@ -183,7 +181,6 @@ class TestEligibilitySelection:
             "same-evidence",
             "other-member",
             "branch",
-            "v1",
             "unlinked",
             "removed-parent",
         ),
@@ -193,7 +190,6 @@ class TestEligibilitySelection:
         history = self._history()
         original, included, excluded, correction = history.assertions
         assertions = history.assertions
-        version = "2"
         if defect == "dangling":
             assertions = (*assertions[:-1], replace(correction, supersedes="0" * 64))
         elif defect == "same-time":
@@ -214,16 +210,13 @@ class TestEligibilitySelection:
             )
         elif defect == "branch":
             assertions = (*assertions, replace(correction, reason="Another branch"))
-        elif defect == "v1":
-            version = "1"
         elif defect == "unlinked":
             assertions = (*assertions[:-1], replace(correction, supersedes=None))
         elif defect == "removed-parent":
             assertions = (included, excluded, correction)
         with pytest.raises(ValueError):
-            replace(history, schema_version=version, assertions=assertions)
+            replace(history, assertions=assertions)
         force_setattr(history, "assertions", assertions)
-        force_setattr(history, "schema_version", version)
         with pytest.raises(msgspec.ValidationError):
             _CODEC.decode_json(_CODEC.encode_json(history), EligibilityAssertions)
         with pytest.raises(ValueError):

@@ -119,7 +119,7 @@ class TestBinanceArchive:
         assert len(SourceRequest.partition(request.manifest)) == 1
         assert request.end - request.start == timedelta(days=1)
         assert request.manifest.job.end - request.manifest.job.start == timedelta(hours=1)
-        assert request.manifest.job.capture_policy == "exchange-time-only-v1"
+        assert request.manifest.job.capture_policy == "exchange-time-only"
         assert _CODEC.decode_json(_CODEC.encode_json(request), SourceRequest) == request
         later = replace(request.manifest.job, start=request.start + timedelta(minutes=15))
         narrowed = SourceRequest.partition(replace(request.manifest, job=later))[0]
@@ -142,7 +142,7 @@ class TestBinanceArchive:
         with pytest.raises(ValueError, match="UTC day"):
             replace(later, mode="fixture", pipeline="dataset.inspect")
         with pytest.raises(ValueError, match="unsupported source"):
-            replace(later, capture_policy="source-capture-v1")
+            replace(later, capture_policy="source-capture")
         old_catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
         )

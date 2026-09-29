@@ -12,9 +12,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar, Literal
 
-# third party library imports
-import msgspec
-
 # project library imports
 from accounting import AccountSnapshot
 from applications.execute.service_inputs import ServiceBookInputs
@@ -398,7 +395,7 @@ class PaperServiceWorkload:
             PaperStrategyIdentity(
                 instance_id=item.instance_id,
                 policy_identity=self.policy_identity(service, item, sources[item.source]),
-                candidate_identity="paper-services-reference-v1",
+                candidate_identity="paper-services-reference",
                 model_identity="rule-only",
                 feature_identity=ServiceBookInputs(
                     (),
@@ -417,7 +414,7 @@ class PaperServiceWorkload:
             strategies=strategies,
             input_identity=self.input_identity(primary),
             scenario=primary.scenario,
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
             submission_authority=self.mode,
             additional_sources=(
                 tuple(
@@ -430,7 +427,7 @@ class PaperServiceWorkload:
                     if item.source != definitions[0].source
                 )
                 if account.account_id == "shared"
-                else msgspec.UNSET
+                else ()
             ),
         )
 
@@ -589,7 +586,7 @@ class PaperServiceWorkload:
         (output / "services-initial.json").write_bytes(self.codec.encode_json(service))
         (output / "services-addition.json").write_bytes(self.codec.encode_json(successor))
         summary: dict[str, object] = {
-            "schema_version": "multi-instance-paper-preparation-v1",
+            "schema_version": "multi-instance-paper-preparation",
             "venue": self.venue,
             "mode": self.mode,
             "implementation": "resolved-after-signed-install",
@@ -641,7 +638,7 @@ class PaperServiceWorkload:
             )
             records.append((account.account_id, deployment.identity, authorization.identity))
         summary: dict[str, object] = {
-            "schema_version": "multi-instance-paper-authority-v1",
+            "schema_version": "multi-instance-paper-authority",
             "venue": self.venue,
             "releases": releases,
             "accounts": tuple(records),

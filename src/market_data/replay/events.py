@@ -234,7 +234,7 @@ class Replay(_EventSteps[PointEvent]):
                             )
                         version = version.previous
         identity = hashlib.sha256(
-            self._codec.encode_json(("reference-replay-v1", batch.identity, config_identity))
+            self._codec.encode_json(("reference-replay", batch.identity, config_identity))
         ).hexdigest()
         self._evidence = batch.evidence
         super().__init__(ordered, identity=identity, terminal=terminal, cursor=cursor)

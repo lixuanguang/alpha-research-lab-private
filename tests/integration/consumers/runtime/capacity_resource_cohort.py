@@ -229,7 +229,7 @@ class CapacityResourceCohort:
             for row in rows
         )
         result: dict[str, object] = {
-            "schema_version": "bounded-recovery-resource-cohort-v1",
+            "schema_version": "bounded-recovery-resource-cohort",
             "evidence_class": "compatible_independent_60s_recovery_steady_intervals",
             "trials": tuple(str(path) for path in self.trials),
             "admitted_intervals": len(cohorts),

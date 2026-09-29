@@ -175,15 +175,15 @@ class TestPaperRecovery:
             strategies=(
                 PaperStrategyIdentity(
                     instance_id="alpha",
-                    policy_identity="policy-alpha-v1",
-                    candidate_identity="candidate-alpha-v1",
-                    model_identity="no-model-v1",
-                    feature_identity="feature-alpha-v1",
+                    policy_identity="policy-alpha",
+                    candidate_identity="candidate-alpha",
+                    model_identity="no-model",
+                    feature_identity="feature-alpha",
                 ),
             ),
-            input_identity="public-okx-book-v1",
+            input_identity="public-okx-book",
             scenario=cls._scenario(),
-            state_identity="paper-account-state-v1",
+            state_identity="paper-account-state",
         )
 
     @classmethod
@@ -507,7 +507,7 @@ class TestPaperRecovery:
         """The active binding rejects unsupported ABI and changed installed inputs."""
         rig = self._prepare(tmp_path)
         with pytest.raises(ValueError, match="disabled and explicitly bound"):
-            replace(rig.deployment, state_identity="unknown-state-v2")
+            replace(rig.deployment, state_identity="unknown-state")
         with pytest.raises(ValueError, match="paper strategy identity is incomplete"):
             replace(rig.deployment.strategies[0], model_identity="")
         with pytest.raises(ValueError, match="configuration differs"):

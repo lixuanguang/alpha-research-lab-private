@@ -41,11 +41,11 @@ class FeastServingRow(WireRecord, frozen=True, kw_only=True):
     dataset_version: str | None = None
     dataset_sha256: str | None = None
     revision_identity: str | None = None
-    schema_version: Literal["feast-serving-row-v1"] = "feast-serving-row-v1"
+    schema_version: Literal["feast-serving-row"] = "feast-serving-row"
 
     def __post_init__(self) -> None:
         """Validate exact values, nullable clocks and per-field quality reasons."""
-        if self.schema_version != "feast-serving-row-v1":
+        if self.schema_version != "feast-serving-row":
             raise ValueError("unsupported Feast serving row schema")
         OfflineFeatureDefinition._text(self.entity, "entity")
         if not self.values or len(self.values) != len(self.reasons):
@@ -113,11 +113,11 @@ class FeastServingSnapshot(WireRecord, frozen=True, kw_only=True):
     field_names: tuple[str, ...]
     rows: tuple[FeastServingRow, ...]
     sdk_version: str = "0.66.0"
-    schema_version: Literal["feast-serving-snapshot-v1"] = "feast-serving-snapshot-v1"
+    schema_version: Literal["feast-serving-snapshot"] = "feast-serving-snapshot"
 
     def __post_init__(self) -> None:
         """Require one bounded, unique, exact snapshot with no future source row."""
-        if self.schema_version != "feast-serving-snapshot-v1":
+        if self.schema_version != "feast-serving-snapshot":
             raise ValueError("unsupported Feast serving snapshot schema")
         OfflineFeatureDefinition._digest(self.definition_identity, "definition_identity")
         OfflineFeatureDefinition._digest(self.schema_identity, "schema_identity")
@@ -248,11 +248,11 @@ class FeastGeneration(WireRecord, frozen=True, kw_only=True):
     online_sha256: str
     config_sha256: str
     sdk_version: str
-    schema_version: Literal["feast-generation-v1"] = "feast-generation-v1"
+    schema_version: Literal["feast-generation"] = "feast-generation"
 
     def __post_init__(self) -> None:
         """Reject unpinned or relative Feast generation paths."""
-        if self.schema_version != "feast-generation-v1":
+        if self.schema_version != "feast-generation":
             raise ValueError("unsupported Feast generation schema")
         for name, digest in (
             ("snapshot_identity", self.snapshot_identity),
@@ -286,11 +286,11 @@ class FeastServedRow(WireRecord, frozen=True, kw_only=True):
     dataset_version: str | None
     dataset_sha256: str | None
     revision_identity: str | None
-    schema_version: Literal["feast-served-row-v1"] = "feast-served-row-v1"
+    schema_version: Literal["feast-served-row"] = "feast-served-row"
 
     def __post_init__(self) -> None:
         """Validate served status, exact values and retained source quality metadata."""
-        if self.schema_version != "feast-served-row-v1":
+        if self.schema_version != "feast-served-row":
             raise ValueError("unsupported Feast served row schema")
         OfflineFeatureDefinition._digest(self.snapshot_identity, "snapshot_identity")
         OfflineFeatureDefinition._text(self.version, "version")
@@ -367,7 +367,7 @@ class FeastServingBridge:
             raise ValueError("Feast generation root must be absolute")
         payload = self._codec.encode_json(
             {
-                "schema_version": "feast-materialize-request-v1",
+                "schema_version": "feast-materialize-request",
                 "snapshot": snapshot,
                 "snapshot_identity": snapshot.identity,
                 "root": str(root),
@@ -483,7 +483,7 @@ class FeastServingBridge:
         source = snapshot.row(entity)
         payload = self._codec.encode_json(
             {
-                "schema_version": "feast-serve-request-v1",
+                "schema_version": "feast-serve-request",
                 "generation": generation,
                 "snapshot_identity": snapshot.identity,
                 "entity": entity,
@@ -558,11 +558,11 @@ class _FeastOnlineResponse(WireRecord, frozen=True, kw_only=True):
     entity: str
     row_identity: str | None
     values: tuple[str | None, ...]
-    schema_version: Literal["feast-online-response-v1"] = "feast-online-response-v1"
+    schema_version: Literal["feast-online-response"] = "feast-online-response"
 
     def __post_init__(self) -> None:
         """Reject malformed, approximate or unpinned online values."""
-        if self.schema_version != "feast-online-response-v1":
+        if self.schema_version != "feast-online-response":
             raise ValueError("unsupported Feast online response schema")
         OfflineFeatureDefinition._digest(self.snapshot_identity, "snapshot_identity")
         OfflineFeatureDefinition._text(self.entity, "entity")

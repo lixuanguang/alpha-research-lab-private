@@ -128,12 +128,16 @@ class _SavedBooks:
 
     @staticmethod
     def verify_report(directory: Path, report: BookReport) -> None:
-        """Prove portable v2 resolution, standalone v1 compatibility and corruption rejection."""
-        legacy = directory.parent / "legacy-report.json"
+        """Prove portable resolution and refusal of standalone or corrupted reports."""
+        standalone = directory.parent / "standalone-report.json"
         embedded = DomainCodec().encode_json(report)
-        legacy.write_bytes(embedded)
-        assert BookReport.read(legacy) == report
-        assert DomainCodec().decode_json(embedded, BookReport) == report
+        standalone.write_bytes(embedded)
+        try:
+            BookReport.read(standalone)
+        except ValueError as error:
+            assert "unsupported book report schema" in str(error)
+        else:
+            raise AssertionError("accepted a standalone report without its schema")
         assert len((directory / "report.json").read_bytes()) * 2 < len(embedded)
         copied = directory.parent / "portable-report"
         shutil.copytree(directory, copied)
@@ -192,7 +196,7 @@ def main() -> None:
         ),
         take_fraction=Decimal("1"),
     )
-    control = replace(instance, instance="control", rule="book-no-trade-v1")
+    control = replace(instance, instance="control", rule="book-no-trade")
     smaller = replace(
         instance,
         instance="smaller",

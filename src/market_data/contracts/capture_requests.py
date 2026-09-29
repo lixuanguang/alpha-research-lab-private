@@ -16,9 +16,7 @@ from market_data.contracts.raw import RequestBinding
 from serialization import DomainCodec
 
 
-class CaptureRequest(
-    msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True, omit_defaults=True
-):
+class CaptureRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Bind a unique recording to config and installed implementation identity."""
 
     config: CaptureConfig

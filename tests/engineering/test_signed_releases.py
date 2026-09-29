@@ -89,12 +89,12 @@ class SignedReleaseCase:
             ssh_keygen_executable=str(tool),
             ssh_keygen_sha256=tool_digest,
             builders=(builder,),
-            config_schemas=("config-v1",),
-            state_schemas=("state-v1",),
+            config_schemas=("config",),
+            state_schemas=("state",),
         )
         initial_state = b"initial state\n"
         state_envelope = StateEnvelope(
-            schema_version="state-v1",
+            schema_version="state",
             application="collector",
             files=(ReleaseFile.describe("checkpoint.bin", initial_state),),
         )
@@ -104,7 +104,7 @@ class SignedReleaseCase:
             "provenance/dependency-admission.toml": b"admitted = true\n",
             "provenance/audit.json": b"{}\n",
             "provenance/source.json": ('{"commit":"' + _SOURCE_COMMIT + '"}\n').encode(),
-            "configuration/config.json": b'{"schema_version":"config-v1"}\n',
+            "configuration/config.json": b'{"schema_version":"config"}\n',
             "state/checkpoint.bin": initial_state,
             "state/state.json": state_envelope.model_dump_json().encode(),
         }
@@ -124,8 +124,8 @@ class SignedReleaseCase:
                 contract_version="1",
                 application="collector",
                 mode="collection",
-                config_schema="config-v1",
-                state_schema="state-v1",
+                config_schema="config",
+                state_schema="state",
             ),
             root_distribution="alpha-research-collector",
             files=tuple(ReleaseFile.describe(name, content) for name, content in contents),
@@ -388,12 +388,12 @@ class TestSignedReleaseRegistry:
         if compatibility == "target":
             policy = case.policy_with(target="linux_x86_64")
         elif compatibility == "configuration":
-            policy = case.policy_with(config_schemas=("config-v2",))
+            policy = case.policy_with(config_schemas=("other-config",))
         elif compatibility == "state":
-            policy = case.policy_with(state_schemas=("state-v2",))
+            policy = case.policy_with(state_schemas=("other-state",))
         else:
             state = StateEnvelope(
-                schema_version="state-v2" if compatibility == "envelope" else "state-v1",
+                schema_version="other-state" if compatibility == "envelope" else "state",
                 application="collector",
                 files=(
                     ReleaseFile.describe(

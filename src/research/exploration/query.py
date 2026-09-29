@@ -25,7 +25,7 @@ class EdaQuery(WireRecord, frozen=True, kw_only=True):
     describe retained heads, not every predecessor or eligible economic state.
     """
 
-    schema_version: Literal["eda-query-v1"] = "eda-query-v1"
+    schema_version: Literal["eda-query"] = "eda-query"
     snapshot_id: str
     precedence: tuple[InputBinding, ...]
     instruments: tuple[InstrumentId, ...]
@@ -52,7 +52,7 @@ class EdaQuery(WireRecord, frozen=True, kw_only=True):
         ):
             self._require_utc(instant, field_name=name)
         if (
-            self.schema_version != "eda-query-v1"
+            self.schema_version != "eda-query"
             or not isinstance(self.snapshot_id, str)
             or re.fullmatch(r"[0-9a-f]{64}", self.snapshot_id) is None
             or self.end <= self.start
@@ -141,7 +141,7 @@ class QuerySummary:
             raise ValueError("summary requires the query's empty evidence batch")
         return {
             "query_identity": first.identity,
-            "summary_identity": hashlib.sha256(b"eda-summary-v1\n" + digest.digest()).hexdigest(),
+            "summary_identity": hashlib.sha256(b"eda-summary\n" + digest.digest()).hexdigest(),
             "mode": first.mode,
             "columns": first.columns,
             "evidence": first.evidence,

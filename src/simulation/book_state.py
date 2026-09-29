@@ -230,12 +230,12 @@ class BookCheckpoint(WireRecord, frozen=True):
     identity: str
     state: BookState
     state_sha256: str
-    schema_version: str = "l2-ioc-checkpoint-v1"
+    schema_version: str = "l2-ioc-checkpoint"
 
     def __post_init__(self) -> None:
         """Reject incompatible schemas, identities and changed serialized state."""
         if (
-            self.schema_version != "l2-ioc-checkpoint-v1"
+            self.schema_version != "l2-ioc-checkpoint"
             or not re.fullmatch(r"[a-f0-9]{64}", self.identity)
             or type(self.state) is not BookState
         ):

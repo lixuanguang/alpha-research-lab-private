@@ -36,7 +36,7 @@ separately; engineering economics, not profitability, determine acceptance.
    retaining request-time causal checks and original idempotent results. Regress
    a ten-second limit with request age nine and input age eighteen seconds.
 2. Extend the existing disabled deployment envelope only enough to bind multiple
-   explicit venue/instrument/input routes and paper/shadow mode. Preserve legacy
+   explicit venue/instrument/input routes and paper/shadow mode. Keep existing
    deployment identities. Keep authorization, installation and owner claims distinct.
 3. Add a bounded signed account-owner service consuming the existing typed account
    command protocol. Its fixed installed configuration, journal and release are

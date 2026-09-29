@@ -148,7 +148,7 @@ class _ResultFile(WireRecord, frozen=True, kw_only=True):
 class _ResultReceipt(WireRecord, frozen=True, kw_only=True):
     """Witness the complete output directory before its atomic publication."""
 
-    schema_version: Literal["local-job-result-v1"]
+    schema_version: Literal["local-job-result"]
     job_id: str
     attempt_index: int
     files: tuple[_ResultFile, ...]
@@ -156,7 +156,7 @@ class _ResultReceipt(WireRecord, frozen=True, kw_only=True):
     def __post_init__(self) -> None:
         """Keep saved receipt names inside one bounded immutable result directory."""
         if (
-            self.schema_version != "local-job-result-v1"
+            self.schema_version != "local-job-result"
             or type(self.job_id) is not str
             or _NAME.fullmatch(self.job_id) is None
             or type(self.attempt_index) is not int
@@ -630,7 +630,7 @@ class JobQueue:
             )
         )
         receipt = _ResultReceipt(
-            schema_version="local-job-result-v1",
+            schema_version="local-job-result",
             job_id=job_id,
             attempt_index=attempt,
             files=tuple(files),
@@ -659,7 +659,7 @@ class JobQueue:
             (directory / "receipt.json").read_bytes(), _ResultReceipt
         )
         receipt.__post_init__()
-        if receipt.schema_version != "local-job-result-v1" or receipt.job_id != job_id:
+        if receipt.schema_version != "local-job-result" or receipt.job_id != job_id:
             raise ValueError("published job receipt identity differs")
         actual: set[str] = set()
         for path in directory.rglob("*"):

@@ -28,7 +28,7 @@ class TestScheduledParity(ReplayInputs):
                 ((1, 1, "100"), self.rows[1], *self.rows[3:]),
             ):
                 reader, spec = self._inputs(rows, instrument=instrument)
-                reference = run_backtest(reader, replace(spec, rule="no-trade-v1"), batch_size=1)
+                reference = run_backtest(reader, replace(spec, rule="no-trade"), batch_size=1)
                 assert isinstance(reference, EconomicResult)
                 parity = qualify_scheduled_features(reader, reference, batch_size=2)
                 assert parity.is_equal and parity.first_divergence is None

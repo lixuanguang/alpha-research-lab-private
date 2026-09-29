@@ -49,7 +49,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
     capture: CaptureRequest | None = None
     archive: OKXArchiveRequest | None = None
     index: bytes = b""
-    predecessors: tuple[CaptureAncestor, ...] | msgspec.UnsetType = msgspec.UNSET
+    predecessors: tuple[CaptureAncestor, ...] = ()
 
     def __post_init__(self) -> None:
         """Require exactly one supported request and preserve archive discovery evidence."""
@@ -75,13 +75,13 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             raise ValueError("book archive discovery differs from retained request")
         if self.capture is not None and self.index:
             raise ValueError("live capture cannot acquire archive discovery evidence")
-        if self.predecessors is not msgspec.UNSET and (
+        if (
             type(self.predecessors) is not tuple
             or len(self.predecessors) > 511
             or any(type(item) is not CaptureAncestor for item in self.predecessors)
         ):
             raise ValueError("book input requires bounded typed capture predecessors")
-        if self.predecessors is not msgspec.UNSET and self.capture is None:
+        if self.predecessors and self.capture is None:
             raise ValueError("archive input cannot acquire capture predecessors")
         if self.capture is not None:
             self.capture_chain()
@@ -90,12 +90,12 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
         """Validate exact segment linkage and expose original replay order without duplicates."""
         if self.capture is None:
             return ()
-        previous = () if self.predecessors is msgspec.UNSET else self.predecessors
+        previous = self.predecessors
         chain = (*previous, CaptureAncestor(capture=self.capture, raw=self.raw))
         segment = self.capture.segment
         if segment is None:
             if previous:
-                raise ValueError("legacy capture cannot acquire segment predecessors")
+                raise ValueError("unsegmented capture cannot acquire segment predecessors")
             return chain
         if segment.ordinal != len(previous):
             raise ValueError("book suffix requires all original capture predecessors")
@@ -160,19 +160,17 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             capture=codec.decode_json(payload, CaptureRequest) if capture else None,
             archive=None if capture else codec.decode_json(payload, OKXArchiveRequest),
             index=b"" if capture else cls._read_bytes(directory / "index.json", 1_048_576),
-            predecessors=cls._predecessors(directory, payload) if capture else msgspec.UNSET,
+            predecessors=cls._predecessors(directory, payload) if capture else (),
         )
         return selected
 
     @classmethod
-    def _predecessors(
-        cls, directory: Path, payload: bytes
-    ) -> tuple[CaptureAncestor, ...] | msgspec.UnsetType:
+    def _predecessors(cls, directory: Path, payload: bytes) -> tuple[CaptureAncestor, ...]:
         """Resolve sibling segment identities before any suffix bytes are admitted."""
         codec = DomainCodec()
         request = codec.decode_json(payload, CaptureRequest)
         if request.segment is None or request.segment.ordinal == 0:
-            return msgspec.UNSET
+            return ()
         ancestors: list[CaptureAncestor] = []
         part = request.segment
         while part.ordinal:
@@ -217,9 +215,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
         """
         self.__post_init__()
         if self.max_records > 10_000:
-            raise ValueError(
-                "legacy book envelope requires at most 10000 records; stream the input"
-            )
+            raise ValueError("book envelope requires at most 10000 records; stream the input")
         codec, rows, used, invalid, gaps, duplicates = DomainCodec(), [], 0, 0, 0, 0
         reasons = ["visible depth only; coverage and historical eligibility unproven"]
         try:
@@ -274,7 +270,7 @@ class BookInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
 class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Expose typed message boundaries only with their complete input and degraded scope."""
 
-    schema: Literal["canonical-book-prefix-v1"] = "canonical-book-prefix-v1"
+    schema: Literal["canonical-book-prefix"] = "canonical-book-prefix"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
     input: BookInput
     observations: tuple[BookObservation, ...]
@@ -282,7 +278,7 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
     def __post_init__(self) -> None:
         """Retain an explicit version and reject empty or malformed canonical histories."""
         if (
-            self.schema != "canonical-book-prefix-v1"
+            self.schema != "canonical-book-prefix"
             or self.scope != "exploratory_degraded"
             or type(self.input) is not BookInput
             or type(self.observations) is not tuple
@@ -297,15 +293,15 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
 
 
 class BookStreamHeader(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
-    """Identify a line-delimited native history without changing the legacy envelope."""
+    """Identify a line-delimited native history by its complete source selection."""
 
-    schema: Literal["canonical-book-stream-v2"] = "canonical-book-stream-v2"
+    schema: Literal["canonical-book-stream"] = "canonical-book-stream"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
     input: BookInput
 
     def __post_init__(self) -> None:
         """Reject changed scope, schema or source evidence."""
-        if self.schema != "canonical-book-stream-v2" or self.scope != "exploratory_degraded":
+        if self.schema != "canonical-book-stream" or self.scope != "exploratory_degraded":
             raise ValueError("unsupported canonical book stream")
         if type(self.input) is not BookInput:
             raise ValueError("book stream requires a typed input")
@@ -566,22 +562,23 @@ class BookDatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
     """Version exploratory book publication separately from the unchanged trade format."""
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    schema_version: Literal["book-dataset-v1", "book-dataset-v2"] = "book-dataset-v1"
+    schema_version: str = "book-dataset"
     scope: Literal["exploratory_degraded"] = "exploratory_degraded"
     normalization_identity: str
     partitions: tuple[BookPartition, ...]
 
     def __post_init__(self) -> None:
         """Require unique complete book selections and an identified normalizer."""
+        if self.schema_version != "book-dataset":
+            raise ValueError("unsupported book dataset schema")
         if (
-            self.schema_version not in ("book-dataset-v1", "book-dataset-v2")
-            or self.scope != "exploratory_degraded"
+            self.scope != "exploratory_degraded"
             or not isinstance(self.normalization_identity, str)
             or not re.fullmatch(r"[a-f0-9]{64}", self.normalization_identity)
             or type(self.partitions) is not tuple
             or not self.partitions
         ):
-            raise ValueError("unsupported book dataset version, scope or identity")
+            raise ValueError("unsupported book dataset scope or identity")
         selected: set[str] = set()
         for partition in self.partitions:
             if type(partition) is not BookPartition:
@@ -636,37 +633,27 @@ class BookDatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
         manifest = cls._codec.decode_json(BookInput._read_bytes(path, max_bytes), cls)
         if manifest.identity != identity:
             raise ValueError("book dataset identity mismatch")
+        if report is not None:
+            raise ValueError("stream admission reports require BookSnapshot.read")
         for partition in manifest.partitions:
-            if manifest.schema_version == "book-dataset-v1":
-                canonical = BookInput._read_bytes(partitions / partition.sha256, max_bytes)
-                if hashlib.sha256(canonical).hexdigest() != partition.sha256:
-                    raise ValueError("canonical book digest mismatch")
-                outcome = partition.selection.admit(store, readers=readers, max_bytes=max_bytes)
-                if outcome.require_canonical() != canonical:
-                    raise ValueError("canonical book differs from retained admission inputs")
-                if report is not None:
-                    report(partition.selection.request.identity, outcome)
-            else:
-                if report is not None:
-                    raise ValueError("stream admission reports require BookSnapshot.read")
-                try:
-                    BookStream.verify(
-                        partitions / partition.sha256,
-                        partition.selection,
-                        store,
-                        readers,
-                        sha256=partition.sha256,
-                        max_bytes=max_bytes,
-                    )
-                except (
-                    ValueError,
-                    TypeError,
-                    OSError,
-                    OverflowError,
-                    EOFError,
-                    tarfile.TarError,
-                ) as error:
-                    raise ValueError("partition publication refused: " + str(error)) from error
+            try:
+                BookStream.verify(
+                    partitions / partition.sha256,
+                    partition.selection,
+                    store,
+                    readers,
+                    sha256=partition.sha256,
+                    max_bytes=max_bytes,
+                )
+            except (
+                ValueError,
+                TypeError,
+                OSError,
+                OverflowError,
+                EOFError,
+                tarfile.TarError,
+            ) as error:
+                raise ValueError("partition publication refused: " + str(error)) from error
         return manifest
 
 
@@ -693,7 +680,6 @@ class BookSnapshot:
             raise ValueError("book snapshot requires pinned partitions and positive max_bytes")
         self._root = root
         self._identity = manifest.identity
-        self._schema_version = manifest.schema_version
         self._partitions = {
             partition.selection.request.identity: self._codec.encode_json(partition)
             for partition in manifest.partitions
@@ -746,11 +732,6 @@ class BookSnapshot:
     def identity(self) -> str:
         """Return the exact admitted manifest digest."""
         return self._identity
-
-    @property
-    def schema_version(self) -> Literal["book-dataset-v1", "book-dataset-v2"]:
-        """Distinguish legacy envelopes from bounded streams."""
-        return self._schema_version
 
     def partition(self, request_identity: str) -> BookPartition:
         """Select an immutable partition by exact native request identity."""
@@ -824,32 +805,11 @@ class BookSnapshot:
             ).stat().st_size > max_bytes or partition.selection.raw.size_bytes > max_bytes:
                 raise ValueError("book snapshot file exceeds query max_bytes")
 
-    def legacy_canonical(self, request_identity: str) -> bytes | None:
-        """Return legacy envelope bytes only for v1 cursor identity compatibility."""
-        if self._schema_version != "book-dataset-v1":
-            return None
-        partition = self.partition(request_identity)
-        self.verify_partition(request_identity)
-        path = self._root / self.identity / partition.sha256
-        payload = BookInput._read_bytes(path, self.max_bytes)
-        if hashlib.sha256(payload).hexdigest() != partition.sha256:
-            raise ValueError("canonical book digest mismatch")
-        return payload
-
     def observations(self, request_identity: str) -> Iterator[BookObservation]:
         """Yield fresh exact rows after verifying a pinned file before the first row."""
         partition = self.partition(request_identity)
         self.verify_partition(request_identity)
         path = self._root / self.identity / partition.sha256
-        if self._schema_version == "book-dataset-v1":
-            payload = BookInput._read_bytes(path, self.max_bytes)
-            if hashlib.sha256(payload).hexdigest() != partition.sha256:
-                raise ValueError("canonical book digest mismatch")
-            history = self._codec.decode_json(payload, BookHistory)
-            if history.input != partition.selection:
-                raise ValueError("canonical book input differs from manifest")
-            yield from history.observations
-            return
         with path.open("rb") as source:
             original = BookStream._check_digest(source, partition.sha256, max_bytes=self.max_bytes)
             header = self._codec.decode_json(source.readline(1_048_577), BookStreamHeader)

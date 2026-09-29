@@ -1,7 +1,0 @@
-{
-  "revision": "a0dcc86",
-  "snapshot_identity": "23378e41e37533c74a41a3ce5bfa4046aa659ae3bd4131b08321c72dc3a448b9",
-  "implementation_identity": "ba478bfc5f722da7217f94a042e1ef0117531d74730e381522d62b30645604d1",
-  "reversal_wheel_sha256": "11676ad0a111f951750e5f6ae9ef6c182663701f1fe44514a32f1dd560b6a612",
-  "producer": "Pre-cutover installation at a0dcc86; its retained file inventory differs from the clean reversal wheel."
-}

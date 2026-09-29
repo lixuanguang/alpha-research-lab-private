@@ -61,11 +61,11 @@ class WindowDiagnosticStudy(WireRecord, frozen=True, kw_only=True):
     predictive_reason: str
     max_mse: ExactRatio | None
     threshold_reason: str
-    schema_version: Literal["window-diagnostic-study-v1"] = "window-diagnostic-study-v1"
+    schema_version: Literal["window-diagnostic-study"] = "window-diagnostic-study"
 
     def __post_init__(self) -> None:
         """Validate declared availability, applicability and frozen numerical policy."""
-        if self.schema_version != "window-diagnostic-study-v1":
+        if self.schema_version != "window-diagnostic-study":
             raise ValueError("unsupported window diagnostic study")
         for text in (self.family, self.predictive_reason, self.threshold_reason):
             if type(text) is not str or not text.strip():
@@ -263,7 +263,7 @@ class WindowDiagnosticReport(WireRecord, frozen=True, kw_only=True):
     observations: tuple[DiagnosticObservation, ...]
     distributions: tuple[DistributionDiagnostic, ...]
     predictive: tuple[PredictiveDiagnostic, ...]
-    schema_version: Literal["window-diagnostic-report-v1"] = "window-diagnostic-report-v1"
+    schema_version: Literal["window-diagnostic-report"] = "window-diagnostic-report"
     units: str = (
         "feature/prediction/label: dimensionless; MSE: dimensionless-squared; KS: dimensionless"
     )
@@ -285,7 +285,7 @@ class WindowDiagnosticReport(WireRecord, frozen=True, kw_only=True):
 
     def __post_init__(self) -> None:
         """Validate immutable report rows when saved bytes are reopened."""
-        if self.schema_version != "window-diagnostic-report-v1":
+        if self.schema_version != "window-diagnostic-report":
             raise ValueError("unsupported window diagnostic report")
         self.study.__post_init__()
         for collection in (self.observations, self.distributions, self.predictive):
@@ -400,7 +400,7 @@ class WindowDiagnostics:
         return WindowDiagnosticReport(
             study=study,
             versions=(
-                ("repository-calculation", "window-diagnostics-v1"),
+                ("repository-calculation", "window-diagnostics"),
                 ("scipy", version("scipy")),
                 ("numpy", version("numpy")),
             ),

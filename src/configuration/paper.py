@@ -25,7 +25,7 @@ class PaperExecutionScenario(WireRecord, frozen=True):
     fee_rate: Decimal
     take_fraction: Decimal
     gas_inapplicable_reason: str
-    schema_version: Literal["paper-execution-v1"] = "paper-execution-v1"
+    schema_version: Literal["paper-execution"] = "paper-execution"
 
     def __post_init__(self) -> None:
         """Require exact supported off-chain costs and bounded modeled delays."""
@@ -33,7 +33,7 @@ class PaperExecutionScenario(WireRecord, frozen=True):
         DecimalGrid.require_decimal(self.fee_rate)
         DecimalGrid.require_decimal(self.take_fraction)
         if (
-            self.schema_version != "paper-execution-v1"
+            self.schema_version != "paper-execution"
             or self.venue not in ("okx", "bitfinex")
             or type(self.instrument_id) is not InstrumentId
             or self.adverse.per.instrument_id != self.instrument_id
@@ -74,13 +74,13 @@ class PaperConfiguration(WireRecord, frozen=True):
     maximum_fee: Money
     fee_rate: Decimal
     market_max_age_us: int
-    execution: PaperExecutionScenario | None = None
-    schema_version: Literal["paper-runtime-v1"] = "paper-runtime-v1"
+    execution: PaperExecutionScenario
+    schema_version: Literal["paper-runtime"] = "paper-runtime"
 
     def __post_init__(self) -> None:
         """Reject executable modes, incompatible units and unbounded market freshness."""
         if (
-            self.schema_version != "paper-runtime-v1"
+            self.schema_version != "paper-runtime"
             or self.mode not in ("paper", "shadow")
             or type(self.account) is not str
             or not self.account.strip()
@@ -105,38 +105,20 @@ class PaperConfiguration(WireRecord, frozen=True):
             or not 0 < self.market_max_age_us <= 86_400_000_000
         ):
             raise ValueError("invalid paper economics or freshness")
-        if self.execution is not None:
-            self.execution.__post_init__()
-            if (
-                self.execution.instrument_id != self.maximum.dimension.instrument_id
-                or self.execution.adverse.per != self.maximum.dimension
-                or self.execution.adverse.currency != self.tick.currency
-                or self.execution.fee_rate != self.fee_rate
-                or (Fraction(self.execution.adverse.value) / Fraction(self.tick.value)).denominator
-                != 1
-            ):
-                raise ValueError("paper execution scenario has incompatible units")
+        if type(self.execution) is not PaperExecutionScenario:
+            raise TypeError("paper configuration requires an execution scenario")
+        self.execution.__post_init__()
+        if (
+            self.execution.instrument_id != self.maximum.dimension.instrument_id
+            or self.execution.adverse.per != self.maximum.dimension
+            or self.execution.adverse.currency != self.tick.currency
+            or self.execution.fee_rate != self.fee_rate
+            or (Fraction(self.execution.adverse.value) / Fraction(self.tick.value)).denominator != 1
+        ):
+            raise ValueError("paper execution scenario has incompatible units")
 
     @property
     def identity(self) -> str:
         """Bind the full non-secret resolved operating scenario to durable state."""
         self.__post_init__()
-        if self.execution is None:
-            # Preserve the original dedicated journal identity for existing
-            # configurations whose wire record predates the optional scenario.
-            legacy: dict[str, object] = {
-                "account": self.account,
-                "mode": self.mode,
-                "initial_cash": self.initial_cash,
-                "maximum": self.maximum,
-                "lot": self.lot,
-                "tick": self.tick,
-                "maximum_fee": self.maximum_fee,
-                "fee_rate": self.fee_rate,
-                "market_max_age_us": self.market_max_age_us,
-                "schema_version": self.schema_version,
-            }
-            payload = DomainCodec().encode_json(legacy)
-        else:
-            payload = DomainCodec().encode_json(self)
-        return hashlib.sha256(payload).hexdigest()
+        return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()

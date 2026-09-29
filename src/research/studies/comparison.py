@@ -20,7 +20,7 @@ from research.studies.configuration import BacktestRun
 from research.studies.evaluation import TrialEvaluation
 from research.studies.publication import PublicationPolicy
 from research.studies.results import ResultManifest
-from research.studies.tracking import ClearMLDestination, ClearMLPublication
+from research.studies.tracking import ClearMLPublication
 from serialization import DomainCodec, WireRecord
 
 if TYPE_CHECKING:
@@ -37,14 +37,14 @@ class ComparisonStudy(WireRecord, frozen=True):
     seed: int
     minimum_return: ExactRatio
     prune_below: ExactRatio | None = None
-    objective: str = "exact-net-return-v1"
-    schema_version: str = "research-comparison-v1"
+    objective: str = "exact-net-return"
+    schema_version: str = "research-comparison"
 
     def __post_init__(self) -> None:
         """Refuse incompatible inputs, changed partitions and unsupported unbounded searches."""
         if (
-            self.schema_version != "research-comparison-v1"
-            or self.objective != "exact-net-return-v1"
+            self.schema_version != "research-comparison"
+            or self.objective != "exact-net-return"
             or type(self.name) is not str
             or not self.name.strip()
             or type(self.variants) is not tuple
@@ -255,9 +255,8 @@ class ParameterComparison[Variant: SearchVariant]:
         self,
         store: AttemptStore,
         evaluator: ComparisonEvaluator[Variant],
-        tracking: ClearMLDestination | None = None,
         *,
-        publication: PublicationPolicy | None = None,
+        publication: PublicationPolicy,
         max_trials: int | None = None,
     ) -> tuple[str, ...]:
         """Resume the fixed budget, retaining and publishing every attempted variant.
@@ -265,7 +264,6 @@ class ParameterComparison[Variant: SearchVariant]:
         Args:
             store: Entered sole writer, serializing all runs sharing mutable attempt state.
             evaluator: Actual installed application composing economics and vectorbt.
-            tracking: Legacy immediate ClearML destination; mutually exclusive with publication.
             publication: Explicit local, deferred or immediate publication policy.
             max_trials: Optional invocation chunk size; does not change the frozen total budget.
 
@@ -286,12 +284,6 @@ class ParameterComparison[Variant: SearchVariant]:
 
         if max_trials is not None and (type(max_trials) is not int or max_trials < 1):
             raise ValueError("max_trials must be a positive invocation bound")
-        if tracking is not None and publication is not None:
-            raise ValueError("select either legacy tracking or a publication policy")
-        if publication is None:
-            if tracking is None:
-                raise ValueError("comparison requires an explicit publication policy")
-            publication = PublicationPolicy(mode="immediate", destination=tracking)
         publication.__post_init__()
         self._journal.parent.mkdir(parents=True, exist_ok=True)
         sampler = GridSampler(

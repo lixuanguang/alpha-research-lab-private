@@ -153,7 +153,7 @@ class PhysicalAllocation:
                         posting_id = hashlib.sha256(
                             self.codec.encode_json(
                                 (
-                                    "new-physical-fee-v1",
+                                    "new-physical-fee",
                                     correction.identity,
                                     fill.identity,
                                     item.child_order_id,
@@ -176,7 +176,7 @@ class PhysicalAllocation:
                 else:
                     next_revision_id = hashlib.sha256(
                         self.codec.encode_json(
-                            ("physical-fee-revision-v1", correction.identity, posting_id)
+                            ("physical-fee-revision", correction.identity, posting_id)
                         )
                     ).hexdigest()
                     ledger.post(
@@ -390,7 +390,7 @@ class PhysicalAllocation:
                 if quantity:
                     fill_id = hashlib.sha256(
                         self.codec.encode_json(
-                            ("allocated-physical-fill-v1", fill.identity, child.order.identity)
+                            ("allocated-physical-fill", fill.identity, child.order.identity)
                         )
                     ).hexdigest()
                     child_fill = Fill(
@@ -426,7 +426,7 @@ class PhysicalAllocation:
                 elif fee_part:
                     fee_id = hashlib.sha256(
                         self.codec.encode_json(
-                            ("allocated-physical-fee-v1", fill.identity, child.order.identity)
+                            ("allocated-physical-fee", fill.identity, child.order.identity)
                         )
                     ).hexdigest()
                     ledger = AccountLedger(transaction.account(parent.account_id).ledger)

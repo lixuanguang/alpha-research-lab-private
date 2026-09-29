@@ -98,12 +98,12 @@ class VenueSpecification(WireRecord, frozen=True, kw_only=True):
 class ReferenceHistory(WireRecord, frozen=True, kw_only=True):
     """Preserve append-only specifications and resolve only facts known at the cutoff."""
 
-    schema_version: Literal["reference-history-v1"] = "reference-history-v1"
+    schema_version: Literal["reference-history"] = "reference-history"
     specifications: tuple[VenueSpecification, ...]
 
     def __post_init__(self) -> None:
         """Reject duplicate versions, conflicting definitions and invalid correction chains."""
-        if self.schema_version != "reference-history-v1" or type(self.specifications) is not tuple:
+        if self.schema_version != "reference-history" or type(self.specifications) is not tuple:
             raise ValueError("invalid reference history")
         versions: dict[str, VenueSpecification] = {}
         definitions: dict[InstrumentId, InstrumentDefinition] = {}

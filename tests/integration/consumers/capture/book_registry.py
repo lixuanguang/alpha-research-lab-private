@@ -19,7 +19,12 @@ from msgspec.structs import replace
 # project library imports
 import market_data
 from accounting import Ledger, LedgerState
-from configuration import BookEquivalence, BookRegistryConfiguration, BookSelection
+from configuration import (
+    BookEquivalence,
+    BookRegistryConfiguration,
+    BookSelection,
+    PaperExecutionScenario,
+)
 from execution import OrderDecision, PaperMarket, PaperMatcher, PaperOrderJournal
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
@@ -299,7 +304,7 @@ class _SelectedVenuePaperAcceptance:
         )
         group = BookEquivalence(
             name="synthetic-btc-usd",
-            reference="synthetic:authored-comparability-v1",
+            reference="synthetic:authored-comparability",
             members=tuple(source.key for source in synthetic),
             known_ns=0,
             valid_from_ns=0,
@@ -341,6 +346,16 @@ class _SelectedVenuePaperAcceptance:
             product="spot",
         )
         initial = LedgerState(initial_cash=self._money("1000"), dimension=self.dimension)
+        scenario = PaperExecutionScenario(
+            venue="okx",
+            instrument_id=self.dimension.instrument_id,
+            entry_delay_us=0,
+            cancel_delay_us=0,
+            adverse=self._price("0"),
+            fee_rate=Decimal("0.005"),
+            take_fraction=Decimal("1"),
+            gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
+        )
         path = output / "selected-venue-paper.sqlite3"
         market = PaperMarket(
             identity=hashlib.sha256(
@@ -367,7 +382,7 @@ class _SelectedVenuePaperAcceptance:
             admitted = journal.commit_step(
                 epoch=epoch,
                 step_id="synthetic-buy",
-                checkpoint=b"selected-venue-paper-v1",
+                checkpoint=b"selected-venue-paper",
                 decision=OrderDecision(
                     identity="selected-venue-buy",
                     at=decision_at,
@@ -383,9 +398,9 @@ class _SelectedVenuePaperAcceptance:
             )
             if admitted.status != "committed" or len(admitted.orders) != 1:
                 raise AssertionError("selected venue order was not admitted")
-            PaperMatcher(journal, fee_rate=Decimal("0.005"), lot=self._quantity("1")).match(
-                market, epoch=epoch
-            )
+            PaperMatcher(
+                journal, fee_rate=Decimal("0.005"), lot=self._quantity("1"), scenario=scenario
+            ).match(market, epoch=epoch)
             fills = journal.ledger_state().fills
             balance = Ledger(journal.ledger_state()).balance
             if (
@@ -410,9 +425,9 @@ class _SelectedVenuePaperAcceptance:
             ledger_state=initial,
         ) as recovered:
             epoch = recovered.claim("installed-restart")
-            PaperMatcher(recovered, fee_rate=Decimal("0.005"), lot=self._quantity("1")).match(
-                market, epoch=epoch
-            )
+            PaperMatcher(
+                recovered, fee_rate=Decimal("0.005"), lot=self._quantity("1"), scenario=scenario
+            ).match(market, epoch=epoch)
             if (recovered.orders(), recovered.events(), recovered.ledger_state()) != before:
                 raise AssertionError("paper restart duplicated selected-venue effects")
         return {
@@ -471,7 +486,7 @@ def main() -> None:
     synthetic = _SelectedVenuePaperAcceptance(output, sources).run()
     report: dict[str, object] = {
         "installed_package": str(installed),
-        "native_clock_assumption": "receipt-clock-as-availability-v1; original delivery unknown",
+        "native_clock_assumption": "receipt-clock-as-availability; original delivery unknown",
         "native_scope": "exploratory_degraded_per_venue_public_spot_books",
         "configuration_identity": config.identity,
         "inputs": [

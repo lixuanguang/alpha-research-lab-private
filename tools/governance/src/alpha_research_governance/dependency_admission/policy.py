@@ -184,7 +184,7 @@ def load_policy(path: Path) -> DependencyAdmission:
     content = path.read_text(encoding="utf-8")
     try:
         raw_document: object = tomllib.loads(content)
-    # TOMLDecodeError is a ValueError; its legacy constructor is dynamically typed in 3.14.
+    # TOMLDecodeError is a ValueError; its constructor is dynamically typed in 3.14.
     except ValueError as error:
         raise DependencyAdmissionError([f"{path}: invalid TOML: {error}"]) from error
     document = _table(raw_document, context=str(path))

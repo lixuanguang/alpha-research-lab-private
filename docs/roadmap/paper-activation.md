@@ -66,7 +66,7 @@ checks without weakening typing, dependency, numerical or hosted merge gates.
 ## Implementation and validation record
 
 The managed operating boundary is the signed execution `paper` runner using
-`account-runtime-v1` configuration and `account-journal-v4` state. Its admitted
+`account-runtime` configuration and `account-journal` state. Its admitted
 execution/contracts closure owns economics. `InstalledPaperAccount` connects
 the existing public-paper Python workflow to that runner using retained typed
 requests and responses, without installing the research wheel into the target.
@@ -191,7 +191,7 @@ cannot supply a whole admitted lot. No liquidation is claimed. Unit evidence
 separately covers available/partial liquidity and other-strategy reservations.
 `recovery-verification.json` proves exact retained economic projections across
 release selection, independent reconciliation, generation 1-to-2 reclaim and
-idempotent market retry. The summary's legacy `restart_replay_equal` field is false
+idempotent market retry. The summary's `restart_replay_equal` field is false
 because that direct-journal replay is not invoked; the signed proof is reported
 by `code_rollback_equal`, `reclaimed_after_rollback` and `market_retry_equal`.
 
