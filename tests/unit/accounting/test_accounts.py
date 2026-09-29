@@ -12,7 +12,7 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from accounting.accounts import AccountLedger, AccountPosting, AccountState
+from accounting.accounts import AccountLedger, AccountPosting, AccountSnapshot, AccountState
 from financial_units import Currency, DecimalGrid, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from serialization import DomainCodec
@@ -574,6 +574,72 @@ class TestAccountLedger:
             assert rebuilt.effective_postings() == ledger.effective_postings()
             for instance_id in (None, "alpha", "beta"):
                 assert rebuilt.snapshot(instance_id) == ledger.snapshot(instance_id)
+                assert ledger.snapshot(instance_id) == self._summed(ledger, instance_id)
+
+    @staticmethod
+    def _summed(ledger: AccountLedger, instance_id: str | None) -> AccountSnapshot:
+        """Sum a scope's effective postings directly, independently of the ledger's fold."""
+        currencies = ledger.state.currencies
+        cash = {currency.code: Fraction(0) for currency in currencies}
+        fees, rebates, transfers = dict(cash), dict(cash), dict(cash)
+        positions: dict[Dimension, Fraction] = {}
+        fill_ids: list[str] = []
+        for effect in ledger.effective_postings():
+            if instance_id is not None and effect.instance_id != instance_id:
+                continue
+            code, value = effect.cash.currency.code, Fraction(effect.cash.value)
+            if effect.asset_change is None:
+                cash[code] += value
+            else:
+                dimension = effect.asset_change.dimension
+                positions[dimension] = positions.get(dimension, Fraction(0)) + Fraction(
+                    effect.asset_change.value
+                )
+            if effect.kind == "fill":
+                assert effect.quantity is not None
+                dimension = effect.quantity.dimension
+                positions[dimension] = positions.get(dimension, Fraction(0)) + Fraction(
+                    effect.quantity.value
+                )
+                fill_ids.append(effect.identity)
+            elif effect.kind == "fee":
+                fees[code] -= value
+            elif effect.kind == "rebate":
+                rebates[code] += value
+            elif effect.kind == "transfer":
+                transfers[code] += value
+        codec = DomainCodec()
+
+        def order(item: tuple[Dimension, Fraction]) -> bytes:
+            """Order dimensions by their lossless wire bytes."""
+            return codec.encode_json(item[0])
+
+        def money(totals: dict[str, Fraction]) -> tuple[Money, ...]:
+            """Project exact totals in declared currency order."""
+            return tuple(
+                Money(value=DecimalGrid.exact_decimal(totals[currency.code]), currency=currency)
+                for currency in currencies
+            )
+
+        return AccountSnapshot(
+            account_id=ledger.state.account_id,
+            instance_id=instance_id,
+            cash=money(cash),
+            positions=tuple(
+                Quantity(value=DecimalGrid.exact_decimal(value), dimension=dimension)
+                for dimension, value in sorted(positions.items(), key=order)
+                if value
+            ),
+            fees=money(fees),
+            rebates=money(rebates),
+            transfers=money(transfers),
+            fill_ids=tuple(fill_ids),
+            posting_ids=tuple(
+                posting.identity
+                for posting in ledger.state.postings
+                if instance_id is None or posting.instance_id == instance_id
+            ),
+        )
 
     def test_exact_balances_survive_low_decimal_precision(self) -> None:
         """Avoid ambient Decimal rounding in cumulative multi-posting balances."""
