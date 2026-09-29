@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import asyncio
 import concurrent.futures
 import multiprocessing
 import os
@@ -28,6 +29,7 @@ from msgspec.structs import force_setattr, replace
 
 # project library imports
 from accounting import AccountLedger, AccountPosting, AccountState, Fill, PaperAccountReport
+from applications.collect import collect
 from applications.execute.service_inputs import ServiceBookInputs
 from applications.execute.service_monitor import (
     PaperServiceDiagnostics,
@@ -66,7 +68,15 @@ from execution import (
     SocketPaperAccount,
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level, Order
+from market_data.adapters.transport import VenueTransport
+from market_data.contracts import (
+    BookObservation,
+    CaptureRecord,
+    CaptureRequest,
+    FeedSocket,
+    Level,
+    Order,
+)
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
@@ -76,7 +86,45 @@ from runtime import (
     SharedPaperCaptureObserver,
 )
 from serialization import DomainCodec
-from telemetry import HealthMetrics, RuntimeMeasurementJournal
+from telemetry import HealthMetric, HealthMetrics, RuntimeMeasurementJournal
+
+
+class _ScriptedBookSocket:
+    """Deliver one finite OKX public book script, then drop the connection."""
+
+    def __init__(self, frames: tuple[bytes, ...]) -> None:
+        """Bind the exact native frames of one connection."""
+        self.frames = iter(frames)
+
+    async def send(self, message: str) -> None:
+        """Accept the selected public book subscription."""
+        assert '"books"' in message
+
+    async def recv(self) -> bytes:
+        """Return the next frame, or end the connection with a network error."""
+        await asyncio.sleep(0)
+        frame = next(self.frames, None)
+        if frame is None:
+            raise OSError("scripted public feed disconnect")
+        return frame
+
+    async def close(self) -> None:
+        """Nothing external is held by the scripted socket."""
+
+
+class _ReconnectingBookTransport(VenueTransport):
+    """Drop the first public connection once, then serve a recovered session."""
+
+    _ack = b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}'
+    _snapshot = (
+        b'{"arg":{"channel":"books","instId":"BTC-USDT"},"action":"snapshot","data":[{"pre'
+        b'vSeqId":-1,"seqId":10,"asks":[["101","1","0","1"]],"bids":[["100","2","0","2"]]}'
+        b"]}"
+    )
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Serve the same synchronized session on every connection."""
+        return _ScriptedBookSocket((self._ack, self._snapshot))
 
 
 class _AliveSource(multiprocessing.Process):
@@ -897,6 +945,71 @@ class TestPaperServices:
                 state_identity="1" * 64,
             ),
         )
+
+    def test_one_reconnect_within_retry_budget_keeps_the_shared_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A capture that recovers one disconnect under its retries is not a source fault."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config, owner = self._config(self._socket_path()), self._owner()
+        definition = config.sources[0]
+        # Two synchronized connections of two messages each; the first one drops.
+        capture = replace(definition.capture, max_messages=4)
+        health = HealthMetrics()
+        result = asyncio.run(
+            collect(
+                capture,
+                tmp_path / "capture",
+                implementation_identity="a" * 64,
+                transport=_ReconnectingBookTransport(capture),
+                health=health,
+            )
+        )
+        assert result["epochs"] == 2 and result["synchronized"] is True
+        assert 1 <= definition.capture.retries
+        # The source child keeps running after its reconnect, so its liveness clocks
+        # are current; only the recorded counts decide this supervision pass.
+        now = time.monotonic_ns()
+        for metric in (
+            HealthMetric.HEARTBEAT,
+            HealthMetric.INGESTION,
+            HealthMetric.PERSISTENCE,
+            HealthMetric.MARKET,
+        ):
+            health.set(metric, now)
+        health.set(HealthMetric.FINALIZING, 0)
+        values = health.snapshot()
+        assert (values[HealthMetric.RECONNECTS], values[HealthMetric.GAPS]) == (1, 1)
+        services = _SupervisorHarness(config, owner, tmp_path, self._socket_path())
+        services.active.clear()
+        health_path = Path(config.accounts[0].socket_path).with_suffix(".health.json")
+        receiver, sender = cast(
+            "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
+            multiprocessing.get_context("spawn").Pipe(duplex=False),
+        )
+        try:
+            health_path.write_bytes(
+                services.codec.encode_json(self._owner_health(owner, time.monotonic_ns()))
+            )
+            services.sources[definition.name] = _SourceChild(
+                definition=definition,
+                request=CaptureRequest(
+                    config=capture, recording_id=str(uuid4()), implementation_identity="b" * 64
+                ),
+                process=cast(BaseProcess, _AliveSource()),
+                receiver=receiver,
+                health=health,
+                observers={},
+            )
+            assert services._supervise() is False
+            assert services.fault_calls == [] and services.failures == []
+            assert not receiver.closed
+        finally:
+            health_path.unlink(missing_ok=True)
+            receiver.close()
+            sender.close()
 
     def test_live_duplicate_control_socket_is_not_unlinked(self) -> None:
         """An occupied supervisor endpoint stays reachable after duplicate launch refusal."""

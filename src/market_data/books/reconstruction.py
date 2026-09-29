@@ -42,6 +42,8 @@ class CaptureReplay:
         self.updates = 0
         self.snapshots = 0
         self.heartbeats = 0
+        # Undecodable or beyond-watermark input only; reconnects are gaps, not this.
+        self.invalid_frames = 0
         self.gaps: list[dict[str, object]] = []
         self.started_ns: int | None = None
         self.finished_ns: int | None = None
@@ -133,6 +135,7 @@ class CaptureReplay:
         ):
             outcome = "invalid_frame"
             self._gap(record, "receipt_beyond_watermark")
+        self.invalid_frames += outcome == "invalid_frame"
         self._trace.update(
             self._codec.encode_json((record, outcome, self.book.identity, self.invalid))
         )

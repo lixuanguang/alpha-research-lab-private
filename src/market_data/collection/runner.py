@@ -252,7 +252,7 @@ class CaptureRunner:
                             durable_ns=persisted_at_ns,
                         )
                         if self._health is not None:
-                            self._health.set(HealthMetric.INVALID, len(replay.gaps))
+                            self._health.set(HealthMetric.INVALID, replay.invalid_frames)
                             self._health.set(HealthMetric.GAPS, len(replay.gaps))
                             self._health.set(HealthMetric.DUPLICATES, replay.duplicates)
                             if (
@@ -304,7 +304,7 @@ class CaptureRunner:
                         self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
                     outcome = await asyncio.to_thread(replay.apply, gap)
                     if self._health is not None:
-                        self._health.set(HealthMetric.INVALID, len(replay.gaps))
+                        self._health.set(HealthMetric.INVALID, replay.invalid_frames)
                         self._health.set(HealthMetric.GAPS, len(replay.gaps))
                     self._observe(journal, replay, gap, outcome)
                 ending = CaptureRecord(
@@ -315,7 +315,7 @@ class CaptureRunner:
                     self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
                 outcome = await asyncio.to_thread(replay.apply, ending)
                 if self._health is not None:
-                    self._health.set(HealthMetric.INVALID, len(replay.gaps))
+                    self._health.set(HealthMetric.INVALID, replay.invalid_frames)
                     self._health.set(HealthMetric.GAPS, len(replay.gaps))
                 self._observe(journal, replay, ending, outcome)
             except OSError, OverflowError:
@@ -430,7 +430,7 @@ class CaptureRunner:
             self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
         outcome = replay.apply(record)
         if self._health is not None:
-            self._health.set(HealthMetric.INVALID, len(replay.gaps))
+            self._health.set(HealthMetric.INVALID, replay.invalid_frames)
             self._health.set(HealthMetric.GAPS, len(replay.gaps))
         self._observe(journal, replay, record, outcome)
 

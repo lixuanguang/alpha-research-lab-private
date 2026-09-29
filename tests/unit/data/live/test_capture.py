@@ -537,6 +537,38 @@ class TestCapture:
         assert all(len(socket.sent) == 2 for socket in transport.sockets)
         assert result["retry_exhausted"] is False
 
+    def test_recovered_disconnect_is_a_gap_but_not_invalid_input(self, tmp_path: Path) -> None:
+        """A reconnect within the retry budget is counted apart from undecodable input."""
+        config = replace(self.config(), retries=3, max_messages=8)
+        health = HealthMetrics()
+        result = asyncio.run(
+            collect(
+                config,
+                tmp_path / "reconnect",
+                implementation_identity="a" * 64,
+                transport=ScriptedTransport(config, (_FRAMES[:3], _FRAMES)),
+                health=health,
+            )
+        )
+        values = health.snapshot()
+        assert result["epochs"] == 2 and result["synchronized"] is True
+        gaps = result["gaps"]
+        assert isinstance(gaps, list) and gaps
+        assert values[HealthMetric.RECONNECTS] == 1
+        assert values[HealthMetric.GAPS] == len(gaps)
+        assert values[HealthMetric.INVALID] == 0
+        invalid_health = HealthMetrics()
+        asyncio.run(
+            collect(
+                replace(config, retries=0),
+                tmp_path / "invalid",
+                implementation_identity="a" * 64,
+                transport=ScriptedTransport(config, ((*_FRAMES[:3], b"not JSON"),)),
+                health=invalid_health,
+            )
+        )
+        assert invalid_health.snapshot()[HealthMetric.INVALID] == 1
+
     @pytest.mark.parametrize("is_exact", [True, False])
     def test_duplicate_delivery(self, tmp_path: Path, is_exact: bool) -> None:
         """Retain duplicate R0 bytes while applying one mutation or refusing a conflict."""
