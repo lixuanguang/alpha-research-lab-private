@@ -190,6 +190,11 @@ class OKXSpotAdapter:
         query = {"instId": symbol}
         query["ordId" if venue_order_id is not None else "clOrdId"] = venue_order_id or client_id
         response = self._request("GET", "/api/v5/trade/order?" + urlencode(query), b"", at=at)
+        envelope = VenueJson.mapping(VenueJson.parse(response.body))
+        if VenueJson.text(VenueJson.field(envelope, "code")) == "51603":
+            # OKX reports an unknown order identity as this top-level code, not
+            # as empty data; absence is not finality, and callers treat it so.
+            return None
         items = self._entries(response.body)
         if not items:
             return None

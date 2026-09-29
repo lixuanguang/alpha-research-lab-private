@@ -20,6 +20,7 @@ from execution.venues import (
     VenueOrderRequest,
     VenueOutcomeUnknownError,
     VenueProtocolError,
+    VenueRejectedError,
 )
 
 
@@ -164,6 +165,35 @@ class TestOKXSpotProtocol:
         assert page.fills[0].fee == Decimal("0.000000000000000001")
         assert page.fills[0].fee_currency == "ETH"
         assert page.fills[0].quantity == Decimal("0.000000000000000003")
+
+    def test_unknown_order_lookup_is_absent_and_other_codes_reject(self) -> None:
+        """OKX's documented 51603 means absent; any other nonzero code stays a rejection."""
+        transport = ScriptedVenueTransport(
+            self._envelope([{"acctLv": "1", "uid": "4455"}]),
+            b'{"code":"51603","data":[],"msg":"Order does not exist"}',
+            b'{"code":"51000","data":[],"msg":"Parameter ordId error"}',
+        )
+        adapter = OKXSpotAdapter(VenueCredentials("key", "secret", "pass"), transport)
+        adapter.qualify_account(at=self.recent, nonce=1)
+        submitted_at = datetime(2026, 9, 26, 11, tzinfo=UTC)
+        absent = adapter.order(
+            "ETH-USDT",
+            "abc123",
+            submitted_at=submitted_at,
+            venue_order_id=None,
+            at=self.recent,
+            nonce=2,
+        )
+        assert absent is None
+        with pytest.raises(VenueRejectedError, match="51000"):
+            adapter.order(
+                "ETH-USDT",
+                "abc123",
+                submitted_at=submitted_at,
+                venue_order_id=None,
+                at=self.recent,
+                nonce=3,
+            )
 
     def test_account_wide_orders_reject_other_products(self) -> None:
         """A non-spot pending order cannot disappear behind a spot filter."""
