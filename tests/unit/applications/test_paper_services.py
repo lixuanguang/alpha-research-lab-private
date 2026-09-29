@@ -69,6 +69,7 @@ from execution import (
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from market_data.adapters.transport import VenueTransport
+from market_data.books import BookAsOfIndex
 from market_data.contracts import (
     BookObservation,
     CaptureRecord,
@@ -125,6 +126,15 @@ class _ReconnectingBookTransport(VenueTransport):
     async def open(self, timeout: float) -> FeedSocket:
         """Serve the same synchronized session on every connection."""
         return _ScriptedBookSocket((self._ack, self._snapshot))
+
+
+class _IndexedObserver(SharedPaperCaptureObserver):
+    """Hold only a delivery as-of index, as a service observer does."""
+
+    def __init__(self, index: BookAsOfIndex) -> None:
+        """Bind the open index without public inputs or an account."""
+        self.index = index
+        self.measurements = None
 
 
 class _AliveSource(multiprocessing.Process):
@@ -253,6 +263,7 @@ class _ClosingObserver(SharedPaperCaptureObserver):
     def __init__(self, measurements: RuntimeMeasurementJournal) -> None:
         """Bind optional evidence and a status-safe absent market."""
         self.measurements = measurements
+        self.index = None
         self.last_market = None
 
 
@@ -420,6 +431,7 @@ class _ObservationGate(SharedPaperCaptureObserver):
         self.inputs = ServiceBookInputs((), 30_000_000)
         self.last_market = None
         self.measurements = None
+        self.index = None
 
     def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
         """Require concurrent arrival where declared, then retain the completed native position."""
@@ -1010,6 +1022,43 @@ class TestPaperServices:
             health_path.unlink(missing_ok=True)
             receiver.close()
             sender.close()
+
+    def test_closing_a_source_releases_each_book_index_writer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Source shutdown closes every observer's as-of index and its write-ahead log."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config, owner = self._config(self._socket_path()), self._owner()
+        services = _SupervisorHarness(config, owner, tmp_path, self._socket_path())
+        path = tmp_path / "delivery.index.sqlite3"
+        index = BookAsOfIndex.create(path)
+        wal = path.with_name(path.name + "-wal")
+        assert wal.exists()
+        receiver, sender = cast(
+            "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
+            multiprocessing.get_context("spawn").Pipe(duplex=False),
+        )
+        try:
+            services._close_source(
+                _SourceChild(
+                    definition=config.sources[0],
+                    request=CaptureRequest(
+                        config=config.sources[0].capture,
+                        recording_id=str(uuid4()),
+                        implementation_identity="b" * 64,
+                    ),
+                    process=cast(BaseProcess, _AliveSource()),
+                    receiver=receiver,
+                    health=HealthMetrics(),
+                    observers={"shared": _IndexedObserver(index)},
+                )
+            )
+        finally:
+            sender.close()
+        assert receiver.closed and not wal.exists()
+        assert index.covered_bytes() == 0
 
     def test_live_duplicate_control_socket_is_not_unlinked(self) -> None:
         """An occupied supervisor endpoint stays reachable after duplicate launch refusal."""
