@@ -74,6 +74,14 @@ class _MutatingCallbackMetric:
         )
 
 
+class _FailingRename:
+    """Fail every publication rename, as a crash before the commit point would."""
+
+    def __call__(self, source: str | Path, destination: str | Path) -> None:
+        """Refuse the rename without touching either path."""
+        raise OSError("synthetic rename failure")
+
+
 class TestDashboard:
     """Use a selected causal series and an isolated Unix socket for delivery proof."""
 
@@ -207,6 +215,46 @@ class TestDashboard:
         html_path.write_bytes(b"changed")
         with pytest.raises(ValueError, match="digest"):
             DashboardSnapshot.read(directory)
+
+    def test_interrupted_or_failed_writes_leave_a_retryable_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A view appears whole or not at all, and a retry completes an interrupted write."""
+        metric = self._metric()
+        snapshot = DashboardBuilder.build(
+            self._config(metric),
+            self._query(),
+            (self._event("last", 3, self._ratio(2)),),
+            MetricRegistry((metric,)),
+        )
+        # A writer that died after its first file left an uncommitted directory.
+        interrupted = tmp_path / "interrupted"
+        interrupted.mkdir()
+        (interrupted / "snapshot.json").write_bytes(b'{"partial"')
+        assert snapshot.write(interrupted) == interrupted / "dashboard.html"
+        assert DashboardSnapshot.read(interrupted) == snapshot
+        (quarantined,) = tuple(tmp_path.glob(".interrupted.interrupted-*"))
+        assert (quarantined / "snapshot.json").read_bytes() == b'{"partial"'
+        # A failed publish leaves no partial view behind, and the retry succeeds.
+        failed = tmp_path / "failed"
+        with monkeypatch.context() as patched:
+            patched.setattr("telemetry.dashboard.os.rename", _FailingRename())
+            with pytest.raises(OSError, match="synthetic"):
+                snapshot.write(failed)
+        assert not failed.exists()
+        assert not tuple(tmp_path.glob(".failed.staging-*"))
+        snapshot.write(failed)
+        assert DashboardSnapshot.read(failed) == snapshot
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        snapshot.write(empty)
+        assert DashboardSnapshot.read(empty) == snapshot
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        (shared / "notes.txt").write_bytes(b"unrelated")
+        with pytest.raises(ValueError, match="unrelated"):
+            snapshot.write(shared)
+        assert sorted(path.name for path in shared.iterdir()) == ["notes.txt"]
 
     def test_exact_threshold_delivery_and_idempotency(self, tmp_path: Path) -> None:
         """Send one local alert and retain acceptance without a duplicate datagram."""
