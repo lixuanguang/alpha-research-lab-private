@@ -248,6 +248,7 @@ class PaperServices:
             instance.quantity,
             source.scenario.adverse.currency,
             instance.lot,
+            tick=self.config.instance_limits(instance).tick,
             implementation=self.implementation,
         )
 

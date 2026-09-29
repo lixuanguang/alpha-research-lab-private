@@ -163,6 +163,7 @@ class CapacityEconomicParity:
             instance.quantity,
             source.scenario.adverse.currency,
             instance.lot,
+            tick=self.service.instance_limits(instance).tick,
             implementation=self.implementation,
         )
         return SharedStrategyBinding(
