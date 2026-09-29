@@ -150,6 +150,12 @@ model invents no intervening exchange event or response clock. A quote can fill
 only an older order. The modeled fill retains both observed touch reference and
 adverse effective price, with exact quote-currency fee rounding. A limit or fee
 reservation that cannot cover those economics cannot silently become a fill.
+`PaperFeeSchedule` takes only the whole lots whose fee, both exact and rounded on
+that fill, fits the order's remaining `maximum_fee`. A sell filling above its limit
+or fees rounding up on every partial fill can therefore leave the rest of an order
+resting (or cancelled, for IOC), but never fault the account. The account lifecycle
+still refuses an unaffordable fill and rolls the whole market back. Size the
+reserve for the worst execution price plus one minor unit per possible fill.
 
 `PaperMatchEvaluator` is the shared deterministic projection for the dedicated
 and account journals. The account journal supplies physical orders in decision

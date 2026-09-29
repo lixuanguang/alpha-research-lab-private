@@ -114,6 +114,61 @@ class PaperMatchProjection(WireRecord, frozen=True):
         self.liquidity.__post_init__()
 
 
+class PaperFeeSchedule:
+    """Price modeled paper fees and bound each fill by its order's fee reservation.
+
+    A modeled fee is ``size * price * fee_rate``, rounded half-even to the quote
+    currency's minor unit separately on each fill. A fill never charges more than
+    the order's remaining reserve, measured both exactly and after rounding, so a
+    split fill cannot round a fee under the reserve's bound. This keeps modeled
+    economics within what admission reserved, including sells that fill above
+    their limit and fees that round up on every partial fill.
+    """
+
+    def __init__(self, fee_rate: Decimal) -> None:
+        """Bind one validated proportional fee rate."""
+        DecimalGrid.require_decimal(fee_rate)
+        if not Decimal(0) <= fee_rate < Decimal(1):
+            raise ValueError("invalid paper fee rate")
+        self.fee_rate = fee_rate
+
+    def fee(self, size: Fraction, price: Price) -> Money:
+        """Charge one fill of ``size`` base units at ``price`` on its currency grid."""
+        return Money(
+            value=DecimalGrid.round_fraction(
+                size * Fraction(price.value) * Fraction(self.fee_rate),
+                price.currency.minor_unit,
+                Rounding.HALF_EVEN,
+            ),
+            currency=price.currency,
+        )
+
+    def affordable(
+        self, order: OrderState, size: Fraction, price: Price, lot: Fraction
+    ) -> Fraction:
+        """Return the largest whole-lot size up to ``size`` that the fee reserve pays."""
+        reserve = Fraction(order.maximum_fee.value) - Fraction(order.paid_fee.value)
+        lots = size // lot
+        if reserve < 0 or lots <= 0:
+            return Fraction(0)
+        if self._fits(reserve, lots * lot, price):
+            return lots * lot
+        # Fees never fall as size grows, so bisect for the largest affordable count.
+        low, high = 0, lots
+        while high - low > 1:
+            middle = (low + high) // 2
+            if self._fits(reserve, middle * lot, price):
+                low = middle
+            else:
+                high = middle
+        return low * lot
+
+    def _fits(self, reserve: Fraction, size: Fraction, price: Price) -> bool:
+        """Require both the exact and the rounded fee to stay within the reserve."""
+        exact = size * Fraction(price.value) * Fraction(self.fee_rate)
+        return exact <= reserve and Fraction(self.fee(size, price).value) <= reserve
+
+
 class PaperMatchEvaluator:
     """Project one authored spot scenario without mutating either account journal.
 
@@ -139,6 +194,7 @@ class PaperMatchEvaluator:
         ):
             raise ValueError("paper matcher scenario and lot differ")
         self.scenario, self.lot, self.tick = scenario, lot, tick
+        self.fees = PaperFeeSchedule(scenario.fee_rate)
         self._codec = DomainCodec()
 
     def project(
@@ -267,8 +323,12 @@ class PaperMatchEvaluator:
             )
             fill_id = self._identity(account_id, market, order, "fill")
             if crosses and within_limit and effective.value > 0 and fill_id not in existing_ids:
-                size = min(Fraction(order.remaining.value), remaining[order.intent.side])
-                size = (size // Fraction(self.lot.value)) * Fraction(self.lot.value)
+                size = self.fees.affordable(
+                    order,
+                    min(Fraction(order.remaining.value), remaining[order.intent.side]),
+                    effective,
+                    Fraction(self.lot.value),
+                )
                 if size:
                     quantity = Quantity(
                         value=DecimalGrid.exact_decimal(
@@ -276,14 +336,7 @@ class PaperMatchEvaluator:
                         ),
                         dimension=self.lot.dimension,
                     )
-                    fee = Money(
-                        value=DecimalGrid.round_fraction(
-                            size * Fraction(effective.value) * Fraction(self.scenario.fee_rate),
-                            touch.currency.minor_unit,
-                            Rounding.HALF_EVEN,
-                        ),
-                        currency=touch.currency,
-                    )
+                    fee = self.fees.fee(size, effective)
                     projected.append(
                         OrderEvent(
                             identity=fill_id,
@@ -447,6 +500,7 @@ class PaperMatcher:
             ):
                 raise ValueError("paper matcher and authored scenario differ")
         self._journal, self._fee_rate, self._lot, self._scenario = journal, fee_rate, lot, scenario
+        self._fees = PaperFeeSchedule(fee_rate)
 
     def match(self, market: PaperMarket, *, epoch: int) -> None:
         """Apply a quote once per order, recovering a partly committed quote after restart.
@@ -501,22 +555,18 @@ class PaperMatcher:
                 self._event(market, order, "accepted", epoch)
             fill_id = self._identity(market, order, "fill")
             if crosses and fill_id not in identities:
-                size = min(Fraction(order.remaining.value), available[order.intent.side])
-                lots = size // Fraction(self._lot.value)
-                size = lots * Fraction(self._lot.value)
+                size = self._fees.affordable(
+                    order,
+                    min(Fraction(order.remaining.value), available[order.intent.side]),
+                    touch,
+                    Fraction(self._lot.value),
+                )
                 if size:
                     signed = size if order.intent.side == "buy" else -size
                     quantity = Quantity(
                         value=DecimalGrid.exact_decimal(signed), dimension=self._lot.dimension
                     )
-                    fee = Money(
-                        value=DecimalGrid.round_fraction(
-                            size * Fraction(touch.value) * Fraction(self._fee_rate),
-                            touch.currency.minor_unit,
-                            Rounding.HALF_EVEN,
-                        ),
-                        currency=touch.currency,
-                    )
+                    fee = self._fees.fee(size, touch)
                     fill = Fill(
                         identity=fill_id,
                         decision_at=order.decision_at,
