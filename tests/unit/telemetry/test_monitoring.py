@@ -215,6 +215,22 @@ class TestTelemetryStore:
             TelemetryStore(path).query(MonitoringFixture.query())
         assert path.read_bytes() == before
 
+    def test_store_whose_count_trigger_changed_under_its_name_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """Matching table and trigger names are not enough; their definitions must match."""
+        path = tmp_path / "telemetry.sqlite"
+        TelemetryStore(path).append((MonitoringFixture.event(),))
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("DROP TRIGGER event_count_insert")
+            connection.execute(
+                "CREATE TRIGGER event_count_insert AFTER INSERT ON events "
+                "BEGIN UPDATE metadata SET event_count = event_count + 2; END"
+            )
+            connection.commit()
+        with pytest.raises(ValueError, match="unsupported telemetry store schema"):
+            TelemetryStore(path).query(MonitoringFixture.query())
+
     @pytest.mark.performance
     def test_append_cost_does_not_grow_with_retained_rows(self, tmp_path: Path) -> None:
         """Capacity enforcement reads a stored count instead of counting every row."""

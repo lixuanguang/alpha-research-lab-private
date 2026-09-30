@@ -467,6 +467,18 @@ class TestVenueAccounting:
         with pytest.raises(ValueError, match="invalid dispatch lease row"):
             journal.block("venue", "operator-stop")
 
+    def test_journal_whose_table_changed_under_its_name_is_refused(self, tmp_path: Path) -> None:
+        """Matching table names are not enough; every column and constraint must match."""
+        path = tmp_path / "changed.sqlite3"
+        self._ready(path)
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("ALTER TABLE dispatch_leases ADD COLUMN deadline TEXT")
+            connection.commit()
+        with pytest.raises(ValueError, match="unsupported account journal schema"):
+            AccountJournal(path, self._config())
+        with pytest.raises(ValueError, match="unsupported account journal schema"):
+            AccountJournal.verify(path, self._config())
+
     def test_journal_without_dispatch_leases_is_refused(self, tmp_path: Path) -> None:
         """A journal in the layout before dispatch leases is refused, not extended."""
         path = tmp_path / "earlier.sqlite3"

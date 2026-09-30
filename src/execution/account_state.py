@@ -43,7 +43,7 @@ from execution.account_reduction import PaperReductionResult
 from execution.paper_authority import PaperActivation
 from execution.records import OrderEvent, OrderState, StepCommit
 from reference_data.instruments import InstrumentId
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, require_sqlite_layout
 
 
 class _SavedDecision(WireRecord, frozen=True):
@@ -519,9 +519,12 @@ _LEASE_TABLE = (
     "CREATE TABLE dispatch_leases (order_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, "
     "instance_ids BLOB NOT NULL, holder TEXT NOT NULL, armed_at TEXT NOT NULL)"
 )
-_TABLES = frozenset(
-    ("firm", "decisions", "portfolio_batches", "paper_traces", "dispatch_leases", "state_rows")
+_FIRM_TABLE = (
+    "CREATE TABLE IF NOT EXISTS firm (id INTEGER PRIMARY KEY CHECK(id=1), "
+    "configuration BLOB NOT NULL, payload BLOB NOT NULL)"
 )
+# The complete journal layout: every table, column, constraint and index.
+_LAYOUT = (_FIRM_TABLE, *_HISTORY_TABLES, _LEASE_TABLE, _ROWS_TABLE)
 
 
 class DispatchLease(WireRecord, frozen=True):
@@ -1041,10 +1044,7 @@ class AccountStateStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS firm (id INTEGER PRIMARY KEY CHECK(id=1), "
-                "configuration BLOB NOT NULL, payload BLOB NOT NULL)"
-            )
+            connection.execute(_FIRM_TABLE)
             row = cast(
                 tuple[object, ...] | None,
                 connection.execute("SELECT configuration FROM firm WHERE id=1").fetchone(),
@@ -1071,13 +1071,12 @@ class AccountStateStore:
 
     @staticmethod
     def _require_layout(connection: sqlite3.Connection) -> None:
-        """Refuse a journal whose tables are not exactly the current layout."""
-        rows = cast(
-            list[tuple[object, ...]],
-            connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall(),
-        )
-        if frozenset(row[0] for row in rows) != _TABLES:
-            raise ValueError("unsupported account journal schema")
+        """Refuse a journal whose schema is not exactly the current layout.
+
+        Names alone are not enough: a layout that kept every table name but
+        changed a column, constraint or index would otherwise open as current.
+        """
+        require_sqlite_layout(connection, _LAYOUT, "unsupported account journal schema")
 
     def read(self) -> _FirmState:
         """Read one atomic firm snapshot; its history tuples are empty."""
