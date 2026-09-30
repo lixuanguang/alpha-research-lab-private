@@ -15,7 +15,7 @@ from test_account_history_scaling import _SharedFirmHistory
 
 # project library imports
 from execution import AccountJournal
-from execution.account_state import AccountStateStore
+from execution.account_state import AccountStateStore, _HistorySummary
 from serialization import DomainCodec
 
 
@@ -66,6 +66,31 @@ class TestAccountStateRows:
             other.bind_paper_scenario("quiet", history.scenario)
             history.tick("quiet")
             assert other._store.read() == history.journal._store.read()
+
+    def test_read_is_one_snapshot_while_another_process_commits(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A commit between the head select and the row selects cannot split a read."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        reader = AccountStateStore(history.journal.path, history._config(), DomainCodec())
+        before = reader.read()
+        load = reader._rows.load
+
+        def load_after_commit(
+            connection: sqlite3.Connection, summary: _HistorySummary
+        ) -> dict[str, tuple[object, ...]]:
+            """Commit from another journal between the head select and the row selects."""
+            history.round_trip()
+            return load(connection, summary)
+
+        # A different head forces the reader past its cache into the row selects.
+        history.round_trip()
+        monkeypatch.setattr(reader._rows, "load", load_after_commit)
+        state = reader.read()
+        assert len(state.orders) > len(before.orders)
+        monkeypatch.undo()
+        assert reader.read() == history.journal._store.read()
 
     @pytest.mark.parametrize(
         "tamper",

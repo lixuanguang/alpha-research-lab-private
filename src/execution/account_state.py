@@ -1084,7 +1084,13 @@ class AccountStateStore:
     def read(self) -> _FirmState:
         """Read one atomic firm snapshot; its history tuples are empty."""
         with closing(self._connect()) as connection:
-            return self._load(connection).state
+            # The head and its rows are separate selects; one transaction keeps
+            # them on one WAL snapshot while another process commits.
+            connection.execute("BEGIN")
+            try:
+                return self._load(connection).state
+            finally:
+                connection.rollback()
 
     @contextmanager
     def snapshot(self) -> Iterator[_AccountSnapshot]:
