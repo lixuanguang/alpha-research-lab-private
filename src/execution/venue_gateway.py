@@ -496,7 +496,10 @@ class VenueGateway:
         start = self.config.account.opening_at
         proven = self._store.read().fills_complete_through
         if proven is not None:
-            start = max(start, proven - self._FILL_HISTORY_OVERLAP)
+            # Venues answer from the whole millisecond start_ms, so the overlap starts
+            # on one; re-read fills already applied are skipped by their receipts.
+            overlap = proven - self._FILL_HISTORY_OVERLAP
+            start = max(start, overlap - timedelta(microseconds=overlap.microsecond % 1000))
         end = self.clock.now()
         fills: dict[tuple[str, str], VenueFillFact] = {}
         for instrument in self.config.instruments:

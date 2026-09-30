@@ -1118,6 +1118,29 @@ class TestVenueGateway:
         """Count REST wallet reads, one per reconciliation, since a request index."""
         return sum(item.path == "/v2/auth/r/wallets" for item in account.requests[start:])
 
+    @pytest.mark.parametrize("venue", ["okx", "bitfinex"])
+    def test_fill_in_the_window_start_millisecond_still_reconciles(
+        self, tmp_path: Path, venue: Literal["okx", "bitfinex"]
+    ) -> None:
+        """A microsecond mark cannot put an applied fill outside the millisecond request."""
+        journal, gateway, account, clock, order_id = self._native(tmp_path, venue)
+        account.execute(1, quantity="0.5", fee="0.01", per_millisecond=1)
+        clock.sleep(60)
+        assert not gateway.reconcile().recovery_required
+        filled = self._order_state(journal, order_id).filled
+        # A matched reconcile ended 500 µs into the millisecond one hour after the fill.
+        mark = account.executions[0].at + gateway._FILL_HISTORY_OVERLAP + timedelta(microseconds=500)
+        store = gateway._store
+        with store.claim():
+            store.save(replace(store.read(), fills_complete_through=mark))
+        clock.at = mark + timedelta(seconds=1)
+        for _ in range(3):
+            assert not gateway.reconcile().recovery_required
+        with store.claim():
+            proven = store.read().fills_complete_through
+        assert proven is not None and proven > mark
+        assert self._order_state(journal, order_id).filled == filled
+
     def test_one_fill_burst_reconciles_once(self, tmp_path: Path) -> None:
         """The four private frames of one fill cause exactly one REST reconciliation."""
         journal, gateway, account, clock, order_id = self._native(tmp_path, "bitfinex")
