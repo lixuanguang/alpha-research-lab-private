@@ -64,6 +64,12 @@ class CaptureRunJournal:
                 )
                 if actual != self.request:
                     raise ValueError("capture resume requires the exact retained run request")
+                segments = self.root / "segments"
+                if not segments.exists():
+                    # Provisioning died after the run request committed and before its
+                    # segments directory: no segment exists, so nothing was acknowledged.
+                    segments.mkdir()
+                    CaptureJournal._sync_directory(self.root)
                 self._set_aside_unprovisioned()
             else:
                 self._write(self.root / "run-request.json", self.codec.encode_json(self.request))
