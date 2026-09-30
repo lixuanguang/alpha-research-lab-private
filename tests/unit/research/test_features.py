@@ -24,7 +24,7 @@ from market_data.contracts import Disconnect, Occurrence, RawObject, SourceReque
 from market_data.query import BookQuery, InputBinding, QueryBatch, QueryReader
 from market_data.storage import RawStore
 from market_data.validation import Correction, QualityPolicy, TradeRevision
-from reference_data.catalogs import CatalogSnapshot
+from reference_data.catalogs import CatalogSnapshot, SpotInstrument
 from reference_data.eligibility import EligibilityAssertions
 from research.experiments import AttemptStore, SampleInterval, TemporalSplit, TimeWindow
 from research.exploration import (
@@ -568,6 +568,37 @@ class TestPriceDiagnostics:
         window = accepting.collect(batches, binding=self._binding(first), end=end, known_at=end)
         assert window.missing == "scoped disconnect: recovery after window start"
         assert window.recoveries == ()
+
+    def test_shared_evidence_keeps_each_partition_bytes(self) -> None:
+        """Equal but differently encoded evidence is not replaced by another partition's."""
+        first = self._request()
+        second = replace(first, offset_minutes=1)
+        reader = QueryReader(
+            (
+                self._payload(first, (self._item(first, 1, 1, "100", 1, 0),)),
+                self._payload(second, (self._item(second, 61, 61, "100", 2, 0),)),
+            ),
+            readers=SourceAdapters(),
+            precedence=(self._binding(first),),
+            max_bytes=524_288,
+        )
+        partitions = reader._selector._partitions
+        catalog: CatalogSnapshot = partitions[1].request.manifest.catalog
+        # The venue reformatted an unchanged tick, as OKX tickSz "0.1" and "0.10".
+        instruments: tuple[SpotInstrument, ...] = tuple(
+            replace(item, price_tick=Decimal(f"{item.price_tick}0")) for item in catalog.instruments
+        )
+        rescaled = replace(catalog, instruments=instruments)
+        assert rescaled == catalog
+        assert _CODEC.encode_json(rescaled) != _CODEC.encode_json(catalog)
+        request = replace(
+            partitions[1].request,
+            manifest=replace(partitions[1].request.manifest, catalog=rescaled),
+        )
+        changed = replace(partitions[1], request=request)
+        evidence = QueryReader._shared_evidence((partitions[0], changed))
+        assert _CODEC.encode_json(evidence[1].request) == _CODEC.encode_json(request)
+        assert _CODEC.encode_json(evidence[0].request) == _CODEC.encode_json(partitions[0].request)
 
     def test_recovery_needs_a_later_trade_known_by_the_cutoff(self) -> None:
         """A second disconnect with no later trade is unanswered and poisons later windows."""

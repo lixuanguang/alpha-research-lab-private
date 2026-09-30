@@ -271,20 +271,22 @@ class QueryReader:
             )
             yield QueryBatch(identity, mode, columns, rows, evidence, recovered)
 
-    @staticmethod
-    def _shared_evidence(partitions: tuple[_Partition, ...]) -> tuple[QueryEvidence, ...]:
-        """Map equal manifests, catalogs and eligibility histories to one cached instance.
+    @classmethod
+    def _shared_evidence(cls, partitions: tuple[_Partition, ...]) -> tuple[QueryEvidence, ...]:
+        """Map byte-identical manifests, catalogs and eligibility histories to one instance.
 
         Values are unchanged. Each query deep-copies its evidence in one call, so a
         shared value is copied once per result instead of once per partition; a
         result's partitions may alias those copies, but no result aliases the cache
-        or another result.
+        or another result. Sharing is by encoded bytes, not equality: equal values
+        can encode differently (Decimal 0.01 and 0.010), and each partition's
+        evidence must keep its own bytes and identities.
         """
-        shared: dict[object, object] = {}
+        shared: dict[tuple[type, bytes], object] = {}
 
         def one[T](value: T) -> T:
-            """Return the first cached value equal to this one."""
-            return cast(T, shared.setdefault(value, value))
+            """Return the first cached value with this one's type and encoded bytes."""
+            return cast(T, shared.setdefault((type(value), cls._codec.encode_json(value)), value))
 
         evidence: list[QueryEvidence] = []
         for partition in partitions:
