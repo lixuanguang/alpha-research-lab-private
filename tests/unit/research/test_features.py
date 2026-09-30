@@ -24,7 +24,7 @@ from market_data.contracts import Disconnect, Occurrence, RawObject, SourceReque
 from market_data.query import BookQuery, InputBinding, QueryBatch, QueryReader
 from market_data.storage import RawStore
 from market_data.validation import Correction, QualityPolicy, TradeRevision
-from reference_data.catalogs import CatalogSnapshot
+from reference_data.catalogs import CatalogSnapshot, SpotInstrument
 from reference_data.eligibility import EligibilityAssertions
 from research.experiments import AttemptStore, SampleInterval, TemporalSplit, TimeWindow
 from research.exploration import (
@@ -63,7 +63,7 @@ class _AdmittedPrices(ResearchReader):
         self.reader, self.request = reader, request
         self.cutoffs: list[datetime] = []
 
-    def read(self, selection: ResearchSelection) -> ResearchDataset:
+    def read(self, selection: ResearchSelection, *, recoveries: bool = False) -> ResearchDataset:
         """Return exactly the selected actual query and its binding evidence."""
         results = []
         for item in selection.inputs:
@@ -78,6 +78,7 @@ class _AdmittedPrices(ResearchReader):
                     known_at=query.known_at,
                     columns=query.columns,
                     batch_size=query.batch_size,
+                    recoveries=recoveries,
                 )
             )
             coverage = TradeCoverage(
@@ -214,19 +215,18 @@ class TestPriceDiagnostics:
         assert isinstance(event, (Trade, Disconnect))
         return Occurrence(request=request, origin=origin, position=position, raw=raw, event=event)
 
-    @classmethod
-    def _reader(
-        cls,
+    @staticmethod
+    def _payload(
         request: SourceRequest,
         items: tuple[Occurrence, ...],
         corrections: tuple[Correction, ...] = (),
-    ) -> QueryReader:
-        """Require full native admission before the feature can observe any rows."""
+    ) -> bytes:
+        """Admit one partition's occurrences through full native validation."""
         history = _CODEC.decode_json(
             (_ROOT / "tests/fixtures/eligibility/membership-corrections.json").read_bytes(),
             EligibilityAssertions,
         )
-        payload = (
+        return (
             QualityPolicy(use="exploratory", known_at=_START, max_gap=timedelta(hours=1))
             .validate(
                 request,
@@ -237,8 +237,17 @@ class TestPriceDiagnostics:
             )
             .require_canonical()
         )
+
+    @classmethod
+    def _reader(
+        cls,
+        request: SourceRequest,
+        items: tuple[Occurrence, ...],
+        corrections: tuple[Correction, ...] = (),
+    ) -> QueryReader:
+        """Require full native admission before the feature can observe any rows."""
         return QueryReader(
-            (payload,),
+            (cls._payload(request, items, corrections),),
             readers=SourceAdapters(),
             precedence=(cls._binding(request),),
             max_bytes=262_144,
@@ -452,6 +461,7 @@ class TestPriceDiagnostics:
         accepting = replace(strict, accept_first_binding_message=True)
         end = _START + timedelta(seconds=40)
         batches = self._recovery_batches(reader, request, 30, 40)
+        assert batches[0].recoveries is not None
         (recovery,) = batches[0].recoveries
         assert recovery.binding == binding
         assert recovery.resumed_at == _START + timedelta(seconds=20)
@@ -465,7 +475,7 @@ class TestPriceDiagnostics:
         assert window.recoveries == (recovery,)
         (control,) = window.controls
         assert isinstance(control.event, Disconnect)
-        assert control.event.provenance.event_id == recovery.disconnect_identity
+        assert control.identity == recovery.disconnect_identity
         with pytest.raises(ValueError, match="history requires revision"):
             next(
                 reader.batches(
@@ -479,13 +489,16 @@ class TestPriceDiagnostics:
                     recoveries=True,
                 )
             )
-        # Without queried recoveries, or with one for another binding, nothing answers.
+        # An opted-in policy refuses a query that did not request recoveries,
+        # rather than reporting every disconnect as unproven.
         plain = self._batches(reader, request, 30, 40, 40)
-        assert plain[0].recoveries == ()
-        assert (
-            accepting.collect(plain, binding=binding, end=end, known_at=end).missing
-            == "scoped disconnect: recovery is unproven"
+        assert plain[0].recoveries is None
+        assert strict.collect(plain, binding=binding, end=end, known_at=end).missing == (
+            "scoped disconnect: recovery is unproven"
         )
+        with pytest.raises(ValueError, match="did not request"):
+            accepting.collect(plain, binding=binding, end=end, known_at=end)
+        # A recovery for another binding answers nothing.
         other = replace(recovery, binding=("another.source", "trade", binding[2]))
         foreign = tuple(batch._replace(recoveries=(other,)) for batch in batches)
         assert (
@@ -515,6 +528,77 @@ class TestPriceDiagnostics:
             accepting.collect(shifted, binding=binding, end=end, known_at=end).missing
             == "scoped disconnect: recovery after window start"
         )
+
+    def test_disconnects_at_one_position_of_two_partitions_keep_their_own_recovery(
+        self,
+    ) -> None:
+        """A disconnect cannot borrow the recovery of another minute's disconnect."""
+        first = self._request()
+        second = replace(first, offset_minutes=1)
+        # D1 at position 1 of minute 0 is answered at 20 s; D2 at position 1 of
+        # minute 1 (70 s) is answered only at 80 s, after the window starts.
+        reader = QueryReader(
+            (
+                self._payload(first, self._recovery_capture(first)),
+                self._payload(
+                    second,
+                    (
+                        self._item(second, 61, 61, "100", 11, 0),
+                        self._item(second, 0, 70, "1", 0, 1, disconnect=True),
+                        self._item(second, 80, 80, "101", 12, 2),
+                        self._item(second, 90, 90, "102", 13, 3),
+                        self._item(second, 95, 95, "103", 14, 4),
+                    ),
+                ),
+            ),
+            readers=SourceAdapters(),
+            precedence=(self._binding(first),),
+            max_bytes=524_288,
+        )
+        accepting = WindowPolicy(
+            lookback_us=25_000_000,
+            min_trades=2,
+            max_staleness_us=10_000_000,
+            accept_first_binding_message=True,
+        )
+        end = _START + timedelta(seconds=100)
+        batches = self._recovery_batches(reader, second, 75, 100)
+        recoveries = batches[0].recoveries
+        assert recoveries is not None and len(recoveries) == 2
+        window = accepting.collect(batches, binding=self._binding(first), end=end, known_at=end)
+        assert window.missing == "scoped disconnect: recovery after window start"
+        assert window.recoveries == ()
+
+    def test_shared_evidence_keeps_each_partition_bytes(self) -> None:
+        """Equal but differently encoded evidence is not replaced by another partition's."""
+        first = self._request()
+        second = replace(first, offset_minutes=1)
+        reader = QueryReader(
+            (
+                self._payload(first, (self._item(first, 1, 1, "100", 1, 0),)),
+                self._payload(second, (self._item(second, 61, 61, "100", 2, 0),)),
+            ),
+            readers=SourceAdapters(),
+            precedence=(self._binding(first),),
+            max_bytes=524_288,
+        )
+        partitions = reader._selector._partitions
+        catalog: CatalogSnapshot = partitions[1].request.manifest.catalog
+        # The venue reformatted an unchanged tick, as OKX tickSz "0.1" and "0.10".
+        instruments: tuple[SpotInstrument, ...] = tuple(
+            replace(item, price_tick=Decimal(f"{item.price_tick}0")) for item in catalog.instruments
+        )
+        rescaled = replace(catalog, instruments=instruments)
+        assert rescaled == catalog
+        assert _CODEC.encode_json(rescaled) != _CODEC.encode_json(catalog)
+        request = replace(
+            partitions[1].request,
+            manifest=replace(partitions[1].request.manifest, catalog=rescaled),
+        )
+        changed = replace(partitions[1], request=request)
+        evidence = QueryReader._shared_evidence((partitions[0], changed))
+        assert _CODEC.encode_json(evidence[1].request) == _CODEC.encode_json(request)
+        assert _CODEC.encode_json(evidence[0].request) == _CODEC.encode_json(partitions[0].request)
 
     def test_recovery_needs_a_later_trade_known_by_the_cutoff(self) -> None:
         """A second disconnect with no later trade is unanswered and poisons later windows."""
@@ -697,6 +781,54 @@ class TestFeatureStudies:
             == fields["features"]
         )
         assert admitted.cutoffs == [_START + timedelta(seconds=n) for n in (10, 20)]
+
+    def test_opted_in_recovery_reaches_the_study_window(self) -> None:
+        """A study whose feature accepts first-binding-message recovery reads it."""
+        request = TestPriceDiagnostics._request()
+        reader = TestPriceDiagnostics._reader(
+            request, TestPriceDiagnostics()._recovery_capture(request)
+        )
+        base = self._study()
+        feature = TestPriceDiagnostics._feature()
+        prices = base.selection.inputs[0]
+        assert isinstance(prices, TradeSelection)
+        study = replace(
+            base,
+            selection=ResearchSelection(
+                inputs=(
+                    replace(
+                        prices,
+                        query=replace(
+                            prices.query,
+                            end=_START + timedelta(seconds=45),
+                            known_at=_START + timedelta(seconds=45),
+                        ),
+                    ),
+                )
+            ),
+            split=replace(
+                base.split,
+                validation=TimeWindow(start=_START, end=_START + timedelta(seconds=50)),
+                holdout=TimeWindow(
+                    start=_START + timedelta(seconds=60), end=_START + timedelta(seconds=70)
+                ),
+            ),
+            # One decision at 40 s: the window [30 s, 40 s) follows the disconnect
+            # answered at 20 s.
+            decisions=TimeWindow(
+                start=_START + timedelta(seconds=40), end=_START + timedelta(seconds=41)
+            ),
+            feature=replace(
+                feature, policy=replace(feature.policy, accept_first_binding_message=True)
+            ),
+            label=None,
+        )
+        result = _CODEC.decode_json(
+            study.evaluate(_AdmittedPrices(reader, request)), FeatureStudyResult
+        )
+        ((_, value),) = result.features
+        assert value.window.missing is None
+        assert value.value == ExactRatio(numerator="1", denominator="51")
 
     def test_result_wire_compatibility_and_model_admission(self) -> None:
         """Preserve saved bytes and diagnostic ordering while models require aligned inputs."""

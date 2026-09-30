@@ -105,8 +105,10 @@ class OKXSpotAdapter:
         """Wait for local request capacity so a dispatch fence never holds a sleep."""
         self.throttle.wait()
 
-    def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
-        """Submit one limit, IOC, or post-only cash spot order once."""
+    def submit(
+        self, order: VenueOrderRequest, *, at: datetime, nonce: int, deadline: float
+    ) -> VenueCommandAck:
+        """Submit one limit, IOC, or post-only cash spot order once, ending by ``deadline``."""
         del nonce
         self._require_verified()
         order.__post_init__()
@@ -126,7 +128,7 @@ class OKXSpotAdapter:
                 "px": str(order.limit_price),
             }
         )
-        response = self._request("POST", "/api/v5/trade/order", body, at=at)
+        response = self._request("POST", "/api/v5/trade/order", body, at=at, deadline=deadline)
         data = self._single(response.body)
         self._check_command(data)
         if VenueJson.text(VenueJson.field(data, "clOrdId")) != order.client_id:
@@ -181,9 +183,10 @@ class OKXSpotAdapter:
         venue_order_id: str | None,
         at: datetime,
         nonce: int,
+        open_seen_at: datetime | None = None,
     ) -> VenueOrderFact | None:
         """Look up a stable identity, preferring the venue's immutable order ID."""
-        del nonce
+        del nonce, open_seen_at
         self._require_verified()
         self._validate_symbol(symbol)
         self._validate_client_id(client_id)
@@ -441,7 +444,13 @@ class OKXSpotAdapter:
         ).decode()
 
     def _request(
-        self, method: Literal["GET", "POST"], path: str, body: bytes, *, at: datetime
+        self,
+        method: Literal["GET", "POST"],
+        path: str,
+        body: bytes,
+        *,
+        at: datetime,
+        deadline: float | None = None,
     ) -> VenueHttpResponse:
         """Sign exact request bytes and classify definite protocol failures."""
         if at.tzinfo is None or at.utcoffset() != UTC.utcoffset(None):
@@ -462,7 +471,7 @@ class OKXSpotAdapter:
             ),
             body=body,
         )
-        response = self.transport.request(request)
+        response = self.transport.request(request, deadline=deadline)
         if (
             300 <= response.status < 400
             or response.status in (408, 425, 429)

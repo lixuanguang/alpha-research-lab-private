@@ -384,7 +384,7 @@ class AsOfSelector:
                         results.append(
                             ContinuityResumed(
                                 binding=binding,
-                                disconnect_identity=event.provenance.event_id,
+                                disconnect_identity=control.identity,
                                 trade_identity=version.identity,
                                 resumed_at=order[0],
                                 known_at=version_known_at,
@@ -450,6 +450,8 @@ class ContinuityResumed(WireRecord, frozen=True):
     """
 
     binding: InputBinding
+    # The disconnect occurrence's identity: its request, raw object and position.
+    # A source event id repeats across partitions (one per-minute file each).
     disconnect_identity: str
     trade_identity: str
     resumed_at: datetime

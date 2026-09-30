@@ -5,6 +5,8 @@ import copy
 import logging
 import pickle
 import resource
+import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from types import TracebackType
 from typing import cast
@@ -13,6 +15,7 @@ from typing import cast
 import pytest
 
 # project library imports
+from configuration import venue_secrets
 from configuration.venue_secrets import (
     VENUE_SECRET_FILES,
     SecretValue,
@@ -131,6 +134,100 @@ class TestVenueSecrets:
         assert "never-log" not in caplog.text
         assert "<redacted>" in caplog.text
         assert "rejected header" in caplog.text
+
+    def test_failing_handler_never_prints_raw_arguments(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Handler errors and raw record fields carry no credential, only the placeholder."""
+        _write(tmp_path, "alpaca", "API_KEY=k-sensitive\nAPI_SECRET=s-never-log\n")
+        key = VenueSecrets.read("alpaca", tmp_path).api_key.reveal()
+
+        class Broken(logging.Handler):
+            """Fail like a closed stream or a full disk."""
+
+            def emit(self, record: logging.LogRecord) -> None:
+                """Fail, and report it the way standard handlers do."""
+                try:
+                    raise OSError("disk full")
+                except OSError:
+                    self.handleError(record)
+
+        logger = logging.getLogger("third.party.broken")
+        handler = Broken()
+        logger.addHandler(handler)
+        logger.propagate = False
+        try:
+            logger.error("sent %s", key)
+            logger.error("arity %s %s", key)
+            logger.error("prefix %.3s", key)
+            record = logger.makeRecord(
+                logger.name, logging.ERROR, __file__, 1, "header %s", (key,), None
+            )
+        finally:
+            logger.removeHandler(handler)
+            logger.propagate = True
+        # HTTPHandler sends the raw record fields.
+        assert "sensitive" not in f"{record.getMessage()} {record.args!r}"
+        assert "sensitive" not in capsys.readouterr().err
+
+    def test_registration_during_a_redaction_check_is_safe(self, tmp_path: Path) -> None:
+        """A credential registered on another thread cannot break an in-progress check."""
+        _write(tmp_path, "alpaca", "API_KEY=k-sensitive\nAPI_SECRET=s-never-log\n")
+        VenueSecrets.read("alpaca", tmp_path)
+
+        class Registering(str):
+            """Register another credential while a check iterates the registry."""
+
+            def __contains__(self, item: object) -> bool:
+                """Register a new credential mid-check and report no match."""
+                SecretValue(f"late-{uuid.uuid4().hex}")
+                return False
+
+        assert not venue_secrets._contains_secret(Registering("no credential here"))
+
+    def test_a_later_log_record_factory_keeps_redaction(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Redaction chains the previous factory and survives one installed later."""
+        tagged: list[logging.LogRecord] = []
+
+        def tagging(
+            name: str,
+            level: int,
+            pathname: str,
+            lineno: int,
+            msg: object,
+            args: tuple[object, ...] | Mapping[str, object],
+            exc_info: venue_secrets._ExcInfo,
+            func: str | None = None,
+            sinfo: str | None = None,
+        ) -> logging.LogRecord:
+            """An application factory installed after credentials were loaded."""
+            record = logging.LogRecord(
+                name, level, pathname, lineno, msg, args, exc_info, func, sinfo
+            )
+            tagged.append(record)
+            return record
+
+        # The logging module's own factory slot; monkeypatch restores it afterwards.
+        monkeypatch.setattr(logging, "_logRecordFactory", tagging)
+        _write(tmp_path, "alpaca", "API_KEY=k-sensitive\nAPI_SECRET=s-never-log\n")
+        key = VenueSecrets.read("alpaca", tmp_path).api_key.reveal()
+        with caplog.at_level(logging.DEBUG):
+            logging.getLogger("third.party").info("key %s", key)
+        assert tagged
+        assert "sensitive" not in caplog.text
+
+    def test_short_values_are_refused(self, tmp_path: Path) -> None:
+        """A value too short to redact safely is refused, never loaded unredacted."""
+        _write(
+            tmp_path, "coinbase", "API_KEY=k-sensitive\nAPI_SECRET=c2VjcmV0\nAPI_PASSPHRASE=ab12x\n"
+        )
+        with pytest.raises(VenueSecretsError, match="invalid API_PASSPHRASE"):
+            VenueSecrets.read("coinbase", tmp_path)
 
     def test_core_dumps_disabled(self, tmp_path: Path) -> None:
         """Keep credential-bearing process memory out of crash dumps."""

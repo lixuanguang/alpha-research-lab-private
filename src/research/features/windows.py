@@ -126,6 +126,11 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
             for batch in batches
         ):
             raise ValueError("window requires one complete cutoff query with revisions")
+        recoveries = batches[0].recoveries
+        if recoveries is None and self.accept_first_binding_message:
+            raise ValueError(
+                "policy accepts first-binding-message recovery the query did not request"
+            )
         evidence = tuple(
             item
             for item in batches[0].evidence
@@ -197,7 +202,7 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
         if covered < end:
             missing = "warm-up: window extends outside saved request coverage"
         elif controls:
-            missing, used = self._recover(controls, batches[0].recoveries, binding, start, known_at)
+            missing, used = self._recover(controls, recoveries or (), binding, start, known_at)
         if missing is None:
             missing = self._shortfall(points, end)
         return PriceWindow(
@@ -240,7 +245,7 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
                     item
                     for item in recoveries
                     if item.binding == binding
-                    and item.disconnect_identity == event.provenance.event_id
+                    and item.disconnect_identity == control.identity
                     and item.known_at <= known_at
                 ),
                 None,

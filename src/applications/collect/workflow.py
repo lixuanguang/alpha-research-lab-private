@@ -159,23 +159,30 @@ async def monitored_capture(
 
 
 class _CaptureWorkload:
-    """Bind collector configuration to a spawn-picklable child workload."""
+    """Bind collector configuration to a spawn-picklable child workload.
+
+    Credentials refuse serialization, so the workload carries the credential
+    file's path and the child loads the credentials itself.
+    """
 
     def __init__(
         self,
         config: CaptureConfig,
-        credentials: CoinbaseCredentials | None,
+        credential_file: Path | None,
         transport: VenueTransport | None,
     ) -> None:
-        """Retain explicit child inputs without opening transports."""
-        self.config, self.credentials, self.transport = config, credentials, transport
+        """Retain explicit child inputs without opening transports or reading credentials."""
+        self.config, self.credential_file, self.transport = config, credential_file, transport
 
     def __call__(self, output: Path, health: HealthMetrics) -> None:
         """Run the finite capture and translate unhandled child failure to its existing exit."""
         try:
-            asyncio.run(
-                monitored_capture(self.config, output, health, self.credentials, self.transport)
+            credentials = (
+                None
+                if self.credential_file is None
+                else CoinbaseCredentials.read(self.credential_file)
             )
+            asyncio.run(monitored_capture(self.config, output, health, credentials, self.transport))
         except Exception:
             raise SystemExit(2) from None
 
@@ -185,7 +192,7 @@ def supervise(
     output: Path,
     policy: HealthPolicy,
     *,
-    credentials: CoinbaseCredentials | None = None,
+    credential_file: Path | None = None,
     transport: VenueTransport | None = None,
 ) -> dict[str, object]:
     """Watch a separate collector; stop it before attempting a bounded local alert.
@@ -194,7 +201,8 @@ def supervise(
         config: Explicit feed selection and resource ceilings.
         output: Parent directory for a unique supervision record and child capture.
         policy: Independent liveness, progress, freshness and count limits.
-        credentials: Explicit optional Exchange access capability.
+        credential_file: Optional Exchange credential file, read by the child;
+            credentials themselves cannot cross the spawn boundary.
         transport: Optional deterministic transport at the existing boundary.
 
     Returns:
@@ -210,7 +218,7 @@ def supervise(
     root = output / str(uuid4())
     root.mkdir(parents=True)
     (root / "capture-config.json").write_bytes(DomainCodec().encode_json(config))
-    workload = _CaptureWorkload(config, credentials, transport)
+    workload = _CaptureWorkload(config, credential_file, transport)
     return ProcessSupervisor.run(
         root,
         policy,
@@ -360,13 +368,14 @@ def main() -> None:
                         or arguments.snapshot_records is not None
                     ):
                         raise ValueError("supervised capture does not publish book snapshots")
+                    # The credentials were read above only to refuse a bad file early.
                     result = supervise(
                         config,
                         arguments.output,
                         DomainCodec().decode_json(
                             arguments.health_config.read_bytes(), HealthPolicy
                         ),
-                        credentials=credentials,
+                        credential_file=None if credentials is None else arguments.secrets,
                     )
                 else:
                     result = asyncio.run(

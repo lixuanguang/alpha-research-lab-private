@@ -90,7 +90,9 @@ class ScriptedVenueTransport:
         self.submit_count = 0
         self.cancel_count = 0
 
-    def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
+    def request(
+        self, request: VenueHttpRequest, *, deadline: float | None = None
+    ) -> VenueHttpResponse:
         """Dispatch one signed protocol request to a complete native fixture."""
         if self.venue == "okx":
             return self._okx(request)

@@ -514,8 +514,7 @@ _HISTORY_TABLES = (
 # A dispatch lease is transient coordination, not history: no digest covers it.
 _LEASE_TABLE = (
     "CREATE TABLE dispatch_leases (order_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, "
-    "instance_ids BLOB NOT NULL, holder TEXT NOT NULL, armed_at TEXT NOT NULL, "
-    "deadline TEXT NOT NULL)"
+    "instance_ids BLOB NOT NULL, holder TEXT NOT NULL, armed_at TEXT NOT NULL)"
 )
 _TABLES = frozenset(
     ("firm", "decisions", "portfolio_batches", "paper_traces", "dispatch_leases", "state_rows")
@@ -526,9 +525,11 @@ class DispatchLease(WireRecord, frozen=True):
     """Hold one physical send outside the journal transaction until it is released.
 
     Arming commits the final dispatch checks and this lease together; the send
-    runs with no transaction open; release deletes it. A stop-type writer for the
-    same account or instance waits until the lease is released or its deadline
-    passes, so no stop commits while a send it did not precede is pending.
+    runs with no transaction open; release deletes it. While the lease exists its
+    holder process holds an OS lock named by ``holder``. A stop-type writer for the
+    same account or instance waits until the lease is released or that lock is
+    free (its holder died), so no stop commits while a send it did not precede is
+    pending. ``armed_at`` is informational; no clock expires a lease.
     """
 
     order_id: str
@@ -536,18 +537,15 @@ class DispatchLease(WireRecord, frozen=True):
     instance_ids: tuple[str, ...]
     holder: str
     armed_at: datetime
-    deadline: datetime
 
     def __post_init__(self) -> None:
-        """Require identities and a deadline after arming."""
+        """Require identities and a UTC arming time."""
         self._require_utc(self.armed_at, field_name="lease armed_at")
-        self._require_utc(self.deadline, field_name="lease deadline")
         if (
             not self.order_id
             or not self.account_id
-            or not self.holder
+            or not self.holder.isalnum()
             or type(self.instance_ids) is not tuple
-            or self.deadline <= self.armed_at
         ):
             raise ValueError("invalid dispatch lease")
 
@@ -931,22 +929,21 @@ class _AccountTransaction(_AccountSnapshot):
         rows = cast(
             list[tuple[object, ...]],
             self.tables.connection.execute(
-                "SELECT order_id, account_id, instance_ids, holder, armed_at, deadline "
+                "SELECT order_id, account_id, instance_ids, holder, armed_at "
                 "FROM dispatch_leases ORDER BY order_id"
             ).fetchall(),
         )
         leases: list[DispatchLease] = []
         for row in rows:
-            if len(row) != 6:
+            if len(row) != 5:
                 raise ValueError("invalid dispatch lease row")
-            order_id, account_id, instance_ids, holder, armed_at, deadline = row
+            order_id, account_id, instance_ids, holder, armed_at = row
             if not (
                 isinstance(order_id, str)
                 and isinstance(account_id, str)
                 and isinstance(instance_ids, bytes)
                 and isinstance(holder, str)
                 and isinstance(armed_at, str)
-                and isinstance(deadline, str)
             ):
                 raise ValueError("invalid dispatch lease row")
             leases.append(
@@ -956,7 +953,6 @@ class _AccountTransaction(_AccountSnapshot):
                     instance_ids=msgspec.json.decode(instance_ids, type=tuple[str, ...]),
                     holder=holder,
                     armed_at=datetime.fromisoformat(armed_at),
-                    deadline=datetime.fromisoformat(deadline),
                 )
             )
         return tuple(leases)
@@ -965,14 +961,13 @@ class _AccountTransaction(_AccountSnapshot):
         """Insert a lease; an order holds at most one."""
         lease.__post_init__()
         self.tables.connection.execute(
-            "INSERT INTO dispatch_leases VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO dispatch_leases VALUES (?, ?, ?, ?, ?)",
             (
                 lease.order_id,
                 lease.account_id,
                 self.tables.codec.encode_json(lease.instance_ids),
                 lease.holder,
                 lease.armed_at.isoformat(timespec="microseconds"),
-                lease.deadline.isoformat(timespec="microseconds"),
             ),
         )
 
@@ -981,14 +976,6 @@ class _AccountTransaction(_AccountSnapshot):
         self.tables.connection.execute(
             "DELETE FROM dispatch_leases WHERE order_id=? AND holder=?", (order_id, holder)
         )
-
-    def drop_expired_leases(self, now: datetime) -> None:
-        """Delete leases whose deadline has passed; their sends have ended."""
-        for lease in self.leases():
-            if lease.deadline <= now:
-                self.tables.connection.execute(
-                    "DELETE FROM dispatch_leases WHERE order_id=?", (lease.order_id,)
-                )
 
 
 def _field_keys(record: type[msgspec.Struct]) -> tuple[tuple[str, bytes], ...]:
@@ -1084,7 +1071,13 @@ class AccountStateStore:
     def read(self) -> _FirmState:
         """Read one atomic firm snapshot; its history tuples are empty."""
         with closing(self._connect()) as connection:
-            return self._load(connection).state
+            # The head and its rows are separate selects; one transaction keeps
+            # them on one WAL snapshot while another process commits.
+            connection.execute("BEGIN")
+            try:
+                return self._load(connection).state
+            finally:
+                connection.rollback()
 
     @contextmanager
     def snapshot(self) -> Iterator[_AccountSnapshot]:

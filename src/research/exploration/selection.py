@@ -253,11 +253,13 @@ class ResearchReader:
         """
         self._snapshots, self._raw, self._readers = snapshots, raw, readers
 
-    def read(self, selection: ResearchSelection) -> ResearchDataset:
+    def read(self, selection: ResearchSelection, *, recoveries: bool = False) -> ResearchDataset:
         """Verify every named input before returning the complete research assembly.
 
         Args:
             selection: Validated pinned inputs at one cutoff; paths are separate from identity.
+            recoveries: Also return each trade input's first-binding-message disconnect
+                recoveries, for a window policy that accepts them.
 
         Returns:
             Typed inputs in authored order with selection/query identities and unprojectable
@@ -296,6 +298,7 @@ class ResearchReader:
                         columns=query.columns,
                         batch_size=query.batch_size,
                         mode="cutoff",
+                        recoveries=recoveries,
                     )
                 )
                 results.append(

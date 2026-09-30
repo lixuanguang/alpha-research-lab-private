@@ -30,6 +30,10 @@ class VenueOutcomeUnknownError(RuntimeError):
     """Require reconciliation before retrying a possibly accepted command."""
 
 
+class VenueNotSentError(RuntimeError):
+    """Report a request refused before any of its bytes were written to the venue."""
+
+
 class VenueRejectedError(RuntimeError):
     """Report a definite venue rejection without echoing secrets or account data."""
 
@@ -277,8 +281,13 @@ class VenueHttpResponse(msgspec.Struct, frozen=True):
 class VenueHttpTransport(Protocol):
     """Allow fixture transport and the real TLS transport to share one boundary."""
 
-    def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
-        """Execute exactly one request without hidden retries."""
+    def request(
+        self, request: VenueHttpRequest, *, deadline: float | None = None
+    ) -> VenueHttpResponse:
+        """Execute exactly one request without hidden retries.
+
+        ``deadline`` is an absolute ``time.monotonic()`` bound on the whole request.
+        """
 
 
 class VenueAdapter(Protocol):
@@ -291,8 +300,14 @@ class VenueAdapter(Protocol):
     def wait_for_request_slot(self) -> None:
         """Wait until the next request can go out without a local throttle sleep."""
 
-    def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
-        """Send once; uncertain outcome raises VenueOutcomeUnknownError."""
+    def submit(
+        self, order: VenueOrderRequest, *, at: datetime, nonce: int, deadline: float
+    ) -> VenueCommandAck:
+        """Send once, ending by the absolute ``time.monotonic()`` ``deadline``.
+
+        A refusal before any byte is written raises VenueNotSentError; an uncertain
+        outcome raises VenueOutcomeUnknownError.
+        """
 
     def cancel(
         self,
@@ -315,8 +330,13 @@ class VenueAdapter(Protocol):
         venue_order_id: str | None,
         at: datetime,
         nonce: int,
+        open_seen_at: datetime | None = None,
     ) -> VenueOrderFact | None:
-        """Look up one durable client identity across open and recent closed state."""
+        """Look up one durable client identity across open and recent closed state.
+
+        ``open_seen_at`` is when the order was last seen open; it closed later, so
+        closed-order retention runs from it (or from ``submitted_at``).
+        """
 
     def open_orders(self, *, at: datetime, nonce: int) -> tuple[VenueOrderFact, ...]:
         """Read the complete account-wide spot open-order set or fail closed."""
