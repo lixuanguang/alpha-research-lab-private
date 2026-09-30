@@ -183,9 +183,10 @@ class OKXSpotAdapter:
         venue_order_id: str | None,
         at: datetime,
         nonce: int,
+        open_seen_at: datetime | None = None,
     ) -> VenueOrderFact | None:
         """Look up a stable identity, preferring the venue's immutable order ID."""
-        del nonce
+        del nonce, open_seen_at
         self._require_verified()
         self._validate_symbol(symbol)
         self._validate_client_id(client_id)

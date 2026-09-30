@@ -330,8 +330,13 @@ class VenueAdapter(Protocol):
         venue_order_id: str | None,
         at: datetime,
         nonce: int,
+        open_seen_at: datetime | None = None,
     ) -> VenueOrderFact | None:
-        """Look up one durable client identity across open and recent closed state."""
+        """Look up one durable client identity across open and recent closed state.
+
+        ``open_seen_at`` is when the order was last seen open; it closed later, so
+        closed-order retention runs from it (or from ``submitted_at``).
+        """
 
     def open_orders(self, *, at: datetime, nonce: int) -> tuple[VenueOrderFact, ...]:
         """Read the complete account-wide spot open-order set or fail closed."""

@@ -32,6 +32,9 @@ class VenueDispatch(WireRecord, frozen=True):
     cancel_attempts: int = 0
     # The venue refused the submit, or the gateway refused it before any byte was sent.
     submission_rejected: bool = False
+    # When a request that found the order open was sent: the order closed after this,
+    # so venue retention of closed orders is measured from here, not from submission.
+    open_seen_at: datetime | None = None
 
 
 class VenueReceipt(WireRecord, frozen=True):

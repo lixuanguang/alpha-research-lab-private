@@ -200,6 +200,7 @@ class ObservedVenue:
         venue_order_id: str | None,
         at: datetime,
         nonce: int,
+        open_seen_at: datetime | None = None,
     ) -> VenueOrderFact | None:
         """Return authored cumulative state or an explicitly missing history result."""
         self._nonce(nonce)
@@ -1295,17 +1296,31 @@ class TestVenueGateway:
         assert end - opening > 89 * 86_400_000 > end - start
         assert self._order_state(journal, order_id).status == "filled"
 
-    def test_bitfinex_order_resting_past_closed_retention_still_reconciles(
+    def test_bitfinex_order_cancelled_after_resting_past_retention_reconciles(
         self, tmp_path: Path
     ) -> None:
-        """Active orders prove a resting order at any age; only closed lookups stay bounded."""
+        """Closed-order retention runs from when the order was last seen open."""
         journal, gateway, account, clock, order_id = self._native(tmp_path, "bitfinex")
         account.execute(1, quantity="0.5", fee="0.01", per_millisecond=1)
         clock.sleep(14 * 86_400)
+        # Active orders prove a resting order at any age.
         assert not gateway.reconcile().recovery_required
         assert self._order_state(journal, order_id).filled.value == Decimal("0.5")
-        # Once it closes, absence from active orders past closed-order retention proves nothing.
         account.cancelled = True
+        clock.sleep(86_400)
+        assert not gateway.reconcile().recovery_required
+        assert self._order_state(journal, order_id).status == "cancelled"
+
+    def test_bitfinex_order_last_seen_open_past_retention_is_not_proven(
+        self, tmp_path: Path
+    ) -> None:
+        """Absence from active orders proves nothing once closed history may have expired."""
+        _, gateway, account, clock, _ = self._native(tmp_path, "bitfinex")
+        account.execute(1, quantity="0.5", fee="0.01", per_millisecond=1)
+        clock.sleep(60)
+        assert not gateway.reconcile().recovery_required
+        account.cancelled = True
+        clock.sleep(14 * 86_400)
         requests = len(account.requests)
         with pytest.raises(VenueProtocolError, match="closed-order retention"):
             gateway.reconcile()

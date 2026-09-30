@@ -692,6 +692,30 @@ class TestBitfinexSpotProtocol:
             )
         assert [item.path for item in transport.requests[1:]] == ["/v2/auth/r/orders"] * 2
 
+    def test_closed_order_retention_runs_from_when_it_was_last_seen_open(self) -> None:
+        """An order that rested past retention and closed since can still be proven."""
+        closed_items: list[object] = [self._order(status="CANCELED")]
+        transport = ScriptedVenueTransport(
+            self._paper_info(), b"[]", msgspec.json.encode(closed_items)
+        )
+        adapter = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
+        adapter.qualify_account(at=self.at, nonce=1)
+        submitted_at = datetime(2026, 9, 26, 12, tzinfo=UTC)
+        closed = adapter.order(
+            "tETHUSD",
+            "1234",
+            submitted_at=submitted_at,
+            venue_order_id="987",
+            open_seen_at=submitted_at + timedelta(days=19),
+            at=submitted_at + timedelta(days=20),
+            nonce=2,
+        )
+        assert closed is not None and closed.status == "cancelled"
+        assert [item.path for item in transport.requests[1:]] == [
+            "/v2/auth/r/orders",
+            "/v2/auth/r/orders/hist",
+        ]
+
 
 class QuietConnection:
     """Time out every receive after spending the requested wait on a fake clock."""

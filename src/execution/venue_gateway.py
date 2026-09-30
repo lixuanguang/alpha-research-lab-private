@@ -564,10 +564,12 @@ class VenueGateway:
                 venue_order_id=dispatch.venue_order_id,
                 at=at,
                 nonce=nonce,
+                open_seen_at=dispatch.open_seen_at,
             )
             if found is None:
                 raise VenueProtocolError("submitted order absent from available venue history")
             self._ingest_order(found)
+            self._seen_open(found, at)
         at, nonce = self._request_clock()
         balances = adapter.balances(at=at, nonce=nonce)
         at, nonce = self._request_clock()
@@ -578,6 +580,7 @@ class VenueGateway:
             )
         for fact in after:
             self._ingest_order(fact)
+            self._seen_open(fact, at)
             observed.append(self._order(self._dispatch(client_id=fact.client_id).order_id))
         currencies = {
             money.currency.code: money.currency
@@ -693,6 +696,21 @@ class VenueGateway:
             native = self._codec.decode_json(native_receipt.payload, NativeFill)
         self.journal.apply_native_fill(native)
         self._store.applied(receipt.identity)
+
+    def _seen_open(self, fact: VenueOrderFact, at: datetime) -> None:
+        """Remember when a request sent at ``at`` found this order still open."""
+        if fact.status not in ("open", "partial"):
+            return
+        state = self._store.read()
+        dispatches: tuple[VenueDispatch, ...] = tuple(
+            replace(item, open_seen_at=at)
+            if item.client_id == fact.client_id
+            and (item.open_seen_at is None or item.open_seen_at < at)
+            else item
+            for item in state.dispatches
+        )
+        if dispatches != state.dispatches:
+            self._store.save(replace(state, dispatches=dispatches))
 
     def _ingest_order(self, fact: VenueOrderFact) -> None:
         """Require cumulative state to agree with individually identified fills."""

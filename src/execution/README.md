@@ -368,7 +368,8 @@ arrive through fill history and a reopened order through the open-order snapshot
 so venue lookup retention no longer limits account age. Bitfinex looks an order up
 in active orders first, which has no age limit, and refuses only a lookup that
 falls through to closed-order history (about two weeks) more than 13 days after
-submission. Local unsent intents
+the order was last seen open by a reconciliation (or, if never, after submission):
+it closed no earlier than that. Local unsent intents
 remain reserved and are not represented as venue-observed orders. A broken or
 unavailable observation invalidates independent account readiness before the
 transport diagnostic is saved. Operator stops are never cleared by reconciliation.
