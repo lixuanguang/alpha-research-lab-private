@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -599,6 +600,37 @@ class TestPriceDiagnostics:
         evidence = QueryReader._shared_evidence((partitions[0], changed))
         assert _CODEC.encode_json(evidence[1].request) == _CODEC.encode_json(request)
         assert _CODEC.encode_json(evidence[0].request) == _CODEC.encode_json(partitions[0].request)
+
+    @pytest.mark.performance
+    def test_repeated_decision_queries_reuse_disconnect_identities(self) -> None:
+        """Each decision query filters retained disconnects instead of re-deriving them."""
+        request = self._request()
+        items = [self._item(request, 1, 1, "100", 1, 0)]
+        for index in range(500):
+            second = 2 + (index * 55) // 500
+            items.append(self._item(request, 0, second, "1", 0, 2 * index + 1, disconnect=True))
+            items.append(self._item(request, second, second, "101", 2 + index, 2 * index + 2))
+        reader = QueryReader(
+            (self._payload(request, tuple(items)),),
+            readers=SourceAdapters(),
+            precedence=(self._binding(request),),
+            max_bytes=16_777_216,
+        )
+        selector = reader._selector
+        instruments = (request.instrument.instrument_id,)
+        end = _START + timedelta(seconds=60)
+        started = time.perf_counter()
+        first = selector.recoveries(instruments, end=end, known_at=end)
+        cold = time.perf_counter() - started
+        samples: list[float] = []
+        for _ in range(7):
+            started = time.perf_counter()
+            assert selector.recoveries(instruments, end=end, known_at=end) == first
+            samples.append(time.perf_counter() - started)
+        warm = sorted(samples)[3]
+        print(f"recoveries of 500 disconnects, first/repeated: {cold:.5f}s/{warm:.5f}s")
+        # Every query re-derived every disconnect's and trade's identity, as costly as the first.
+        assert len(first) == 500 and warm < cold / 10
 
     def test_recovery_needs_a_later_trade_known_by_the_cutoff(self) -> None:
         """A second disconnect with no later trade is unanswered and poisons later windows."""
