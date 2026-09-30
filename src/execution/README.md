@@ -161,9 +161,13 @@ reservation that cannot cover those economics cannot silently become a fill.
 `PaperFeeSchedule` takes only the whole lots whose fee, both exact and rounded on
 that fill, fits the order's remaining `maximum_fee`. A sell filling above its limit
 or fees rounding up on every partial fill can therefore leave the rest of an order
-resting (or cancelled, for IOC), but never fault the account. The account lifecycle
-still refuses an unaffordable fill and rolls the whole market back. Size the
-reserve for the worst execution price plus one minor unit per possible fill.
+resting (or cancelled, for IOC), but never fault the account. A sell fills at or
+above its limit, where one lot's fee is lowest, so once its remaining reserve cannot
+pay one lot at the limit the remainder can never fill: the model cancels it at the
+next eligible quote and its reservation is released. A buy may still fill below its
+limit at a lower fee, so it keeps resting. The account lifecycle still refuses an
+unaffordable fill and rolls the whole market back. Size the reserve for the worst
+execution price plus one minor unit per possible fill.
 
 `PaperMatchEvaluator` is the shared deterministic projection for the dedicated
 and account journals. The account journal supplies physical orders in decision

@@ -528,10 +528,10 @@ class TestAccountPaperMatching:
         assert order.paid_fee.value <= order.maximum_fee.value
         assert journal.accounts()[0].fault is None
 
-    def test_sell_filling_above_its_limit_stays_within_its_fee_reserve(
+    def test_sell_filling_above_its_limit_cancels_its_unfillable_remainder(
         self, tmp_path: Path
     ) -> None:
-        """A reserve sized at the sell limit caps a fill priced above that limit."""
+        """A fill above the limit that leaves too little reserve for one more lot ends the order."""
         scenario = self._scenario(fee_rate="0.10")
         journal = self._ready(tmp_path / "capped-sell.sqlite3", scenario)
         decision_at = self.opening_at + timedelta(seconds=1)
@@ -577,8 +577,60 @@ class TestAccountPaperMatching:
             for item in journal.orders()
             if item.order.decision_identity == "limit-sized-sell"
         )
-        assert (order.status, order.filled.value) == ("partial", Decimal("1"))
+        # 0.081 is left, below the 0.085 fee of one unit even at the limit, so the
+        # remainder can never fill: it is cancelled instead of reserved forever.
+        assert [event.kind for event in trace.physical_events][-1] == "cancelled"
+        assert (order.status, order.filled.value) == ("cancelled", Decimal("1"))
         assert order.paid_fee.value <= order.maximum_fee.value
+        assert journal.accounts()[0].fault is None
+
+    def test_sell_reserved_below_one_lot_fee_is_cancelled_but_a_buy_rests(
+        self, tmp_path: Path
+    ) -> None:
+        """Only a sell's cheapest fee is known (at its limit); a buy may still fill lower."""
+        scenario = self._scenario(fee_rate="0.10")
+        journal = self._ready(tmp_path / "unfillable.sqlite3", scenario)
+        decision_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price("1.00"), at=decision_at))
+        inventory = self._order(
+            "inventory",
+            decision_at,
+            side="buy",
+            quantity="3",
+            limit="1.10",
+            time_in_force="ioc",
+            maximum_fee="0.50",
+        )
+        assert journal.admit(inventory).status == "committed"
+        journal.match_public_market(
+            "shared", self._market("inventory-book", decision_at + timedelta(seconds=1)), scenario
+        )
+        # One unit at the 0.85 limit costs 0.085; at 1.01 a buy unit costs 0.101.
+        # The sell goes first: a resting buy at 1.10 would be a self-trade.
+        phases: tuple[tuple[str, Literal["buy", "sell"], str], ...] = (
+            ("thin-sell", "sell", "0.85"),
+            ("thin-buy", "buy", "1.10"),
+        )
+        for step, (identity, side, limit) in enumerate(phases):
+            at = decision_at + timedelta(seconds=2 + 2 * step)
+            journal.observe(AccountQuote(price=self._price("1.00"), at=at))
+            decision = self._order(
+                identity,
+                at,
+                side=side,
+                quantity="2",
+                limit=limit,
+                time_in_force="gtc",
+                maximum_fee="0.08",
+            )
+            assert journal.admit(decision).status == "committed"
+            market = self._market(f"{identity}-book", at + timedelta(seconds=1))
+            journal.match_public_market("shared", market, scenario)
+            (order,) = (
+                item.order for item in journal.orders() if item.order.decision_identity == identity
+            )
+            expected = "cancelled" if side == "sell" else "accepted"
+            assert (order.status, order.filled.value) == (expected, Decimal("0"))
         assert journal.accounts()[0].fault is None
 
     def test_fee_cap_failure_blocks_without_partial_lifecycle_or_economics(
