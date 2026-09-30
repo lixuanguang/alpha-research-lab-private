@@ -25,6 +25,7 @@ from configuration import (
     VenueExecutionConfiguration,
     VenueInstrument,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
     AccountJournal,
@@ -380,11 +381,18 @@ class InstalledVenueScenario:
             known_at=self.opening_at,
             max_age=timedelta(days=1),
         )
+        spot_limits: tuple[SpotLimits, ...] = (limits,)
         account = AccountConfiguration(
             mode="venue_test",
             opening_at=self.opening_at,
             accounts=(OpeningAccount(account_id="venue-account", cash=(self._money("1000"),)),),
-            instruments=(limits,),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
+            ),
             budgets=BudgetPolicy(
                 valuation_currency=self.quote,
                 firm_maximum=self._money("1000"),

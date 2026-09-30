@@ -249,6 +249,7 @@ class PaperExecutionApplication:
             mode=config.mode,
             limits=limits,
             ledger_state=ledger_state,
+            fee_rate=config.fee_rate,
         ) as journal:
             if request.action == "inspect":
                 return self._snapshot(request.action, journal)

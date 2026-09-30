@@ -230,6 +230,7 @@ UTC validity interval and maximum order notional, with `submit_enabled=true`:
 ```sh
 alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action submit --order PHYSICAL_ORDER_ID --authorization /protected/test-authority.json
 alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action cancel --order PHYSICAL_ORDER_ID --authorization /protected/test-authority.json
+alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action cancel-stranded --authorization /protected/test-authority.json
 alpha-execute venue --config /absolute/venue.json --journal /absolute/state/accounts.sqlite3 --action stream --duration 30 --messages 100
 ```
 
@@ -240,6 +241,15 @@ flag; the returned native UID must match configuration. No production mode is
 accepted. Protective cancellation keeps the envelope's account/config/instrument
 scope even after its submission interval expires. Stops and cancellation do not
 imply position reduction.
+
+`gateway.stranded` lists resting sells whose remaining fee reserve cannot pay one
+lot even at their limit (at the configured worst-case rate): they could only fill
+by charging past their reserve. `--action cancel-stranded` requests cancellation of
+all of them under one authorization; each keeps its reservation until the venue
+reports it terminal. A venue fee above an order's reserve is still posted, because
+the fill already happened: the reserve grows to the fee charged and the excess is
+paid from free cash, and the account faults as `native_fee_overage_uncovered` only
+when free cash cannot cover it.
 
 Results contain `gateway`, optional local `admission`/`portfolio`, and
 `quote_observed`. Check business status and `gateway.recovery_required` even on

@@ -30,6 +30,7 @@ from configuration import (
     VenueExecutionConfiguration,
     VenueInstrument,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
     AccountJournal,
@@ -765,19 +766,26 @@ class TestVenueGateway:
         else:
             raise ValueError("unsupported test venue")
         maximum = Quantity(value=Decimal("10"), dimension=cls.dimension)
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=maximum,
+                lot=Quantity(value=Decimal("0.01"), dimension=cls.dimension),
+                tick=Price(value=Decimal("0.01"), currency=quote, per=cls.dimension),
+                product="spot",
+            ),
+        )
         account = AccountConfiguration(
             mode="venue_test",
             opening_at=cls.at,
             accounts=(
                 OpeningAccount(account_id="test-account", cash=(cls._money("10000", quote),)),
             ),
-            instruments=(
-                SpotLimits(
-                    maximum=maximum,
-                    lot=Quantity(value=Decimal("0.01"), dimension=cls.dimension),
-                    tick=Price(value=Decimal("0.01"), currency=quote, per=cls.dimension),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=quote,
@@ -1430,6 +1438,90 @@ class TestVenueGateway:
         assert not gateway.reconcile().recovery_required
         gateway.submit(order_id, authorization)
         assert adapter.submit_count == 1
+
+    def test_stranded_sell_is_flagged_and_cancelled_under_one_authorization(
+        self, tmp_path: Path
+    ) -> None:
+        """A sell whose reserve cannot pay one more lot at its limit is listed, then cancelled."""
+        initial = self._config("okx")
+        rates = tuple(replace(item, rate=Decimal("0.001")) for item in initial.account.fee_rates)
+        config = replace(initial, account=replace(initial.account, fee_rates=rates))
+        quote_currency = config.instruments[0].quote_currency
+        clock = AdvancingClock(self.at + timedelta(seconds=10))
+        adapter = ObservedVenue(config)
+        journal = AccountJournal(tmp_path / "account.sqlite3", config.account)
+        gateway = VenueGateway(journal, config, adapter, clock=clock)
+        assert not gateway.reconcile().recovery_required
+        authorization = self._authorization(config, enabled=True)
+
+        def execute(side: Literal["buy", "sell"], quantity: str, price: str, fee: str) -> None:
+            """Fill the venue's current order and move its wallet accordingly."""
+            request = adapter.request
+            assert request is not None
+            adapter.filled += Decimal(quantity)
+            signed = Decimal(quantity) if side == "buy" else -Decimal(quantity)
+            adapter.base_balance += signed
+            adapter.quote_balance -= signed * Decimal(price) + Decimal(fee)
+            adapter.executions += (
+                VenueFillFact(
+                    fill_id=f"{side}-{len(adapter.executions)}",
+                    client_id=request.client_id,
+                    venue_order_id="42",
+                    symbol=request.symbol,
+                    side=side,
+                    quantity=Decimal(quantity),
+                    price=Decimal(price),
+                    fee=Decimal(fee),
+                    fee_currency=quote_currency.code,
+                    source_at=clock.now(),
+                    received_at=clock.now(),
+                    raw=f"{side}-trade".encode(),
+                ),
+            )
+
+        # Inventory: a two-unit buy fills whole.
+        bought = self._admit(journal, config, clock)
+        assert gateway.submit(bought, authorization).submission_attempted
+        execute("buy", "2", "100", "0.2")
+        adapter.request, adapter.filled = None, Decimal(0)
+        assert not gateway.reconcile().recovery_required
+        # A two-unit sell at 100, reserved at its floor: 0.2 plus a minor unit per 0.01 lot.
+        quote = AccountQuote(
+            price=Price(value=Decimal("100"), currency=quote_currency, per=self.dimension),
+            at=clock.now(),
+        )
+        journal.observe(quote)
+        sold = journal.admit(
+            AccountDecision(
+                account_id=config.account_id,
+                instance_id="reference-instance",
+                decision=OrderDecision(
+                    identity="stranded-sell",
+                    at=clock.now(),
+                    intent=OrderIntent(
+                        side="sell",
+                        quantity=Quantity(value=Decimal("2"), dimension=self.dimension),
+                        limit=quote.price,
+                        time_in_force="gtc",
+                    ),
+                ),
+                quote=quote,
+                maximum_fee=self._money("0.200002", quote_currency),
+            )
+        )
+        assert sold.status == "committed", sold.reason
+        sell_id = sold.orders[0].identity
+        assert gateway.submit(sell_id, authorization).submission_attempted
+        assert gateway.inspect().stranded == ()
+        # 1.9 units fill at 105 for 0.1995, leaving less than one lot's 0.001 at the limit.
+        execute("sell", "1.9", "105", "0.1995")
+        view = gateway.reconcile()
+        assert not view.recovery_required
+        assert view.stranded == (sell_id,)
+        cancelled = gateway.cancel_stranded(authorization)
+        assert adapter.cancel_count == 1
+        assert self._order_state(journal, sell_id).status == "cancel_ack"
+        assert cancelled.stranded == ()
 
     @staticmethod
     def _locked_release(monkeypatch: pytest.MonkeyPatch) -> None:

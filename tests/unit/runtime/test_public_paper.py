@@ -31,6 +31,7 @@ from configuration import (
     PaperExecutionScenario,
     PaperStrategyIdentity,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountControlResult,
@@ -183,17 +184,24 @@ class TestSharedPublicPaper:
     @classmethod
     def _config(cls) -> AccountConfiguration:
         """Fund one isolated account under bounded paper risk policy."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("10"),
+                lot=cls._quantity("1"),
+                tick=cls._price("0.01"),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=cls.at - timedelta(seconds=1),
             accounts=(OpeningAccount(account_id="paper", cash=(cls._money("1000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("10"),
-                    lot=cls._quantity("1"),
-                    tick=cls._price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.currency,

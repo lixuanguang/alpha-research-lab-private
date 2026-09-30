@@ -1,7 +1,7 @@
 """Expose the configuration public contract."""
 
 # project library imports
-from configuration.accounts import AccountConfiguration, OpeningAccount
+from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
 from configuration.archives import OKXHistoryConfig
 from configuration.book_registry import (
     BookEquivalence,
@@ -90,6 +90,7 @@ __all__ = [
     "ExecutionInspection",
     "ExecutionMode",
     "ExecutionRequest",
+    "InstrumentFeeRate",
     "OKXHistoryConfig",
     "OpeningAccount",
     "PaperAuthorization",

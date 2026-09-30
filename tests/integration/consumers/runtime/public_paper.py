@@ -43,6 +43,7 @@ from configuration import (
     OpeningAccount,
     PaperExecutionScenario,
 )
+from configuration.accounts import InstrumentFeeRate
 from configuration.paper_activation import (
     PaperAuthorization,
     PaperDeployment,
@@ -326,17 +327,24 @@ class PublicPaperWorkload:
 
     def account_config(self) -> AccountConfiguration:
         """Keep shared firm/account/instance admission active for the reference consumers."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=self.quantity("1000"),
+                lot=self.quantity("0.00000001" if self.live else "1"),
+                tick=self.price("0.01"),
+                product="spot",
+            ),
+        )
         authored = AccountConfiguration(
             mode="paper",
             opening_at=self.opened_at,
             accounts=(OpeningAccount(account_id="paper", cash=(self.money("100000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=self.quantity("1000"),
-                    lot=self.quantity("0.00000001" if self.live else "1"),
-                    tick=self.price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal("0.001")
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=self.currency,

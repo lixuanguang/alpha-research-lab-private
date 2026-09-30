@@ -19,6 +19,7 @@ from msgspec.structs import replace
 from accounting import AccountSnapshot
 from applications.execute.accounts import AccountExecutionApplication, AccountExecutionRequest
 from configuration import AccountConfiguration, OpeningAccount
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountControlKind,
@@ -76,6 +77,14 @@ class TestAccountOperations:
     @classmethod
     def _config(cls) -> AccountConfiguration:
         """Give each instance its own cash account and 15,000 exposure cap."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("200"),
+                lot=cls._quantity("1"),
+                tick=Price(value=Decimal("0.01"), currency=cls.currency, per=cls.dimension),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=cls.opening_at,
@@ -83,13 +92,12 @@ class TestAccountOperations:
                 OpeningAccount(account_id="east", cash=(cls._money("20000"),)),
                 OpeningAccount(account_id="west", cash=(cls._money("20000"),)),
             ),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("200"),
-                    lot=cls._quantity("1"),
-                    tick=Price(value=Decimal("0.01"), currency=cls.currency, per=cls.dimension),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.currency,

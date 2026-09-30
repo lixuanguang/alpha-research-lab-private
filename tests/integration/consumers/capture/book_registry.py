@@ -377,6 +377,7 @@ class _SelectedVenuePaperAcceptance:
             mode="paper",
             limits=limits,
             ledger_state=initial,
+            fee_rate=Decimal("0.005"),
         ) as journal:
             epoch = journal.claim("installed-consumer")
             admitted = journal.commit_step(
@@ -423,6 +424,7 @@ class _SelectedVenuePaperAcceptance:
             mode="paper",
             limits=limits,
             ledger_state=initial,
+            fee_rate=Decimal("0.005"),
         ) as recovered:
             epoch = recovered.claim("installed-restart")
             PaperMatcher(

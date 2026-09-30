@@ -55,6 +55,7 @@ from configuration import (
     PaperServiceInstance,
     PaperServiceSource,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountExecutionRequest,
@@ -680,11 +681,20 @@ class TestPaperServices:
         cash = Money(value=Decimal("1000"), currency=currency)
         quantity = Quantity(value=Decimal("1"), dimension=dimension)
         price = Price(value=Decimal("0.01"), currency=currency, per=dimension)
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(maximum=quantity, lot=quantity, tick=price, product="spot"),
+        )
         account = AccountConfiguration(
             mode="paper",
             opening_at=datetime(2026, 9, 27, tzinfo=UTC),
             accounts=(OpeningAccount(account_id="shared", cash=(cash,)),),
-            instruments=(SpotLimits(maximum=quantity, lot=quantity, tick=price, product="spot"),),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal("0.001")
+                )
+                for limits in spot_limits
+            ),
             budgets=BudgetPolicy(
                 valuation_currency=currency,
                 firm_maximum=cash,
@@ -747,11 +757,18 @@ class TestPaperServices:
         shared = original.accounts[0].configuration
         cash = shared.accounts[0].cash[0]
         budgets = shared.budgets
+        spot_limits: tuple[SpotLimits, ...] = shared.instruments
         isolated = AccountConfiguration(
             mode=shared.mode,
             opening_at=shared.opening_at,
             accounts=(OpeningAccount(account_id="isolated", cash=(cash,)),),
-            instruments=shared.instruments,
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal("0.001")
+                )
+                for limits in spot_limits
+            ),
             budgets=BudgetPolicy(
                 valuation_currency=budgets.valuation_currency,
                 firm_maximum=budgets.firm_maximum,
@@ -826,6 +843,7 @@ class TestPaperServices:
         )
         account = config.accounts[1].configuration
         limits = replace(account.instruments[0], maximum=quantity, lot=quantity, tick=adverse)
+        fee_rate = replace(account.fee_rates[0], instrument_id=capture.instrument_id)
         instance_limit = replace(account.budgets.instances[0], instruments=(capture.instrument_id,))
         accounts: tuple[PaperServiceAccount, ...]
         if shared:
@@ -837,10 +855,12 @@ class TestPaperServices:
                 *account.budgets.instances,
                 instance_limit,
             )
+            combined_fee_rates: tuple[InstrumentFeeRate, ...] = (*account.fee_rates, fee_rate)
             account = replace(
                 account,
                 instruments=combined_instruments,
                 budgets=replace(account.budgets, instances=combined_instances),
+                fee_rates=combined_fee_rates,
             )
             accounts = (replace(config.accounts[0], configuration=account),)
         else:
@@ -848,6 +868,7 @@ class TestPaperServices:
                 account,
                 instruments=(limits,),
                 budgets=replace(account.budgets, instances=(instance_limit,)),
+                fee_rates=(fee_rate,),
             )
             accounts = (config.accounts[0], replace(config.accounts[1], configuration=account))
         return replace(

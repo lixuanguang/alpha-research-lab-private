@@ -16,7 +16,7 @@ from msgspec.structs import replace
 from accounting import Fill
 from accounting.accounts import AccountLedger, AccountPosting, AccountSnapshot
 from applications.execute.accounts import AccountExecutionResult
-from configuration.accounts import AccountConfiguration, OpeningAccount
+from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
 from execution.accounts import AccountDecision, AccountJournal, AccountObservation, AccountQuote
 from execution.records import OrderDecision, OrderEvent, OrderState
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
@@ -55,17 +55,24 @@ class TestAccountJournal:
     @classmethod
     def _config(cls) -> AccountConfiguration:
         """Put two 9,000 instance ceilings under one 10,000 account ceiling."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("200"),
+                lot=cls._quantity("1"),
+                tick=cls._price("0.01"),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=cls.opening_at,
             accounts=(OpeningAccount(account_id="shared", cash=(cls._money("20000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("200"),
-                    lot=cls._quantity("1"),
-                    tick=cls._price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.currency,
@@ -496,6 +503,14 @@ class TestAccountJournal:
         self, tmp_path: Path
     ) -> None:
         """A receipt reassigned across known orders blocks both named accounts."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=self._quantity("200"),
+                lot=self._quantity("1"),
+                tick=self._price("0.01"),
+                product="spot",
+            ),
+        )
         config = AccountConfiguration(
             mode="paper",
             opening_at=self.opening_at,
@@ -503,13 +518,12 @@ class TestAccountJournal:
                 OpeningAccount(account_id="shared", cash=(self._money("20000"),)),
                 OpeningAccount(account_id="secondary", cash=(self._money("20000"),)),
             ),
-            instruments=(
-                SpotLimits(
-                    maximum=self._quantity("200"),
-                    lot=self._quantity("1"),
-                    tick=self._price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=self.currency,

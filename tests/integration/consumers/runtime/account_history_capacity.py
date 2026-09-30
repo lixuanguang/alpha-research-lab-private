@@ -26,6 +26,7 @@ from msgspec.structs import replace
 # project library imports
 from accounting import AccountSnapshot
 from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
     AccountJournal,
@@ -123,17 +124,22 @@ def _price(value: str) -> Price:
 
 def configuration() -> AccountConfiguration:
     """Fund two independently limited instances in one shared spot account."""
+    spot_limits: tuple[SpotLimits, ...] = (
+        SpotLimits(
+            maximum=_quantity("10"),
+            lot=_quantity("1"),
+            tick=_price("0.01"),
+            product="spot",
+        ),
+    )
     return AccountConfiguration(
         mode="paper",
         opening_at=_OPENING_AT,
         accounts=(OpeningAccount(account_id=_ACCOUNT, cash=(_money("1000"),)),),
-        instruments=(
-            SpotLimits(
-                maximum=_quantity("10"),
-                lot=_quantity("1"),
-                tick=_price("0.01"),
-                product="spot",
-            ),
+        instruments=spot_limits,
+        fee_rates=tuple(
+            InstrumentFeeRate(instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0))
+            for limits in spot_limits
         ),
         budgets=BudgetPolicy(
             valuation_currency=_CURRENCY,

@@ -20,7 +20,7 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountLedger
-from configuration.accounts import AccountConfiguration, OpeningAccount
+from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
 from execution.account_records import AccountControl, NativeFill, PhysicalAccountObservation
 from execution.account_state import DispatchLease
 from execution.accounts import (
@@ -78,17 +78,24 @@ class TestVenueAccounting:
     @classmethod
     def _config(cls) -> AccountConfiguration:
         """Pin one account, instrument and independent 500 quote cap."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("10"),
+                lot=cls._quantity("1"),
+                tick=cls._price("0.01"),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="venue_test",
             opening_at=cls.opening_at,
             accounts=(OpeningAccount(account_id="venue", cash=(cls._money("1000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("10"),
-                    lot=cls._quantity("1"),
-                    tick=cls._price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.quote,
@@ -452,10 +459,8 @@ class TestVenueAccounting:
         with pytest.raises(ValueError, match="unsupported account journal schema"):
             AccountJournal.verify(path, self._config())
 
-    def test_partial_base_fees_cannot_reuse_the_same_quote_reservation(
-        self, tmp_path: Path
-    ) -> None:
-        """Two 0.8 and 0.3 quote-equivalent charges exceed the one-unit cap."""
+    def test_native_fees_above_the_reservation_grow_it_and_post(self, tmp_path: Path) -> None:
+        """The venue already charged 0.8 and 0.3 quote-equivalent against a one-unit cap."""
         journal = self._ready(tmp_path / "partial.sqlite3")
         decision_at = self.opening_at + timedelta(seconds=1)
         order = self._buy(journal, decision_at)
@@ -481,13 +486,40 @@ class TestVenueAccounting:
             filled_at=second_at - timedelta(microseconds=1),
             fee=self._money("0.003", self.base),
         )
-        with pytest.raises(ValueError, match="fee exceeds child reservations"):
-            journal.apply_native_fill(second)
-        assert journal.accounts()[0].ledger == before
-        assert journal.accounts()[0].fault == "native_fill_break"
-        assert not journal.reconcile_venue(
-            self._observation("partial-wallet", second_at, "900", "0.992", (first_result,))
+        # The fill happened, so it posts: the reserve grows by the 0.1 shortfall and
+        # the excess is paid from free cash, which covers it.
+        second_result = journal.apply_native_fill(second)
+        assert isinstance(second_result, OrderState) and second_result.status == "filled"
+        assert second_result.maximum_fee == self._money("1.1")
+        assert journal.accounts()[0].ledger != before
+        assert journal.accounts()[0].fault is None
+        assert journal.reconcile_venue(
+            self._observation("partial-wallet", second_at, "800", "1.989")
         )
+
+    def test_native_fee_overage_beyond_free_cash_posts_and_faults(self, tmp_path: Path) -> None:
+        """A venue fee free cash cannot cover still posts, and blocks new exposure."""
+        journal = self._ready(tmp_path / "uncovered.sqlite3")
+        decision_at = self.opening_at + timedelta(seconds=1)
+        order = self._buy(journal, decision_at)
+        at = decision_at + timedelta(seconds=1)
+        # 100 for the unit plus a 900 fee leaves no cash for the other reserved unit.
+        result = journal.apply_native_fill(
+            NativeFill(
+                identity="overcharged",
+                order_id=order.identity,
+                at=at,
+                filled_at=at - timedelta(microseconds=1),
+                quantity=self._quantity("1"),
+                price=self._price(),
+                fee=self._money("900"),
+                base_currency=self.base,
+            )
+        )
+        assert isinstance(result, OrderState) and result.status == "partial"
+        assert result.paid_fee == self._money("900")
+        assert result.maximum_fee.value >= Decimal("900")
+        assert journal.accounts()[0].fault == "native_fee_overage_uncovered"
 
     def test_net_parent_base_fee_is_exactly_attributed_to_both_children(
         self, tmp_path: Path

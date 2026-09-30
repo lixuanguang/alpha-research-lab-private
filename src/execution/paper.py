@@ -163,6 +163,18 @@ class PaperFeeSchedule:
                 high = middle
         return low * lot
 
+    def stranded(self, order: OrderState, fee: Fraction, lot: Fraction) -> bool:
+        """Report whether a sell's reserve, after ``fee`` more, cannot pay one lot at its limit.
+
+        A sell fills at or above its limit, where one lot's fee is lowest, so such a
+        remainder can never fill. A buy may still fill below its limit at a lower
+        fee, so its reserve never proves it unfillable.
+        """
+        if order.intent.side != "sell":
+            return False
+        reserve = Fraction(order.maximum_fee.value) - Fraction(order.paid_fee.value) - fee
+        return not self._fits(reserve, lot, order.intent.limit)
+
     def _fits(self, reserve: Fraction, size: Fraction, price: Price) -> bool:
         """Require both the exact and the rounded fee to stay within the reserve."""
         exact = size * Fraction(price.value) * Fraction(self.fee_rate)
@@ -318,6 +330,7 @@ class PaperMatchEvaluator:
                 else touch - self.scenario.adverse
             )
             filled_this_order = Fraction(0)
+            paid_this_order = Fraction(0)
             within_limit = (
                 effective.value <= order.intent.limit.value
                 if order.intent.side == "buy"
@@ -359,12 +372,16 @@ class PaperMatchEvaluator:
                     existing_ids.add(fill_id)
                     remaining[order.intent.side] -= size
                     filled_this_order = size
+                    paid_this_order = Fraction(fee.value)
                     if order.intent.side == "buy":
                         new_buy += size
                     else:
                         new_sell += size
-            if order.intent.time_in_force == "ioc" and (
-                Fraction(order.remaining.value) > filled_this_order
+            # An IOC remainder ends here, and so does a sell remainder whose fee
+            # reserve can no longer pay one lot even at its limit: it can never fill.
+            if Fraction(order.remaining.value) > filled_this_order and (
+                order.intent.time_in_force == "ioc"
+                or self.fees.stranded(order, paid_this_order, Fraction(self.lot.value))
             ):
                 self._append(projected, existing_ids, account_id, market, order, "cancelled")
         successor = PaperLiquidityState(

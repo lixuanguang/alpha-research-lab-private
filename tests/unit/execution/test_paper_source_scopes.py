@@ -24,6 +24,7 @@ from configuration import (
     PaperSourceBinding,
     PaperStrategyIdentity,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountDecision,
@@ -110,18 +111,25 @@ class TestPaperSourceScopes:
     @classmethod
     def _config(cls, mode: Literal["paper", "shadow"] = "paper") -> AccountConfiguration:
         """Provision both owners and both instruments before activating either."""
+        spot_limits: tuple[SpotLimits, ...] = tuple(
+            SpotLimits(
+                maximum=cls._quantity("10", dimension),
+                lot=cls._quantity("1", dimension),
+                tick=cls._price("0.01", dimension),
+                product="spot",
+            )
+            for dimension in (cls.first, cls.second)
+        )
         return AccountConfiguration(
             mode=mode,
             opening_at=cls.opening_at,
             accounts=(OpeningAccount(account_id="shared", cash=(cls._money("1000"),)),),
-            instruments=tuple(
-                SpotLimits(
-                    maximum=cls._quantity("10", dimension),
-                    lot=cls._quantity("1", dimension),
-                    tick=cls._price("0.01", dimension),
-                    product="spot",
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal("0.001")
                 )
-                for dimension in (cls.first, cls.second)
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.currency,

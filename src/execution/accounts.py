@@ -985,6 +985,9 @@ class AccountJournal:
             ):
                 raise ValueError("native instrument base currency changed")
         physical = self._physical_order(transaction, request.order_id)
+        grew = self._cover_native_fee(transaction, request, physical)
+        if grew:
+            physical = self._physical_order(transaction, request.order_id)
         order = physical.order if isinstance(physical, NetOrder) else physical
         event_fill = Fill(
             identity=request.identity,
@@ -1017,6 +1020,20 @@ class AccountJournal:
                 raise ValueError(failure or "native direct fill failed")
             final = direct_result
         allocations = self._post_native_cost(transaction, request, isinstance(physical, NetOrder))
+        if grew:
+            account_id = (
+                physical.account_id
+                if isinstance(physical, NetOrder)
+                else transaction.order(request.order_id).account_id
+            )
+            try:
+                self._admission.require_funded(transaction, account_id)
+            except ValueError as error:
+                if str(error) != "insufficient_cash":
+                    raise
+                # The fill stands; new exposure waits for independent funding.
+                account = transaction.account(account_id)
+                transaction.save_account(replace(account, fault="native_fee_overage_uncovered"))
         return final, allocations
 
     def _post_native_cost(
@@ -1072,20 +1089,9 @@ class AccountJournal:
             capacities: list[Decimal] = []
             for child_id in child_ids:
                 child = transaction.order(child_id)
-                prior_native_cost = sum(
-                    (
-                        Fraction(allocation.amount.value) * Fraction(saved.request.price.value)
-                        for saved in transaction.state.native_fills
-                        if saved.request.fee.currency == saved.request.base_currency
-                        for allocation in saved.allocations
-                        if allocation.child_order_id == child_id and allocation.amount.value > 0
-                    ),
-                    Fraction(0),
-                )
-                reserve = (
-                    Fraction((child.order.maximum_fee - child.order.paid_fee).value)
-                    - prior_native_cost
-                )
+                reserve = Fraction(
+                    (child.order.maximum_fee - child.order.paid_fee).value
+                ) - self._prior_native_cost(transaction, child_id)
                 if reserve < 0:
                     raise ValueError("native fees exceed child reservation")
                 atoms = reserve * 10**18 // Fraction(request.price.value)
@@ -1133,6 +1139,103 @@ class AccountJournal:
             )
         transaction.save_account(replace(account, ledger=ledger.state))
         return tuple(allocations)
+
+    @staticmethod
+    def _prior_native_cost(transaction: _AccountTransaction, child_id: str) -> Fraction:
+        """Return the quote value of base-currency native fees an order already bore."""
+        return sum(
+            (
+                Fraction(allocation.amount.value) * Fraction(saved.request.price.value)
+                for saved in transaction.state.native_fills
+                if saved.request.fee.currency == saved.request.base_currency
+                for allocation in saved.allocations
+                if allocation.child_order_id == child_id and allocation.amount.value > 0
+            ),
+            Fraction(0),
+        )
+
+    def _cover_native_fee(
+        self, transaction: _AccountTransaction, request: NativeFill, physical: OrderState | NetOrder
+    ) -> bool:
+        """Raise fee reserves to cover a native fee the venue has already charged.
+
+        A sell filling above its limit can cost more than the reserve admission
+        sized at the limit. The venue's fill is a fact, so the reserves of the
+        physical order and of the children bearing it grow by the shortfall
+        (split by allocated quantity, rounded up to the minor unit); the posting
+        then pays the excess from free cash. Rebates and fees within the reserve
+        change nothing.
+
+        Returns:
+            Whether any reserve grew.
+        """
+        if request.fee.value <= 0:
+            return False
+        if request.fee.currency == request.price.currency:
+            cost, quote_fee = Fraction(request.fee.value), True
+        elif request.fee.currency == request.base_currency:
+            cost = Fraction(request.fee.value) * Fraction(request.price.value)
+            quote_fee = False
+        else:
+            return False
+        if isinstance(physical, NetOrder):
+            targets = tuple(
+                (item.child_order_id, Fraction(item.quantity.value))
+                for item in physical.allocations
+            )
+        else:
+            targets = ((physical.identity, Fraction(1)),)
+        available = Fraction(0)
+        for child_id, _ in targets:
+            child = transaction.order(child_id).order
+            capacity = Fraction((child.maximum_fee - child.paid_fee).value)
+            if not quote_fee:
+                capacity -= self._prior_native_cost(transaction, child_id)
+            available += max(capacity, Fraction(0))
+        if isinstance(physical, NetOrder) and quote_fee:
+            parent = physical.order
+            available = min(available, Fraction((parent.maximum_fee - parent.paid_fee).value))
+        shortfall = cost - available
+        if shortfall <= 0:
+            return False
+        minor = Fraction(request.price.currency.minor_unit)
+        weight = sum((item[1] for item in targets), Fraction(0))
+        grown = Fraction(0)
+        for child_id, share in targets:
+            quantum = shortfall * share / weight / minor
+            growth = (quantum.numerator + quantum.denominator - 1) // quantum.denominator * minor
+            tagged = transaction.order(child_id)
+            order = tagged.order
+            transaction.save_order(
+                replace(
+                    tagged,
+                    order=replace(
+                        order,
+                        maximum_fee=order.maximum_fee
+                        + Money(
+                            value=DecimalGrid.exact_decimal(growth),
+                            currency=order.maximum_fee.currency,
+                        ),
+                    ),
+                )
+            )
+            grown += growth
+        if isinstance(physical, NetOrder):
+            parent = physical.order
+            transaction.save_net_order(
+                replace(
+                    physical,
+                    order=replace(
+                        parent,
+                        maximum_fee=parent.maximum_fee
+                        + Money(
+                            value=DecimalGrid.exact_decimal(grown),
+                            currency=parent.maximum_fee.currency,
+                        ),
+                    ),
+                )
+            )
+        return True
 
     @staticmethod
     def _split_native_rebate(

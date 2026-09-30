@@ -8,6 +8,7 @@ import sqlite3
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from typing import Protocol
 
 # third party library imports
@@ -96,6 +97,9 @@ class GatewayView(WireRecord, frozen=True):
     receipt_count: int
     submission_attempted: bool = False
     qualification: str = "software-only"
+    # Resting sells whose remaining fee reserve cannot pay one lot even at their
+    # limit: they can never fill within their reserve and await cancel_stranded.
+    stranded: tuple[str, ...] = ()
 
 
 class VenueGateway:
@@ -262,6 +266,17 @@ class VenueGateway:
                 self._fault(fault or type(error).__name__)
                 raise
             return self._view(submission_attempted=True)
+
+    def cancel_stranded(self, authorization: VenueAuthorization) -> GatewayView:
+        """Request cancellation of every stranded resting sell under one authorization.
+
+        Each order keeps its reservation until the venue reports it terminal.
+        """
+        with self._store.claim():
+            stranded = self._stranded(self._store.read().dispatches)
+        for order_id in stranded:
+            self.cancel(order_id, authorization)
+        return self.inspect()
 
     def _reject(self, order_id: str, client_id: str) -> None:
         """Record a dispatch that never reached, or was refused by, the venue.
@@ -939,7 +954,51 @@ class VenueGateway:
             dispatches=state.dispatches,
             receipt_count=len(state.receipts),
             submission_attempted=submission_attempted,
+            stranded=self._stranded(state.dispatches),
         )
+
+    def _stranded(self, dispatches: tuple[VenueDispatch, ...]) -> tuple[str, ...]:
+        """Identify dispatched resting sells whose reserve cannot pay one lot at the limit.
+
+        A sell fills at or above its limit, where one lot's fee is lowest, so such a
+        remainder only fills by charging past its reserve. A buy may still fill
+        lower. An order whose cancel is already in flight is not listed again.
+        """
+        sent = {item.order_id for item in dispatches if not item.submission_rejected}
+        if not sent:
+            return ()
+        orders = [
+            parent.order
+            for parent in self.journal.net_orders()
+            if parent.account_id == self.config.account_id
+        ]
+        orders.extend(
+            child.order
+            for child in self.journal.orders()
+            if child.account_id == self.config.account_id and child.context is None
+        )
+        stranded: list[str] = []
+        for order in orders:
+            if (
+                order.identity not in sent
+                or order.is_terminal
+                or order.intent.side != "sell"
+                or order.status in ("unknown", "cancel_requested", "cancel_ack")
+                or not order.remaining.value
+            ):
+                continue
+            dimension = order.intent.quantity.dimension
+            lot = next(
+                limits.lot
+                for limits in self.config.account.instruments
+                if limits.lot.dimension == dimension
+            )
+            floor = self.config.account.fee_rate(dimension.instrument_id).minimum_reserve(
+                lot, order.intent.limit, lot
+            )
+            if Fraction((order.maximum_fee - order.paid_fee).value) < floor:
+                stranded.append(order.identity)
+        return tuple(sorted(stranded))
 
     @staticmethod
     def _milliseconds(at: datetime) -> int:

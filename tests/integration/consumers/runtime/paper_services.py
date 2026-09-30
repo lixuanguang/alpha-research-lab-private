@@ -29,6 +29,7 @@ from configuration import (
     PaperSourceBinding,
     PaperStrategyIdentity,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountExecutionRequest,
@@ -219,18 +220,25 @@ class PaperServiceWorkload:
             if account_id == "shared"
             else (("isolated-fixed-btc", self.dimensions[0]),)
         )
+        spot_limits: tuple[SpotLimits, ...] = tuple(
+            SpotLimits(
+                maximum=self.quantity("100", dimension),
+                lot=self.quantity("1", dimension),
+                tick=self.price("0.01", dimension),
+                product="spot",
+            )
+            for dimension in dimensions
+        )
         return AccountConfiguration(
             mode=self.mode,
             opening_at=self.opening_at,
             accounts=(OpeningAccount(account_id=account_id, cash=(self.money("100000"),)),),
-            instruments=tuple(
-                SpotLimits(
-                    maximum=self.quantity("100", dimension),
-                    lot=self.quantity("1", dimension),
-                    tick=self.price("0.01", dimension),
-                    product="spot",
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
                 )
-                for dimension in dimensions
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=self.currency,

@@ -15,7 +15,7 @@ from msgspec.structs import replace
 # project library imports
 from accounting import Fill
 from accounting.accounts import AccountLedger, AccountSnapshot
-from configuration.accounts import AccountConfiguration, OpeningAccount
+from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
 from execution import (
     AccountDecision,
     AccountJournal,
@@ -63,17 +63,24 @@ class TestPortfolioAccounts:
     @classmethod
     def _config(cls) -> AccountConfiguration:
         """Give two strategy instances separate 9,000 caps under a 10,000 account."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("200"),
+                lot=cls._quantity("1"),
+                tick=cls._price("0.01"),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=cls.opening_at,
             accounts=(OpeningAccount(account_id="shared", cash=(cls._money("50000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("200"),
-                    lot=cls._quantity("1"),
-                    tick=cls._price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.currency,

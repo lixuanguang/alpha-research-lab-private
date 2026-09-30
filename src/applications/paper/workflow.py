@@ -107,6 +107,7 @@ def run_paper(
         ledger_state=LedgerState(
             initial_cash=config.initial_cash, dimension=config.maximum.dimension
         ),
+        fee_rate=config.fee_rate,
     )
     runtime = PaperCandidateRuntime(loaded, config, journal, source=source, features=features)
     runtime.open(owner=owner, at=opened_at)
@@ -183,6 +184,7 @@ async def run_live_paper(
         ledger_state=LedgerState(
             initial_cash=config.initial_cash, dimension=config.maximum.dimension
         ),
+        fee_rate=config.fee_rate,
     )
     runtime = PaperCandidateRuntime(loaded, config, journal, source=source)
     if books is None:

@@ -27,6 +27,7 @@ from configuration import (
     PaperServiceInstance,
     PaperServiceSource,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import PaperOwner
 from financial_units import Dimension, Money, Quantity
 from market_data.collection import CaptureTransport
@@ -411,17 +412,24 @@ class CapacityWorkload:
         dimension = workload.dimensions[0 if role == "shared" else 1]
         asset = "btc" if role == "shared" else "eth"
         account_id = f"{venue}-{role}"
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=workload.quantity("100", dimension),
+                lot=workload.quantity("1", dimension),
+                tick=workload.price("0.01", dimension),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode=self.mode,
             opening_at=self.opening_at,
             accounts=(OpeningAccount(account_id=account_id, cash=(workload.money("100000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=workload.quantity("100", dimension),
-                    lot=workload.quantity("1", dimension),
-                    tick=workload.price("0.01", dimension),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=workload.currency,

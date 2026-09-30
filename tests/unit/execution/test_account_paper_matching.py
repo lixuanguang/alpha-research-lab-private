@@ -21,6 +21,7 @@ from configuration import (
     OpeningAccount,
     PaperExecutionScenario,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
     AccountJournal,
@@ -54,6 +55,15 @@ class _ReserveBlindFeeSchedule(PaperFeeSchedule):
         return (size // lot) * lot
 
 
+class _OverchargingFeeSchedule(_ReserveBlindFeeSchedule):
+    """Model a defective fee schedule that also charges ten times its own rate."""
+
+    def fee(self, size: Fraction, price: Price) -> Money:
+        """Charge ten times the modeled fee, beyond any reserve sized for the rate."""
+        modeled = super().fee(size, price)
+        return Money(value=modeled.value * 10, currency=modeled.currency)
+
+
 class TestAccountPaperMatching:
     """Compare modeled public fills with hand-calculated physical and child effects."""
 
@@ -82,17 +92,24 @@ class TestAccountPaperMatching:
     @classmethod
     def _config(cls) -> AccountConfiguration:
         """Fund two independently limited instances in one shared spot account."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("10"),
+                lot=cls._quantity("1"),
+                tick=cls._price("0.01"),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=cls.opening_at,
             accounts=(OpeningAccount(account_id="shared", cash=(cls._money("1000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("10"),
-                    lot=cls._quantity("1"),
-                    tick=cls._price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal("0.10")
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.currency,
@@ -497,41 +514,58 @@ class TestAccountPaperMatching:
         )
         assert reopened.paper_traces("shared")[-1] == due
 
-    def test_capped_ioc_buy_fills_only_what_its_fee_reserve_pays(self, tmp_path: Path) -> None:
-        """An admitted buy whose full fill costs more than its reserve fills the affordable lots."""
+    def test_scenario_charging_above_the_configured_worst_case_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """Reserves are sized for the configured rate, so no scenario may charge more."""
+        with pytest.raises(ValueError, match="exceeds the configured worst case"):
+            self._ready(tmp_path / "over-rate.sqlite3", self._scenario(fee_rate="0.11"))
+
+    def test_reserve_below_the_worst_case_fee_is_refused_at_admission(self, tmp_path: Path) -> None:
+        """A reserve below the configured rate on the whole order at its limit is refused."""
         scenario = self._scenario(fee_rate="0.10")
-        journal = self._ready(tmp_path / "capped-buy.sqlite3", scenario)
+        journal = self._ready(tmp_path / "sized-buy.sqlite3", scenario)
         decision_at = self.opening_at + timedelta(seconds=1)
         journal.observe(AccountQuote(price=self._price("1.00"), at=decision_at))
-        admitted = journal.admit(
+        # Three units at the 1.10 limit cost 0.33 at the configured 0.10 worst case.
+        refused = journal.admit(
             self._order(
-                "capped-buy",
+                "under-reserved-buy",
                 decision_at,
                 side="buy",
                 quantity="3",
                 limit="1.10",
                 time_in_force="ioc",
-                maximum_fee="0.21",
+                maximum_fee="0.33",
+            )
+        )
+        assert (refused.status, refused.reason) == ("rejected", "fee_reserve_below_worst_case")
+        admitted = journal.admit(
+            self._order(
+                "sized-buy",
+                decision_at,
+                side="buy",
+                quantity="3",
+                limit="1.10",
+                time_in_force="ioc",
+                maximum_fee="0.34",
             )
         )
         assert admitted.status == "committed"
-        # At 1.01 after adverse cost each unit pays 0.101, so 0.21 covers two units.
-        market = self._market("capped-book", decision_at + timedelta(seconds=1))
+        # A buy never fills above its limit, so the reserve pays every lot.
+        market = self._market("sized-book", decision_at + timedelta(seconds=1))
         trace = journal.match_public_market("shared", market, scenario)
-        assert trace.status == "committed"
         fills = [event.fill for event in trace.physical_events if event.fill is not None]
         assert [(fill.quantity.value, fill.fee.value) for fill in fills] == [
-            (Decimal("2"), Decimal("0.202"))
+            (Decimal("3"), Decimal("0.303"))
         ]
-        order = journal.orders()[0].order
-        assert (order.status, order.filled.value) == ("cancelled", Decimal("2"))
-        assert order.paid_fee.value <= order.maximum_fee.value
+        assert journal.orders()[-1].order.status == "filled"
         assert journal.accounts()[0].fault is None
 
-    def test_sell_filling_above_its_limit_stays_within_its_fee_reserve(
+    def test_sell_filling_above_its_limit_cancels_its_unfillable_remainder(
         self, tmp_path: Path
     ) -> None:
-        """A reserve sized at the sell limit caps a fill priced above that limit."""
+        """A fill above the limit that leaves too little reserve for one more lot ends the order."""
         scenario = self._scenario(fee_rate="0.10")
         journal = self._ready(tmp_path / "capped-sell.sqlite3", scenario)
         decision_at = self.opening_at + timedelta(seconds=1)
@@ -552,7 +586,7 @@ class TestAccountPaperMatching:
         journal.match_public_market("shared", inventory, scenario)
         sell_at = decision_at + timedelta(seconds=2)
         journal.observe(AccountQuote(price=self._price("1.00"), at=sell_at))
-        # Two units at the 0.85 limit cost exactly 0.17 in fees.
+        # The floor: 0.17 for two units at the 0.85 limit, plus one minor unit per lot.
         sold = journal.admit(
             self._order(
                 "limit-sized-sell",
@@ -561,7 +595,7 @@ class TestAccountPaperMatching:
                 quantity="2",
                 limit="0.85",
                 time_in_force="gtc",
-                maximum_fee="0.17",
+                maximum_fee="0.17000002",
             )
         )
         assert sold.status == "committed"
@@ -577,20 +611,23 @@ class TestAccountPaperMatching:
             for item in journal.orders()
             if item.order.decision_identity == "limit-sized-sell"
         )
-        assert (order.status, order.filled.value) == ("partial", Decimal("1"))
+        # About 0.081 is left, below the 0.085 fee of one unit even at the limit, so the
+        # remainder can never fill: it is cancelled instead of reserved forever.
+        assert [event.kind for event in trace.physical_events][-1] == "cancelled"
+        assert (order.status, order.filled.value) == ("cancelled", Decimal("1"))
         assert order.paid_fee.value <= order.maximum_fee.value
         assert journal.accounts()[0].fault is None
 
     def test_fee_cap_failure_blocks_without_partial_lifecycle_or_economics(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A reserve-blind model's unaffordable fill is refused and rolled back whole."""
-        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _ReserveBlindFeeSchedule)
+        """A defective model's fill above an admitted reserve is refused and rolled back whole."""
+        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _OverchargingFeeSchedule)
         scenario = self._scenario(fee_rate="0.10")
         journal = self._ready(tmp_path / "fee-cap.sqlite3", scenario)
         decision_at = self.opening_at + timedelta(seconds=1)
         journal.observe(AccountQuote(price=self._price("1.00"), at=decision_at))
-        admitted = journal.admit(self._decision("alpha", "fee-cap", decision_at, maximum_fee="0"))
+        admitted = journal.admit(self._decision("alpha", "fee-cap", decision_at))
         assert admitted.status == "committed"
         before = AccountLedger(journal.accounts()[0].ledger).snapshot()
         market = self._market("fee-cap-book", decision_at + timedelta(seconds=1))

@@ -25,6 +25,7 @@ from configuration import (
     PaperServiceSource,
     PaperStrategyIdentity,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountExecutionRequest,
     AccountExecutionResult,
@@ -92,11 +93,18 @@ def test_shadow_monitor_retains_pending_instance_zero_economics_once(tmp_path: P
     cash = Money(value=Decimal("1000"), currency=currency)
     quantity = Quantity(value=Decimal("1"), dimension=dimension)
     price = Price(value=Decimal("10"), currency=currency, per=dimension)
+    spot_limits: tuple[SpotLimits, ...] = (
+        SpotLimits(maximum=quantity, lot=quantity, tick=price, product="spot"),
+    )
     config = AccountConfiguration(
         mode="shadow",
         opening_at=now - timedelta(minutes=1),
         accounts=(OpeningAccount(account_id="shared", cash=(cash,)),),
-        instruments=(SpotLimits(maximum=quantity, lot=quantity, tick=price, product="spot"),),
+        instruments=spot_limits,
+        fee_rates=tuple(
+            InstrumentFeeRate(instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0))
+            for limits in spot_limits
+        ),
         budgets=BudgetPolicy(
             valuation_currency=currency,
             firm_maximum=cash,
