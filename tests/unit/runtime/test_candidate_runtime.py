@@ -861,6 +861,7 @@ class TestPaperCandidateRuntime:
                 maximum=config.maximum, lot=config.lot, tick=config.tick, product="spot"
             ),
             ledger_state=LedgerState(initial_cash=config.initial_cash, dimension=dimension),
+            fee_rate=Decimal(0),
         )
         return PaperCandidateRuntime(loaded, config, journal, source=source)
 
@@ -1514,6 +1515,7 @@ class TestPaperCandidateRuntime:
                 ledger_state=LedgerState(
                     initial_cash=config.initial_cash, dimension=config.maximum.dimension
                 ),
+                fee_rate=Decimal(0),
             )
             source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
             restored = PaperCandidateRuntime(loaded, config, journal, source=source)
@@ -1586,6 +1588,7 @@ class TestPaperCandidateRuntime:
             ledger_state=LedgerState(
                 initial_cash=config.initial_cash, dimension=config.maximum.dimension
             ),
+            fee_rate=Decimal(0),
         )
         source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
         runtime = PaperCandidateRuntime(loaded, config, journal, source=source)

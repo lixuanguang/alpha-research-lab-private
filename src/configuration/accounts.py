@@ -4,10 +4,13 @@ from __future__ import annotations
 
 # standard library imports
 from datetime import datetime
+from decimal import Decimal
+from fractions import Fraction
 from typing import Literal
 
 # project library imports
-from financial_units import Money
+from financial_units import DecimalGrid, Money, Price, Quantity
+from reference_data.instruments import InstrumentId
 from risk import BudgetPolicy, SpotLimits
 from serialization import WireRecord
 
@@ -37,6 +40,37 @@ class OpeningAccount(WireRecord, frozen=True):
             raise ValueError("opening currencies must be unique")
 
 
+class InstrumentFeeRate(WireRecord, frozen=True):
+    """Declare one instrument's worst-case proportional fee rate, such as the taker rate.
+
+    Admission refuses an order whose fee reservation cannot pay this rate on its
+    whole quantity at its limit, so a reserve is never sized below the fee the
+    venue or paper model can charge at the order's own price.
+    """
+
+    instrument_id: InstrumentId
+    rate: Decimal
+
+    def __post_init__(self) -> None:
+        """Require an exact rate in [0, 1)."""
+        DecimalGrid.require_decimal(self.rate)
+        if type(self.instrument_id) is not InstrumentId or not Decimal(0) <= self.rate < 1:
+            raise ValueError("invalid instrument fee rate")
+
+    def minimum_reserve(self, quantity: Quantity, limit: Price, lot: Quantity) -> Fraction:
+        """Return the smallest fee reservation for ``quantity`` at ``limit``.
+
+        The fee on the whole quantity at the limit, plus one minor unit per lot for
+        the rounding of each possible fill. A sell filling above its limit can
+        still cost more; the paper model then cancels a remainder it cannot pay.
+        """
+        exact = Fraction(quantity.value) * Fraction(limit.value) * Fraction(self.rate)
+        if not self.rate:
+            return exact
+        lots = Fraction(quantity.value) / Fraction(lot.value)
+        return exact + lots * Fraction(limit.currency.minor_unit)
+
+
 class AccountConfiguration(WireRecord, frozen=True):
     """Pin account state, spot mechanics and one explicit firm valuation currency.
 
@@ -51,6 +85,8 @@ class AccountConfiguration(WireRecord, frozen=True):
     accounts: tuple[OpeningAccount, ...]
     instruments: tuple[SpotLimits, ...]
     budgets: BudgetPolicy
+    # One worst-case fee rate for each configured instrument.
+    fee_rates: tuple[InstrumentFeeRate, ...]
     schema_version: Literal["account-runtime"] = "account-runtime"
 
     def __post_init__(self) -> None:
@@ -83,6 +119,16 @@ class AccountConfiguration(WireRecord, frozen=True):
                 raise ValueError("spot trading requires the explicit firm valuation currency")
         account_ids = {account.account_id for account in self.accounts}
         instrument_ids = {limits.maximum.dimension.instrument_id for limits in self.instruments}
+        if type(self.fee_rates) is not tuple:
+            raise ValueError("account runtime requires instrument fee rates")
+        for fee_rate in self.fee_rates:
+            if type(fee_rate) is not InstrumentFeeRate:
+                raise TypeError("account fee rates require InstrumentFeeRate")
+            fee_rate.__post_init__()
+        if sorted(str(item.instrument_id) for item in self.fee_rates) != sorted(
+            str(item) for item in instrument_ids
+        ):
+            raise ValueError("account runtime requires exactly one fee rate per instrument")
         if (
             len(account_ids) != len(self.accounts)
             or len(instrument_ids) != len(self.instruments)
@@ -97,3 +143,10 @@ class AccountConfiguration(WireRecord, frozen=True):
             )
         ):
             raise ValueError("account budget ownership, funding or instruments differ")
+
+    def fee_rate(self, instrument_id: InstrumentId) -> InstrumentFeeRate:
+        """Return the configured worst-case fee rate for one instrument."""
+        for item in self.fee_rates:
+            if item.instrument_id == instrument_id:
+                return item
+        raise ValueError("instrument has no configured fee rate")

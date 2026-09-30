@@ -165,6 +165,7 @@ class _LiveCandidateConsumer:
             ledger_state=LedgerState(
                 initial_cash=paper.initial_cash, dimension=paper.maximum.dimension
             ),
+            fee_rate=Decimal("0.002"),
         )
 
     @staticmethod

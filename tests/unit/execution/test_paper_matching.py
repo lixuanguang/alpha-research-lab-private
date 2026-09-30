@@ -13,6 +13,7 @@ from typing import Literal
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 
 # project library imports
 from accounting import Ledger, LedgerState
@@ -42,6 +43,15 @@ class _ReserveBlindFeeSchedule(PaperFeeSchedule):
     ) -> Fraction:
         """Return every whole lot, as a model without the reserve bound would."""
         return (size // lot) * lot
+
+
+class _OverchargingFeeSchedule(_ReserveBlindFeeSchedule):
+    """Model a defective fee schedule that also charges ten times its own rate."""
+
+    def fee(self, size: Fraction, price: Price) -> Money:
+        """Charge ten times the modeled fee, beyond any reserve sized for the rate."""
+        modeled = super().fee(size, price)
+        return Money(value=modeled.value * 10, currency=modeled.currency)
 
 
 class TestPaperMatcher:
@@ -85,6 +95,7 @@ class TestPaperMatcher:
                 product="spot",
             ),
             ledger_state=LedgerState(initial_cash=cls._money("1000"), dimension=cls.dimension),
+            fee_rate=Decimal("0.005"),
         )
 
     @classmethod
@@ -274,19 +285,54 @@ class TestPaperMatcher:
             matcher.match(market, epoch=epoch)
             assert (restarted.events(), restarted.orders(), restarted.ledger_state()) == before
 
-    def test_per_fill_rounding_never_exceeds_the_fee_reserve(self, tmp_path: Path) -> None:
-        """Separate fills that each round up stop at the reserve instead of breaking it."""
+    def test_scenario_charging_above_the_journal_worst_case_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """A dedicated journal refuses a matching scenario above its configured fee rate."""
+        scenario = replace(self._scenario(), fee_rate=Decimal("0.006"))
+        with self._journal(tmp_path) as journal:
+            epoch = journal.claim("over-rate-owner")
+            with pytest.raises(ValueError, match="exceeds the configured worst case"):
+                journal.match_scenario_market(
+                    epoch=epoch,
+                    market=self._market("over-rate", at=self.decision_at + timedelta(seconds=1)),
+                    scenario=scenario,
+                )
+
+    def test_admission_reserves_for_per_fill_rounding(self, tmp_path: Path) -> None:
+        """A reserve must cover each fill rounding up, so separate fills never outrun it."""
         scenario = self._scenario(adverse="0.01")
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("rounding-owner")
-            # Three units at 1.20 cost 0.018 in one fill, which rounds to 0.02.
+            # Three units at 1.20 cost 0.018, plus one cent per lot for rounding: 0.048.
+            refused = journal.commit_step(
+                epoch=epoch,
+                step_id="under-reserved",
+                checkpoint=b"under-reserved",
+                decision=OrderDecision(
+                    identity="decision-under-reserved",
+                    at=self.decision_at,
+                    intent=OrderIntent(
+                        side="buy",
+                        quantity=self._quantity("3"),
+                        limit=self._price("1.20"),
+                        time_in_force="gtc",
+                    ),
+                ),
+                reference=self._price("1.00"),
+                maximum_fee=self._money("0.04"),
+            )
+            assert (refused.status, refused.reason) == (
+                "rejected",
+                "fee_reserve_below_worst_case",
+            )
             order = self._admit(
                 journal,
                 epoch,
                 step_id="rounding",
                 quantity="3",
                 limit="1.20",
-                maximum_fee="0.02",
+                maximum_fee="0.05",
             )
             matcher = PaperMatcher(
                 journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
@@ -305,27 +351,28 @@ class TestPaperMatcher:
             current = journal.order(order.identity)
             assert current is not None
             assert (current.status, current.filled.value, current.paid_fee.value) == (
-                "partial",
-                Decimal("2"),
-                Decimal("0.02"),
+                "filled",
+                Decimal("3"),
+                Decimal("0.03"),
             )
             fees = tuple(fill.fee.value for fill in journal.ledger_state().fills)
-            assert fees == (Decimal("0.01"), Decimal("0.01"))
+            assert fees == (Decimal("0.01"), Decimal("0.01"), Decimal("0.01"))
 
     def test_fee_cap_prevents_fill_and_keeps_order_reserved(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A reserve-blind model's one-cent fee still cannot post against a zero maximum fee."""
-        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _ReserveBlindFeeSchedule)
+        """A defective model's fee above an admitted reserve still cannot post."""
+        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _OverchargingFeeSchedule)
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("fee-cap-owner")
+            # The floor is 0.011 at the limit plus two cents; the model charges 0.10.
             order = self._admit(
                 journal,
                 epoch,
                 step_id="fee-cap",
                 quantity="2",
                 limit="1.10",
-                maximum_fee="0.00",
+                maximum_fee="0.04",
             )
             matcher = self._matcher(journal)
             with pytest.raises(ValueError, match="fill exceeds order economics or limit"):
@@ -335,7 +382,7 @@ class TestPaperMatcher:
                 )
             assert journal.order(order.identity) == order
             assert journal.ledger_state().fills == ()
-            assert journal.reservations().cash.value == Decimal("2.20")
+            assert journal.reservations().cash.value == Decimal("2.24")
 
     def test_crossing_post_only_rejects_without_economics(self, tmp_path: Path) -> None:
         """A post-only buy crossing the first available ask never posts a fill."""
@@ -612,8 +659,8 @@ class TestPaperMatcher:
     def test_scenario_fee_shortfall_rolls_back_entire_market(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A reserve-blind model's late fee-cap failure leaves no order partially committed."""
-        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _ReserveBlindFeeSchedule)
+        """A defective model's late fee-cap failure leaves no order partially committed."""
+        monkeypatch.setattr("execution.paper.PaperFeeSchedule", _OverchargingFeeSchedule)
         scenario = self._scenario()
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("atomic-market-owner")
@@ -624,7 +671,7 @@ class TestPaperMatcher:
                 step_id="underfunded-fee",
                 quantity="1",
                 limit="1.10",
-                maximum_fee="0.00",
+                maximum_fee="0.03",
             )
             with pytest.raises(ValueError, match="fill exceeds order economics or limit"):
                 PaperMatcher(

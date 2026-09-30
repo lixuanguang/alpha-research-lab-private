@@ -69,6 +69,7 @@ class _DedicatedHistory:
                 initial_cash=Money(value=Decimal("100000"), currency=cls.currency),
                 dimension=cls.dimension,
             ),
+            fee_rate=Decimal(0),
         )
 
     def market(self) -> None:

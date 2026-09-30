@@ -17,7 +17,7 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountLedger
-from configuration.accounts import AccountConfiguration, OpeningAccount
+from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
 from execution.account_records import AccountControl, NativeFill, PhysicalAccountObservation
 from execution.account_state import DispatchLease
 from execution.accounts import (
@@ -66,17 +66,24 @@ class TestVenueAccounting:
     @classmethod
     def _config(cls) -> AccountConfiguration:
         """Pin one account, instrument and independent 500 quote cap."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("10"),
+                lot=cls._quantity("1"),
+                tick=cls._price("0.01"),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="venue_test",
             opening_at=cls.opening_at,
             accounts=(OpeningAccount(account_id="venue", cash=(cls._money("1000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("10"),
-                    lot=cls._quantity("1"),
-                    tick=cls._price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.quote,

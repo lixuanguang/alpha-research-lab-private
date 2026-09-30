@@ -86,6 +86,7 @@ class TestPaperOrderJournal:
             mode="paper",
             limits=cls._limits(),
             ledger_state=cls._state(with_holding=with_holding),
+            fee_rate=Decimal(0),
         )
 
     @classmethod

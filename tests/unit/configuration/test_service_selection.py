@@ -22,6 +22,7 @@ from configuration import (
     PaperServiceInstance,
     PaperServiceSource,
 )
+from configuration.accounts import InstrumentFeeRate
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from serialization import DomainCodec
@@ -39,11 +40,20 @@ class TestServiceSelection:
         money = Money(value=Decimal("1000"), currency=currency)
         quantity = Quantity(value=Decimal("1"), dimension=dimension)
         price = Price(value=Decimal("0.01"), currency=currency, per=dimension)
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(maximum=quantity, lot=quantity, tick=price, product="spot"),
+        )
         account = AccountConfiguration(
             mode="paper",
             opening_at=datetime(2026, 9, 27, tzinfo=UTC),
             accounts=(OpeningAccount(account_id="shared", cash=(money,)),),
-            instruments=(SpotLimits(maximum=quantity, lot=quantity, tick=price, product="spot"),),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
+            ),
             budgets=BudgetPolicy(
                 valuation_currency=currency,
                 firm_maximum=money,

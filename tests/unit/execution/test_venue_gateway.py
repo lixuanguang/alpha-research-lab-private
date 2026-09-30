@@ -28,6 +28,7 @@ from configuration import (
     VenueExecutionConfiguration,
     VenueInstrument,
 )
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
     AccountJournal,
@@ -751,19 +752,26 @@ class TestVenueGateway:
         else:
             raise ValueError("unsupported test venue")
         maximum = Quantity(value=Decimal("10"), dimension=cls.dimension)
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=maximum,
+                lot=Quantity(value=Decimal("0.01"), dimension=cls.dimension),
+                tick=Price(value=Decimal("0.01"), currency=quote, per=cls.dimension),
+                product="spot",
+            ),
+        )
         account = AccountConfiguration(
             mode="venue_test",
             opening_at=cls.at,
             accounts=(
                 OpeningAccount(account_id="test-account", cash=(cls._money("10000", quote),)),
             ),
-            instruments=(
-                SpotLimits(
-                    maximum=maximum,
-                    lot=Quantity(value=Decimal("0.01"), dimension=cls.dimension),
-                    tick=Price(value=Decimal("0.01"), currency=quote, per=cls.dimension),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=quote,

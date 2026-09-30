@@ -17,6 +17,7 @@ from msgspec.structs import replace
 from accounting import AccountLedger, AccountSnapshot, Fill
 from applications.paper import SharedPaperDecision, run_shared_paper
 from configuration import AccountConfiguration, OpeningAccount
+from configuration.accounts import InstrumentFeeRate
 from execution import AccountJournal, AccountObservation, AccountQuote, OrderEvent, PortfolioContext
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
@@ -108,17 +109,24 @@ class TestSharedDecisions:
     @classmethod
     def _config(cls, maximum: str = "10000") -> AccountConfiguration:
         """Select two isolated policy instances under common cash and authority."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("200"),
+                lot=cls._quantity("1"),
+                tick=Price(value=Decimal("0.01"), currency=cls.currency, per=cls.dimension),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=cls.at,
             accounts=(OpeningAccount(account_id="shared", cash=(cls._money("20000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("200"),
-                    lot=cls._quantity("1"),
-                    tick=Price(value=Decimal("0.01"), currency=cls.currency, per=cls.dimension),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.currency,

@@ -461,6 +461,9 @@ class AccountPaperMatching:
         )
         if limits is None:
             raise ValueError("paper scenario instrument is not configured")
+        # Admission sized every reserve for the configured worst case.
+        if scenario.fee_rate > self.config.fee_rate(scenario.instrument_id).rate:
+            raise ValueError("paper scenario fee rate exceeds the configured worst case")
         return limits
 
     def _require_paper(self) -> None:

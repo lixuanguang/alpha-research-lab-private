@@ -132,6 +132,12 @@ class AccountAdmission:
             reason = lifecycle.order_reason(intent)
             if reason is not None:
                 raise ValueError(reason)
+            # A risk-reducing sell is never refused over fee sizing; a fee above
+            # its reserve is posted from free cash instead.
+            if not protective and Fraction(request.maximum_fee.value) < self.config.fee_rate(
+                intent.quantity.dimension.instrument_id
+            ).minimum_reserve(intent.quantity, intent.limit, limits.lot):
+                raise ValueError("fee_reserve_below_worst_case")
             commitments = self.commitments(transaction, request.decision.at)
             reason = BudgetEngine().evaluate(
                 self.config.budgets,

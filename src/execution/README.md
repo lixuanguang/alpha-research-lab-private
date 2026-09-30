@@ -158,16 +158,24 @@ model invents no intervening exchange event or response clock. A quote can fill
 only an older order. The modeled fill retains both observed touch reference and
 adverse effective price, with exact quote-currency fee rounding. A limit or fee
 reservation that cannot cover those economics cannot silently become a fill.
+Admission refuses (`fee_reserve_below_worst_case`) an order whose `maximum_fee` is
+below the configured worst-case fee: the whole quantity at its limit at the
+instrument's rate, plus one minor unit per lot for the rounding of each possible
+fill. Account journals take the rate from `AccountConfiguration.fee_rates` (one
+`InstrumentFeeRate`, such as the venue's taker rate, per instrument) in paper,
+shadow and `venue_test` alike; a dedicated `PaperOrderJournal` takes its
+`fee_rate`. A matching scenario may not charge more than that rate. Protective
+reductions are exempt, so a risk-reducing sell is never refused over fee sizing.
+A buy never fills above its limit, so its reserve then pays every fill.
 `PaperFeeSchedule` takes only the whole lots whose fee, both exact and rounded on
 that fill, fits the order's remaining `maximum_fee`. A sell filling above its limit
-or fees rounding up on every partial fill can therefore leave the rest of an order
-resting (or cancelled, for IOC), but never fault the account. A sell fills at or
-above its limit, where one lot's fee is lowest, so once its remaining reserve cannot
-pay one lot at the limit the remainder can never fill: the model cancels it at the
-next eligible quote and its reservation is released. A buy may still fill below its
+pays more per lot and can therefore leave the rest of an order resting (or
+cancelled, for IOC), but never fault the account. A sell fills at or above its
+limit, where one lot's fee is lowest, so once its remaining reserve cannot pay one
+lot at the limit the remainder can never fill: the model cancels it at the next
+eligible quote and its reservation is released. A buy may still fill below its
 limit at a lower fee, so it keeps resting. The account lifecycle still refuses an
-unaffordable fill and rolls the whole market back. Size the reserve for the worst
-execution price plus one minor unit per possible fill.
+unaffordable modeled fill and rolls the whole market back.
 
 `PaperMatchEvaluator` is the shared deterministic projection for the dedicated
 and account journals. The account journal supplies physical orders in decision

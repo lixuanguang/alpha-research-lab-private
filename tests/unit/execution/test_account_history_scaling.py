@@ -15,6 +15,7 @@ import pytest
 # project library imports
 from accounting import AccountSnapshot
 from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
     AccountJournal,
@@ -150,6 +151,14 @@ class _SharedFirmHistory:
     @classmethod
     def _config(cls) -> AccountConfiguration:
         """Fund two independently limited accounts in one firm journal."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=cls._quantity("10"),
+                lot=cls._quantity("1"),
+                tick=cls._price("0.01"),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=cls.opening_at,
@@ -157,13 +166,12 @@ class _SharedFirmHistory:
                 OpeningAccount(account_id=account, cash=(cls._money("1000"),))
                 for account in cls.accounts
             ),
-            instruments=(
-                SpotLimits(
-                    maximum=cls._quantity("10"),
-                    lot=cls._quantity("1"),
-                    tick=cls._price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal("0.001")
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=cls.currency,

@@ -46,6 +46,7 @@ from applications.execute.accounts import (
     AccountExecutionResult,
 )
 from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
+from configuration.accounts import InstrumentFeeRate
 from configuration.paper_activation import PaperDeployment, PaperStrategyIdentity
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
@@ -344,17 +345,24 @@ class TestLocalInstallation:
             kind=QuantityKind.BASE_UNIT,
         )
         money = Money(value=Decimal("10000"), currency=currency)
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=Quantity(value=Decimal("100"), dimension=dimension),
+                lot=Quantity(value=Decimal("1"), dimension=dimension),
+                tick=Price(value=Decimal("0.01"), currency=currency, per=dimension),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=opening_at,
             accounts=(OpeningAccount(account_id="shared", cash=(money,)),),
-            instruments=(
-                SpotLimits(
-                    maximum=Quantity(value=Decimal("100"), dimension=dimension),
-                    lot=Quantity(value=Decimal("1"), dimension=dimension),
-                    tick=Price(value=Decimal("0.01"), currency=currency, per=dimension),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=currency,

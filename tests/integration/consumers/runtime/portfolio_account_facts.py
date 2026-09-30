@@ -12,6 +12,7 @@ from typing import Literal
 from accounting import AccountLedger, AccountSnapshot, Fill
 from applications.execute.accounts import AccountExecutionResult
 from configuration import AccountConfiguration, OpeningAccount
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
     AccountQuote,
@@ -91,17 +92,24 @@ class PortfolioAccountFacts:
 
     def config(self) -> AccountConfiguration:
         """Fund a paper account with two authorized strategy instances."""
+        spot_limits: tuple[SpotLimits, ...] = (
+            SpotLimits(
+                maximum=self.quantity("200"),
+                lot=self.quantity("1"),
+                tick=self.price("0.01"),
+                product="spot",
+            ),
+        )
         return AccountConfiguration(
             mode="paper",
             opening_at=self.opening_at,
             accounts=(OpeningAccount(account_id="shared", cash=(self.money("50000"),)),),
-            instruments=(
-                SpotLimits(
-                    maximum=self.quantity("200"),
-                    lot=self.quantity("1"),
-                    tick=self.price("0.01"),
-                    product="spot",
-                ),
+            instruments=spot_limits,
+            fee_rates=tuple(
+                InstrumentFeeRate(
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                )
+                for limits in spot_limits
             ),
             budgets=BudgetPolicy(
                 valuation_currency=self.currency,

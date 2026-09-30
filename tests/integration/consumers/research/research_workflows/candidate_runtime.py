@@ -326,6 +326,7 @@ class _PaperCandidateAcceptance:
             ledger_state=LedgerState(
                 initial_cash=config.initial_cash, dimension=config.maximum.dimension
             ),
+            fee_rate=Decimal("0.002"),
         )
         saved = journal.step(f"timer:{name}-decision")
         assert saved is not None

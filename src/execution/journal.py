@@ -10,12 +10,13 @@ from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from datetime import datetime
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, Literal, cast
 
 # project library imports
 from accounting import Ledger, LedgerBalance, LedgerState
-from configuration import PaperExecutionScenario
+from configuration import InstrumentFeeRate, PaperExecutionScenario
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import (
     AccountReservations,
@@ -55,8 +56,13 @@ class PaperOrderJournal:
         mode: Literal["paper", "shadow"],
         limits: SpotLimits,
         ledger_state: LedgerState,
+        fee_rate: Decimal,
     ) -> None:
-        """Bind exact account, candidate, spot limits and initial economic state."""
+        """Bind exact account, candidate, spot limits and initial economic state.
+
+        ``fee_rate`` is the worst-case paper fee rate: admission refuses a reserve
+        below it, and a matching scenario may not charge more.
+        """
         if (
             not isinstance(path, Path)
             or not account
@@ -79,6 +85,9 @@ class PaperOrderJournal:
         self.binding_identity = binding_identity
         self.mode = mode
         self.limits = limits
+        self.fee_rate = InstrumentFeeRate(
+            instrument_id=limits.maximum.dimension.instrument_id, rate=fee_rate
+        )
         self._lifecycle = SpotOrderLifecycle(limits)
         self._codec = DomainCodec()
         self._lock: BinaryIO | None = None
@@ -96,6 +105,7 @@ class PaperOrderJournal:
                 mode,
                 limits,
                 ledger_state,
+                self.fee_rate,
             )
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,6 +345,8 @@ class PaperOrderJournal:
 
         market.__post_init__()
         scenario.__post_init__()
+        if scenario.fee_rate > self.fee_rate.rate:
+            raise ValueError("paper scenario fee rate exceeds the configured worst case")
         payload = self._codec.encode_json(market)
         scenario_payload = self._codec.encode_json(scenario)
         with self._write(epoch) as connection:
@@ -837,6 +849,12 @@ class PaperOrderJournal:
             reason = self._lifecycle.order_reason(intent)
             if reason is not None:
                 return StepCommit(status="rejected", reason=reason, orders=())
+            if Fraction(maximum_fee.value) < self.fee_rate.minimum_reserve(
+                intent.quantity, intent.limit, self.limits.lot
+            ):
+                return StepCommit(
+                    status="rejected", reason="fee_reserve_below_worst_case", orders=()
+                )
             identity = hashlib.sha256(
                 self._codec.encode_json(
                     (
