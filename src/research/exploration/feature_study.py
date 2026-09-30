@@ -204,7 +204,9 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
             feature_selection = self._selection(
                 end=feature_end, known_at=feature_end, lookback_us=definition.policy.lookback_us
             )
-            dataset = reader.read(feature_selection)
+            dataset = reader.read(
+                feature_selection, recoveries=definition.policy.accept_first_binding_message
+            )
             outcome_dataset = None
             if self.label is not None:
                 outcome_at = decision + timedelta(microseconds=self.label.horizon_us)
@@ -215,7 +217,8 @@ class FeatureStudy(WireRecord, frozen=True, kw_only=True):
                             end=outcome_at,
                             known_at=available,
                             lookback_us=self.label.policy.lookback_us,
-                        )
+                        ),
+                        recoveries=self.label.policy.accept_first_binding_message,
                     )
             for index, item in enumerate(dataset.inputs):
                 if not isinstance(item, TradeResearchInput):

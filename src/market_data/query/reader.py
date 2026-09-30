@@ -70,8 +70,8 @@ class QueryBatch(NamedTuple):
     columns: tuple[QueryColumn, ...]
     rows: tuple[QueryRow, ...]
     evidence: tuple[QueryEvidence, ...]
-    # Requested first-binding-message recoveries; empty unless the query asked.
-    recoveries: tuple[ContinuityResumed, ...] = ()
+    # Requested first-binding-message recoveries; None unless the query asked.
+    recoveries: tuple[ContinuityResumed, ...] | None = None
 
 
 class QueryReader:
@@ -259,7 +259,9 @@ class QueryReader:
             parts = (*parts, "first-binding-message")
         identity = hashlib.sha256(self._codec.encode_json(parts)).hexdigest()
         recovered = (
-            self._selector.recoveries(instruments, end=end, known_at=known_at) if recoveries else ()
+            self._selector.recoveries(instruments, end=end, known_at=known_at)
+            if recoveries
+            else None
         )
         for chunk in batched(selected, batch_size) if selected else ((),):
             self._check_cancelled(cancelled)

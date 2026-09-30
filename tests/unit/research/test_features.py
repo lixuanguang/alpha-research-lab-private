@@ -63,7 +63,7 @@ class _AdmittedPrices(ResearchReader):
         self.reader, self.request = reader, request
         self.cutoffs: list[datetime] = []
 
-    def read(self, selection: ResearchSelection) -> ResearchDataset:
+    def read(self, selection: ResearchSelection, *, recoveries: bool = False) -> ResearchDataset:
         """Return exactly the selected actual query and its binding evidence."""
         results = []
         for item in selection.inputs:
@@ -78,6 +78,7 @@ class _AdmittedPrices(ResearchReader):
                     known_at=query.known_at,
                     columns=query.columns,
                     batch_size=query.batch_size,
+                    recoveries=recoveries,
                 )
             )
             coverage = TradeCoverage(
@@ -460,6 +461,7 @@ class TestPriceDiagnostics:
         accepting = replace(strict, accept_first_binding_message=True)
         end = _START + timedelta(seconds=40)
         batches = self._recovery_batches(reader, request, 30, 40)
+        assert batches[0].recoveries is not None
         (recovery,) = batches[0].recoveries
         assert recovery.binding == binding
         assert recovery.resumed_at == _START + timedelta(seconds=20)
@@ -487,13 +489,16 @@ class TestPriceDiagnostics:
                     recoveries=True,
                 )
             )
-        # Without queried recoveries, or with one for another binding, nothing answers.
+        # An opted-in policy refuses a query that did not request recoveries,
+        # rather than reporting every disconnect as unproven.
         plain = self._batches(reader, request, 30, 40, 40)
-        assert plain[0].recoveries == ()
-        assert (
-            accepting.collect(plain, binding=binding, end=end, known_at=end).missing
-            == "scoped disconnect: recovery is unproven"
+        assert plain[0].recoveries is None
+        assert strict.collect(plain, binding=binding, end=end, known_at=end).missing == (
+            "scoped disconnect: recovery is unproven"
         )
+        with pytest.raises(ValueError, match="did not request"):
+            accepting.collect(plain, binding=binding, end=end, known_at=end)
+        # A recovery for another binding answers nothing.
         other = replace(recovery, binding=("another.source", "trade", binding[2]))
         foreign = tuple(batch._replace(recoveries=(other,)) for batch in batches)
         assert (
@@ -558,7 +563,8 @@ class TestPriceDiagnostics:
         )
         end = _START + timedelta(seconds=100)
         batches = self._recovery_batches(reader, second, 75, 100)
-        assert len(batches[0].recoveries) == 2
+        recoveries = batches[0].recoveries
+        assert recoveries is not None and len(recoveries) == 2
         window = accepting.collect(batches, binding=self._binding(first), end=end, known_at=end)
         assert window.missing == "scoped disconnect: recovery after window start"
         assert window.recoveries == ()
@@ -744,6 +750,54 @@ class TestFeatureStudies:
             == fields["features"]
         )
         assert admitted.cutoffs == [_START + timedelta(seconds=n) for n in (10, 20)]
+
+    def test_opted_in_recovery_reaches_the_study_window(self) -> None:
+        """A study whose feature accepts first-binding-message recovery reads it."""
+        request = TestPriceDiagnostics._request()
+        reader = TestPriceDiagnostics._reader(
+            request, TestPriceDiagnostics()._recovery_capture(request)
+        )
+        base = self._study()
+        feature = TestPriceDiagnostics._feature()
+        prices = base.selection.inputs[0]
+        assert isinstance(prices, TradeSelection)
+        study = replace(
+            base,
+            selection=ResearchSelection(
+                inputs=(
+                    replace(
+                        prices,
+                        query=replace(
+                            prices.query,
+                            end=_START + timedelta(seconds=45),
+                            known_at=_START + timedelta(seconds=45),
+                        ),
+                    ),
+                )
+            ),
+            split=replace(
+                base.split,
+                validation=TimeWindow(start=_START, end=_START + timedelta(seconds=50)),
+                holdout=TimeWindow(
+                    start=_START + timedelta(seconds=60), end=_START + timedelta(seconds=70)
+                ),
+            ),
+            # One decision at 40 s: the window [30 s, 40 s) follows the disconnect
+            # answered at 20 s.
+            decisions=TimeWindow(
+                start=_START + timedelta(seconds=40), end=_START + timedelta(seconds=41)
+            ),
+            feature=replace(
+                feature, policy=replace(feature.policy, accept_first_binding_message=True)
+            ),
+            label=None,
+        )
+        result = _CODEC.decode_json(
+            study.evaluate(_AdmittedPrices(reader, request)), FeatureStudyResult
+        )
+        ((_, value),) = result.features
+        assert value.window.missing is None
+        assert value.value == ExactRatio(numerator="1", denominator="51")
 
     def test_result_wire_compatibility_and_model_admission(self) -> None:
         """Preserve saved bytes and diagnostic ordering while models require aligned inputs."""

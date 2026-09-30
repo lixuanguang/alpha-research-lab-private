@@ -221,8 +221,13 @@ is admitted. The following produce a missing value, never zero or forward fill:
   A policy may opt in with `accept_first_binding_message=True`, a weaker basis:
   the first later trade on the same binding (in capture instant, partition and
   raw order), known by the cutoff, is taken as recovery. The query must request
-  it with `QueryReader.batches(..., recoveries=True)`, which returns derived
-  `ContinuityResumed` records beside the rows. The window is then computed only if
+  it with `QueryReader.batches(..., recoveries=True)` (or
+  `ResearchReader.read(..., recoveries=True)`, which `FeatureStudy` passes from
+  its feature and label policies), which returns derived `ContinuityResumed`
+  records beside the rows. An opted-in policy refuses a query that did not
+  request them. A recovery answers only the disconnect occurrence it names
+  (request, raw object and position), never another partition's disconnect at
+  the same raw position. The window is then computed only if
   every scoped disconnect lies before its start and is answered at or before the
   start; otherwise it stays missing. The recoveries used are retained on the
   window. A disconnect inside the window, an unanswered one, or one answered after
