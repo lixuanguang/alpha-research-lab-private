@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 # standard library imports
+import multiprocessing
+import os
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -35,6 +38,15 @@ from reference_data.instruments import InstrumentId
 from risk.budgets import AccountLimit, BudgetPolicy, InstanceLimit
 from risk.spot import SpotLimits
 from strategies import OrderIntent
+
+
+def _arm_and_die(path: str, order_id: str, at: datetime) -> None:
+    """Arm a dispatch lease in a separate process, then exit without releasing it."""
+    journal = AccountJournal(Path(path), TestVenueAccounting._config())
+    # Keep the guard referenced: collecting it would run its release.
+    guard = journal.execution_guard("venue", order_id, at)
+    guard.__enter__()
+    os._exit(0)
 
 
 class TestVenueAccounting:
@@ -337,16 +349,17 @@ class TestVenueAccounting:
         worker.join(5)
         assert committed[writer]()
 
-    def test_abandoned_lease_blocks_stops_only_until_its_deadline(self, tmp_path: Path) -> None:
-        """A sender that dies mid-send leaves the order unknown and delays stops boundedly."""
-        offset = [timedelta(0)]
-        journal = self._ready(
-            tmp_path / "abandoned.sqlite3", clock=lambda: datetime.now(UTC) + offset[0]
-        )
+    def test_a_dead_sender_frees_its_lease_at_once(self, tmp_path: Path) -> None:
+        """A sender killed mid-send stops holding its lease; the order stays unknown."""
+        path = tmp_path / "abandoned.sqlite3"
+        journal = self._ready(path)
         order, unknown_at = self._pending_send(journal)
-        guard = journal.execution_guard("venue", order.identity, unknown_at)
-        permit = guard.__enter__()  # the sender dies before releasing
-        assert permit.lease is not None
+        context = multiprocessing.get_context("spawn")
+        sender = context.Process(target=_arm_and_die, args=(str(path), order.identity, unknown_at))
+        sender.start()
+        sender.join(30)
+        assert sender.exitcode == 0
+        assert len(self._leases(journal)) == 1
         finished = threading.Event()
 
         def stop() -> None:
@@ -354,28 +367,75 @@ class TestVenueAccounting:
             journal.block("venue", "operator-stop")
             finished.set()
 
-        worker = threading.Thread(target=stop)
-        worker.start()
-        assert not finished.wait(0.3)
-        offset[0] = timedelta(seconds=31)
+        threading.Thread(target=stop, daemon=True).start()
+        # Before liveness this waited out a 30-second wall-clock deadline.
         assert finished.wait(5)
-        worker.join(5)
         assert journal.accounts()[0].operator_block == "operator-stop"
         assert self._leases(journal) == ()
+        assert not list(tmp_path.glob("abandoned.sqlite3.lease-*"))
         assert next(item.order for item in journal.orders()).status == "unknown"
         with pytest.raises(ValueError, match="dispatch is blocked"):
             with journal.execution_guard("venue", order.identity, unknown_at):
                 pass
 
-    def test_sender_past_its_send_window_does_not_send(self, tmp_path: Path) -> None:
-        """A send that would start too late to finish within its lease is refused."""
+    def test_a_wall_clock_step_cannot_expire_a_live_send(self, tmp_path: Path) -> None:
+        """A forward wall-clock jump during a send does not let a stop commit under it."""
         offset = [timedelta(0)]
         journal = self._ready(
-            tmp_path / "late.sqlite3", clock=lambda: datetime.now(UTC) + offset[0]
+            tmp_path / "step.sqlite3", clock=lambda: datetime.now(UTC) + offset[0]
         )
         order, unknown_at = self._pending_send(journal)
+        finished = threading.Event()
+
+        def stop() -> None:
+            """Issue the operator stop from another client thread."""
+            journal.block("venue", "operator-stop")
+            finished.set()
+
+        with journal.execution_guard("venue", order.identity, unknown_at):
+            offset[0] = timedelta(minutes=5)
+            threading.Thread(target=stop, daemon=True).start()
+            assert not finished.wait(0.3)
+            assert journal.accounts()[0].operator_block is None
+        assert finished.wait(5)
+        assert journal.accounts()[0].operator_block == "operator-stop"
+
+    def test_a_hung_sender_bounds_the_stop_wait(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stop never commits under a live lease; past its bound it refuses instead."""
+        journal = self._ready(tmp_path / "hung.sqlite3")
+        order, unknown_at = self._pending_send(journal)
+        outcome: list[BaseException | None] = []
+        finished = threading.Event()
+
+        def stop() -> None:
+            """Issue the operator stop from another client thread."""
+            try:
+                journal.block("venue", "operator-stop")
+                outcome.append(None)
+            except BaseException as error:
+                outcome.append(error)
+            finally:
+                finished.set()
+
+        with journal.execution_guard("venue", order.identity, unknown_at):
+            # Shorten only the stop's wait; the armed lease keeps its own bounds.
+            monkeypatch.setattr(journal, "_STOP_WAIT_SECONDS", 0.3)
+            threading.Thread(target=stop, daemon=True).start()
+            assert finished.wait(5)
+            assert isinstance(outcome[0], ValueError)
+            assert "stop not committed" in str(outcome[0])
+            assert journal.accounts()[0].operator_block is None
+
+    def test_sender_past_its_send_window_does_not_send(self, tmp_path: Path) -> None:
+        """A send that would start too late to finish within its lease is refused."""
+        journal = self._ready(tmp_path / "late.sqlite3")
+        order, unknown_at = self._pending_send(journal)
+        offset = [0.0]
+        journal._monotonic = lambda: time.monotonic() + offset[0]
         with journal.execution_guard("venue", order.identity, unknown_at) as permit:
-            offset[0] = timedelta(seconds=11)
+            offset[0] = 11.0
             with pytest.raises(ValueError, match="send window passed"):
                 permit.require_sendable()
         assert self._leases(journal) == ()

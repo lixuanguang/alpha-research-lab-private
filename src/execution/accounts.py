@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 # standard library imports
+import fcntl
 import hashlib
+import os
 import sqlite3
 import time
 import uuid
@@ -77,17 +79,23 @@ from serialization import DomainCodec
 
 
 class DispatchPermit(NamedTuple):
-    """The order a guard admitted, and the lease its send runs under (None for a cancel)."""
+    """The order a guard admitted, and the lease its send runs under (None for a cancel).
+
+    ``send_by`` and ``deadline`` are absolute values of the holder process's
+    monotonic ``clock``, so a wall-clock step cannot move them. The send must
+    start by ``send_by`` and the transport must end by ``deadline``.
+    """
 
     order: OrderState
     lease: DispatchLease | None
-    send_by: datetime | None
-    clock: Callable[[], datetime]
+    send_by: float | None
+    deadline: float | None
+    clock: Callable[[], float]
 
     def require_sendable(self) -> None:
         """Refuse to start a send whose remaining lease could not cover the transport.
 
-        Call immediately before the send; the lease uses the journal's clock.
+        Call immediately before the send.
 
         Raises:
             ValueError: The send window after arming has passed.
@@ -117,6 +125,8 @@ class AccountJournal:
         config.__post_init__()
         self.path, self.config = path, config
         self.paper_owner, self._clock = paper_owner, clock
+        # Dispatch leases time sends on this holder-local clock, never the wall clock.
+        self._monotonic: Callable[[], float] = time.monotonic
         self._codec = DomainCodec()
         self._store = AccountStateStore(path, config, self._codec)
         self._admission = AccountAdmission(config, self._codec)
@@ -1189,20 +1199,72 @@ class AccountJournal:
 
     # Stop-type writers poll for a held lease this often, outside any transaction.
     _LEASE_POLL_SECONDS = 0.02
+    # A stop waits at most this long for live leases; it outlasts any lease's send.
+    _STOP_WAIT_SECONDS = 35.0
+    # The transport must end this long before its lease, as a safety margin.
+    _DISPATCH_MARGIN = timedelta(seconds=5)
+
+    def _lease_lock(self, holder: str) -> Path:
+        """Return the lock file whose OS lock marks this holder's lease as live."""
+        return self.path.with_name(f"{self.path.name}.lease-{holder}")
+
+    def _hold_lease(self, holder: str) -> int:
+        """Create and lock a holder's lock file; the kernel frees it if the holder dies."""
+        descriptor = os.open(self._lease_lock(holder), os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BaseException:
+            os.close(descriptor)
+            self._lease_lock(holder).unlink(missing_ok=True)
+            raise
+        return descriptor
+
+    def _free_lease(self, holder: str, descriptor: int) -> None:
+        """Remove the lock file first, so a lease row left behind reads as ended."""
+        try:
+            self._lease_lock(holder).unlink(missing_ok=True)
+        finally:
+            os.close(descriptor)
+
+    def _lease_live(self, holder: str) -> bool:
+        """Report whether a holder still holds its lock (a released lease has no file)."""
+        try:
+            descriptor = os.open(self._lease_lock(holder), os.O_RDWR)
+        except FileNotFoundError:
+            return False
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        finally:
+            os.close(descriptor)
+        return False
+
+    def _drop_ended_leases(self, transaction: _AccountTransaction) -> None:
+        """Delete leases whose holder released or died; their sends have ended."""
+        for lease in transaction.leases():
+            if not self._lease_live(lease.holder):
+                transaction.release_lease(lease.order_id, lease.holder)
+                self._lease_lock(lease.holder).unlink(missing_ok=True)
 
     @contextmanager
     def _stop_write(
         self, *, account_id: str | None = None, instance_id: str | None = None
     ) -> Iterator[_AccountTransaction]:
-        """Open a stop-type write once no unexpired dispatch lease covers its scope.
+        """Open a stop-type write once no live dispatch lease covers its scope.
 
-        A held lease means a send whose final checks preceded this stop may still
+        A live lease means a send whose final checks preceded this stop may still
         be pending, so the stop waits (outside any transaction) until the lease is
-        released or its deadline passes, and removes expired leases when it commits.
+        released or its holder dies, and removes ended leases when it commits.
+
+        Raises:
+            ValueError: A live lease outlasted the stop's bounded wait; nothing is
+                committed, because the send under it may still reach the venue.
         """
+        give_up = self._monotonic() + self._STOP_WAIT_SECONDS
         while True:
             with self._store.write() as transaction:
-                transaction.drop_expired_leases(self._now())
+                self._drop_ended_leases(transaction)
                 held = any(
                     (account_id is None or lease.account_id == account_id)
                     and (instance_id is None or instance_id in lease.instance_ids)
@@ -1211,6 +1273,8 @@ class AccountJournal:
                 if not held:
                     yield transaction
                     return
+            if self._monotonic() >= give_up:
+                raise ValueError("dispatch in progress; stop not committed")
             time.sleep(self._LEASE_POLL_SECONDS)
 
     @contextmanager
@@ -1230,110 +1294,133 @@ class AccountJournal:
         A submission arms a ``DispatchLease`` in the same short transaction as its
         final checks. Stop-type writers for the account or its instances wait for
         the lease, so a stop either commits before arming (arming then refuses) or
-        after release. The send must start within ``send_window`` of arming and the
-        transport must finish before ``lease`` ends. A cancellation checks the
-        order in a short transaction and holds no lease: it remains available
-        while stopped and a stop never waits for it.
+        after release. The lease lives while this process holds its OS lock, so a
+        sender that dies frees it at once and no clock expires a live one. On the
+        monotonic clock, the send must start within ``send_window`` of arming and
+        the transport must end by the permit's deadline, a safety margin before
+        ``lease`` ends; a stop waits at most ``_STOP_WAIT_SECONDS``. A cancellation
+        checks the order in a short transaction and holds no lease: it remains
+        available while stopped and a stop never waits for it.
         """
         if self.config.mode != "venue_test":
             raise ValueError("execution guard requires venue_test mode")
         self._admission.require_utc(at, field_name="physical dispatch")
-        if not timedelta(0) < send_window < lease:
-            raise ValueError("dispatch lease must outlast its send window")
+        if (
+            not timedelta(0) < send_window < lease - self._DISPATCH_MARGIN
+            or lease.total_seconds() >= self._STOP_WAIT_SECONDS
+        ):
+            raise ValueError("dispatch lease must outlast its send window and fit a stop's wait")
         holder = uuid.uuid4().hex
         armed: DispatchLease | None = None
-        with self._store.write() as transaction:
-            if clock is not None:
-                at = clock()
-                self._admission.require_utc(at, field_name="physical dispatch")
-            physical = self._physical_order(transaction, order_id)
-            order = physical.order if isinstance(physical, NetOrder) else physical
-            owner = (
-                physical.account_id
-                if isinstance(physical, NetOrder)
-                else transaction.order(order_id).account_id
-            )
-            if owner != account_id or order.is_terminal:
-                raise ValueError("dispatch order is not an open physical account order")
-            if not cancel:
-                account = transaction.account(account_id)
-                if account.phase != "running" or account.fault or account.operator_block:
-                    raise ValueError("account dispatch is blocked")
-                if account.reconciled_at is None or at < account.reconciled_at:
-                    raise ValueError("dispatch requires current reconciliation")
-                if at < self._admission.account_time(transaction, account):
-                    raise ValueError("dispatch precedes current account state")
-                if isinstance(physical, NetOrder):
-                    instance_ids = tuple(
-                        transaction.order(item.child_order_id).instance_id
-                        for item in physical.allocations
+        lock: int | None = None
+        armed_monotonic = 0.0
+        try:
+            with self._store.write() as transaction:
+                if clock is not None:
+                    at = clock()
+                    self._admission.require_utc(at, field_name="physical dispatch")
+                physical = self._physical_order(transaction, order_id)
+                order = physical.order if isinstance(physical, NetOrder) else physical
+                owner = (
+                    physical.account_id
+                    if isinstance(physical, NetOrder)
+                    else transaction.order(order_id).account_id
+                )
+                if owner != account_id or order.is_terminal:
+                    raise ValueError("dispatch order is not an open physical account order")
+                if not cancel:
+                    account = transaction.account(account_id)
+                    if account.phase != "running" or account.fault or account.operator_block:
+                        raise ValueError("account dispatch is blocked")
+                    if account.reconciled_at is None or at < account.reconciled_at:
+                        raise ValueError("dispatch requires current reconciliation")
+                    if at < self._admission.account_time(transaction, account):
+                        raise ValueError("dispatch precedes current account state")
+                    if isinstance(physical, NetOrder):
+                        instance_ids = tuple(
+                            transaction.order(item.child_order_id).instance_id
+                            for item in physical.allocations
+                        )
+                    else:
+                        instance_ids = (transaction.order(order_id).instance_id,)
+                    if any(item in transaction.state.stopped_instances for item in instance_ids):
+                        raise ValueError("strategy dispatch is stopped")
+                    if any(
+                        tagged.account_id == account_id
+                        and tagged.order.identity != order_id
+                        and tagged.order.status == "unknown"
+                        for tagged in transaction.state.orders
+                    ) or any(
+                        parent.account_id == account_id
+                        and parent.order.identity != order_id
+                        and parent.order.status == "unknown"
+                        for parent in transaction.state.net_orders
+                    ):
+                        raise ValueError("another order outcome is unknown")
+                    quote = next(
+                        (
+                            item
+                            for item in transaction.state.quotes
+                            if item.price.per == order.intent.quantity.dimension
+                        ),
+                        None,
                     )
-                else:
-                    instance_ids = (transaction.order(order_id).instance_id,)
-                if any(item in transaction.state.stopped_instances for item in instance_ids):
-                    raise ValueError("strategy dispatch is stopped")
-                if any(
-                    tagged.account_id == account_id
-                    and tagged.order.identity != order_id
-                    and tagged.order.status == "unknown"
-                    for tagged in transaction.state.orders
-                ) or any(
-                    parent.account_id == account_id
-                    and parent.order.identity != order_id
-                    and parent.order.status == "unknown"
-                    for parent in transaction.state.net_orders
-                ):
-                    raise ValueError("another order outcome is unknown")
-                quote = next(
-                    (
-                        item
-                        for item in transaction.state.quotes
-                        if item.price.per == order.intent.quantity.dimension
-                    ),
-                    None,
-                )
-                if (
-                    quote is None
-                    or quote.at > at
-                    or at - quote.at > timedelta(microseconds=self.config.budgets.max_quote_age_us)
-                ):
-                    raise ValueError("dispatch quote is stale")
-                reference = Fraction(quote.price.value)
-                limit = Fraction(order.intent.limit.value)
-                if (
-                    abs(limit - reference) * 10_000
-                    > reference * self.config.budgets.max_price_deviation_bps
-                ):
-                    raise ValueError("dispatch price deviation")
-                self._admission.require_reissue_safe(transaction, account_id, at)
-                now = self._now()
-                transaction.drop_expired_leases(now)
-                if any(item.account_id == account_id for item in transaction.leases()):
-                    raise ValueError("another dispatch is in progress")
-                armed = DispatchLease(
-                    order_id=order_id,
-                    account_id=account_id,
-                    instance_ids=instance_ids,
-                    holder=holder,
-                    armed_at=now,
-                    deadline=now + lease,
-                )
-                transaction.arm_lease(armed)
-        if armed is None:
-            yield DispatchPermit(order, None, None, self._now)
+                    if (
+                        quote is None
+                        or quote.at > at
+                        or at - quote.at
+                        > timedelta(microseconds=self.config.budgets.max_quote_age_us)
+                    ):
+                        raise ValueError("dispatch quote is stale")
+                    reference = Fraction(quote.price.value)
+                    limit = Fraction(order.intent.limit.value)
+                    if (
+                        abs(limit - reference) * 10_000
+                        > reference * self.config.budgets.max_price_deviation_bps
+                    ):
+                        raise ValueError("dispatch price deviation")
+                    self._admission.require_reissue_safe(transaction, account_id, at)
+                    self._drop_ended_leases(transaction)
+                    if any(item.account_id == account_id for item in transaction.leases()):
+                        raise ValueError("another dispatch is in progress")
+                    # The OS lock precedes the committed row, so a live row is never lockless.
+                    lock = self._hold_lease(holder)
+                    armed_monotonic = self._monotonic()
+                    armed = DispatchLease(
+                        order_id=order_id,
+                        account_id=account_id,
+                        instance_ids=instance_ids,
+                        holder=holder,
+                        armed_at=self._now(),
+                    )
+                    transaction.arm_lease(armed)
+        except BaseException:
+            if lock is not None:
+                self._free_lease(holder, lock)
+            raise
+        if armed is None or lock is None:
+            yield DispatchPermit(order, None, None, None, self._monotonic)
             return
         failure: BaseException | None = None
         try:
-            yield DispatchPermit(order, armed, armed.armed_at + send_window, self._now)
+            yield DispatchPermit(
+                order,
+                armed,
+                armed_monotonic + send_window.total_seconds(),
+                armed_monotonic + (lease - self._DISPATCH_MARGIN).total_seconds(),
+                self._monotonic,
+            )
         except BaseException as error:
             failure = error
             raise
         finally:
             # Best effort: a lock timeout here must not replace the send's outcome.
-            # An unreleased lease is dropped by the next stop once it expires.
+            # Freeing the OS lock regardless ends the lease for every stop.
             try:
                 with self._store.write() as transaction:
                     transaction.release_lease(order_id, holder)
             except sqlite3.Error as error:
                 if failure is not None:
                     failure.add_note(f"dispatch lease release failed: {error}")
+            finally:
+                self._free_lease(holder, lock)

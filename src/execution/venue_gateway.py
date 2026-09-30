@@ -29,6 +29,7 @@ from execution.venues.contracts import (
     VenueAdapter,
     VenueCommandAck,
     VenueFillFact,
+    VenueNotSentError,
     VenueOrderFact,
     VenueOrderRequest,
     VenueProtocolError,
@@ -240,14 +241,18 @@ class VenueGateway:
                         )
                         self._reference(order, instrument, send_at)
                         permit.require_sendable()
+                        if permit.deadline is None:
+                            raise ValueError("submission guard armed no dispatch lease")
                         sent = True
-                        ack = adapter.submit(request, at=send_at, nonce=nonce)
+                        ack = adapter.submit(
+                            request, at=send_at, nonce=nonce, deadline=permit.deadline
+                        )
                 except VenueRejectedError:
                     self._reject(order_id, client_id)
                     fault = "venue_rejected_submission"
                     raise
-                except BaseException:
-                    if not sent:
+                except BaseException as error:
+                    if not sent or isinstance(error, VenueNotSentError):
                         # Definitely unsent: reconcile resolves it without venue history.
                         self._reject(order_id, client_id)
                         fault = "dispatch_not_sent"

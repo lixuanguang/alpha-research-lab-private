@@ -112,8 +112,10 @@ class BitfinexSpotAdapter:
         """Wait for local request capacity so a dispatch fence never holds a sleep."""
         self.throttle.wait()
 
-    def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
-        """Submit one exchange-wallet spot order with the durable int45 CID."""
+    def submit(
+        self, order: VenueOrderRequest, *, at: datetime, nonce: int, deadline: float
+    ) -> VenueCommandAck:
+        """Submit one exchange-wallet spot order with the durable int45 CID by ``deadline``."""
         del at
         self._require_verified()
         order.__post_init__()
@@ -135,6 +137,7 @@ class BitfinexSpotAdapter:
                 }
             ),
             nonce=nonce,
+            deadline=deadline,
         )
         order_data = self._notification_order(response.body, "on-req", nested=True)
         fact = self._order_fact(order_data, response)
@@ -569,7 +572,15 @@ class BitfinexSpotAdapter:
             raise ValueError("Bitfinex nonce exceeds native safe integer")
         return native_nonce
 
-    def _request(self, path: str, body: bytes, *, nonce: int, offset: int = 0) -> VenueHttpResponse:
+    def _request(
+        self,
+        path: str,
+        body: bytes,
+        *,
+        nonce: int,
+        offset: int = 0,
+        deadline: float | None = None,
+    ) -> VenueHttpResponse:
         """Reserve two native nonce slots per durable caller nonce for lookups."""
         native_nonce = self._native_nonce(nonce, offset=offset)
         signature = new(
@@ -589,7 +600,8 @@ class BitfinexSpotAdapter:
                     ("bfx-nonce", str(native_nonce)),
                     ("bfx-signature", signature),
                 ),
-            )
+            ),
+            deadline=deadline,
         )
         if (
             300 <= response.status < 400

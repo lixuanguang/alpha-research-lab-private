@@ -131,6 +131,19 @@ def test_restore_refuses_existing_workspace(tmp_path: Path) -> None:
         WorkspaceBackup.restore(backup, existing)
 
 
+def test_backup_leaves_out_dispatch_lease_locks(tmp_path: Path) -> None:
+    """A live send's lease lock file is transient coordination, never retained."""
+    source = tmp_path / "workspace"
+    _Workspace.prepare(source)
+    lock = source / "datasets" / "account.sqlite3.lease-0123abcd"
+    lock.write_bytes(b"")
+    backup = tmp_path / "backup"
+    WorkspaceBackup.create(source, backup, components=("datasets",))
+    restored = tmp_path / "restored"
+    WorkspaceBackup.restore(backup, restored)
+    assert not (restored / "datasets" / lock.name).exists()
+
+
 def test_backup_refuses_nested_study_writer(tmp_path: Path) -> None:
     """A family-scoped AttemptStore lock also blocks a workspace snapshot."""
     source = tmp_path / "workspace"

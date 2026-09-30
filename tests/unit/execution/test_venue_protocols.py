@@ -27,6 +27,9 @@ from execution.venues import (
     VenueRejectedError,
 )
 
+# The scripted transport answers at once, so no send deadline can pass.
+SEND_DEADLINE = float("inf")
+
 
 class ScriptedVenueTransport:
     """Return exact native bytes while recording signed requests."""
@@ -37,7 +40,9 @@ class ScriptedVenueTransport:
         self.statuses = list(statuses)
         self.requests: list[VenueHttpRequest] = []
 
-    def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
+    def request(
+        self, request: VenueHttpRequest, *, deadline: float | None = None
+    ) -> VenueHttpResponse:
         """Capture the method, path, headers, and body without network access."""
         self.requests.append(request)
         if not self.replies:
@@ -93,6 +98,7 @@ class TestOKXSpotProtocol:
                 VenueOrderRequest("abc123", "ETH-USDT", "buy", Decimal("2"), Decimal("125.125")),
                 at=self.at,
                 nonce=1,
+                deadline=SEND_DEADLINE,
             )
         profile = adapter.qualify_account(at=self.at, nonce=1)
         assert profile.environment == "okx_demo"
@@ -109,6 +115,7 @@ class TestOKXSpotProtocol:
             ),
             at=self.at,
             nonce=2,
+            deadline=SEND_DEADLINE,
         )
         assert ack.operation == "submit" and ack.venue_order_id == "987"
         assert msgspec.json.decode(transport.requests[1].body, type=dict[str, str]) == {
@@ -237,6 +244,7 @@ class TestOKXSpotProtocol:
                 VenueOrderRequest("abc123", "ETH-USDT", "buy", Decimal("1"), Decimal("125")),
                 at=self.at,
                 nonce=2,
+                deadline=SEND_DEADLINE,
             )
         redirect = OKXSpotAdapter(
             VenueCredentials("key", "secret", "pass"),
@@ -287,6 +295,7 @@ class TestBitfinexSpotProtocol:
                 VenueOrderRequest("1234", "tETHUSD", "buy", Decimal("1"), Decimal("125")),
                 at=self.at,
                 nonce=1235,
+                deadline=SEND_DEADLINE,
             )
         paper_transport = ScriptedVenueTransport(self._paper_info())
         paper = BitfinexSpotAdapter(VenueCredentials("key", "secret"), paper_transport)
@@ -329,6 +338,7 @@ class TestBitfinexSpotProtocol:
                 VenueOrderRequest("1234", "tETHUSD", "buy", Decimal("2"), Decimal("125.125")),
                 at=self.at,
                 nonce=2,
+                deadline=SEND_DEADLINE,
             )
         ack = adapter.submit(
             VenueOrderRequest(
@@ -341,6 +351,7 @@ class TestBitfinexSpotProtocol:
             ),
             at=self.at,
             nonce=2,
+            deadline=SEND_DEADLINE,
         )
         assert ack.operation == "submit"
         assert msgspec.json.decode(transport.requests[1].body, type=dict[str, str | int]) == {
@@ -507,6 +518,7 @@ class TestBitfinexSpotProtocol:
                 VenueOrderRequest("1234", "tBTCF0:USTF0", "buy", Decimal("1"), Decimal("125")),
                 at=self.at,
                 nonce=2,
+                deadline=SEND_DEADLINE,
             )
         assert len(transport.requests) == 1
         with pytest.raises(ValueError, match="spot symbol"):

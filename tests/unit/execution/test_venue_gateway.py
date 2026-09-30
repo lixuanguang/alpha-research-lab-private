@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 # standard library imports
+import itertools
 import sqlite3
 import threading
+import time
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -37,12 +39,11 @@ from execution import (
     OrderState,
     VenueGateway,
 )
-from execution.account_state import DispatchLease, _AccountTransaction
+from execution.account_state import _AccountTransaction
 from execution.venue_state import VenueState, VenueStateStore
 from execution.venues import (
     BitfinexSpotAdapter,
     OKXSpotAdapter,
-    TlsVenueHttpTransport,
     VenueCredentials,
 )
 from execution.venues.contracts import (
@@ -54,6 +55,7 @@ from execution.venues.contracts import (
     VenueFillPage,
     VenueHttpRequest,
     VenueHttpResponse,
+    VenueNotSentError,
     VenueOrderFact,
     VenueOrderRequest,
     VenueOutcomeUnknownError,
@@ -105,6 +107,8 @@ class ObservedVenue:
         self.filled = Decimal(0)
         self.executions: tuple[VenueFillFact, ...] = ()
         self.nonces: list[int] = []
+        self.deadlines: list[float] = []
+        self.not_sent = False
 
     def _nonce(self, nonce: int) -> None:
         """Require key-wide monotonic request identity even after gateway restart."""
@@ -142,9 +146,14 @@ class ObservedVenue:
     def wait_for_request_slot(self) -> None:
         """This fixture has no local request budget."""
 
-    def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
+    def submit(
+        self, order: VenueOrderRequest, *, at: datetime, nonce: int, deadline: float
+    ) -> VenueCommandAck:
         """Accept once, optionally losing the response after the venue effect."""
         self._nonce(nonce)
+        self.deadlines.append(deadline)
+        if self.not_sent:
+            raise VenueNotSentError("authored refusal before sending")
         self.submit_count += 1
         if self.reject:
             raise VenueRejectedError("authored rejection")
@@ -467,7 +476,9 @@ class NativeVenueAccount:
         # When set, a request to this path signals the first event and waits for the second.
         self.hold: tuple[str, threading.Event, threading.Event] | None = None
 
-    def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
+    def request(
+        self, request: VenueHttpRequest, *, deadline: float | None = None
+    ) -> VenueHttpResponse:
         """Record one signed request and answer it from native account state."""
         if self.hold is not None and request.path == self.hold[0]:
             self.hold[1].set()
@@ -955,43 +966,31 @@ class TestVenueGateway:
         assert not any(item.path == "/v2/auth/w/order/submit" for item in account.requests)
 
     @pytest.mark.parametrize("venue", ["okx", "bitfinex"])
-    @pytest.mark.parametrize("trigger", ["operator_stop", "other_lease"])
+    @pytest.mark.parametrize("trigger", ["operator_stop", "late_send"])
     def test_dispatch_refused_before_sending_is_recorded_not_sent(
         self, tmp_path: Path, venue: Literal["okx", "bitfinex"], trigger: str
     ) -> None:
         """A refusal before the send rejects the order locally instead of wedging reconcile."""
         journal, gateway, account, clock = self._native_gateway(tmp_path, venue)
         order_id = self._admit(journal, gateway.config, clock)
-        account_id = gateway.config.account_id
+        authorization = self._authorization(gateway.config, enabled=True)
         if trigger == "operator_stop":
-            journal.block(account_id, "operator-stop")
+            journal.block(gateway.config.account_id, "operator-stop")
             refusal = "dispatch is blocked"
         else:
-            now = datetime.now(UTC)
-            with journal._store.write() as transaction:
-                transaction.arm_lease(
-                    DispatchLease(
-                        order_id="other-order",
-                        account_id=account_id,
-                        instance_ids=("reference-instance",),
-                        holder="other-holder",
-                        armed_at=now,
-                        deadline=now + VenueGateway.DISPATCH_LEASE,
-                    )
-                )
-            refusal = "another dispatch is in progress"
+            # The sender stalls past its send window between arming and the send.
+            calls = itertools.count()
+            journal._monotonic = lambda: time.monotonic() + (11.0 if next(calls) else 0.0)
+            refusal = "send window passed"
         sent = len(account.requests)
         with pytest.raises(ValueError, match=refusal):
-            gateway.submit(order_id, self._authorization(gateway.config, enabled=True))
+            gateway.submit(order_id, authorization)
         submit_path = "/api/v5/trade/order" if venue == "okx" else "/v2/auth/w/order/submit"
         assert not any(
             item.path == submit_path and item.method == "POST" for item in account.requests[sent:]
         )
         assert self._order_state(journal, order_id).status == "rejected"
         assert journal.accounts()[0].fault == "venue_unavailable:dispatch_not_sent"
-        if trigger == "other_lease":
-            with journal._store.write() as transaction:
-                transaction.release_lease("other-order", "other-holder")
         # The unsent order no longer needs venue history, so reconcile matches.
         assert not gateway.reconcile().recovery_required
         assert self._order_state(journal, order_id).status == "rejected"
@@ -1037,11 +1036,23 @@ class TestVenueGateway:
         assert self._order_state(journal, order_id).request_acknowledged
         assert journal.accounts()[0].operator_block == "operator-stop"
 
-    def test_transport_total_bound_fits_the_dispatch_lease(self) -> None:
-        """A send started within its window ends before the lease any stop waits for."""
-        transport = TlsVenueHttpTransport("bitfinex")
-        window = VenueGateway.DISPATCH_SEND_WINDOW.total_seconds()
-        assert window + transport.total_seconds <= VenueGateway.DISPATCH_LEASE.total_seconds()
+    def test_send_ends_by_a_margin_before_its_lease(self, tmp_path: Path) -> None:
+        """The send carries a monotonic deadline a safety margin inside its lease."""
+        _, gateway, adapter, _, authorization, order_id = self._ready(tmp_path)
+        started = time.monotonic()
+        assert gateway.submit(order_id, authorization).submission_attempted
+        lease = VenueGateway.DISPATCH_LEASE - AccountJournal._DISPATCH_MARGIN
+        assert started < adapter.deadlines[0] <= time.monotonic() + lease.total_seconds()
+
+    def test_send_refused_by_its_deadline_is_recorded_not_sent(self, tmp_path: Path) -> None:
+        """A transport refusing before any byte is written rejects the order locally."""
+        journal, gateway, adapter, _, authorization, order_id = self._ready(tmp_path)
+        adapter.not_sent = True
+        with pytest.raises(VenueNotSentError):
+            gateway.submit(order_id, authorization)
+        assert journal.orders()[0].order.status == "rejected"
+        assert journal.accounts()[0].fault == "venue_unavailable:dispatch_not_sent"
+        assert not gateway.reconcile().recovery_required
 
     def test_throttle_waits_outside_the_account_write_fence(self, tmp_path: Path) -> None:
         """A full local request budget never sleeps while dispatch holds the account journal."""
@@ -1129,7 +1140,9 @@ class TestVenueGateway:
         assert not gateway.reconcile().recovery_required
         filled = self._order_state(journal, order_id).filled
         # A matched reconcile ended 500 µs into the millisecond one hour after the fill.
-        mark = account.executions[0].at + gateway._FILL_HISTORY_OVERLAP + timedelta(microseconds=500)
+        mark = (
+            account.executions[0].at + gateway._FILL_HISTORY_OVERLAP + timedelta(microseconds=500)
+        )
         store = gateway._store
         with store.claim():
             store.save(replace(store.read(), fills_complete_through=mark))
@@ -1404,14 +1417,17 @@ class TestVenueGateway:
         assert adapter.submit_count == 1
 
     @staticmethod
-    def _locked_release(journal: AccountJournal, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _locked_release(monkeypatch: pytest.MonkeyPatch) -> None:
         """Make the guard's lease release time out as if another writer held the lock."""
+        release = _AccountTransaction.release_lease
+        calls = itertools.count()
 
         def release_lease(self: _AccountTransaction, order_id: str, holder: str) -> None:
-            """Time out the guard's release as if another writer held the lock."""
-            # The orphaned lease is dropped once its deadline passes; jump past it.
-            journal._clock = lambda: datetime.now(UTC) + VenueGateway.DISPATCH_LEASE
-            raise sqlite3.OperationalError("database is locked")
+            """Time out the guard's release once, then release normally."""
+            if not next(calls):
+                raise sqlite3.OperationalError("database is locked")
+            # The next stop drops the unreleased row: its holder's lock is gone.
+            release(self, order_id, holder)
 
         monkeypatch.setattr(_AccountTransaction, "release_lease", release_lease)
 
@@ -1421,7 +1437,7 @@ class TestVenueGateway:
         """A release timing out after a definite reject cannot hide the reject."""
         journal, gateway, adapter, _, authorization, order_id = self._ready(tmp_path)
         adapter.reject = True
-        self._locked_release(journal, monkeypatch)
+        self._locked_release(monkeypatch)
         with pytest.raises(VenueRejectedError) as raised:
             gateway.submit(order_id, authorization)
         assert any("lease release failed" in note for note in raised.value.__notes__)
@@ -1433,7 +1449,7 @@ class TestVenueGateway:
     ) -> None:
         """A release timing out after a sent order still records its acknowledgement."""
         journal, gateway, adapter, _, authorization, order_id = self._ready(tmp_path)
-        self._locked_release(journal, monkeypatch)
+        self._locked_release(monkeypatch)
         assert gateway.submit(order_id, authorization).submission_attempted
         assert journal.orders()[0].order.request_acknowledged
         assert adapter.submit_count == 1

@@ -321,17 +321,24 @@ Each physical order must already be reserved through direct admission or MR09
 portfolio coordination. The gateway stores its client identity and uncertain
 attempt before I/O. A kernel lock excludes another sending owner while the first
 can still use its connection. The final independent risk/stop check commits in a
-short journal transaction together with a durable dispatch lease (30 seconds);
-the request is then sent with no journal transaction open, and the lease is
-released afterwards. The send must start within 10 seconds of arming, and the
-TLS transport bounds a whole request to 20 seconds, so the send ends before the
-lease does. Operator blocks, venue invalidation, account controls and strategy
-stops for that account or instance wait, outside any transaction, until the lease
-is released or expires, so a stop either commits before arming (arming refuses)
-or after the send. A lease left by a crashed sender expires; the order stays
+short journal transaction together with a durable dispatch lease; the request is
+then sent with no journal transaction open, and the lease is released afterwards.
+The lease is live while its holder process holds an OS lock on a
+`<journal>.lease-<holder>` file, so no clock expires it and a sender that dies
+frees it at once. Timing uses the holder's monotonic clock: the send must start
+within 10 seconds of arming, and the TLS transport is handed an absolute deadline
+five seconds before the 30-second lease ends. It connects (resolution, TCP, TLS)
+first and refuses before writing any byte once that deadline has passed, then
+bounds the write and every response read by it. Operator blocks, venue
+invalidation, account controls and strategy stops for that account or instance
+wait, outside any transaction, until the lease is released or its holder dies, so
+a stop either commits before arming (arming refuses) or after the send. A stop
+waits at most 35 seconds and then refuses without committing (`dispatch in
+progress; stop not committed`); retry it. A crashed sender's order stays
 `unknown` for reconciliation. A dispatch refused before its single send (a stop
-committed before arming, a stale quote or authorization, a passed send window,
-another held lease or a failed throttle wait) is definitely unsent: the gateway
+committed before arming, a stale quote or authorization, a passed send window or
+transport deadline, another held lease or a failed throttle wait) is definitely
+unsent: the gateway
 marks it `submission_rejected`, records the order `rejected` and faults the
 account as `dispatch_not_sent`, which the next matched reconciliation clears.
 Anything raised by the send or after it stays `unknown`. Cancellations hold no lease. The adapter's local
