@@ -959,25 +959,25 @@ class VenueGateway:
         remainder only fills by charging past its reserve. A buy may still fill
         lower. An order whose cancel is already in flight is not listed again.
         """
-        sent = {item.order_id for item in dispatches if not item.submission_rejected}
-        if not sent:
+        # Only a sent sell can be stranded, and each dispatch retains its request's
+        # side, so a view reads the journal only when such a dispatch exists.
+        sells = {
+            item.order_id
+            for item in dispatches
+            if not item.submission_rejected
+            and self._codec.decode_json(item.request, VenueOrderRequest).side == "sell"
+        }
+        if not sells:
             return ()
         orders = [
-            parent.order
-            for parent in self.journal.net_orders()
-            if parent.account_id == self.config.account_id
+            order
+            for order in self.journal.physical_open_orders(self.config.account_id)
+            if order.identity in sells
         ]
-        orders.extend(
-            child.order
-            for child in self.journal.orders()
-            if child.account_id == self.config.account_id and child.context is None
-        )
         stranded: list[str] = []
         for order in orders:
             if (
-                order.identity not in sent
-                or order.is_terminal
-                or order.intent.side != "sell"
+                order.intent.side != "sell"
                 or order.status in ("unknown", "cancel_requested", "cancel_ack")
                 or not order.remaining.value
             ):

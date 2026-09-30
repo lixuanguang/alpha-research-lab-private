@@ -1545,6 +1545,41 @@ class TestVenueGateway:
         gateway.submit(order_id, authorization)
         assert adapter.submit_count == 1
 
+    def test_gateway_view_reads_no_journal_orders_without_a_sent_sell(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only a sent sell can be stranded, so a view after a sent buy reads no orders."""
+        journal, gateway, _, _, _ = self._native(tmp_path, "okx")
+        reads: list[str] = []
+        orders, net_orders, open_orders = (
+            journal.orders,
+            journal.net_orders,
+            journal.physical_open_orders,
+        )
+
+        def counted_orders() -> tuple[TaggedOrder, ...]:
+            """Count one read of the journal's orders."""
+            reads.append("orders")
+            return orders()
+
+        def counted_net_orders() -> tuple[NetOrder, ...]:
+            """Count one read of the journal's physical orders."""
+            reads.append("net_orders")
+            return net_orders()
+
+        def counted_open_orders(account_id: str) -> tuple[OrderState, ...]:
+            """Count one read of the account's open physical orders."""
+            reads.append("physical_open_orders")
+            return open_orders(account_id)
+
+        monkeypatch.setattr(journal, "orders", counted_orders)
+        monkeypatch.setattr(journal, "net_orders", counted_net_orders)
+        monkeypatch.setattr(journal, "physical_open_orders", counted_open_orders)
+        view = gateway.inspect()
+        assert len(view.dispatches) == 1 and view.stranded == ()
+        # Every view used to read both order lists to look for stranded sells.
+        assert reads == []
+
     def test_stranded_sell_is_flagged_and_cancelled_under_one_authorization(
         self, tmp_path: Path
     ) -> None:
