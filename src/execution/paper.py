@@ -502,17 +502,15 @@ class PaperMatcher:
         self,
         journal: PaperOrderJournal,
         *,
-        fee_rate: Decimal,
         lot: Quantity,
         scenario: PaperExecutionScenario,
     ) -> None:
-        """Bind exact fee rounding, lot size and scenario to an already fenced journal."""
-        DecimalGrid.require_decimal(fee_rate)
+        """Bind lot size and the scenario, whose fee rate it charges, to a fenced journal."""
         lot.model_copy()
-        if not Decimal(0) <= fee_rate < Decimal(1) or lot.value <= 0:
-            raise ValueError("invalid paper matching costs or lot")
+        if lot.value <= 0:
+            raise ValueError("invalid paper matching lot")
         scenario.__post_init__()
-        if scenario.fee_rate != fee_rate or scenario.instrument_id != lot.dimension.instrument_id:
+        if scenario.instrument_id != lot.dimension.instrument_id:
             raise ValueError("paper matcher and authored scenario differ")
         self._journal, self._lot, self._scenario = journal, lot, scenario
 

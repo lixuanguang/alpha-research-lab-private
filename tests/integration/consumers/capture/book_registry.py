@@ -399,9 +399,9 @@ class _SelectedVenuePaperAcceptance:
             )
             if admitted.status != "committed" or len(admitted.orders) != 1:
                 raise AssertionError("selected venue order was not admitted")
-            PaperMatcher(
-                journal, fee_rate=Decimal("0.005"), lot=self._quantity("1"), scenario=scenario
-            ).match(market, epoch=epoch)
+            PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario).match(
+                market, epoch=epoch
+            )
             fills = journal.ledger_state().fills
             balance = Ledger(journal.ledger_state()).balance
             if (
@@ -427,9 +427,9 @@ class _SelectedVenuePaperAcceptance:
             fee_rate=Decimal("0.005"),
         ) as recovered:
             epoch = recovered.claim("installed-restart")
-            PaperMatcher(
-                recovered, fee_rate=Decimal("0.005"), lot=self._quantity("1"), scenario=scenario
-            ).match(market, epoch=epoch)
+            PaperMatcher(recovered, lot=self._quantity("1"), scenario=scenario).match(
+                market, epoch=epoch
+            )
             if (recovered.orders(), recovered.events(), recovered.ledger_state()) != before:
                 raise AssertionError("paper restart duplicated selected-venue effects")
         return {

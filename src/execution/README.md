@@ -164,7 +164,8 @@ instrument's rate, plus one minor unit per lot for the rounding of each possible
 fill. Account journals take the rate from `AccountConfiguration.fee_rates` (one
 `InstrumentFeeRate`, such as the venue's taker rate, per instrument) in paper,
 shadow and `venue_test` alike; a dedicated `PaperOrderJournal` takes its
-`fee_rate`. A matching scenario may not charge more than that rate. Protective
+`fee_rate`, which `PaperConfiguration.fee_rate` supplies. A matching scenario
+may charge that rate or less, never more. Protective
 reductions are exempt, so a risk-reducing sell is never refused over fee sizing.
 A buy never fills above its limit, so its reserve then pays every fill.
 `PaperFeeSchedule` takes only the whole lots whose fee, both exact and rounded on
@@ -189,8 +190,9 @@ queue priority nor venue execution fidelity.
 For a dedicated account, `PaperOrderJournal.match_scenario_market(epoch=...,
 market=..., scenario=...)` pins the scenario and source quote, then commits all
 projected lifecycle and fill effects with the liquidity cursor in one fenced
-transaction. The older `PaperMatcher.match` remains available for its existing
-dedicated-journal replay contract. Neither method submits an order.
+transaction. `PaperMatcher.match` does the same for a matcher bound to one
+scenario and lot, and charges the scenario's own fee rate. Neither method submits
+an order.
 
 For one or several strategies on a shared account,
 `AccountJournal.bind_paper_scenario(account_id, scenario)` pins the exact profile

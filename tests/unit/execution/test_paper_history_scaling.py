@@ -43,9 +43,7 @@ class _DedicatedHistory:
             take_fraction=Decimal("1"),
             gas_inapplicable_reason="off-chain spot orders have no on-chain settlement",
         )
-        self.matcher = PaperMatcher(
-            journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
-        )
+        self.matcher = PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario)
         self.at = datetime(2025, 1, 1, tzinfo=UTC)
         self.markets = 0
         self.orders = 0
