@@ -38,7 +38,15 @@ from serialization import DomainCodec, WireRecord
 from telemetry import TelemetryStore
 
 type VenueAction = Literal[
-    "inspect", "quote", "admit", "coordinate", "reconcile", "submit", "cancel", "stream"
+    "inspect",
+    "quote",
+    "admit",
+    "coordinate",
+    "reconcile",
+    "submit",
+    "cancel",
+    "cancel-stranded",
+    "stream",
 ]
 
 
@@ -110,6 +118,7 @@ class VenueExecutionApplication:
             "reconcile",
             "submit",
             "cancel",
+            "cancel-stranded",
             "stream",
         ):
             raise ValueError("unsupported venue action")
@@ -124,9 +133,11 @@ class VenueExecutionApplication:
             if request_path is not None:
                 raise ValueError("venue transport action cannot use a local request")
             request = None
-        if action in ("submit", "cancel"):
-            if authorization_path is None or order_id is None or not order_id:
-                raise ValueError("venue order action requires authorization and order identity")
+        if action in ("submit", "cancel", "cancel-stranded"):
+            if authorization_path is None:
+                raise ValueError("venue order action requires an authorization")
+            if (action == "cancel-stranded") != (order_id is None or not order_id):
+                raise ValueError("venue order action requires exactly its order identity")
             authorization = codec.decode_json(self._read(authorization_path), VenueAuthorization)
             authorization.__post_init__()
         else:
@@ -146,7 +157,10 @@ class VenueExecutionApplication:
             raise ValueError("stream bounds require the stream action")
         journal = AccountJournal(journal_path, config.account)
         adapter = self._adapter
-        if action in ("reconcile", "submit", "cancel", "stream") and adapter is None:
+        if (
+            action in ("reconcile", "submit", "cancel", "cancel-stranded", "stream")
+            and adapter is None
+        ):
             adapter = self._native_adapter(config)
         gateway = VenueGateway(journal, config, adapter)
         if action == "inspect":
@@ -191,6 +205,10 @@ class VenueExecutionApplication:
                 if authorization is None or order_id is None:
                     raise ValueError("venue cancellation requires an authorization")
                 view = gateway.cancel(order_id, authorization)
+            elif action == "cancel-stranded":
+                if authorization is None:
+                    raise ValueError("venue cancellation requires an authorization")
+                view = gateway.cancel_stranded(authorization)
             else:
                 if max_messages is None or duration_seconds is None:
                     raise ValueError("venue stream bounds are incomplete")

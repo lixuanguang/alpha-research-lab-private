@@ -246,6 +246,29 @@ class TestVenueExecutionApplication:
                 config_path=account_path, journal_path=tmp_path / "paper.sqlite3"
             )
 
+    def test_cancel_stranded_needs_an_authorization_and_no_order(self, tmp_path: Path) -> None:
+        """The bulk cancel is an authorized order action that names no single order."""
+        config = self._config()
+        config_path = tmp_path / "venue.json"
+        config_path.write_bytes(DomainCodec().encode_json(config))
+        authorization_path = tmp_path / "authorization.json"
+        authorization_path.write_bytes(
+            DomainCodec().encode_json(self._authorization(config, enabled=True))
+        )
+        journal_path = tmp_path / "account.sqlite3"
+        with pytest.raises(ValueError, match="requires an authorization"):
+            VenueExecutionApplication().run(
+                config_path=config_path, journal_path=journal_path, action="cancel-stranded"
+            )
+        with pytest.raises(ValueError, match="exactly its order identity"):
+            VenueExecutionApplication().run(
+                config_path=config_path,
+                journal_path=journal_path,
+                action="cancel-stranded",
+                authorization_path=authorization_path,
+                order_id="some-order",
+            )
+
     def test_local_quote_action_requires_typed_matching_request(self, tmp_path: Path) -> None:
         """Installed venue admission accepts a mapped quote without secret access."""
         config = self._config()

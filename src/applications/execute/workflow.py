@@ -87,6 +87,7 @@ def main() -> None:
             "reconcile",
             "submit",
             "cancel",
+            "cancel-stranded",
             "stream",
         ),
         default="inspect",
