@@ -70,7 +70,7 @@ class TestBookReplay:
     ) -> BookReplay:
         """Bind fixed consumer policy and the same terminal across batch sizes."""
         snapshot, request_identity = published
-        return BookReplay.from_snapshot(
+        return BookReplay(
             snapshot,
             request_identity=request_identity,
             terminal=_END,

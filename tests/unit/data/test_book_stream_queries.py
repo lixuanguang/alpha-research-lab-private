@@ -56,7 +56,7 @@ class TestStreamedBookQueries:
     def test_stream_reference_exact_states_and_cursor_restart(self, tmp_path: Path) -> None:
         """Absolute updates, deletion, gaps and nanoseconds match hand values and admission."""
         session, selected, admitted = self._snapshot(tmp_path)
-        streamed = BookReplay.from_snapshot(
+        streamed = BookReplay(
             session,
             request_identity=selected.request.identity,
             terminal=_END,
@@ -78,7 +78,7 @@ class TestStreamedBookQueries:
         assert view.rows == list(rows) and [phase for phase, _ in view.phases] == ["source"] * len(
             rows
         ) + ["expiry", "fill", "decision", "mark"]
-        resumed = BookReplay.from_snapshot(
+        resumed = BookReplay(
             session,
             request_identity=selected.request.identity,
             terminal=_END,
@@ -97,7 +97,7 @@ class TestStreamedBookQueries:
         with pytest.raises(RuntimeError, match="closed"):
             streamed.step(_END, view.consume)
         with pytest.raises(ValueError, match="incompatible"):
-            BookReplay.from_snapshot(
+            BookReplay(
                 session,
                 request_identity=selected.request.identity,
                 terminal=_END,
