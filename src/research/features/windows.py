@@ -240,7 +240,7 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
                     item
                     for item in recoveries
                     if item.binding == binding
-                    and item.disconnect_identity == event.provenance.event_id
+                    and item.disconnect_identity == control.identity
                     and item.known_at <= known_at
                 ),
                 None,

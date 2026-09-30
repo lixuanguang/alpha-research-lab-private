@@ -214,19 +214,18 @@ class TestPriceDiagnostics:
         assert isinstance(event, (Trade, Disconnect))
         return Occurrence(request=request, origin=origin, position=position, raw=raw, event=event)
 
-    @classmethod
-    def _reader(
-        cls,
+    @staticmethod
+    def _payload(
         request: SourceRequest,
         items: tuple[Occurrence, ...],
         corrections: tuple[Correction, ...] = (),
-    ) -> QueryReader:
-        """Require full native admission before the feature can observe any rows."""
+    ) -> bytes:
+        """Admit one partition's occurrences through full native validation."""
         history = _CODEC.decode_json(
             (_ROOT / "tests/fixtures/eligibility/membership-corrections.json").read_bytes(),
             EligibilityAssertions,
         )
-        payload = (
+        return (
             QualityPolicy(use="exploratory", known_at=_START, max_gap=timedelta(hours=1))
             .validate(
                 request,
@@ -237,8 +236,17 @@ class TestPriceDiagnostics:
             )
             .require_canonical()
         )
+
+    @classmethod
+    def _reader(
+        cls,
+        request: SourceRequest,
+        items: tuple[Occurrence, ...],
+        corrections: tuple[Correction, ...] = (),
+    ) -> QueryReader:
+        """Require full native admission before the feature can observe any rows."""
         return QueryReader(
-            (payload,),
+            (cls._payload(request, items, corrections),),
             readers=SourceAdapters(),
             precedence=(cls._binding(request),),
             max_bytes=262_144,
@@ -465,7 +473,7 @@ class TestPriceDiagnostics:
         assert window.recoveries == (recovery,)
         (control,) = window.controls
         assert isinstance(control.event, Disconnect)
-        assert control.event.provenance.event_id == recovery.disconnect_identity
+        assert control.identity == recovery.disconnect_identity
         with pytest.raises(ValueError, match="history requires revision"):
             next(
                 reader.batches(
@@ -515,6 +523,45 @@ class TestPriceDiagnostics:
             accepting.collect(shifted, binding=binding, end=end, known_at=end).missing
             == "scoped disconnect: recovery after window start"
         )
+
+    def test_disconnects_at_one_position_of_two_partitions_keep_their_own_recovery(
+        self,
+    ) -> None:
+        """A disconnect cannot borrow the recovery of another minute's disconnect."""
+        first = self._request()
+        second = replace(first, offset_minutes=1)
+        # D1 at position 1 of minute 0 is answered at 20 s; D2 at position 1 of
+        # minute 1 (70 s) is answered only at 80 s, after the window starts.
+        reader = QueryReader(
+            (
+                self._payload(first, self._recovery_capture(first)),
+                self._payload(
+                    second,
+                    (
+                        self._item(second, 61, 61, "100", 11, 0),
+                        self._item(second, 0, 70, "1", 0, 1, disconnect=True),
+                        self._item(second, 80, 80, "101", 12, 2),
+                        self._item(second, 90, 90, "102", 13, 3),
+                        self._item(second, 95, 95, "103", 14, 4),
+                    ),
+                ),
+            ),
+            readers=SourceAdapters(),
+            precedence=(self._binding(first),),
+            max_bytes=524_288,
+        )
+        accepting = WindowPolicy(
+            lookback_us=25_000_000,
+            min_trades=2,
+            max_staleness_us=10_000_000,
+            accept_first_binding_message=True,
+        )
+        end = _START + timedelta(seconds=100)
+        batches = self._recovery_batches(reader, second, 75, 100)
+        assert len(batches[0].recoveries) == 2
+        window = accepting.collect(batches, binding=self._binding(first), end=end, known_at=end)
+        assert window.missing == "scoped disconnect: recovery after window start"
+        assert window.recoveries == ()
 
     def test_recovery_needs_a_later_trade_known_by_the_cutoff(self) -> None:
         """A second disconnect with no later trade is unanswered and poisons later windows."""
