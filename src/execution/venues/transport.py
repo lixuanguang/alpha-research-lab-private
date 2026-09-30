@@ -61,7 +61,8 @@ class TlsVenueHttpTransport:
                 request, such as a dispatch lease's; the sooner bound applies.
 
         Raises:
-            VenueNotSentError: The bound passed before any request byte was written.
+            VenueNotSentError: The bound passed, or resolution, connection or TLS failed,
+                before any request byte was written.
             VenueOutcomeUnknownError: The request failed, overran or got a malformed or
                 incomplete HTTP response after that.
         """
@@ -79,7 +80,8 @@ class TlsVenueHttpTransport:
         )
         try:
             # Resolution, TCP and TLS run before the request is written, so a bound
-            # passing during them (resolution cannot be interrupted) sends nothing.
+            # passing during them (resolution cannot be interrupted), or any of them
+            # failing, sends nothing.
             try:
                 connection.timeout = self._remaining(limit)
                 connection.connect()
@@ -89,6 +91,8 @@ class TlsVenueHttpTransport:
                 sock.settimeout(self._remaining(limit))
             except _BoundPassed as error:
                 raise VenueNotSentError("venue REST request bound passed before sending") from error
+            except OSError as error:
+                raise VenueNotSentError("venue REST connection failed before sending") from error
             # sendall's timeout bounds the whole write. The socket reference keeps
             # the bound after a closing response drops ``connection.sock``.
             connection.request(
