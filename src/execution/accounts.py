@@ -1258,12 +1258,12 @@ class AccountJournal:
     @staticmethod
     def _physical_order(transaction: _AccountTransaction, order_id: str) -> OrderState | NetOrder:
         """Resolve only a physical direct order or portfolio parent."""
-        for parent in transaction.state.net_orders:
-            if parent.order.identity == order_id:
-                return parent
-        for tagged in transaction.state.orders:
-            if tagged.order.identity == order_id and tagged.context is None:
-                return tagged.order
+        parent = transaction.find_net_order(order_id)
+        if parent is not None:
+            return parent
+        tagged = transaction.find_order(order_id)
+        if tagged is not None and tagged.context is None:
+            return tagged.order
         raise ValueError("unknown physical order")
 
     def _record_failed_native(

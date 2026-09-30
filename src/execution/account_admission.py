@@ -290,7 +290,7 @@ class AccountAdmission:
                     )
                 )
             ).hexdigest()
-            if any(tagged.order.identity == identity for tagged in transaction.state.orders):
+            if transaction.find_order(identity) is not None:
                 raise ValueError("order_identity_collision")
             order = OrderState(
                 identity=identity,
@@ -706,14 +706,10 @@ class AccountAdmission:
         }
         for saved in transaction.state.native_fills:
             request = saved.request
-            is_direct = any(
-                tagged.account_id == account_id and tagged.order.identity == request.order_id
-                for tagged in transaction.state.orders
-            )
-            is_net = any(
-                parent.account_id == account_id and parent.order.identity == request.order_id
-                for parent in transaction.state.net_orders
-            )
+            tagged = transaction.find_order(request.order_id)
+            parent = transaction.find_net_order(request.order_id)
+            is_direct = tagged is not None and tagged.account_id == account_id
+            is_net = parent is not None and parent.account_id == account_id
             if not is_direct and not is_net:
                 continue
             sources: list[OrderEvent] = []

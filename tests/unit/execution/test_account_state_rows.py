@@ -12,6 +12,7 @@ from typing import cast
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 from test_account_history_scaling import _SharedFirmHistory
 
 # project library imports
@@ -79,6 +80,23 @@ class TestAccountStateRows:
             _HistoryDigest(count=1, sha256=digest)
         with pytest.raises(ValueError, match="invalid account state row summary"):
             _RowSummary(field="events", count=1, sha256=digest)
+
+    def test_order_lookups_follow_the_staged_orders(self, tmp_path: Path) -> None:
+        """Indexed lookups see an order saved in place and refuse unknown identities."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        with history.journal._store.write() as transaction:
+            first = transaction.state.orders[0]
+            assert transaction.order(first.order.identity) is first
+            saved = replace(first, instance_id=first.instance_id)
+            transaction.save_order(saved)
+            assert transaction.order(first.order.identity) is saved
+            assert transaction.find_order("absent") is None
+            assert transaction.find_net_order("absent") is None
+            with pytest.raises(ValueError, match="unknown child order"):
+                transaction.order("absent")
+            with pytest.raises(ValueError, match="unknown physical order"):
+                transaction.net_order("absent")
 
     def test_another_process_sees_every_commit(self, tmp_path: Path) -> None:
         """Two journals on one file each read the other's changed rows after every commit."""

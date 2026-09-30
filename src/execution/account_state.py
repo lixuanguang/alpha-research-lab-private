@@ -867,6 +867,10 @@ class _AccountSnapshot:
 class _AccountTransaction(_AccountSnapshot):
     """Own the staged state of a single serialized firm transaction."""
 
+    # Identity lookups of the current order tuples; see find_order and find_net_order.
+    _order_index: tuple[tuple[TaggedOrder, ...], dict[str, TaggedOrder]] | None = None
+    _net_order_index: tuple[tuple[NetOrder, ...], dict[str, NetOrder]] | None = None
+
     def append_decisions(self, *saved: _SavedDecision) -> None:
         """Append saved decisions after all existing history."""
         decisions: tuple[_SavedDecision, ...] = (*self.state.decisions, *saved)
@@ -897,12 +901,20 @@ class _AccountTransaction(_AccountSnapshot):
         )
         self.state = replace(self.state, accounts=accounts)
 
+    def find_order(self, order_id: str) -> TaggedOrder | None:
+        """Return the child order with this identity, through an index of the current tuple."""
+        orders = self.state.orders
+        if self._order_index is None or self._order_index[0] is not orders:
+            # Reversed, so the first order with an identity wins, as a scan would.
+            self._order_index = orders, {item.order.identity: item for item in reversed(orders)}
+        return self._order_index[1].get(order_id)
+
     def order(self, order_id: str) -> TaggedOrder:
         """Resolve exact persisted order identity."""
-        for tagged in self.state.orders:
-            if tagged.order.identity == order_id:
-                return tagged
-        raise ValueError("unknown child order")
+        tagged = self.find_order(order_id)
+        if tagged is None:
+            raise ValueError("unknown child order")
+        return tagged
 
     def save_order(self, tagged: TaggedOrder) -> None:
         """Replace an existing tagged order preserving stable sequence."""
@@ -912,12 +924,22 @@ class _AccountTransaction(_AccountSnapshot):
         )
         self.state = replace(self.state, orders=orders)
 
+    def find_net_order(self, order_id: str) -> NetOrder | None:
+        """Return the physical order with this identity, through an index of the current tuple."""
+        parents = self.state.net_orders
+        if self._net_order_index is None or self._net_order_index[0] is not parents:
+            self._net_order_index = (
+                parents,
+                {item.order.identity: item for item in reversed(parents)},
+            )
+        return self._net_order_index[1].get(order_id)
+
     def net_order(self, order_id: str) -> NetOrder:
         """Resolve a physical order without confusing it with child ownership."""
-        for parent in self.state.net_orders:
-            if parent.order.identity == order_id:
-                return parent
-        raise ValueError("unknown physical order")
+        parent = self.find_net_order(order_id)
+        if parent is None:
+            raise ValueError("unknown physical order")
+        return parent
 
     def save_net_order(self, parent: NetOrder) -> None:
         """Replace one physical lifecycle and allocation snapshot in place."""
