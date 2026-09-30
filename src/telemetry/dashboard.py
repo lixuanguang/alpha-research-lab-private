@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # standard library imports
-import errno
 import fcntl
 import hashlib
 import html
@@ -19,7 +18,7 @@ from typing import Literal
 
 # project library imports
 from financial_units import ExactRatio
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, publish_directory
 from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringQuery
 from telemetry.metrics import MetricRegistry, MetricResult
 from telemetry.operations import OperationalAlerts, OperationAlert
@@ -458,18 +457,12 @@ class DashboardSnapshot(WireRecord, frozen=True):
                     output.write(payload)
                     output.flush()
                     os.fsync(output.fileno())
-            self._sync_directory(staging)
-            try:
-                os.rename(staging, directory)
-            except OSError as error:
-                if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-                    raise
+            if not publish_directory(staging, directory):
                 # A publisher outside this lock went first; its view must be this one.
                 return self._verified(directory)
         finally:
             if staging.is_dir():
                 shutil.rmtree(staging)
-        self._sync_directory(directory.parent)
         return directory / "dashboard.html"
 
     def _verified(self, directory: Path) -> Path:
@@ -477,15 +470,6 @@ class DashboardSnapshot(WireRecord, frozen=True):
         if self.read(directory) != self:
             raise ValueError("dashboard directory already contains different content")
         return directory / "dashboard.html"
-
-    @staticmethod
-    def _sync_directory(path: Path) -> None:
-        """Make directory entries durable before reporting publication."""
-        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
 
     def render_html(self) -> bytes:
         """Render accessible, escaped charts and exact tables without external assets."""

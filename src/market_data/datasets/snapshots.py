@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # standard library imports
-import errno
 import os
 import re
 import stat
@@ -25,7 +24,7 @@ from market_data.datasets.public_trades import PublicTradeManifest, PublicTradeP
 from market_data.datasets.readers import DatasetReaders
 from market_data.storage import RawStore
 from market_data.validation import QualityReport
-from serialization import DomainCodec
+from serialization import DomainCodec, publish_directory, sync_directory
 
 
 class SnapshotStore[
@@ -102,6 +101,7 @@ class SnapshotStore[
         if len(payloads) != len(manifest.partitions):
             raise ValueError("snapshot requires one payload per declared partition")
         destination = self._root / identity
+        published = False
         if not destination.exists():
             with TemporaryDirectory(dir=self._root, prefix=".staging-") as temporary:
                 staging = Path(temporary)
@@ -112,15 +112,12 @@ class SnapshotStore[
                     self._write(staging / partition.sha256, payload, max_bytes)
                 self._write(staging / "manifest.json", self._codec.encode_json(manifest), max_bytes)
                 self._read(staging, identity, max_bytes)
-                self._sync_directory(staging)
-                try:
-                    os.rename(staging, destination)
-                except OSError as error:
-                    if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-                        raise
-                    # A concurrent publisher won; verify its complete snapshot below.
+                # False: a concurrent publisher won; its snapshot is verified below.
+                published = publish_directory(staging, destination, sync=self._sync_directory)
         self.read(identity, max_bytes=max_bytes)
-        self._sync_directory(self._root)
+        if not published:
+            # Another publisher's snapshot must be durably named before acknowledging.
+            self._sync_directory(self._root)
         return identity
 
     def publish_book_streams(
@@ -174,15 +171,11 @@ class SnapshotStore[
             self._write(staging / "manifest.json", self._codec.encode_json(manifest), max_bytes)
             # Reproduce the saved bytes from raw input before they can become visible.
             self._read(staging, identity, max_bytes)
-            self._sync_directory(staging)
             destination = self._root / identity
-            try:
-                os.rename(staging, destination)
-            except OSError as error:
-                if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
-                    raise
+            if not publish_directory(staging, destination, sync=self._sync_directory):
+                # A concurrent publisher won; verify and durably name its snapshot.
                 self.read(identity, max_bytes=max_bytes)
-            self._sync_directory(self._root)
+                self._sync_directory(self._root)
             return identity
 
     def read(
@@ -248,11 +241,5 @@ class SnapshotStore[
             os.fchmod(output.fileno(), 0o444)
             os.fsync(output.fileno())
 
-    @staticmethod
-    def _sync_directory(path: Path) -> None:
-        """Synchronize directory entries before acknowledging durable publication."""
-        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+    # Tests substitute this seam to inject directory synchronization failures.
+    _sync_directory = staticmethod(sync_directory)

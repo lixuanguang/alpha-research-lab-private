@@ -1,12 +1,57 @@
-"""Check durable SQLite layouts against the statements that create them."""
+"""Publish durable directories and check durable SQLite layouts."""
 
 from __future__ import annotations
 
 # standard library imports
+import errno
+import os
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import closing
+from pathlib import Path
 from typing import cast
+
+
+def sync_directory(path: Path) -> None:
+    """Make a directory's entries durable on a local POSIX filesystem.
+
+    Args:
+        path: Directory whose created, renamed or removed names must survive a crash.
+    """
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def publish_directory(
+    staging: Path, destination: Path, *, sync: Callable[[Path], None] = sync_directory
+) -> bool:
+    """Durably rename a completely written staging directory to its destination.
+
+    The staging directory is synchronized, renamed into place, and the parent is
+    synchronized, so a crash leaves either no destination or the whole one.
+
+    Args:
+        staging: Sibling directory holding every file, each already synchronized.
+        destination: Absent path the staged directory becomes.
+        sync: Directory synchronization; a caller may substitute its own.
+
+    Returns:
+        True once published. False when a publisher that went first already made
+        a nonempty destination: the staging directory stays, and the caller
+        verifies the existing destination instead.
+    """
+    sync(staging)
+    try:
+        os.rename(staging, destination)
+    except OSError as error:
+        if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+            raise
+        return False
+    sync(destination.parent)
+    return True
 
 
 def require_sqlite_layout(

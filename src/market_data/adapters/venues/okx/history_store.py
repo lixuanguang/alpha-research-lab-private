@@ -16,7 +16,7 @@ from market_data.adapters.venues.okx.history_discovery import OKXArchiveDiscover
 from market_data.adapters.venues.okx.history_reader import OKXArchiveReader
 from market_data.contracts import OKXArchiveRequest, RawObject
 from market_data.storage import RawFiles, RawStore
-from serialization import DomainCodec
+from serialization import DomainCodec, sync_directory
 
 
 class OKXArchiveStore:
@@ -49,7 +49,7 @@ class OKXArchiveStore:
         self.root.mkdir(parents=True, exist_ok=False)
         self._write("index.json", index)
         self._write("request.json", self.codec.encode_json(request))
-        self._sync(self.root.parent)
+        sync_directory(self.root.parent)
 
     def finish(self, request: OKXArchiveRequest, received: datetime) -> RawObject:
         """Publish validated archive bytes through the existing content-addressed raw store.
@@ -74,7 +74,7 @@ class OKXArchiveStore:
         descriptor = replace(descriptor, ts_ingested=max(received, datetime.now(UTC)))
         self._write("manifest.pending", self.codec.encode_json(descriptor))
         os.replace(self.root / "manifest.pending", self.root / "manifest.json")
-        self._sync(self.root)
+        sync_directory(self.root)
         return descriptor
 
     def replay(self) -> dict[str, object]:
@@ -115,13 +115,4 @@ class OKXArchiveStore:
             output.write(raw)
             output.flush()
             os.fsync(output.fileno())
-        self._sync(self.root)
-
-    @staticmethod
-    def _sync(path: Path) -> None:
-        """Synchronize a provisioned directory on the supported local filesystem."""
-        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+        sync_directory(self.root)

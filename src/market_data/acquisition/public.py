@@ -27,7 +27,7 @@ from market_data.contracts import (
 from market_data.storage import RawFiles, RawStore
 from reference_data.catalogs import InstrumentDefinition, ReferenceHistory
 from reference_data.instruments import InstrumentId
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, sync_directory
 
 
 class PendingResponse(WireRecord, frozen=True, kw_only=True):
@@ -188,11 +188,7 @@ class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
                 output.flush()
                 os.fsync(output.fileno())
                 os.replace(staging, path)
-                descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-                try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+                sync_directory(path.parent)
             finally:
                 staging.unlink(missing_ok=True)
 

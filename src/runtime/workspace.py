@@ -16,7 +16,7 @@ from tempfile import TemporaryDirectory
 from typing import BinaryIO, Literal, cast
 
 # project library imports
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, publish_directory, sync_directory
 
 _COMPONENT = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
@@ -163,8 +163,8 @@ class WorkspaceBackup:
                     os.fsync(output.fileno())
                 cls._verify(staging, max_files=max_files, max_total_bytes=max_total_bytes)
                 cls._sync_tree(staging)
-                os.rename(staging, backup_root)
-                cls._sync_directory(backup_root.parent)
+                if not publish_directory(staging, backup_root):
+                    raise FileExistsError("backup destination already exists")
         return hashlib.sha256(encoded).hexdigest()
 
     @classmethod
@@ -200,8 +200,8 @@ class WorkspaceBackup:
             if validate_restored is not None:
                 validate_restored(staging)
             cls._sync_tree(staging)
-            os.rename(staging, destination_root)
-            cls._sync_directory(destination_root.parent)
+            if not publish_directory(staging, destination_root):
+                raise FileExistsError("restore destination must be absent")
         return manifest
 
     @classmethod
@@ -448,14 +448,5 @@ class WorkspaceBackup:
         """Synchronize staged directories from leaves to publication parent."""
         for path in sorted(root.rglob("*"), reverse=True):
             if path.is_dir():
-                cls._sync_directory(path)
-        cls._sync_directory(root)
-
-    @staticmethod
-    def _sync_directory(path: Path) -> None:
-        """Flush a local POSIX directory entry before acknowledgement."""
-        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+                sync_directory(path)
+        sync_directory(root)

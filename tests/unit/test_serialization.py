@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 from decimal import Decimal
 from importlib import resources
+from pathlib import Path
 
 # third party library imports
 import msgspec
@@ -12,7 +13,7 @@ import pytest
 
 # project library imports
 from financial_units import Currency, Money
-from serialization import DomainCodec
+from serialization import DomainCodec, publish_directory, sync_directory
 
 _CODEC = DomainCodec()
 
@@ -99,3 +100,35 @@ class TestDomainCodec:
         payload = ('{"value":"1","currency":"' + code + '"}').encode()
         with pytest.raises(ValueError, match="unsupported currency schema"):
             _CODEC.decode_json(payload, Money)
+
+
+class TestDurableDirectories:
+    """Publish staged directories whole, synchronizing each name before reporting it."""
+
+    def test_publish_synchronizes_the_staging_then_the_parent(self, tmp_path: Path) -> None:
+        """A published directory holds its files, and both names were synchronized."""
+        staging, destination = tmp_path / ".staging", tmp_path / "view"
+        staging.mkdir()
+        (staging / "file").write_bytes(b"content")
+        synced: list[Path] = []
+        assert publish_directory(staging, destination, sync=synced.append)
+        assert synced == [staging, tmp_path]
+        assert (destination / "file").read_bytes() == b"content" and not staging.exists()
+        sync_directory(destination)
+
+    def test_publish_leaves_an_existing_destination_to_the_caller(self, tmp_path: Path) -> None:
+        """A publisher that went first keeps its view; the staging directory is left."""
+        staging, destination = tmp_path / ".staging", tmp_path / "view"
+        staging.mkdir()
+        (staging / "file").write_bytes(b"late")
+        destination.mkdir()
+        (destination / "file").write_bytes(b"first")
+        synced: list[Path] = []
+        assert not publish_directory(staging, destination, sync=synced.append)
+        assert synced == [staging]
+        assert (destination / "file").read_bytes() == b"first" and staging.is_dir()
+
+    def test_publish_raises_other_rename_failures(self, tmp_path: Path) -> None:
+        """Only an existing destination is a lost race; a missing staging directory is not."""
+        with pytest.raises(FileNotFoundError):
+            publish_directory(tmp_path / "absent", tmp_path / "view")

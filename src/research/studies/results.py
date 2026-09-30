@@ -10,7 +10,7 @@ from tempfile import NamedTemporaryFile
 
 # project library imports
 from research.experiments import AttemptStore, Fingerprint
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, sync_directory
 from simulation import EconomicCheckpoint
 
 
@@ -125,8 +125,4 @@ class ResultManifest(WireRecord, frozen=True):
                 os.link(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        sync_directory(path.parent)
