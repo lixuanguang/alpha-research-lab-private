@@ -19,15 +19,17 @@ import logging
 import stat
 import threading
 import traceback
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Final, NoReturn
+from types import TracebackType
+from typing import Final, NoReturn, Protocol, cast
 
 _REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[2]
 DEFAULT_SECRETS_DIRECTORY: Final = _REPOSITORY_ROOT / "secrets"
 _MAXIMUM_FILE_BYTES: Final = 16384
 _REDACTED: Final = "<redacted>"
 _MINIMUM_REDACTED_LENGTH: Final = 6
-_REGISTERED_VALUES: set[str] = set()
+_REGISTERED_VALUES: frozenset[str] = frozenset()
 _GUARD_LOCK: Final = threading.Lock()
 
 VENUE_SECRET_FILES: Final[dict[str, tuple[str, frozenset[str]]]] = {
@@ -49,17 +51,21 @@ class SecretValue:
     __slots__ = ("_value",)
 
     def __init__(self, value: str) -> None:
-        """Bind a non-empty printable ASCII credential.
+        """Bind a printable ASCII credential long enough to redact from logs.
 
         Args:
             value: Credential text; retained privately and never logged.
 
         Raises:
-            VenueSecretsError: The value is empty or contains unsafe characters.
+            VenueSecretsError: The value is shorter than six characters or
+                contains unsafe characters.
         """
-        if not value or not value.isascii() or not value.isprintable():
+        if len(value) < _MINIMUM_REDACTED_LENGTH or not value.isascii() or not value.isprintable():
             del value
-            raise VenueSecretsError("credential values must be non-empty printable ASCII")
+            raise VenueSecretsError(
+                f"credential values must be at least {_MINIMUM_REDACTED_LENGTH} printable "
+                "ASCII characters, so that logs can redact them"
+            )
         self._value = value
         _register(value)
 
@@ -229,13 +235,14 @@ def _parse_fields(text: str, required: frozenset[str]) -> dict[str, SecretValue]
 
 
 def _register(value: str) -> None:
-    """Record a credential for log redaction and install process guards once."""
+    """Record a credential for log redaction and keep the process guards installed."""
+    global _REGISTERED_VALUES
     with _GUARD_LOCK:
         if not _REGISTERED_VALUES:
             _disable_core_dumps()
-            _install_log_redaction()
-        if len(value) >= _MINIMUM_REDACTED_LENGTH:
-            _REGISTERED_VALUES.add(value)
+        # Copy on write: readers take one immutable snapshot and need no lock.
+        _REGISTERED_VALUES = _REGISTERED_VALUES | {value}
+        _install_log_redaction()
 
 
 def redact(text: str) -> str:
@@ -254,35 +261,119 @@ def redact(text: str) -> str:
 
 def _contains_secret(text: str) -> bool:
     """Report whether any registered credential value occurs in ``text``."""
-    return any(value in text for value in _REGISTERED_VALUES)
+    values = _REGISTERED_VALUES
+    return any(value in text for value in values)
 
 
-class _RedactingLogRecord(logging.LogRecord):
-    """Log record whose rendered message, traceback and stack omit credentials."""
+def _shows_secret(value: object) -> bool:
+    """Report whether a value's text or representation shows a credential."""
+    try:
+        shown = f"{value!s} {value!r}"
+    except Exception:
+        return True
+    return _contains_secret(shown)
 
-    def getMessage(self) -> str:  # overrides the logging API name
-        """Render the message and pre-render any credential-bearing diagnostics.
 
-        ``logging.Formatter`` calls this before it renders ``exc_info`` and
-        ``stack_info``, so both are redacted here before any handler emits them.
-        """
-        message = super().getMessage()
-        if self.exc_info and self.exc_info[1] is not None and not self.exc_text:
-            rendered = "".join(traceback.format_exception(*self.exc_info)).rstrip("\n")
-            if _contains_secret(rendered):
-                self.exc_text = redact(rendered)
-        if self.stack_info and _contains_secret(self.stack_info):
-            self.stack_info = redact(self.stack_info)
-        return redact(message) if _contains_secret(message) else message
+def _redact_record(record: logging.LogRecord) -> None:
+    """Remove credentials from a new record's fields before any handler sees it.
+
+    Handlers read more than the rendered message: ``Handler.handleError`` prints
+    the raw ``msg`` and ``args`` and ``HTTPHandler`` sends the record dictionary,
+    so the fields themselves are rewritten. A traceback or stack carrying a
+    credential is pre-rendered redacted; ``logging.Formatter`` uses that text.
+    """
+    try:
+        message: str | None = record.getMessage()
+    except Exception:
+        message = None
+    template: object = record.msg
+    arguments = record.args
+    items = tuple(arguments.values()) if isinstance(arguments, Mapping) else arguments or ()
+    exposed = _shows_secret(template) or any(_shows_secret(item) for item in items)
+    if message is not None:
+        # A credential may sit in an argument the message only partly renders.
+        if exposed or _contains_secret(message):
+            record.msg, record.args = redact(message), ()
+    elif exposed:
+        # Unrenderable, so the handler's error report will print the raw fields.
+        record.msg = _REDACTED if _shows_secret(template) else template
+        if isinstance(arguments, Mapping):
+            record.args = {
+                key: _REDACTED if _shows_secret(item) else item for key, item in arguments.items()
+            }
+        else:
+            record.args = tuple(_REDACTED if _shows_secret(item) else item for item in items)
+    if record.exc_info and record.exc_info[1] is not None and not record.exc_text:
+        rendered = "".join(traceback.format_exception(*record.exc_info)).rstrip("\n")
+        if _contains_secret(rendered):
+            record.exc_text = redact(rendered)
+    if record.stack_info and _contains_secret(record.stack_info):
+        record.stack_info = redact(record.stack_info)
+
+
+type _RecordArgs = tuple[object, ...] | Mapping[str, object]
+type _ExcInfo = (
+    tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None] | None
+)
+
+
+class _RecordFactory(Protocol):
+    """The documented call signature of a ``logging`` record factory."""
+
+    def __call__(
+        self,
+        name: str,
+        level: int,
+        pathname: str,
+        lineno: int,
+        msg: object,
+        args: _RecordArgs,
+        exc_info: _ExcInfo,
+        func: str | None = None,
+        sinfo: str | None = None,
+    ) -> logging.LogRecord:
+        """Create one log record."""
+        ...
+
+
+class _RedactingFactory:
+    """Create each log record with the previous factory, then redact it."""
+
+    __slots__ = ("previous",)
+
+    def __init__(self, previous: _RecordFactory) -> None:
+        """Chain the factory that was installed before this one."""
+        self.previous = previous
+
+    def __call__(
+        self,
+        name: str,
+        level: int,
+        pathname: str,
+        lineno: int,
+        msg: object,
+        args: _RecordArgs,
+        exc_info: _ExcInfo,
+        func: str | None = None,
+        sinfo: str | None = None,
+    ) -> logging.LogRecord:
+        """Build the record as the previous factory does, without credentials."""
+        record = self.previous(name, level, pathname, lineno, msg, args, exc_info, func, sinfo)
+        _redact_record(record)
+        return record
 
 
 def _install_log_redaction() -> None:
     """Make every logger create records that redact registered credentials.
 
     This covers third-party HTTP and WebSocket libraries regardless of which
-    handlers are configured later.
+    handlers are configured later. The current factory is chained, and each new
+    credential re-installs redaction over any factory set since; a factory set
+    after the last credential loads must call the one it replaces.
     """
-    logging.setLogRecordFactory(_RedactingLogRecord)
+    current: object = logging.getLogRecordFactory()
+    if not isinstance(current, _RedactingFactory):
+        logging.setLogRecordFactory(_RedactingFactory(cast(_RecordFactory, current)))
 
 
 def _disable_core_dumps() -> None:

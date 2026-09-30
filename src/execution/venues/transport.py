@@ -17,6 +17,7 @@ from websockets.sync.client import ClientConnection, connect
 from execution.venues.contracts import (
     VenueHttpRequest,
     VenueHttpResponse,
+    VenueNotSentError,
     VenueOutcomeUnknownError,
     VenueProtocolError,
 )
@@ -36,7 +37,7 @@ class TlsVenueHttpTransport:
         """Pin the documented venue host and resource bounds.
 
         ``timeout_seconds`` bounds each socket operation; ``total_seconds`` bounds
-        the whole request, which a dispatch lease relies on.
+        the whole request unless the caller's deadline is sooner.
         """
         if (
             venue not in ("okx", "bitfinex")
@@ -49,32 +50,61 @@ class TlsVenueHttpTransport:
         self.total_seconds = total_seconds
         self.max_response_bytes = max_response_bytes
 
-    def request(self, request: VenueHttpRequest) -> VenueHttpResponse:
-        """Retain status and raw body while leaving outcome classification to adapter."""
+    def request(
+        self, request: VenueHttpRequest, *, deadline: float | None = None
+    ) -> VenueHttpResponse:
+        """Retain status and raw body while leaving outcome classification to adapter.
+
+        Args:
+            request: Relative request for the pinned host.
+            deadline: Optional absolute ``time.monotonic()`` bound on the whole
+                request, such as a dispatch lease's; the sooner bound applies.
+
+        Raises:
+            VenueNotSentError: The bound passed before any request byte was written.
+            VenueOutcomeUnknownError: The request failed or overran after that.
+        """
         if (
             not request.path.startswith("/")
             or request.path.startswith("//")
             or "://" in request.path
         ):
             raise VenueProtocolError("venue request path must be relative to fixed host")
-        deadline = time.monotonic() + self.total_seconds
+        limit = time.monotonic() + self.total_seconds
+        if deadline is not None:
+            limit = min(limit, deadline)
         connection = HTTPSConnection(
             self.host, timeout=self.timeout_seconds, context=create_default_context()
         )
         try:
+            # Resolution, TCP and TLS run before the request is written, so a bound
+            # passing during them (resolution cannot be interrupted) sends nothing.
+            try:
+                connection.timeout = self._remaining(limit)
+                connection.connect()
+                sock = connection.sock
+                if sock is None:
+                    raise OSError("venue REST connection has no socket")
+                sock.settimeout(self._remaining(limit))
+            except _BoundPassed as error:
+                raise VenueNotSentError("venue REST request bound passed before sending") from error
+            # sendall's timeout bounds the whole write. The socket reference keeps
+            # the bound after a closing response drops ``connection.sock``.
             connection.request(
                 request.method,
                 request.path,
                 body=request.body if request.method == "POST" else None,
                 headers=dict(request.headers),
             )
-            self._limit(connection, deadline)
+            sock.settimeout(self._remaining(limit))
             response = connection.getresponse()
             chunks: list[bytes] = []
             size = 0
-            while size <= self.max_response_bytes:
-                self._limit(connection, deadline)
-                chunk = response.read(min(65_536, self.max_response_bytes + 1 - size))
+            # A fully read response closes itself, and with it the socket.
+            while size <= self.max_response_bytes and not response.isclosed():
+                sock.settimeout(self._remaining(limit))
+                # read1 returns after one receive, so each wait is re-bounded.
+                chunk = response.read1(min(65_536, self.max_response_bytes + 1 - size))
                 if type(chunk) is not bytes:
                     raise VenueProtocolError("venue REST response is not bytes")
                 if not chunk:
@@ -93,13 +123,16 @@ class TlsVenueHttpTransport:
             connection.close()
         return VenueHttpResponse(status=status, body=body, received_at=datetime.now(UTC))
 
-    def _limit(self, connection: HTTPSConnection, deadline: float) -> None:
-        """Shorten the next socket wait to the request's remaining total time."""
-        remaining = deadline - time.monotonic()
+    def _remaining(self, limit: float) -> float:
+        """Return the next socket wait: the per-operation bound or the time left."""
+        remaining = limit - time.monotonic()
         if remaining <= 0:
-            raise TimeoutError("venue REST request exceeded its total bound")
-        if connection.sock is not None:
-            connection.sock.settimeout(min(self.timeout_seconds, remaining))
+            raise _BoundPassed("venue REST request exceeded its total bound")
+        return min(self.timeout_seconds, remaining)
+
+
+class _BoundPassed(TimeoutError):
+    """The request's total bound passed; after the write this means outcome unknown."""
 
 
 class PrivateVenueSession:

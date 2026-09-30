@@ -23,6 +23,8 @@ _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _LOCK_FILES = frozenset({".workspace.lock", ".workers.lock", ".writer.lock"})
 _SQLITE_AUXILIARY_SUFFIXES = (".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal")
 _IMMUTABLE_SQLITE_AUXILIARY_SUFFIXES = (".db-wal", ".db-shm", ".db-journal")
+# An account journal's live dispatch lease is marked by an OS-locked sibling file.
+_DISPATCH_LEASE_LOCK = re.compile(r".+\.sqlite3\.lease-[0-9a-z]+\Z")
 
 
 class WorkspaceFile(WireRecord, frozen=True, kw_only=True):
@@ -303,7 +305,11 @@ class WorkspaceBackup:
         for component in components:
             directory = root / component
             for path in (directory, *sorted(directory.rglob("*"))):
-                if path.name in _LOCK_FILES or path.name.endswith(_SQLITE_AUXILIARY_SUFFIXES):
+                if (
+                    path.name in _LOCK_FILES
+                    or path.name.endswith(_SQLITE_AUXILIARY_SUFFIXES)
+                    or _DISPATCH_LEASE_LOCK.match(path.name)
+                ):
                     continue
                 if path.name.endswith(_IMMUTABLE_SQLITE_AUXILIARY_SUFFIXES):
                     raise ValueError("immutable serving SQLite generation is not quiescent")

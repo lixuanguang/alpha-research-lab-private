@@ -112,8 +112,10 @@ class BitfinexSpotAdapter:
         """Wait for local request capacity so a dispatch fence never holds a sleep."""
         self.throttle.wait()
 
-    def submit(self, order: VenueOrderRequest, *, at: datetime, nonce: int) -> VenueCommandAck:
-        """Submit one exchange-wallet spot order with the durable int45 CID."""
+    def submit(
+        self, order: VenueOrderRequest, *, at: datetime, nonce: int, deadline: float
+    ) -> VenueCommandAck:
+        """Submit one exchange-wallet spot order with the durable int45 CID by ``deadline``."""
         del at
         self._require_verified()
         order.__post_init__()
@@ -135,6 +137,7 @@ class BitfinexSpotAdapter:
                 }
             ),
             nonce=nonce,
+            deadline=deadline,
         )
         order_data = self._notification_order(response.body, "on-req", nested=True)
         fact = self._order_fact(order_data, response)
@@ -194,6 +197,7 @@ class BitfinexSpotAdapter:
         venue_order_id: str | None,
         at: datetime,
         nonce: int,
+        open_seen_at: datetime | None = None,
     ) -> VenueOrderFact | None:
         """Resolve active and retained closed state without treating absence as finality."""
         self._require_verified()
@@ -212,8 +216,9 @@ class BitfinexSpotAdapter:
             return self._verified_lookup(
                 active_items[0], active, symbol, client_id, venue_order_id, submitted_at
             )
-        # Active orders have no age limit; closed-order history keeps about two weeks.
-        if at - submitted_at > timedelta(days=13):
+        # Active orders have no age limit; closed-order history keeps about two weeks
+        # after an order closes, which is no earlier than when it was last seen open.
+        if at - (open_seen_at or submitted_at) > timedelta(days=13):
             raise VenueProtocolError("Bitfinex closed-order retention cannot prove older outcome")
         # A distinct externally persisted nonce is needed for this second signed call.
         # The caller supplies a base nonce; the adapter never invents one from wall time.
@@ -569,7 +574,15 @@ class BitfinexSpotAdapter:
             raise ValueError("Bitfinex nonce exceeds native safe integer")
         return native_nonce
 
-    def _request(self, path: str, body: bytes, *, nonce: int, offset: int = 0) -> VenueHttpResponse:
+    def _request(
+        self,
+        path: str,
+        body: bytes,
+        *,
+        nonce: int,
+        offset: int = 0,
+        deadline: float | None = None,
+    ) -> VenueHttpResponse:
         """Reserve two native nonce slots per durable caller nonce for lookups."""
         native_nonce = self._native_nonce(nonce, offset=offset)
         signature = new(
@@ -589,7 +602,8 @@ class BitfinexSpotAdapter:
                     ("bfx-nonce", str(native_nonce)),
                     ("bfx-signature", signature),
                 ),
-            )
+            ),
+            deadline=deadline,
         )
         if (
             300 <= response.status < 400

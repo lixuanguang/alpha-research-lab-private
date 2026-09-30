@@ -321,15 +321,27 @@ Each physical order must already be reserved through direct admission or MR09
 portfolio coordination. The gateway stores its client identity and uncertain
 attempt before I/O. A kernel lock excludes another sending owner while the first
 can still use its connection. The final independent risk/stop check commits in a
-short journal transaction together with a durable dispatch lease (30 seconds);
-the request is then sent with no journal transaction open, and the lease is
-released afterwards. The send must start within 10 seconds of arming, and the
-TLS transport bounds a whole request to 20 seconds, so the send ends before the
-lease does. Operator blocks, venue invalidation, account controls and strategy
-stops for that account or instance wait, outside any transaction, until the lease
-is released or expires, so a stop either commits before arming (arming refuses)
-or after the send. A lease left by a crashed sender expires; the order stays
-`unknown` for reconciliation. Cancellations hold no lease. The adapter's local
+short journal transaction together with a durable dispatch lease; the request is
+then sent with no journal transaction open, and the lease is released afterwards.
+The lease is live while its holder process holds an OS lock on a
+`<journal>.lease-<holder>` file, so no clock expires it and a sender that dies
+frees it at once. Timing uses the holder's monotonic clock: the send must start
+within 10 seconds of arming, and the TLS transport is handed an absolute deadline
+five seconds before the 30-second lease ends. It connects (resolution, TCP, TLS)
+first and refuses before writing any byte once that deadline has passed, then
+bounds the write and every response read by it. Operator blocks, venue
+invalidation, account controls and strategy stops for that account or instance
+wait, outside any transaction, until the lease is released or its holder dies, so
+a stop either commits before arming (arming refuses) or after the send. A stop
+waits at most 35 seconds and then refuses without committing (`dispatch in
+progress; stop not committed`); retry it. A crashed sender's order stays
+`unknown` for reconciliation. A dispatch refused before its single send (a stop
+committed before arming, a stale quote or authorization, a passed send window or
+transport deadline, another held lease or a failed throttle wait) is definitely
+unsent: the gateway
+marks it `submission_rejected`, records the order `rejected` and faults the
+account as `dispatch_not_sent`, which the next matched reconciliation clears.
+Anything raised by the send or after it stays `unknown`. Cancellations hold no lease. The adapter's local
 request budget is waited out before arming. Lost acknowledgements, restart and absent order lookup
 never authorize another submit for that identity. Request acknowledgement is not
 acceptance. Cancellation acknowledgement is not terminal cancellation. A further
@@ -356,7 +368,8 @@ arrive through fill history and a reopened order through the open-order snapshot
 so venue lookup retention no longer limits account age. Bitfinex looks an order up
 in active orders first, which has no age limit, and refuses only a lookup that
 falls through to closed-order history (about two weeks) more than 13 days after
-submission. Local unsent intents
+the order was last seen open by a reconciliation (or, if never, after submission):
+it closed no earlier than that. Local unsent intents
 remain reserved and are not represented as venue-observed orders. A broken or
 unavailable observation invalidates independent account readiness before the
 transport diagnostic is saved. Operator stops are never cleared by reconciliation.

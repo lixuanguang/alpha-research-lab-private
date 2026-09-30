@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import sqlite3
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -28,6 +29,7 @@ from execution.venues.contracts import (
     VenueAdapter,
     VenueCommandAck,
     VenueFillFact,
+    VenueNotSentError,
     VenueOrderFact,
     VenueOrderRequest,
     VenueProtocolError,
@@ -150,7 +152,7 @@ class VenueGateway:
         with self._store.claim():
             try:
                 self._reconcile()
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
             return self._view()
@@ -171,10 +173,11 @@ class VenueGateway:
                 # Even an absent exchange lookup is not proof of a failed send.
                 try:
                     self._reconcile()
-                except (OSError, RuntimeError, ValueError) as error:
+                except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                     self._fault(type(error).__name__)
                     raise
                 return self._view()
+            fault: str | None = None
             try:
                 self._reconcile()
                 if self._store.read().recovery_required:
@@ -214,8 +217,11 @@ class VenueGateway:
                         reason="submission_outcome_unknown",
                     )
                 )
-                self._event(order_id, "unknown", at, f"send:{client_id}")
+                # Set immediately before the single send: whatever fails while it is
+                # unset left no bytes, and whatever fails after it may have.
+                sent = False
                 try:
+                    self._event(order_id, "unknown", at, f"send:{client_id}")
                     # Throttle sleeps happen here, never under the journal write fence.
                     adapter.wait_for_request_slot()
                     with self.journal.execution_guard(
@@ -235,24 +241,41 @@ class VenueGateway:
                         )
                         self._reference(order, instrument, send_at)
                         permit.require_sendable()
-                        ack = adapter.submit(request, at=send_at, nonce=nonce)
+                        if permit.deadline is None:
+                            raise ValueError("submission guard armed no dispatch lease")
+                        sent = True
+                        ack = adapter.submit(
+                            request, at=send_at, nonce=nonce, deadline=permit.deadline
+                        )
                 except VenueRejectedError:
-                    rejected = self._store.read()
-                    rejected_dispatches: tuple[VenueDispatch, ...] = tuple(
-                        replace(item, submission_rejected=True)
-                        if item.order_id == order_id
-                        else item
-                        for item in rejected.dispatches
-                    )
-                    self._store.save(replace(rejected, dispatches=rejected_dispatches))
-                    self._event(order_id, "rejected", self.clock.now(), f"reject:{client_id}")
-                    self._fault("venue_rejected_submission")
+                    self._reject(order_id, client_id)
+                    fault = "venue_rejected_submission"
+                    raise
+                except BaseException as error:
+                    if not sent or isinstance(error, VenueNotSentError):
+                        # Definitely unsent: reconcile resolves it without venue history.
+                        self._reject(order_id, client_id)
+                        fault = "dispatch_not_sent"
                     raise
                 self._ack(dispatch, ack)
-            except (OSError, RuntimeError, ValueError) as error:
-                self._fault(type(error).__name__)
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
+                self._fault(fault or type(error).__name__)
                 raise
             return self._view(submission_attempted=True)
+
+    def _reject(self, order_id: str, client_id: str) -> None:
+        """Record a dispatch that never reached, or was refused by, the venue.
+
+        The venue-store flag is written first: it is the durable record, and
+        reconcile rebuilds the local ``rejected`` event from it.
+        """
+        state = self._store.read()
+        dispatches: tuple[VenueDispatch, ...] = tuple(
+            replace(item, submission_rejected=True) if item.order_id == order_id else item
+            for item in state.dispatches
+        )
+        self._store.save(replace(state, dispatches=dispatches))
+        self._event(order_id, "rejected", self.clock.now(), f"reject:{client_id}")
 
     def cancel(self, order_id: str, authorization: VenueAuthorization) -> GatewayView:
         """Request cancellation while retaining exposure until a venue terminal fact."""
@@ -275,7 +298,7 @@ class VenueGateway:
             if dispatch.cancel_attempted:
                 try:
                     self._reconcile()
-                except (OSError, RuntimeError, ValueError) as error:
+                except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                     self._fault(type(error).__name__)
                     raise
                 order = self._order(order_id)
@@ -285,7 +308,7 @@ class VenueGateway:
             try:
                 self._qualify()
                 at, nonce = self._request_clock()
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
             state = self._store.read()
@@ -319,7 +342,7 @@ class VenueGateway:
                         nonce=nonce,
                     )
                 self._ack(updated, ack, attempt=updated.cancel_attempts)
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
             return self._view()
@@ -408,7 +431,7 @@ class VenueGateway:
                     raise VenueProtocolError("private stream ended before authentication")
                 if pending is not None:
                     self._reconcile()
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
             finally:
@@ -478,7 +501,10 @@ class VenueGateway:
         start = self.config.account.opening_at
         proven = self._store.read().fills_complete_through
         if proven is not None:
-            start = max(start, proven - self._FILL_HISTORY_OVERLAP)
+            # Venues answer from the whole millisecond start_ms, so the overlap starts
+            # on one; re-read fills already applied are skipped by their receipts.
+            overlap = proven - self._FILL_HISTORY_OVERLAP
+            start = max(start, overlap - timedelta(microseconds=overlap.microsecond % 1000))
         end = self.clock.now()
         fills: dict[tuple[str, str], VenueFillFact] = {}
         for instrument in self.config.instruments:
@@ -538,10 +564,12 @@ class VenueGateway:
                 venue_order_id=dispatch.venue_order_id,
                 at=at,
                 nonce=nonce,
+                open_seen_at=dispatch.open_seen_at,
             )
             if found is None:
                 raise VenueProtocolError("submitted order absent from available venue history")
             self._ingest_order(found)
+            self._seen_open(found, at)
         at, nonce = self._request_clock()
         balances = adapter.balances(at=at, nonce=nonce)
         at, nonce = self._request_clock()
@@ -552,6 +580,7 @@ class VenueGateway:
             )
         for fact in after:
             self._ingest_order(fact)
+            self._seen_open(fact, at)
             observed.append(self._order(self._dispatch(client_id=fact.client_id).order_id))
         currencies = {
             money.currency.code: money.currency
@@ -667,6 +696,21 @@ class VenueGateway:
             native = self._codec.decode_json(native_receipt.payload, NativeFill)
         self.journal.apply_native_fill(native)
         self._store.applied(receipt.identity)
+
+    def _seen_open(self, fact: VenueOrderFact, at: datetime) -> None:
+        """Remember when a request sent at ``at`` found this order still open."""
+        if fact.status not in ("open", "partial"):
+            return
+        state = self._store.read()
+        dispatches: tuple[VenueDispatch, ...] = tuple(
+            replace(item, open_seen_at=at)
+            if item.client_id == fact.client_id
+            and (item.open_seen_at is None or item.open_seen_at < at)
+            else item
+            for item in state.dispatches
+        )
+        if dispatches != state.dispatches:
+            self._store.save(replace(state, dispatches=dispatches))
 
     def _ingest_order(self, fact: VenueOrderFact) -> None:
         """Require cumulative state to agree with individually identified fills."""
