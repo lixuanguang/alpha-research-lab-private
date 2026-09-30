@@ -69,7 +69,7 @@ class _DedicatedHistory:
                 initial_cash=Money(value=Decimal("100000"), currency=cls.currency),
                 dimension=cls.dimension,
             ),
-            fee_rate=Decimal(0),
+            fee_rate=Decimal("0.005"),
         )
 
     def market(self) -> None:
@@ -166,10 +166,10 @@ class TestPaperHistoryScaling:
         with _DedicatedHistory.open(tmp_path) as journal:
             history = _DedicatedHistory(journal, journal.claim("ledger-owner"))
             medians: list[float] = []
-            for orders in (50, 200):
+            for orders in (100, 1000):
                 while history.orders < orders:
                     history.round_trip()
                 medians.append(history.median_round_trip_seconds())
-        print(f"round trip at 50/200 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
-        # Decoding, re-validating and replaying every fill per event grew superlinearly.
-        assert medians[1] < 2.5 * medians[0]
+        print(f"round trip at 100/1000 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Re-encoding and fsyncing the whole fill ledger on every fill grew about 4.4x here.
+        assert medians[1] < 3 * medians[0]

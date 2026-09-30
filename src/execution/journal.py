@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, Literal, cast
 
 # project library imports
-from accounting import Ledger, LedgerBalance, LedgerState
+from accounting import Fill, Ledger, LedgerBalance, LedgerState
 from configuration import InstrumentFeeRate, PaperExecutionScenario
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import (
@@ -29,12 +29,35 @@ from execution.records import (
 )
 from financial_units import Money, Price, Quantity
 from risk import SpotLimits
-from serialization import DomainCodec
+from serialization import DomainCodec, require_sqlite_layout
 from strategies import ExposureIntent, TargetIntent
 
 if TYPE_CHECKING:
     # project library imports
     from execution.paper import PaperMarket
+
+# The complete journal layout. Opening refuses any other, including an earlier one.
+# Applied fills are rows of ``fills``; the initial ledger is part of the binding.
+_LAYOUT: tuple[str, ...] = (
+    "CREATE TABLE journal (id INTEGER PRIMARY KEY CHECK (id = 1), binding BLOB NOT NULL, "
+    "epoch INTEGER NOT NULL, owner TEXT NOT NULL)",
+    "CREATE TABLE state (id INTEGER PRIMARY KEY CHECK (id = 1), checkpoint BLOB, "
+    "blocked_reason TEXT)",
+    "CREATE TABLE steps (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "step_id TEXT NOT NULL UNIQUE, decision_id TEXT UNIQUE, payload BLOB NOT NULL)",
+    "CREATE TABLE markets (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "market_id TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
+    "CREATE TABLE orders (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "order_id TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
+    "CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "event_id TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL, payload BLOB NOT NULL, "
+    "order_state BLOB NOT NULL, balance BLOB NOT NULL)",
+    "CREATE TABLE fills (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "fill_id TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL, payload BLOB NOT NULL)",
+    "CREATE TABLE paper_scenario (id INTEGER PRIMARY KEY CHECK (id = 1), payload BLOB NOT NULL)",
+    "CREATE TABLE paper_liquidity (id INTEGER PRIMARY KEY CHECK (id = 1), payload BLOB NOT NULL)",
+    "CREATE TABLE paper_market_results (market_id TEXT PRIMARY KEY, payload BLOB NOT NULL)",
+)
 
 
 class PaperOrderJournal:
@@ -94,8 +117,12 @@ class PaperOrderJournal:
         self._epoch: int | None = None
         # Decoded order states keyed by their exact stored bytes; see _orders.
         self._decoded_orders: dict[bytes, OrderState] = {}
-        # The validated ledger for one exact stored ledger payload; see _ledger.
-        self._ledger_cache: tuple[bytes, Ledger] | None = None
+        self._initial_ledger = ledger_state
+        # The ledger after the committed fill rows through a sequence; see _ledger.
+        self._ledger_cache: tuple[int, Ledger] | None = None
+        # The open write transaction's connection and its uncommitted ledger.
+        self._writing: sqlite3.Connection | None = None
+        self._staged_ledger: tuple[int, Ledger] | None = None
         self._binding = self._codec.encode_json(
             (
                 "paper-order-journal",
@@ -109,7 +136,7 @@ class PaperOrderJournal:
             )
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize(ledger_state)
+        self._initialize()
 
     @property
     def qualification(self) -> Literal["fixture", "referenced"]:
@@ -560,7 +587,7 @@ class PaperOrderJournal:
         if event.fill is not None:
             duplicate = self._query_one(
                 connection,
-                "SELECT order_id, payload FROM fill_ids WHERE fill_id = ?",
+                "SELECT order_id, payload FROM fills WHERE fill_id = ?",
                 (event.fill.identity,),
             )
             if duplicate is not None:
@@ -581,14 +608,13 @@ class PaperOrderJournal:
         )
         if event.fill is not None:
             ledger.apply(event.fill)
-            connection.execute(
-                "INSERT INTO fill_ids(fill_id, order_id, payload) VALUES (?, ?, ?)",
+            inserted = connection.execute(
+                "INSERT INTO fills(fill_id, order_id, payload) VALUES (?, ?, ?)",
                 (event.fill.identity, event.order_id, self._codec.encode_json(event.fill)),
             )
-            encoded_ledger = self._codec.encode_json(ledger.state)
-            connection.execute("UPDATE state SET ledger = ? WHERE id = 1", (encoded_ledger,))
-            # Keyed by exact bytes: a rolled-back payload is simply never read again.
-            self._ledger_cache = (encoded_ledger, ledger.copy())
+            if inserted.lastrowid is None:
+                raise ValueError("paper journal fill sequence is missing")
+            self._staged_ledger = (inserted.lastrowid, ledger.copy())
         connection.execute(
             "UPDATE orders SET payload = ? WHERE order_id = ?",
             (self._codec.encode_json(current), current.identity),
@@ -606,96 +632,29 @@ class PaperOrderJournal:
         )
         return current, False
 
-    def _initialize(self, ledger_state: LedgerState) -> None:
-        """Create or verify a state store against all immutable account inputs."""
+    def _initialize(self) -> None:
+        """Create the journal, or require its exact layout and immutable account inputs."""
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS journal (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    binding BLOB NOT NULL,
-                    epoch INTEGER NOT NULL,
-                    owner TEXT NOT NULL
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS state (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    checkpoint BLOB,
-                    ledger BLOB NOT NULL,
-                    blocked_reason TEXT
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS steps (
-                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-                    step_id TEXT NOT NULL UNIQUE,
-                    decision_id TEXT UNIQUE,
-                    payload BLOB NOT NULL
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS markets (
-                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-                    market_id TEXT NOT NULL UNIQUE,
-                    payload BLOB NOT NULL
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS orders (
-                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-                    order_id TEXT NOT NULL UNIQUE,
-                    payload BLOB NOT NULL
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS events (
-                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event_id TEXT NOT NULL UNIQUE,
-                    order_id TEXT NOT NULL,
-                    payload BLOB NOT NULL,
-                    order_state BLOB NOT NULL,
-                    balance BLOB NOT NULL
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS fill_ids (
-                    fill_id TEXT PRIMARY KEY,
-                    order_id TEXT NOT NULL,
-                    payload BLOB NOT NULL
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS paper_scenario (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    payload BLOB NOT NULL
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS paper_liquidity (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    payload BLOB NOT NULL
-                )"""
-            )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS paper_market_results (
-                    market_id TEXT PRIMARY KEY,
-                    payload BLOB NOT NULL
-                )"""
-            )
-            row = self._query_one(connection, "SELECT binding FROM journal WHERE id = 1")
-            if row is None:
+            if self._query_one(connection, "SELECT 1 FROM sqlite_master LIMIT 1") is None:
+                for statement in _LAYOUT:
+                    connection.execute(statement)
                 connection.execute(
                     "INSERT INTO journal(id, binding, epoch, owner) VALUES (1, ?, 0, '')",
                     (self._binding,),
                 )
                 connection.execute(
-                    "INSERT INTO state(id, checkpoint, ledger, blocked_reason) "
-                    "VALUES (1, NULL, ?, NULL)",
-                    (self._codec.encode_json(ledger_state),),
+                    "INSERT INTO state(id, checkpoint, blocked_reason) VALUES (1, NULL, NULL)"
                 )
-            elif self._blob(row[0]) != self._binding:
-                raise ValueError("paper journal account, candidate, mode or initial state differs")
+            else:
+                require_sqlite_layout(connection, _LAYOUT, "unsupported paper journal schema")
+                row = self._query_one(connection, "SELECT binding FROM journal WHERE id = 1")
+                if row is None:
+                    raise ValueError("paper journal binding is missing")
+                if self._blob(row[0]) != self._binding:
+                    raise ValueError(
+                        "paper journal account, candidate, mode or initial state differs"
+                    )
             connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
@@ -712,15 +671,21 @@ class PaperOrderJournal:
         self._require_claim(epoch)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
+            self._writing, self._staged_ledger = connection, None
             try:
                 row = self._query_one(connection, "SELECT epoch FROM journal WHERE id = 1")
                 if row is None or self._integer(row[0]) != epoch:
                     raise ValueError("paper owner epoch was fenced")
                 yield connection
                 connection.commit()
+                # Only a committed ledger may serve later transactions.
+                if self._staged_ledger is not None:
+                    self._ledger_cache = self._staged_ledger
             except BaseException:
                 connection.rollback()
                 raise
+            finally:
+                self._writing, self._staged_ledger = None, None
 
     def _require_claim(self, epoch: int) -> None:
         """Reject an absent or locally stale owner before opening a transaction."""
@@ -892,21 +857,32 @@ class PaperOrderJournal:
         return StepCommit(status="committed", reason="reserved", orders=tuple(admitted))
 
     def _ledger(self, connection: sqlite3.Connection) -> Ledger:
-        """Reconstruct the exact economic state from its saved applied fill history.
+        """Rebuild the exact economic state from the initial ledger and the fill rows.
 
-        Decoding validates and replays every retained fill, so the ledger built
-        for one exact stored payload is reused while that payload is unchanged.
-        Callers receive an independent copy they may post to.
+        The ledger built through a fill sequence is reused, so only rows appended
+        since are decoded and applied. Inside a write transaction, rows it wrote are
+        staged and become reusable only once it commits. Callers receive an
+        independent copy they may post to.
         """
-        row = self._query_one(connection, "SELECT ledger FROM state WHERE id = 1")
-        if row is None:
-            raise ValueError("paper account state is missing")
-        payload = self._blob(row[0])
-        cached = self._ledger_cache
-        if cached is not None and cached[0] == payload:
-            return cached[1].copy()
-        ledger = Ledger(self._codec.decode_json(payload, LedgerState))
-        self._ledger_cache = (payload, ledger.copy())
+        writing = connection is self._writing
+        base = self._staged_ledger if writing else None
+        if base is None:
+            base = self._ledger_cache
+        after, ledger = (0, Ledger(self._initial_ledger)) if base is None else base
+        ledger = ledger.copy()
+        rows = self._query_all(
+            connection,
+            "SELECT sequence, payload FROM fills WHERE sequence > ? ORDER BY sequence",
+            (after,),
+        )
+        for row in rows:
+            ledger.apply(self._codec.decode_json(self._blob(row[1]), Fill))
+            after = self._integer(row[0])
+        if rows or base is None:
+            if writing:
+                self._staged_ledger = (after, ledger.copy())
+            else:
+                self._ledger_cache = (after, ledger.copy())
         return ledger
 
     def _reservations(self, connection: sqlite3.Connection) -> AccountReservations:

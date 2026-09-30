@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 # standard library imports
+import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, localcontext
 from io import BufferedReader
@@ -100,6 +102,69 @@ class TestPaperOrderJournal:
             limit=cls._price(limit),
             time_in_force="gtc",
         )
+
+    def test_journal_with_another_layout_is_refused(self, tmp_path: Path) -> None:
+        """An earlier layout, such as fills kept inside the state row, is never reopened."""
+        path = tmp_path / "paper.sqlite3"
+        self._journal(path).close()
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("ALTER TABLE state ADD COLUMN ledger BLOB")
+            connection.commit()
+        with pytest.raises(ValueError, match="unsupported paper journal schema"):
+            self._journal(path)
+
+    def test_ledger_rows_rebuild_the_same_ledger_after_reopening(self, tmp_path: Path) -> None:
+        """Fills kept as rows replay to the ledger the writer holds, in any process."""
+        path = tmp_path / "paper.sqlite3"
+        with self._journal(path, with_holding=True) as journal:
+            epoch = journal.claim("rows-owner")
+            decision = OrderDecision(
+                identity="rows-buy",
+                at=self.start,
+                intent=self._order(side="buy", quantity="2", limit="101"),
+            )
+            order = journal.commit_step(
+                epoch=epoch,
+                step_id="rows",
+                checkpoint=b"rows",
+                decision=decision,
+                reference=self._price("100"),
+                maximum_fee=self._money("1"),
+            ).orders[0]
+            for kind in ("request_ack", "accepted"):
+                journal.apply_event(
+                    epoch=epoch,
+                    event=OrderEvent(
+                        identity=f"rows-{kind}",
+                        order_id=order.identity,
+                        at=self.start + timedelta(microseconds=1),
+                        kind=kind,
+                    ),
+                )
+            for index in range(2):
+                journal.apply_event(
+                    epoch=epoch,
+                    event=OrderEvent(
+                        identity=f"rows-fill-{index}",
+                        order_id=order.identity,
+                        at=self.start + timedelta(seconds=index + 1),
+                        kind="fill",
+                        fill=Fill(
+                            identity=f"rows-fill-{index}",
+                            decision_at=self.start,
+                            filled_at=self.start + timedelta(seconds=index + 1),
+                            quantity=self._quantity("1"),
+                            reference=self._price("100"),
+                            effective=self._price("101"),
+                            fee=self._money("0"),
+                        ),
+                    ),
+                )
+            written = journal.ledger_state()
+        reopened = self._journal(path, with_holding=True)
+        assert reopened.ledger_state() == written
+        assert len(written.fills) == 3
+        assert reopened.ledger_balance() == Ledger(written).balance
 
     def test_quote_is_atomic_and_restarts_with_both_reservations(self, tmp_path: Path) -> None:
         """Two quote legs reserve cash and existing inventory in one checkpoint commit."""
