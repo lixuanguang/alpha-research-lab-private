@@ -261,6 +261,18 @@ candidate locks, advisories and failed evidence remain historical records.
 No admission rule, dependency requirement, vulnerability finding or QuantLib
 release restriction is weakened by the numerical consumer.
 
+## Vulnerability updates, 2026-10-01
+
+The exact-graph audit reported urllib3 2.7.0 (CVE-2026-97687, CVE-2026-97688,
+CVE-2026-97689), PyJWT 2.14.0 (CVE-2026-101918) and virtualenv 21.7.4
+(PYSEC-2026-4011 to PYSEC-2026-4014). The root lock now admits urllib3 2.8.0,
+PyJWT 2.15.1 and virtualenv 21.14.1. virtualenv's update also moves
+python-discovery from 1.5.3 to 1.6.1 and adds a dependency edge on the admitted
+packaging. The collector's urllib3 constraint and lock move to 2.8.0 with the
+root lock. All four packages remain pure Python, with source distributions,
+under their existing MIT dispositions. The complete graph passes the audit with
+no waiver. No other external version changes.
+
 ## Commands
 
 MR15's research capacity consumer declares the already admitted **psutil 7.2.2**
