@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import operator
 import threading
 from collections import OrderedDict
 from datetime import datetime
@@ -422,6 +423,31 @@ class _AccountReplays:
             self._entries.move_to_end(id(state))
             return entry[1], entry[2]
 
+    def longest_prefix(
+        self,
+        account_id: str,
+        currencies: tuple[Currency, ...],
+        postings: tuple[AccountPosting, ...],
+    ) -> tuple[AccountState, _AccountReplay] | None:
+        """Return the remembered state of this account whose postings begin ``postings``.
+
+        Postings match by object identity, so a remembered state qualifies only
+        when ``postings`` holds its exact validated objects, in order, first.
+        """
+        best: tuple[AccountState, _AccountReplay] | None = None
+        with self._lock:
+            for state, fold, _ in self._entries.values():
+                size = len(state.postings)
+                if (
+                    state.account_id == account_id
+                    and state.currencies == currencies
+                    and size <= len(postings)
+                    and (best is None or size > len(best[0].postings))
+                    and all(map(operator.is_, state.postings, postings[:size]))
+                ):
+                    best = state, fold
+        return best
+
     def remember(
         self,
         state: AccountState,
@@ -536,6 +562,60 @@ class AccountLedger:
         else:
             fold, effective = remembered
         self._state, self._fold, self._effective = state, fold, effective
+
+    @classmethod
+    def attach(cls, head: AccountState, postings: tuple[AccountPosting, ...]) -> AccountState:
+        """Return ``head``'s account holding ``postings``, validating only unseen postings.
+
+        ``postings`` must hold records that were each validated when decoded. When
+        a remembered state's postings are the same objects as its first postings,
+        that state is returned unchanged, or its fold is extended by the remaining
+        postings with the checks ``post`` applies. Otherwise the whole history is
+        validated and replayed. The result is remembered, so building its ledger
+        or view does not validate it again.
+
+        Args:
+            head: The account's identity and currencies, with no postings.
+            postings: The account's complete ordered history.
+
+        Returns:
+            A validated state whose ledger is remembered.
+
+        Raises:
+            ValueError: The appended postings are incompatible with the history.
+        """
+        if type(head) is not AccountState or head.postings:
+            raise ValueError("account ledger attach requires an empty head state")
+        head.__post_init__()
+        if type(postings) is not tuple:
+            raise TypeError("account state requires account postings")
+        found = _ACCOUNT_REPLAYS.longest_prefix(head.account_id, head.currencies, postings)
+        if found is None:
+            state = AccountState(
+                account_id=head.account_id, currencies=head.currencies, postings=postings
+            )
+            cls(state)
+            return state
+        prior, prior_fold = found
+        if len(prior.postings) == len(postings):
+            return prior
+        fold = prior_fold.copy()
+        identities = {posting.identity for posting in prior.postings}
+        for posting in postings[len(prior.postings) :]:
+            if type(posting) is not AccountPosting:
+                raise TypeError("account state requires account postings")
+            posting.__post_init__()
+            if posting.account_id != head.account_id or posting.identity in identities:
+                raise ValueError("posting account mismatch or duplicate identity")
+            identities.add(posting.identity)
+            fold.apply(posting)
+            fold.require_scopes(posting.instance_id)
+        state = AccountState(account_id=head.account_id, currencies=head.currencies)
+        force_setattr(state, "postings", postings)
+        effective = fold.effective()
+        cls._snapshot(state, fold, effective, None)
+        _ACCOUNT_REPLAYS.remember(state, fold, effective)
+        return state
 
     @property
     def state(self) -> AccountState:

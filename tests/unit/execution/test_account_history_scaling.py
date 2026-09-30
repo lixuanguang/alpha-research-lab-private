@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 # project library imports
-from accounting import AccountSnapshot
+from accounting import AccountLedger, AccountSnapshot
 from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
 from configuration.accounts import InstrumentFeeRate
 from execution import (
@@ -286,4 +286,31 @@ class TestAccountHistoryScaling:
             medians.append(history.median_seconds(history.rebind))
         print(f"unchanged write at 40/400 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Re-encoding and fsyncing the whole head grew with every retained fact.
+        assert medians[1] < 3 * medians[0]
+
+    @pytest.mark.performance
+    def test_read_after_another_writer_commits_does_not_replay_ledgers(
+        self, tmp_path: Path
+    ) -> None:
+        """A second journal's ledgers stay near flat after each commit by the first."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        # A second journal object keeps its own decoded rows, like another process.
+        reader = AccountJournal(tmp_path / "firm.sqlite3", history._config())
+
+        def read_after_commit() -> float:
+            """Commit a tick through the first journal and time the second journal's ledgers."""
+            history.busy_tick()
+            started = time.perf_counter()
+            for view in reader.accounts():
+                AccountLedger(view.ledger).snapshot()
+            return time.perf_counter() - started
+
+        medians: list[float] = []
+        for orders in (40, 400):
+            while history.orders < orders:
+                history.round_trip()
+            read_after_commit()
+            medians.append(sorted(read_after_commit() for _ in range(9))[4])
+        print(f"read after commit at 40/400 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Re-validating every posting twice and replaying each ledger grew about tenfold.
         assert medians[1] < 3 * medians[0]

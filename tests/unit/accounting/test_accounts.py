@@ -641,6 +641,30 @@ class TestAccountLedger:
             ),
         )
 
+    def test_attach_extends_a_remembered_history_with_the_same_checks(self) -> None:
+        """Attaching appended postings reuses the prior fold and still refuses bad ones."""
+        head = AccountState(account_id="physical", currencies=(self.usd, self.eur))
+        capital = self._transfer("capital", seconds=0, value="1000")
+        buy = self._fill("buy-a", seconds=1, quantity="2", price="100")
+        prior = AccountLedger.attach(head, (capital,))
+        assert AccountLedger.attach(head, prior.postings) is prior
+        extended = AccountLedger.attach(head, (*prior.postings, buy))
+        assert (
+            AccountLedger(extended).snapshot()
+            == AccountLedger(
+                AccountState(
+                    account_id="physical", currencies=(self.usd, self.eur), postings=(capital, buy)
+                )
+            ).snapshot()
+        )
+        for appended, message in (
+            (self._transfer("capital", seconds=2, value="1"), "duplicate identity"),
+            (self._fill("buy-b", seconds=2, quantity="20", price="100"), "insufficient"),
+            (self._transfer("late", seconds=-1, value="1"), "out of order"),
+        ):
+            with pytest.raises(ValueError, match=message):
+                AccountLedger.attach(head, (*extended.postings, appended))
+
     def test_exact_balances_survive_low_decimal_precision(self) -> None:
         """Avoid ambient Decimal rounding in cumulative multi-posting balances."""
         with localcontext() as context:

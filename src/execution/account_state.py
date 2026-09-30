@@ -313,7 +313,9 @@ def _assemble(state: _FirmState, values: dict[str, tuple[object, ...]]) -> _Firm
     accounts: list[AccountView] = []
     for account in state.accounts:
         postings = cast(tuple[AccountPosting, ...], values[_POSTINGS + account.ledger.account_id])
-        ledger: AccountState = replace(account.ledger, postings=postings)
+        # Decoding validated each posting row; attach reuses or extends a remembered
+        # fold instead of validating and replaying the whole history again.
+        ledger = AccountLedger.attach(account.ledger, postings)
         accounts.append(replace(account, ledger=ledger))
     views: tuple[AccountView, ...] = tuple(accounts)
     return replace(
