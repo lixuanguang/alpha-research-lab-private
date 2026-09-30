@@ -214,6 +214,11 @@ class AccountState(WireRecord, frozen=True):
             identities.add(posting.identity)
 
 
+def _exact_money(value: Fraction, currency: Currency) -> Money:
+    """Create a bounded exact money value without Decimal context rounding."""
+    return Money(value=DecimalGrid.exact_decimal(value), currency=currency)
+
+
 class _AccountReplay:
     """Fold one account's postings, in order, into exact running totals.
 
@@ -323,23 +328,19 @@ class _AccountReplay:
     def require_scopes(self, instance_id: str | None) -> None:
         """Check the snapshot totals of the account and one instance scope.
 
-        These are the only scopes a posting can change. The checks match the
-        ``AccountSnapshot`` projection: exact money totals, nonnegative fees and
-        rebates, and nonnegative physical account cash.
+        These are the only scopes a posting can change. Every total must be exact
+        money and fees and rebates nonnegative, as ``AccountSnapshot`` requires.
+        The account scope's cash is the physical cash that ``apply`` already
+        keeps nonnegative.
         """
         scopes: tuple[str | None, ...] = (None,) if instance_id is None else (None, instance_id)
+        zero = Fraction(0)
         for scope in scopes:
             for code, currency in self.currencies.items():
                 key = (scope, code)
-                # Every total must be exact money, including transfers.
-                cash, fee, rebate, _ = (
-                    Money(
-                        value=DecimalGrid.exact_decimal(totals.get(key, Fraction(0))),
-                        currency=currency,
-                    )
-                    for totals in (self.scope_cash, self.fees, self.rebates, self.transfers)
-                )
-                if fee.value < 0 or rebate.value < 0 or (scope is None and cash.value < 0):
+                for totals in (self.scope_cash, self.fees, self.rebates, self.transfers):
+                    _exact_money(totals.get(key, zero), currency)
+                if self.fees.get(key, zero) < 0 or self.rebates.get(key, zero) < 0:
                     raise ValueError("snapshot has invalid cash or cost totals")
 
     def _adjust(self, effect: EffectiveAccountPosting, sign: int) -> None:
@@ -734,7 +735,7 @@ class AccountLedger:
             account_id=state.account_id,
             instance_id=instance_id,
             cash=tuple(
-                cls._money(fold.scope_cash.get((instance_id, currency.code), zero), currency)
+                _exact_money(fold.scope_cash.get((instance_id, currency.code), zero), currency)
                 for currency in currencies
             ),
             positions=tuple(
@@ -743,15 +744,15 @@ class AccountLedger:
                 if value
             ),
             fees=tuple(
-                cls._money(fold.fees.get((instance_id, currency.code), zero), currency)
+                _exact_money(fold.fees.get((instance_id, currency.code), zero), currency)
                 for currency in currencies
             ),
             rebates=tuple(
-                cls._money(fold.rebates.get((instance_id, currency.code), zero), currency)
+                _exact_money(fold.rebates.get((instance_id, currency.code), zero), currency)
                 for currency in currencies
             ),
             transfers=tuple(
-                cls._money(fold.transfers.get((instance_id, currency.code), zero), currency)
+                _exact_money(fold.transfers.get((instance_id, currency.code), zero), currency)
                 for currency in currencies
             ),
             fill_ids=tuple(
@@ -766,11 +767,6 @@ class AccountLedger:
                 if instance_id is None or posting.instance_id == instance_id
             ),
         )
-
-    @staticmethod
-    def _money(value: Fraction, currency: Currency) -> Money:
-        """Create a bounded exact money value without Decimal context rounding."""
-        return Money(value=DecimalGrid.exact_decimal(value), currency=currency)
 
     @classmethod
     def _dimension_order(cls, item: tuple[Dimension, Fraction]) -> bytes:
