@@ -227,8 +227,13 @@ uv run --frozen --no-editable pytest -q <test-paths>
 Hosted CI asserts the pinned interpreter, standard GIL build and architecture in
 each job. It runs source validation once on Linux and then wheel smoke on Linux
 and macOS arm64. The required check, `Authoritative merged-result full lane`, fails if
-source validation or macOS smoke fails. Pull requests also verify the exact
-checked-out merge commit and its base/head parents. The installed-wheel check
+source validation or macOS smoke fails. Hosted CI runs once per merge candidate:
+only when a pull request into `main` is labeled `ready-to-merge`, never on commits
+to other branches or on the post-merge push to `main`. Re-apply the label after
+new commits. The repository's plan cannot require status checks, so merging is
+gated by procedure: merge only when this check passed for the pull request's
+current head. Each run verifies the exact checked-out merge commit and its
+base/head parents. The installed-wheel check
 uses hash-checked dependencies and isolated public runtime imports outside the
 checkout, and verifies that governance tooling is not a runtime dependency.
 There is one uv-based setup and build path. Bazel, Nix, remote execution,
