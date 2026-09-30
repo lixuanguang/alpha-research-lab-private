@@ -390,13 +390,18 @@ class ReconcileRecordingGateway(VenueGateway):
 
 
 class GuardProbingPause:
-    """Advance a fake throttle clock, recording whether the account journal is writable."""
+    """Advance a fake throttle clock, recording whether a pause sat inside a dispatch.
+
+    A pause must neither hold the account journal's write lock nor fall inside a
+    send window, which is while a dispatch lease is armed.
+    """
 
     def __init__(self, journal_path: Path) -> None:
-        """Bind the account journal whose write lock each pause probes."""
+        """Bind the account journal whose write lock and leases each pause probes."""
         self.journal_path = journal_path
         self.now = 0.0
         self.locked = 0
+        self.leased = 0
         self.free = 0
 
     def clock(self) -> float:
@@ -411,8 +416,15 @@ class GuardProbingPause:
             except sqlite3.OperationalError:
                 self.locked += 1
             else:
+                armed = cast(
+                    tuple[int],
+                    connection.execute("SELECT COUNT(*) FROM dispatch_leases").fetchone(),
+                )
                 connection.rollback()
-                self.free += 1
+                if armed[0]:
+                    self.leased += 1
+                else:
+                    self.free += 1
         self.now += seconds
 
 
@@ -1095,11 +1107,11 @@ class TestVenueGateway:
         order_id = self._admit(journal, gateway.config, clock)
         authorization = self._authorization(gateway.config, enabled=True)
         assert gateway.submit(order_id, authorization).submission_attempted
-        assert probe.free > 0 and probe.locked == 0
+        assert probe.free > 0 and probe.locked == probe.leased == 0
         submitted = probe.free
         gateway.cancel(order_id, authorization)
         assert self._order_state(journal, order_id).status == "cancel_ack"
-        assert probe.free > submitted and probe.locked == 0
+        assert probe.free > submitted and probe.locked == probe.leased == 0
 
     def test_bitfinex_private_session_survives_flat_account_snapshots(self, tmp_path: Path) -> None:
         """Documented snapshots after authentication neither end nor break the session."""
