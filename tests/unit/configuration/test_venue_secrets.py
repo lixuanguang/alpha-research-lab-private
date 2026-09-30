@@ -3,6 +3,7 @@
 # standard library imports
 import copy
 import logging
+import os
 import pickle
 import resource
 import uuid
@@ -114,6 +115,47 @@ class TestVenueSecrets:
         assert "sensitive" not in str(caught.value)
         assert "never-log" not in str(caught.value)
         assert not [v for v in _frame_strings(caught.value) if "sensitive" in v or "never-log" in v]
+
+    def test_file_swapped_after_its_check_is_not_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Values come from the file that passed the checks, not from a later swap."""
+        path = _write(tmp_path, "alpaca", "API_KEY=k-checked-1\nAPI_SECRET=s-checked-1\n")
+        planted = tmp_path / "planted"
+        planted.write_text("API_KEY=k-planted-1\nAPI_SECRET=s-planted-1\n")
+        planted.chmod(0o644)
+        swapped = False
+
+        def swap() -> None:
+            """Replace the checked path with a link to the planted file, once."""
+            nonlocal swapped
+            if not swapped:
+                swapped = True
+                path.unlink()
+                path.symlink_to(planted)
+
+        lstat, open_descriptor = Path.lstat, os.open
+
+        def checked_lstat(self: Path) -> os.stat_result:
+            """Stat the path, then race the swap in right after the check."""
+            status = lstat(self)
+            if self == path:
+                swap()
+            return status
+
+        def checked_open(file: str | Path, flags: int, mode: int = 0o777) -> int:
+            """Open the path, then race the swap in right after the open."""
+            descriptor = open_descriptor(file, flags, mode)
+            if Path(file) == path:
+                swap()
+            return descriptor
+
+        # Race the check against the read at whichever point the reader checks.
+        monkeypatch.setattr(Path, "lstat", checked_lstat)
+        monkeypatch.setattr(os, "open", checked_open)
+        secrets = VenueSecrets.read("alpaca", tmp_path)
+        assert swapped
+        assert secrets.api_key.reveal() == "k-checked-1"
 
     def test_undecodable_file_leaves_no_bytes_in_the_exception_chain(self, tmp_path: Path) -> None:
         """A file that is not UTF-8 is refused without its bytes reachable from the error."""

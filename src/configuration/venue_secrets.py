@@ -15,7 +15,9 @@ Errors are raised from frames whose locals hold no raw credential text.
 from __future__ import annotations
 
 # standard library imports
+import errno
 import logging
+import os
 import stat
 import threading
 import traceback
@@ -187,22 +189,30 @@ def read_secret_fields(path: Path, required: frozenset[str]) -> dict[str, Secret
         VenueSecretsError: The file is missing, unsafe, malformed or incomplete.
     """
     file_name = path.name
+    # One descriptor is both checked and read, so the path cannot be swapped in
+    # between. O_NOFOLLOW refuses a link, and O_NONBLOCK keeps a FIFO from blocking.
     try:
-        status = path.lstat()
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         raise VenueSecretsError(f"{file_name} is missing from the secrets directory") from None
-    except OSError:
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise VenueSecretsError(f"{file_name} must be a regular file, not a link") from None
         raise VenueSecretsError(f"{file_name} cannot be inspected") from None
-    if not stat.S_ISREG(status.st_mode):
-        raise VenueSecretsError(f"{file_name} must be a regular file, not a link")
-    if status.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-        raise VenueSecretsError(f"{file_name} is accessible by others; run chmod 600 on it")
-    if status.st_size > _MAXIMUM_FILE_BYTES:
-        raise VenueSecretsError(f"{file_name} exceeds {_MAXIMUM_FILE_BYTES} bytes")
     try:
-        data = path.read_bytes()
-    except OSError:
-        raise VenueSecretsError(f"{file_name} cannot be read as UTF-8") from None
+        status = os.fstat(descriptor)
+        if not stat.S_ISREG(status.st_mode):
+            raise VenueSecretsError(f"{file_name} must be a regular file, not a link")
+        if status.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            raise VenueSecretsError(f"{file_name} is accessible by others; run chmod 600 on it")
+        data = _read_bounded(descriptor)
+    finally:
+        os.close(descriptor)
+    if data is None:
+        raise VenueSecretsError(f"{file_name} cannot be read as UTF-8")
+    if len(data) > _MAXIMUM_FILE_BYTES:
+        del data
+        raise VenueSecretsError(f"{file_name} exceeds {_MAXIMUM_FILE_BYTES} bytes")
     text = _decoded(data)
     del data
     if text is None:
@@ -212,6 +222,26 @@ def read_secret_fields(path: Path, required: frozenset[str]) -> dict[str, Secret
     if isinstance(outcome, str):
         raise VenueSecretsError(f"{file_name} {outcome}")
     return outcome
+
+
+def _read_bounded(descriptor: int) -> bytes | None:
+    """Read at most one byte past the size limit, returning None if reading fails.
+
+    Returning rather than raising keeps the bytes read so far out of any
+    exception or traceback frame.
+    """
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        while size <= _MAXIMUM_FILE_BYTES:
+            chunk = os.read(descriptor, _MAXIMUM_FILE_BYTES + 1 - size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    except OSError:
+        return None
+    return b"".join(chunks)
 
 
 def _decoded(data: bytes) -> str | None:
