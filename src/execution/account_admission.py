@@ -4,9 +4,12 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import operator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from itertools import compress
 from typing import TYPE_CHECKING
 
 # third party library imports
@@ -16,18 +19,23 @@ from msgspec.structs import replace
 from accounting import AccountLedger, AccountPosting, AccountSnapshot
 from configuration import AccountConfiguration
 from execution.account_records import (
+    AccountControlResult,
     AccountDecision,
     AccountObservation,
     AccountQuote,
     AccountView,
+    NativeFill,
+    NetOrder,
     PhysicalAccountObservation,
     TaggedOrder,
 )
 from execution.account_state import (
     _AccountTransaction,
+    _InstanceControl,
     _PhysicalReconciliation,
     _Reconciliation,
     _SavedEvent,
+    _SavedNetEvent,
 )
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import OrderEvent, OrderState, StepCommit
@@ -42,6 +50,96 @@ if TYPE_CHECKING:
     from execution.account_allocation import PhysicalAllocation
 
 
+type _Clocks = tuple[tuple[str, datetime], ...]
+
+
+def _replaced(kept: tuple[object, ...], items: tuple[object, ...]) -> Iterator[int]:
+    """Yield the positions of ``kept`` whose item ``items`` holds a different object."""
+    changed: Iterable[bool] = map(operator.is_not, kept, items)
+    return compress(range(len(kept)), changed)
+
+
+class _Owners:
+    """Map order identities to their accounts, extending the map as orders append.
+
+    An order keeps its identity and account when saved in place, so a new tuple
+    that only appends, or replaces orders with the same identity and account,
+    extends the same map. Any other change builds a new map.
+    """
+
+    def __init__(self) -> None:
+        """Start with no orders."""
+        self._orders: tuple[TaggedOrder | NetOrder, ...] = ()
+        self.accounts: dict[str, str] = {}
+
+    def of(self, orders: tuple[TaggedOrder, ...] | tuple[NetOrder, ...]) -> dict[str, str]:
+        """Return the identity-to-account map of exactly these orders."""
+        if orders is self._orders:
+            return self.accounts
+        kept = self._orders
+        if len(orders) >= len(kept) and all(
+            (kept[index].order.identity, kept[index].account_id)
+            == (orders[index].order.identity, orders[index].account_id)
+            for index in _replaced(kept, orders)
+        ):
+            appended = orders[len(kept) :]
+        else:
+            self.accounts, appended = {}, orders
+        for item in appended:
+            self.accounts[item.order.identity] = item.account_id
+        self._orders = orders
+        return self.accounts
+
+
+class _Latest[T]:
+    """Keep each account's latest clock over one history tuple, extending on appends.
+
+    ``pairs`` gives the (account, clock) pairs one item contributes, given the
+    ``context`` objects it depends on. A new tuple that keeps the cached items,
+    or replaces some with items contributing the same pairs, and appends more
+    folds only the appended items, while the context objects are unchanged.
+    Anything else folds the whole tuple again.
+    """
+
+    def __init__(self) -> None:
+        """Start with no items."""
+        self._items: tuple[T, ...] = ()
+        self._context: tuple[object, ...] = ()
+        self._latest: dict[str, datetime] = {}
+
+    def of(
+        self,
+        items: tuple[T, ...],
+        pairs: Callable[[T], Iterable[tuple[str, datetime]]],
+        context: tuple[object, ...] = (),
+    ) -> dict[str, datetime]:
+        """Return each account's latest clock contributed by exactly these items."""
+        same_context = len(context) == len(self._context) and all(
+            map(operator.is_, context, self._context)
+        )
+        if items is self._items and same_context:
+            return self._latest
+        kept = self._items
+        if (
+            same_context
+            and len(items) >= len(kept)
+            and all(
+                tuple(pairs(kept[index])) == tuple(pairs(items[index]))
+                for index in _replaced(kept, items)
+            )
+        ):
+            latest, appended = dict(self._latest), items[len(kept) :]
+        else:
+            latest, appended = {}, items
+        for item in appended:
+            for account_id, at in pairs(item):
+                prior = latest.get(account_id)
+                if prior is None or at > prior:
+                    latest[account_id] = at
+        self._items, self._context, self._latest = items, context, latest
+        return latest
+
+
 class AccountAdmission:
     """Evaluate authoritative risk and reconcile direct account effects."""
 
@@ -49,6 +147,17 @@ class AccountAdmission:
         """Bind immutable configuration and the journal's canonical codec."""
         self.config = config
         self.codec = codec
+        # Per-account latest history clocks, extended as states append; see _history_times.
+        self._order_owners, self._net_owners = _Owners(), _Owners()
+        self._order_clocks: _Latest[TaggedOrder] = _Latest()
+        self._event_clocks: _Latest[_SavedEvent] = _Latest()
+        self._failed_event_clocks: _Latest[OrderEvent] = _Latest()
+        self._net_order_clocks: _Latest[NetOrder] = _Latest()
+        self._net_event_clocks: _Latest[_SavedNetEvent] = _Latest()
+        self._failed_net_event_clocks: _Latest[OrderEvent] = _Latest()
+        self._failed_native_fill_clocks: _Latest[NativeFill] = _Latest()
+        self._instance_control_clocks: _Latest[_InstanceControl] = _Latest()
+        self._account_control_clocks: _Latest[AccountControlResult] = _Latest()
 
     def admit(
         self,
@@ -978,74 +1087,102 @@ class AccountAdmission:
 
     def account_time(self, transaction: _AccountTransaction, account: AccountView) -> datetime:
         """Return the latest knowledge clock whose state admission would consume."""
-        account_id = account.ledger.account_id
-        # Resolve event owners through one map per call; a per-event order scan
-        # made every tick and admission quadratic in retained history.
-        order_accounts = {
-            tagged.order.identity: tagged.account_id for tagged in transaction.state.orders
-        }
-        net_accounts = {
-            parent.order.identity: parent.account_id for parent in transaction.state.net_orders
-        }
-        clocks = [self.config.opening_at]
+        clocks = [
+            self.config.opening_at,
+            self._history_times(transaction).get(account.ledger.account_id, self.config.opening_at),
+        ]
         if account.reconciled_at is not None:
             clocks.append(account.reconciled_at)
-        clocks.extend(posting.known_at for posting in account.ledger.postings)
-        clocks.extend(
-            tagged.order.decision_at
-            for tagged in transaction.state.orders
-            if tagged.account_id == account_id
-        )
-        clocks.extend(
-            saved.event.at
-            for saved in transaction.state.events
-            if self._owner(order_accounts, saved.event.order_id, "unknown child order")
-            == account_id
-        )
-        clocks.extend(
-            event.at
-            for event in transaction.state.failed_events
-            if account_id in self.failed_event_account_ids(transaction, event)
-        )
-        clocks.extend(
-            parent.order.decision_at
-            for parent in transaction.state.net_orders
-            if parent.account_id == account_id
-        )
-        clocks.extend(
-            saved.event.at
-            for saved in transaction.state.net_events
-            if self._owner(net_accounts, saved.event.order_id, "unknown physical order")
-            == account_id
-        )
-        clocks.extend(
-            event.at
-            for event in transaction.state.failed_net_events
-            if account_id in self.failed_net_event_account_ids(transaction, event)
-        )
-        clocks.extend(
-            fill.at
-            for fill in transaction.state.failed_native_fills
-            if any(
-                tagged.account_id == account_id and tagged.order.identity == fill.order_id
-                for tagged in transaction.state.orders
-            )
-            or any(
-                parent.account_id == account_id and parent.order.identity == fill.order_id
-                for parent in transaction.state.net_orders
-            )
-        )
-        clocks.extend(
-            control.at
-            for control in transaction.state.instance_controls
-            if self.instance_account(control.instance_id) == account_id
-        )
-        clocks.extend(
-            control.request.at
-            for control in transaction.state.account_controls
-            if control.request.account_id == account_id and control.status == "applied"
-        )
+        postings = account.ledger.postings
+        if postings:
+            # Ledgers refuse a posting known before its predecessor, so the last is latest.
+            clocks.append(postings[-1].known_at)
         return max(clocks)
+
+    def _history_times(self, transaction: _AccountTransaction) -> dict[str, datetime]:
+        """Return every account's latest firm-history clock for the transaction's state.
+
+        Admission asks for account time many times per transaction, and once per
+        account, while each step stages a new state that mostly appends history.
+        Each history tuple therefore keeps its per-account latest clocks and folds
+        only what a new state appended; see ``_Latest``.
+        """
+        state = transaction.state
+        orders = self._order_owners.of(state.orders)
+        parents = self._net_owners.of(state.net_orders)
+        fields: tuple[dict[str, datetime], ...] = (
+            self._order_clocks.of(state.orders, self._decision_clock),
+            self._event_clocks.of(
+                state.events,
+                lambda saved: (
+                    (
+                        self._owner(orders, saved.event.order_id, "unknown child order"),
+                        saved.event.at,
+                    ),
+                ),
+                (orders,),
+            ),
+            self._failed_event_clocks.of(
+                state.failed_events,
+                lambda event: (
+                    (account_id, event.at)
+                    for account_id in self.failed_event_account_ids(transaction, event)
+                ),
+                (state.events, orders),
+            ),
+            self._net_order_clocks.of(state.net_orders, self._decision_clock),
+            self._net_event_clocks.of(
+                state.net_events,
+                lambda saved: (
+                    (
+                        self._owner(parents, saved.event.order_id, "unknown physical order"),
+                        saved.event.at,
+                    ),
+                ),
+                (parents,),
+            ),
+            self._failed_net_event_clocks.of(
+                state.failed_net_events,
+                lambda event: (
+                    (account_id, event.at)
+                    for account_id in self.failed_net_event_account_ids(transaction, event)
+                ),
+                (state.net_events, parents),
+            ),
+            self._failed_native_fill_clocks.of(
+                state.failed_native_fills,
+                lambda fill: (
+                    (owners[fill.order_id], fill.at)
+                    for owners in (orders, parents)
+                    if fill.order_id in owners
+                ),
+                (orders, parents),
+            ),
+            self._instance_control_clocks.of(
+                state.instance_controls,
+                lambda control: ((self.instance_account(control.instance_id), control.at),),
+            ),
+            self._account_control_clocks.of(
+                state.account_controls,
+                lambda control: (
+                    ((control.request.account_id, control.request.at),)
+                    if control.status == "applied"
+                    else ()
+                ),
+            ),
+        )
+        latest: dict[str, datetime] = {}
+        for field in fields:
+            for account_id, at in field.items():
+                prior = latest.get(account_id)
+                if prior is None or at > prior:
+                    latest[account_id] = at
+        return latest
+
+    @staticmethod
+    def _decision_clock(item: TaggedOrder | NetOrder) -> _Clocks:
+        """Return the account and decision clock an order contributes."""
+        return ((item.account_id, item.order.decision_at),)
 
     @staticmethod
     def _owner(accounts: dict[str, str], order_id: str, missing: str) -> str:

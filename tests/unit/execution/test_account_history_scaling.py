@@ -24,6 +24,7 @@ from execution import (
     OrderDecision,
     PaperMarket,
 )
+from execution.account_admission import AccountAdmission
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
@@ -219,6 +220,31 @@ class _SharedFirmHistory:
 
 class TestAccountHistoryScaling:
     """Bound per-operation growth with another account's retained history."""
+
+    def test_account_time_resolves_only_appended_event_owners(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Account time resolves each event's owner once, not on every admission step."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        owner = AccountAdmission._owner
+        resolved = 0
+
+        def counting(accounts: dict[str, str], order_id: str, missing: str) -> str:
+            """Count one owner resolution and resolve it as before."""
+            nonlocal resolved
+            resolved += 1
+            return owner(accounts, order_id, missing)
+
+        monkeypatch.setattr(AccountAdmission, "_owner", staticmethod(counting))
+        per_round_trip: list[int] = []
+        for orders in (20, 200):
+            while history.orders < orders:
+                history.round_trip()
+            resolved = 0
+            history.round_trip()
+            per_round_trip.append(resolved)
+        # Re-resolving every retained event on each of about 12 calls grew tenfold here.
+        assert per_round_trip[1] <= per_round_trip[0]
 
     @pytest.mark.performance
     def test_one_account_trace_read_ignores_other_accounts_history(self, tmp_path: Path) -> None:
