@@ -113,6 +113,40 @@ class TestPaperOrderJournal:
         with pytest.raises(ValueError, match="unsupported paper journal schema"):
             self._journal(path)
 
+    def test_open_order_reads_refuse_a_disagreeing_terminal_flag(self, tmp_path: Path) -> None:
+        """Reservations read only open orders and refuse a terminal one flagged open."""
+        path = tmp_path / "paper.sqlite3"
+        with self._journal(path) as journal:
+            epoch = journal.claim("flag-owner")
+            order = journal.commit_step(
+                epoch=epoch,
+                step_id="flag",
+                checkpoint=b"flag",
+                decision=OrderDecision(
+                    identity="flag-buy",
+                    at=self.start,
+                    intent=self._order(side="buy", quantity="1", limit="100"),
+                ),
+                reference=self._price("100"),
+                maximum_fee=self._money("1"),
+            ).orders[0]
+            assert journal.reservations().cash.value == Decimal("101")
+            journal.apply_event(
+                epoch=epoch,
+                event=OrderEvent(
+                    identity="flag-rejected",
+                    order_id=order.identity,
+                    at=self.start + timedelta(seconds=1),
+                    kind="rejected",
+                ),
+            )
+            assert journal.reservations().cash.value == 0
+            with closing(sqlite3.connect(path)) as connection:
+                connection.execute("UPDATE orders SET terminal = 0")
+                connection.commit()
+            with pytest.raises(ValueError, match="differs from its terminal flag"):
+                journal.reservations()
+
     def test_ledger_rows_rebuild_the_same_ledger_after_reopening(self, tmp_path: Path) -> None:
         """Fills kept as rows replay to the ledger the writer holds, in any process."""
         path = tmp_path / "paper.sqlite3"

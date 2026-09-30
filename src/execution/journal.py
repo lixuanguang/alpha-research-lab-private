@@ -48,10 +48,12 @@ _LAYOUT: tuple[str, ...] = (
     "CREATE TABLE markets (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
     "market_id TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
     "CREATE TABLE orders (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
-    "order_id TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
+    "order_id TEXT NOT NULL UNIQUE, terminal INTEGER NOT NULL, payload BLOB NOT NULL)",
+    "CREATE INDEX orders_open ON orders(terminal, sequence)",
     "CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
     "event_id TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL, payload BLOB NOT NULL, "
     "order_state BLOB NOT NULL, balance BLOB NOT NULL)",
+    "CREATE INDEX events_order ON events(order_id, sequence)",
     "CREATE TABLE fills (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
     "fill_id TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL, payload BLOB NOT NULL)",
     "CREATE TABLE paper_scenario (id INTEGER PRIMARY KEY CHECK (id = 1), payload BLOB NOT NULL)",
@@ -250,9 +252,7 @@ class PaperOrderJournal:
             if row[0] == "late_terminal_fill":
                 return False
             balance = self._ledger(connection).balance
-            open_ids = {
-                order.identity for order in self._orders(connection) if not order.is_terminal
-            }
+            open_ids = {order.identity for order in self._orders(connection, open_only=True)}
             matched = (
                 expected_cash == balance.cash
                 and expected_holding == balance.holding
@@ -267,7 +267,7 @@ class PaperOrderJournal:
     def reservations(self) -> AccountReservations:
         """Read unresolved buy cash and sell inventory commitments."""
         with closing(self._connect()) as connection:
-            return self._reservations(connection)
+            return self._reservations_for(self._orders(connection, open_only=True))
 
     def order(self, order_id: str) -> OrderState | None:
         """Read one current child order by stable identity."""
@@ -427,16 +427,19 @@ class PaperOrderJournal:
             )
             # Only open orders can match, and a new market has no posted facts (its
             # claim, effects and result commit together), so terminal orders and
-            # their events are neither decoded into the projection nor re-validated.
-            orders = tuple(order for order in self._orders(connection) if not order.is_terminal)
-            open_ids = {order.identity for order in orders}
-            prior = tuple(
-                self._codec.decode_json(self._blob(row[1]), OrderEvent)
+            # their events are not even read: both come through indexes.
+            orders = self._orders(connection, open_only=True)
+            rows: list[tuple[int, bytes]] = [
+                (self._integer(row[0]), self._blob(row[1]))
+                for order in orders
                 for row in self._query_all(
-                    connection, "SELECT order_id, payload FROM events ORDER BY sequence"
+                    connection,
+                    "SELECT sequence, payload FROM events WHERE order_id = ? ORDER BY sequence",
+                    (order.identity,),
                 )
-                if row[0] in open_ids
-            )
+            ]
+            rows.sort()
+            prior = tuple(self._codec.decode_json(self._blob(row[1]), OrderEvent) for row in rows)
             projection = PaperMatchEvaluator(
                 scenario, lot=self.limits.lot, tick=self.limits.tick
             ).project(
@@ -616,8 +619,8 @@ class PaperOrderJournal:
                 raise ValueError("paper journal fill sequence is missing")
             self._staged_ledger = (inserted.lastrowid, ledger.copy())
         connection.execute(
-            "UPDATE orders SET payload = ? WHERE order_id = ?",
-            (self._codec.encode_json(current), current.identity),
+            "UPDATE orders SET payload = ?, terminal = ? WHERE order_id = ?",
+            (self._codec.encode_json(current), int(current.is_terminal), current.identity),
         )
         connection.execute(
             "INSERT INTO events(event_id, order_id, payload, order_state, balance) "
@@ -767,8 +770,8 @@ class PaperOrderJournal:
         )
         for order in result.orders:
             connection.execute(
-                "INSERT INTO orders(order_id, payload) VALUES (?, ?)",
-                (order.identity, self._codec.encode_json(order)),
+                "INSERT INTO orders(order_id, terminal, payload) VALUES (?, ?, ?)",
+                (order.identity, int(order.is_terminal), self._codec.encode_json(order)),
             )
         connection.execute("UPDATE state SET checkpoint = ? WHERE id = 1", (checkpoint,))
         return result
@@ -794,7 +797,8 @@ class PaperOrderJournal:
         if decision is None:
             return StepCommit(status="committed", reason="no_intent", orders=())
         ledger = self._ledger(connection)
-        existing = self._orders(connection)
+        # Terminal orders reserve nothing and block nothing, so only open ones are read.
+        existing = self._orders(connection, open_only=True)
         if any(order.status == "unknown" for order in existing):
             return StepCommit(status="rejected", reason="order_outcome_unknown", orders=())
         try:
@@ -805,9 +809,7 @@ class PaperOrderJournal:
             return StepCommit(status="committed", reason="target_matched", orders=())
         if maximum_fee.currency != self.limits.tick.currency:
             return StepCommit(status="rejected", reason="incompatible_fee_currency", orders=())
-        if isinstance(decision.intent, (TargetIntent, ExposureIntent)) and any(
-            not order.is_terminal for order in existing
-        ):
+        if isinstance(decision.intent, (TargetIntent, ExposureIntent)) and existing:
             return StepCommit(status="rejected", reason="pending_target", orders=())
         admitted: list[OrderState] = []
         for leg_name, intent in legs:
@@ -885,10 +887,6 @@ class PaperOrderJournal:
                 self._ledger_cache = (after, ledger.copy())
         return ledger
 
-    def _reservations(self, connection: sqlite3.Connection) -> AccountReservations:
-        """Calculate durable unresolved commitments from saved order states."""
-        return self._reservations_for(self._orders(connection))
-
     def _reservations_for(self, orders: tuple[OrderState, ...]) -> AccountReservations:
         """Reserve full remaining limit notional and conservative fee allowance."""
         cash = Money(value=Decimal(0), currency=self.limits.tick.currency)
@@ -913,21 +911,31 @@ class PaperOrderJournal:
         )
         return None if row is None else self._codec.decode_json(self._blob(row[0]), OrderState)
 
-    def _orders(self, connection: sqlite3.Connection) -> tuple[OrderState, ...]:
-        """Decode the account's current order states in admission order.
+    def _orders(
+        self, connection: sqlite3.Connection, *, open_only: bool = False
+    ) -> tuple[OrderState, ...]:
+        """Decode the account's current order states, or only its open ones, in admission order.
 
-        A stored order's bytes change with every update, so an unchanged order,
-        typically a terminal one, reuses its earlier validated decode instead of
-        being decoded again on every market. Only the latest read is retained.
+        A stored order's bytes change with every update, so an unchanged order
+        reuses its earlier validated decode instead of being decoded again on
+        every market. Only the latest read is retained. An open-only read uses the
+        ``terminal`` column and refuses a row whose state disagrees with it.
         """
-        rows = self._query_all(connection, "SELECT payload FROM orders ORDER BY sequence")
+        rows = self._query_all(
+            connection,
+            "SELECT payload FROM orders WHERE terminal = 0 ORDER BY sequence"
+            if open_only
+            else "SELECT payload FROM orders ORDER BY sequence",
+        )
         decoded: dict[bytes, OrderState] = {}
         for row in rows:
             payload = self._blob(row[0])
             order = self._decoded_orders.get(payload)
-            decoded[payload] = (
-                order if order is not None else self._codec.decode_json(payload, OrderState)
-            )
+            if order is None:
+                order = self._codec.decode_json(payload, OrderState)
+            if open_only and order.is_terminal:
+                raise ValueError("paper journal order state differs from its terminal flag")
+            decoded[payload] = order
         if len(decoded) != len(rows):
             raise ValueError("paper journal repeats an order payload")
         self._decoded_orders = decoded

@@ -152,13 +152,13 @@ class TestPaperHistoryScaling:
         with _DedicatedHistory.open(tmp_path) as journal:
             history = _DedicatedHistory(journal, journal.claim("scaling-owner"))
             medians: list[float] = []
-            for orders in (20, 100):
+            for orders in (100, 1000):
                 while history.orders < orders:
                     history.round_trip()
                 medians.append(history.median_market_seconds())
-        print(f"idle market at 20/100 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
-        # Decoding and re-validating every order and event grew about fourfold here.
-        assert medians[1] < 2.5 * medians[0]
+        print(f"idle market at 100/1000 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Reading every order row and every event row per market grew about 3.2x here.
+        assert medians[1] < 2 * medians[0]
 
     @pytest.mark.performance
     def test_filled_round_trip_does_not_replay_the_whole_ledger(self, tmp_path: Path) -> None:
