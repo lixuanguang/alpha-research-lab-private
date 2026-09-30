@@ -12,7 +12,13 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from accounting.accounts import AccountLedger, AccountPosting, AccountSnapshot, AccountState
+from accounting.accounts import (
+    _ACCOUNT_REPLAYS,
+    AccountLedger,
+    AccountPosting,
+    AccountSnapshot,
+    AccountState,
+)
 from financial_units import Currency, DecimalGrid, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from serialization import DomainCodec
@@ -640,6 +646,43 @@ class TestAccountLedger:
                 if instance_id is None or posting.instance_id == instance_id
             ),
         )
+
+    def test_attach_extends_a_remembered_history_with_the_same_checks(self) -> None:
+        """Attaching appended postings reuses the prior fold and still refuses bad ones."""
+        head = AccountState(account_id="physical", currencies=(self.usd, self.eur))
+        capital = self._transfer("capital", seconds=0, value="1000")
+        buy = self._fill("buy-a", seconds=1, quantity="2", price="100")
+        prior = AccountLedger.attach(head, (capital,))
+        assert AccountLedger.attach(head, prior.postings) is prior
+        extended = AccountLedger.attach(head, (*prior.postings, buy))
+        assert (
+            AccountLedger(extended).snapshot()
+            == AccountLedger(
+                AccountState(
+                    account_id="physical", currencies=(self.usd, self.eur), postings=(capital, buy)
+                )
+            ).snapshot()
+        )
+        for appended, message in (
+            (self._transfer("capital", seconds=2, value="1"), "duplicate identity"),
+            (self._fill("buy-b", seconds=2, quantity="20", price="100"), "insufficient"),
+            (self._transfer("late", seconds=-1, value="1"), "out of order"),
+        ):
+            with pytest.raises(ValueError, match=message):
+                AccountLedger.attach(head, (*extended.postings, appended))
+
+    def test_remembered_folds_are_bounded_per_account(self) -> None:
+        """A long run of posts keeps a few folds per account and never evicts another's."""
+        quiet = AccountLedger(AccountState(account_id="quiet", currencies=(self.usd,))).state
+        ledger = self._ledger()
+        states = [ledger.state]
+        for second in range(40):
+            ledger.post(self._transfer(f"deposit-{second}", seconds=second, value="1"))
+            states.append(ledger.state)
+        remembered = [state for state in states if _ACCOUNT_REPLAYS.find(state) is not None]
+        # Each fold is as large as its history; 64 of them per account made memory quadratic.
+        assert remembered == states[-4:]
+        assert _ACCOUNT_REPLAYS.find(quiet) is not None
 
     def test_exact_balances_survive_low_decimal_precision(self) -> None:
         """Avoid ambient Decimal rounding in cumulative multi-posting balances."""

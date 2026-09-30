@@ -102,6 +102,17 @@ class GatewayView(WireRecord, frozen=True):
     stranded: tuple[str, ...] = ()
 
 
+class _RetainedFill(WireRecord, frozen=True):
+    """Retain one execution's facts and the receipt holding its page's exact bytes.
+
+    ``fact.raw`` is empty: a page of executions is retained once, as a
+    ``fill-page`` receipt whose identity ``page`` names.
+    """
+
+    fact: VenueFillFact
+    page: str
+
+
 class VenueGateway:
     """Own one account's fenced test transport and replayable native receipts.
 
@@ -173,7 +184,7 @@ class VenueGateway:
                 instrument.dimension.instrument_id,
                 order.intent.limit.amount(order.intent.quantity),
             )
-            if any(item.order_id == order_id for item in self._store.read().dispatches):
+            if self._store.dispatch(order_id=order_id) is not None:
                 # Even an absent exchange lookup is not proof of a failed send.
                 try:
                     self._reconcile()
@@ -204,7 +215,6 @@ class VenueGateway:
                     time_in_force="ioc" if order.intent.time_in_force == "ioc" else "gtc",
                     post_only=order.intent.time_in_force == "post-only",
                 )
-                state = self._store.read()
                 dispatch = VenueDispatch(
                     order_id=order_id,
                     client_id=client_id,
@@ -212,14 +222,13 @@ class VenueGateway:
                     submitted_at=at,
                     request=self._codec.encode_json(request),
                 )
-                dispatches: tuple[VenueDispatch, ...] = (*state.dispatches, dispatch)
-                self._store.save(
-                    replace(
-                        state,
-                        dispatches=dispatches,
+                self._store.add_dispatch(
+                    dispatch,
+                    state=replace(
+                        self._store.read(),
                         recovery_required=True,
                         reason="submission_outcome_unknown",
-                    )
+                    ),
                 )
                 # Set immediately before the single send: whatever fails while it is
                 # unset left no bytes, and whatever fails after it may have.
@@ -273,7 +282,7 @@ class VenueGateway:
         Each order keeps its reservation until the venue reports it terminal.
         """
         with self._store.claim():
-            stranded = self._stranded(self._store.read().dispatches)
+            stranded = self._stranded(self._store.dispatches())
         for order_id in stranded:
             self.cancel(order_id, authorization)
         return self.inspect()
@@ -284,12 +293,8 @@ class VenueGateway:
         The venue-store flag is written first: it is the durable record, and
         reconcile rebuilds the local ``rejected`` event from it.
         """
-        state = self._store.read()
-        dispatches: tuple[VenueDispatch, ...] = tuple(
-            replace(item, submission_rejected=True) if item.order_id == order_id else item
-            for item in state.dispatches
-        )
-        self._store.save(replace(state, dispatches=dispatches))
+        dispatch = self._dispatch(order_id=order_id)
+        self._store.update_dispatch(replace(dispatch, submission_rejected=True))
         self._event(order_id, "rejected", self.clock.now(), f"reject:{client_id}")
 
     def cancel(self, order_id: str, authorization: VenueAuthorization) -> GatewayView:
@@ -326,20 +331,16 @@ class VenueGateway:
             except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
-            state = self._store.read()
             updated = replace(
                 dispatch, cancel_attempted=True, cancel_attempts=dispatch.cancel_attempts + 1
             )
-            dispatches: tuple[VenueDispatch, ...] = tuple(
-                updated if item == dispatch else item for item in state.dispatches
-            )
-            self._store.save(
-                replace(
-                    state,
-                    dispatches=dispatches,
+            self._store.update_dispatch(
+                updated,
+                state=replace(
+                    self._store.read(),
                     recovery_required=True,
                     reason="cancellation_outcome_unknown",
-                )
+                ),
             )
             if not order.cancel_requested:
                 self._event(order_id, "cancel_requested", at, f"cancel:{dispatch.client_id}")
@@ -506,9 +507,8 @@ class VenueGateway:
         self._qualify()
         # Replay receipts first: a crash after the account commit but before the
         # receipt mark is handled by the account journal's identical-fill retry.
-        for receipt in self._store.read().receipts:
-            if receipt.kind.startswith("fill:") and not receipt.applied:
-                self._ingest_fill(self._codec.decode_json(receipt.payload, VenueFillFact))
+        for receipt in self._store.unapplied("fill:"):
+            self._ingest_fill(self._codec.decode_json(receipt.payload, _RetainedFill).fact)
         at, nonce = self._request_clock()
         before = adapter.open_orders(at=at, nonce=nonce)
         for fact in before:
@@ -560,16 +560,23 @@ class VenueGateway:
         for fill in sorted(fills.values(), key=self._fill_sort):
             self._ingest_fill(fill)
         observed: list[OrderState] = []
-        for dispatch in self._store.read().dispatches:
+        # One journal read serves every lifetime dispatch; each dispatch changes only
+        # its own order below, so the map stays current for the others.
+        orders = self._orders()
+        for dispatch in self._store.dispatches():
+            order = orders.get(dispatch.order_id)
+            if order is None:
+                raise ValueError("unknown or nonphysical venue order")
+            if order.is_terminal:
+                # A journaled terminal outcome already matched every identified fill,
+                # and a refused dispatch's local rejection is already recorded. Later
+                # fills still arrive through fill history, and a venue order that is
+                # open again appears in the open-order snapshots.
+                continue
             if dispatch.submission_rejected:
                 self._event(
                     dispatch.order_id, "rejected", self.clock.now(), f"reject:{dispatch.client_id}"
                 )
-                continue
-            if self._order(dispatch.order_id).is_terminal:
-                # A journaled terminal outcome already matched every identified fill.
-                # Later fills still arrive through fill history, and a venue order
-                # that is open again appears in the open-order snapshots.
                 continue
             at, nonce = self._request_clock()
             found = adapter.order(
@@ -663,16 +670,19 @@ class VenueGateway:
         if dispatch.venue_order_id is not None and fact.venue_order_id != dispatch.venue_order_id:
             raise VenueProtocolError("venue fill order identity changed")
         key = f"fill:{fact.symbol}:{fact.fill_id}"
-        for prior in self._store.read().receipts:
-            if prior.kind == key:
-                saved = self._codec.decode_json(prior.payload, VenueFillFact)
-                if self._fill_economics(saved) != self._fill_economics(fact):
-                    raise VenueProtocolError("venue fill identity changed economics")
-                if prior.applied:
-                    return
-                fact = saved
-                break
-        receipt = self._store.receipt(key, self._codec.encode_json(fact), fact.received_at)
+        receipt = self._store.find_receipt(key)
+        if receipt is not None:
+            saved = self._codec.decode_json(receipt.payload, _RetainedFill).fact
+            if self._fill_economics(saved) != self._fill_economics(fact):
+                raise VenueProtocolError("venue fill identity changed economics")
+            if receipt.applied:
+                return
+            fact = saved
+        else:
+            # A page's exact bytes are retained once; each of its fills refers to them.
+            page = self._store.receipt("fill-page", fact.raw, fact.received_at)
+            retained = _RetainedFill(fact=replace(fact, raw=b""), page=page.identity)
+            receipt = self._store.receipt(key, self._codec.encode_json(retained), fact.received_at)
         if fact.source_at is None:
             raise VenueProtocolError("venue fill source time is unavailable")
         currency = next(
@@ -687,9 +697,7 @@ class VenueGateway:
             raise VenueProtocolError("unsupported third-currency venue fee")
         # Persist the local application clock too, so crash replay is byte-identical.
         native_key = f"native:{receipt.identity}"
-        native_receipt = next(
-            (item for item in self._store.read().receipts if item.kind == native_key), None
-        )
+        native_receipt = self._store.find_receipt(native_key)
         if native_receipt is None:
             native = NativeFill(
                 identity=f"{self.config.venue}:{fact.symbol}:{fact.fill_id}",
@@ -716,16 +724,9 @@ class VenueGateway:
         """Remember when a request sent at ``at`` found this order still open."""
         if fact.status not in ("open", "partial"):
             return
-        state = self._store.read()
-        dispatches: tuple[VenueDispatch, ...] = tuple(
-            replace(item, open_seen_at=at)
-            if item.client_id == fact.client_id
-            and (item.open_seen_at is None or item.open_seen_at < at)
-            else item
-            for item in state.dispatches
-        )
-        if dispatches != state.dispatches:
-            self._store.save(replace(state, dispatches=dispatches))
+        dispatch = self._store.dispatch(client_id=fact.client_id)
+        if dispatch is not None and (dispatch.open_seen_at is None or dispatch.open_seen_at < at):
+            self._store.update_dispatch(replace(dispatch, open_seen_at=at))
 
     def _ingest_order(self, fact: VenueOrderFact) -> None:
         """Require cumulative state to agree with individually identified fills."""
@@ -759,18 +760,8 @@ class VenueGateway:
                 "venue order differs from admitted mechanics or identified fills"
             )
         receipt = self._store.receipt("order", self._codec.encode_json(fact), fact.received_at)
-        state = self._store.read()
-        dispatches: tuple[VenueDispatch, ...] = tuple(
-            replace(item, venue_order_id=fact.venue_order_id)
-            if item.order_id == dispatch.order_id
-            else item
-            for item in state.dispatches
-        )
-        self._store.save(
-            replace(
-                state,
-                dispatches=dispatches,
-            )
+        self._store.update_dispatch(
+            replace(self._dispatch(order_id=dispatch.order_id), venue_order_id=fact.venue_order_id)
         )
         if fact.status == "filled":
             if not order.is_terminal or order.status != "filled":
@@ -803,18 +794,9 @@ class VenueGateway:
         receipt = self._store.receipt(
             f"ack:{attempt}", self._codec.encode_json(ack), ack.received_at
         )
-        state = self._store.read()
-        dispatches: tuple[VenueDispatch, ...] = tuple(
-            replace(item, venue_order_id=ack.venue_order_id or item.venue_order_id)
-            if item.order_id == dispatch.order_id
-            else item
-            for item in state.dispatches
-        )
-        self._store.save(
-            replace(
-                state,
-                dispatches=dispatches,
-            )
+        current = self._dispatch(order_id=dispatch.order_id)
+        self._store.update_dispatch(
+            replace(current, venue_order_id=ack.venue_order_id or current.venue_order_id)
         )
         self._event(
             dispatch.order_id,
@@ -827,7 +809,7 @@ class VenueGateway:
     def _event(self, order_id: str, kind: EventKind, at: datetime, identity: str) -> None:
         """Route canonical facts through the existing direct or net-parent owner."""
         key = f"canonical:{identity}:{kind}"
-        saved = next((item for item in self._store.read().receipts if item.kind == key), None)
+        saved = self._store.find_receipt(key)
         if saved is None:
             event = OrderEvent(
                 identity=f"venue:{identity}:{kind}", order_id=order_id, at=at, kind=kind
@@ -892,17 +874,27 @@ class VenueGateway:
 
     def _order(self, order_id: str) -> OrderState:
         """Resolve only this account's routable direct orders or physical parents."""
-        for parent in self.journal.net_orders():
-            if parent.account_id == self.config.account_id and parent.order.identity == order_id:
-                return parent.order
-        for child in self.journal.orders():
-            if (
-                child.account_id == self.config.account_id
-                and child.context is None
-                and child.order.identity == order_id
-            ):
-                return child.order
-        raise ValueError("unknown or nonphysical venue order")
+        order = self._orders().get(order_id)
+        if order is None:
+            raise ValueError("unknown or nonphysical venue order")
+        return order
+
+    def _orders(self) -> dict[str, OrderState]:
+        """Map this account's routable direct orders and physical parents by identity.
+
+        A physical parent takes precedence over a direct order of the same identity.
+        """
+        orders = {
+            child.order.identity: child.order
+            for child in self.journal.orders()
+            if child.account_id == self.config.account_id and child.context is None
+        }
+        orders.update(
+            (parent.order.identity, parent.order)
+            for parent in self.journal.net_orders()
+            if parent.account_id == self.config.account_id
+        )
+        return orders
 
     def _instrument(self, order: OrderState) -> VenueInstrument:
         """Resolve native units only through the pinned configuration mapping."""
@@ -915,12 +907,14 @@ class VenueGateway:
         self, *, order_id: str | None = None, client_id: str | None = None
     ) -> VenueDispatch:
         """Resolve durable ownership; unknown external orders remain account breaks."""
-        for dispatch in self._store.read().dispatches:
-            if (order_id is not None and dispatch.order_id == order_id) or (
-                client_id is not None and dispatch.client_id == client_id
-            ):
-                return dispatch
-        raise VenueProtocolError("unowned or never-submitted venue order")
+        dispatch = (
+            self._store.dispatch(order_id=order_id)
+            if order_id is not None
+            else self._store.dispatch(client_id=client_id)
+        )
+        if dispatch is None:
+            raise VenueProtocolError("unowned or never-submitted venue order")
+        return dispatch
 
     def _client_id(self, order_id: str) -> str:
         """Derive bounded venue identities and reject even a truncated-hash collision."""
@@ -930,7 +924,7 @@ class VenueGateway:
         identity = (
             str(int(digest[:11], 16) + 1) if self.config.venue == "bitfinex" else "ar" + digest[:30]
         )
-        if any(item.client_id == identity for item in self._store.read().dispatches):
+        if self._store.dispatch(client_id=identity) is not None:
             raise ValueError("venue client identity collision")
         return identity
 
@@ -943,6 +937,7 @@ class VenueGateway:
     def _view(self, *, submission_attempted: bool = False) -> GatewayView:
         """Project retained transport evidence without secret or account payload bytes."""
         state = self._store.read()
+        dispatches = self._store.dispatches()
         return GatewayView(
             account_id=self.config.account_id,
             venue=self.config.venue,
@@ -951,10 +946,10 @@ class VenueGateway:
             recovery_required=state.recovery_required,
             reason=state.reason,
             reconciled_at=state.reconciled_at,
-            dispatches=state.dispatches,
-            receipt_count=len(state.receipts),
+            dispatches=dispatches,
+            receipt_count=self._store.receipt_count(),
             submission_attempted=submission_attempted,
-            stranded=self._stranded(state.dispatches),
+            stranded=self._stranded(dispatches),
         )
 
     def _stranded(self, dispatches: tuple[VenueDispatch, ...]) -> tuple[str, ...]:
@@ -964,25 +959,25 @@ class VenueGateway:
         remainder only fills by charging past its reserve. A buy may still fill
         lower. An order whose cancel is already in flight is not listed again.
         """
-        sent = {item.order_id for item in dispatches if not item.submission_rejected}
-        if not sent:
+        # Only a sent sell can be stranded, and each dispatch retains its request's
+        # side, so a view reads the journal only when such a dispatch exists.
+        sells = {
+            item.order_id
+            for item in dispatches
+            if not item.submission_rejected
+            and self._codec.decode_json(item.request, VenueOrderRequest).side == "sell"
+        }
+        if not sells:
             return ()
         orders = [
-            parent.order
-            for parent in self.journal.net_orders()
-            if parent.account_id == self.config.account_id
+            order
+            for order in self.journal.physical_open_orders(self.config.account_id)
+            if order.identity in sells
         ]
-        orders.extend(
-            child.order
-            for child in self.journal.orders()
-            if child.account_id == self.config.account_id and child.context is None
-        )
         stranded: list[str] = []
         for order in orders:
             if (
-                order.identity not in sent
-                or order.is_terminal
-                or order.intent.side != "sell"
+                order.intent.side != "sell"
                 or order.status in ("unknown", "cancel_requested", "cancel_ack")
                 or not order.remaining.value
             ):

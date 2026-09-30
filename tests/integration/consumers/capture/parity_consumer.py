@@ -222,7 +222,7 @@ def inspect(source: Path, output: Path) -> dict[str, object]:
     for checkpoint in checkpoints:
         restored = _CODEC.decode_json(_CODEC.encode_json(checkpoint), Checkpoint)
         view = BookView(restored.state)
-        replay = BookReplay.from_snapshot(
+        replay = BookReplay(
             snapshot,
             request_identity=selected.request.identity,
             batch_size=7,
@@ -249,7 +249,7 @@ def inspect(source: Path, output: Path) -> dict[str, object]:
     assert resumed == actual.state
     failures: list[str] = []
     try:
-        BookReplay.from_snapshot(
+        BookReplay(
             snapshot,
             request_identity=selected.request.identity,
             batch_size=7,

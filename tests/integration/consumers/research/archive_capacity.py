@@ -168,7 +168,7 @@ class NativeArchiveCapacity:
         )
         if self.session is None or self.session.identity != identity:
             raise ValueError("diagnostic requires initialized snapshot session")
-        replay = BookReplay.from_snapshot(
+        replay = BookReplay(
             self.session,
             request_identity=archive.identity,
             terminal=terminal,

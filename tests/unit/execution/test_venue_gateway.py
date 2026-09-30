@@ -11,7 +11,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import parse_qsl
 
 # third party library imports
@@ -35,13 +35,15 @@ from execution import (
     AccountDecision,
     AccountJournal,
     AccountQuote,
+    NetOrder,
     OrderDecision,
     OrderEvent,
     OrderState,
+    TaggedOrder,
     VenueGateway,
 )
 from execution.account_state import _AccountTransaction
-from execution.venue_state import VenueState, VenueStateStore
+from execution.venue_state import VenueReceipt, VenueState, VenueStateStore
 from execution.venues import (
     BitfinexSpotAdapter,
     OKXSpotAdapter,
@@ -388,13 +390,18 @@ class ReconcileRecordingGateway(VenueGateway):
 
 
 class GuardProbingPause:
-    """Advance a fake throttle clock, recording whether the account journal is writable."""
+    """Advance a fake throttle clock, recording whether a pause sat inside a dispatch.
+
+    A pause must neither hold the account journal's write lock nor fall inside a
+    send window, which is while a dispatch lease is armed.
+    """
 
     def __init__(self, journal_path: Path) -> None:
-        """Bind the account journal whose write lock each pause probes."""
+        """Bind the account journal whose write lock and leases each pause probes."""
         self.journal_path = journal_path
         self.now = 0.0
         self.locked = 0
+        self.leased = 0
         self.free = 0
 
     def clock(self) -> float:
@@ -409,8 +416,15 @@ class GuardProbingPause:
             except sqlite3.OperationalError:
                 self.locked += 1
             else:
+                armed = cast(
+                    tuple[int],
+                    connection.execute("SELECT COUNT(*) FROM dispatch_leases").fetchone(),
+                )
                 connection.rollback()
-                self.free += 1
+                if armed[0]:
+                    self.leased += 1
+                else:
+                    self.free += 1
         self.now += seconds
 
 
@@ -439,6 +453,19 @@ class BitfinexOrderQuery(msgspec.Struct, frozen=True):
     id: int | None = None
     cid: int | None = None
     cid_date: str | None = None
+
+
+class FillBytesView(msgspec.Struct, frozen=True):
+    """Read only the retained bytes of a fill receipt's execution."""
+
+    raw: bytes
+
+
+class RetainedFillView(msgspec.Struct, frozen=True):
+    """Read a fill receipt's execution bytes and the page receipt it names."""
+
+    fact: FillBytesView
+    page: str
 
 
 class BitfinexTradeQuery(msgspec.Struct, frozen=True):
@@ -901,7 +928,11 @@ class TestVenueGateway:
         )
 
     def _admit(
-        self, journal: AccountJournal, config: VenueExecutionConfiguration, clock: AdvancingClock
+        self,
+        journal: AccountJournal,
+        config: VenueExecutionConfiguration,
+        clock: AdvancingClock,
+        identity: str = "reference-order",
     ) -> str:
         """Reserve one independently quoted two-unit buy and return its order identity."""
         quote = AccountQuote(
@@ -914,7 +945,7 @@ class TestVenueGateway:
         )
         journal.observe(quote)
         decision = OrderDecision(
-            identity="reference-order",
+            identity=identity,
             at=clock.now(),
             intent=OrderIntent(
                 side="buy",
@@ -1076,11 +1107,11 @@ class TestVenueGateway:
         order_id = self._admit(journal, gateway.config, clock)
         authorization = self._authorization(gateway.config, enabled=True)
         assert gateway.submit(order_id, authorization).submission_attempted
-        assert probe.free > 0 and probe.locked == 0
+        assert probe.free > 0 and probe.locked == probe.leased == 0
         submitted = probe.free
         gateway.cancel(order_id, authorization)
         assert self._order_state(journal, order_id).status == "cancel_ack"
-        assert probe.free > submitted and probe.locked == 0
+        assert probe.free > submitted and probe.locked == probe.leased == 0
 
     def test_bitfinex_private_session_survives_flat_account_snapshots(self, tmp_path: Path) -> None:
         """Documented snapshots after authentication neither end nor break the session."""
@@ -1162,6 +1193,93 @@ class TestVenueGateway:
             proven = store.read().fills_complete_through
         assert proven is not None and proven > mark
         assert self._order_state(journal, order_id).filled == filled
+
+    def test_reconcile_reads_journal_orders_once_for_all_dispatches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Lifetime dispatches do not each cost journal reads on every reconciliation."""
+        journal, gateway, _, clock = self._native_gateway(tmp_path, "bitfinex")
+        authorization = self._authorization(gateway.config, enabled=True)
+        reads = 0
+        orders, net_orders = journal.orders, journal.net_orders
+
+        def counted_orders() -> tuple[TaggedOrder, ...]:
+            """Count one read of the journal's orders."""
+            nonlocal reads
+            reads += 1
+            return orders()
+
+        def counted_net_orders() -> tuple[NetOrder, ...]:
+            """Count one read of the journal's physical orders."""
+            nonlocal reads
+            reads += 1
+            return net_orders()
+
+        per_reconcile: list[int] = []
+        dispatched = 0
+        for size in (2, 12):
+            while dispatched < size:
+                order_id = self._admit(journal, gateway.config, clock, f"refused-{dispatched}")
+                # The sender stalls past its send window, so nothing is sent and the
+                # dispatch stays as a rejected, terminal lifetime record.
+                calls = itertools.count()
+                journal._monotonic = lambda: time.monotonic() + (11.0 if next(calls) else 0.0)
+                with pytest.raises(ValueError, match="send window passed"):
+                    gateway.submit(order_id, authorization)
+                assert not gateway.reconcile().recovery_required
+                dispatched += 1
+            with monkeypatch.context() as patch:
+                patch.setattr(journal, "orders", counted_orders)
+                patch.setattr(journal, "net_orders", counted_net_orders)
+                reads = 0
+                assert not gateway.reconcile().recovery_required
+            per_reconcile.append(reads)
+        # Two journal reads per lifetime dispatch grew with every order ever sent.
+        assert per_reconcile[1] == per_reconcile[0]
+
+    @pytest.mark.performance
+    def test_overlap_fill_reread_stays_near_flat(self, tmp_path: Path) -> None:
+        """Re-reading already applied overlap fills costs little per fill, not per receipt."""
+        seconds: list[float] = []
+        for fills in (20, 200):
+            _, gateway, account, clock, _ = self._native(tmp_path / str(fills), "okx")
+            account.execute(fills, quantity="0.01", fee="0.0001", per_millisecond=1)
+            clock.sleep(60)
+            assert not gateway.reconcile().recovery_required
+            clock.sleep(60)
+            started = time.perf_counter()
+            assert not gateway.reconcile().recovery_required
+            seconds.append(time.perf_counter() - started)
+        print(f"overlap reconcile at 20/200 applied fills: {seconds[0]:.4f}s/{seconds[1]:.4f}s")
+        # Decoding the whole venue state twice per re-read fill grew about fourfold here.
+        assert seconds[1] < 2 * seconds[0]
+
+    @pytest.mark.parametrize("venue", ["okx", "bitfinex"])
+    def test_fill_page_bytes_are_retained_once(
+        self, tmp_path: Path, venue: Literal["okx", "bitfinex"]
+    ) -> None:
+        """Each fill of a page refers to one retained page instead of repeating its bytes."""
+        _, gateway, account, clock, _ = self._native(tmp_path, venue)
+        account.execute(3, quantity="0.5", fee="0.01", per_millisecond=1)
+        clock.sleep(60)
+        assert not gateway.reconcile().recovery_required
+        with closing(sqlite3.connect(gateway._store.path)) as connection:
+            rows = cast(
+                list[tuple[bytes]],
+                connection.execute("SELECT payload FROM receipts ORDER BY sequence").fetchall(),
+            )
+        codec = DomainCodec()
+        receipts = [codec.decode_json(payload, VenueReceipt) for (payload,) in rows]
+        pages = [item for item in receipts if item.kind == "fill-page"]
+        fills = [
+            msgspec.json.decode(item.payload, type=RetainedFillView)
+            for item in receipts
+            if item.kind.startswith("fill:")
+        ]
+        assert len(pages) == 1 and len(fills) == 3
+        # Each fill used to embed the whole page body as its own raw bytes.
+        assert all(fill.fact.raw == b"" for fill in fills)
+        assert {fill.page for fill in fills} == {pages[0].identity}
 
     def test_one_fill_burst_reconciles_once(self, tmp_path: Path) -> None:
         """The four private frames of one fill cause exactly one REST reconciliation."""
@@ -1439,6 +1557,41 @@ class TestVenueGateway:
         gateway.submit(order_id, authorization)
         assert adapter.submit_count == 1
 
+    def test_gateway_view_reads_no_journal_orders_without_a_sent_sell(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only a sent sell can be stranded, so a view after a sent buy reads no orders."""
+        journal, gateway, _, _, _ = self._native(tmp_path, "okx")
+        reads: list[str] = []
+        orders, net_orders, open_orders = (
+            journal.orders,
+            journal.net_orders,
+            journal.physical_open_orders,
+        )
+
+        def counted_orders() -> tuple[TaggedOrder, ...]:
+            """Count one read of the journal's orders."""
+            reads.append("orders")
+            return orders()
+
+        def counted_net_orders() -> tuple[NetOrder, ...]:
+            """Count one read of the journal's physical orders."""
+            reads.append("net_orders")
+            return net_orders()
+
+        def counted_open_orders(account_id: str) -> tuple[OrderState, ...]:
+            """Count one read of the account's open physical orders."""
+            reads.append("physical_open_orders")
+            return open_orders(account_id)
+
+        monkeypatch.setattr(journal, "orders", counted_orders)
+        monkeypatch.setattr(journal, "net_orders", counted_net_orders)
+        monkeypatch.setattr(journal, "physical_open_orders", counted_open_orders)
+        view = gateway.inspect()
+        assert len(view.dispatches) == 1 and view.stranded == ()
+        # Every view used to read both order lists to look for stranded sells.
+        assert reads == []
+
     def test_stranded_sell_is_flagged_and_cancelled_under_one_authorization(
         self, tmp_path: Path
     ) -> None:
@@ -1636,6 +1789,18 @@ class TestVenueGateway:
                 connection.execute("UPDATE state SET payload=? WHERE id=1", (old,))
             with pytest.raises(ValueError, match="unsupported venue journal schema"):
                 store.read()
+
+    def test_single_document_venue_state_layout_is_refused(self, tmp_path: Path) -> None:
+        """A state file that keeps dispatches and receipts in one document is never opened."""
+        store = VenueStateStore(tmp_path / "account.sqlite3", "account", b"scope")
+        with closing(sqlite3.connect(store.path)) as connection, connection:
+            connection.execute(
+                "CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), binding BLOB NOT NULL, "
+                "payload BLOB NOT NULL)"
+            )
+            connection.execute("INSERT INTO state VALUES (1, ?, ?)", (b"scope", b"{}"))
+        with pytest.raises(ValueError, match="unsupported venue journal schema"), store.claim():
+            pytest.fail("an earlier venue state layout was opened")
 
     def test_same_physical_wallet_cannot_fund_two_local_accounts(self, tmp_path: Path) -> None:
         """Independent aliases cannot duplicate one authenticated account's funding."""

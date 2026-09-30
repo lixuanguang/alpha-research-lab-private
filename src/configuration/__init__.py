@@ -55,6 +55,7 @@ from configuration.venue_execution import (
     VenueInstrument,
 )
 from configuration.venue_secrets import (
+    VENUE_SECRET_FILES,
     SecretValue,
     VenueSecrets,
     VenueSecretsError,
@@ -62,6 +63,7 @@ from configuration.venue_secrets import (
 )
 
 __all__ = [
+    "VENUE_SECRET_FILES",
     "AccountConfiguration",
     "BookEquivalence",
     "BookInstance",

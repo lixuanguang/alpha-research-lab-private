@@ -20,7 +20,7 @@ alpha-collect = "applications.collect:main"
 [tool.uv]
 required-version = "==0.12.7"
 default-groups = []
-constraint-dependencies = ["urllib3==2.7.0"]
+constraint-dependencies = ["urllib3==2.8.0"]
 
 [tool.uv.sources]
 alpha-research-contracts = { path = "../contracts", editable = false }

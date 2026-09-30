@@ -16,7 +16,7 @@ from typing import cast
 from msgspec.structs import replace
 
 # project library imports
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, require_sqlite_layout
 
 
 class VenueDispatch(WireRecord, frozen=True):
@@ -48,7 +48,7 @@ class VenueReceipt(WireRecord, frozen=True):
 
 
 class VenueState(WireRecord, frozen=True):
-    """Persist transport history independently of the authoritative account ledger.
+    """Persist the transport's scalar recovery state beside its dispatch and receipt rows.
 
     ``fills_complete_through`` is the end of the last fill-history window whose
     reconciliation matched the physical account. Every execution the venue had
@@ -59,8 +59,6 @@ class VenueState(WireRecord, frozen=True):
     schema_version: str = "venue-journal"
     nonce: int = 0
     last_request_at: datetime | None = None
-    dispatches: tuple[VenueDispatch, ...] = ()
-    receipts: tuple[VenueReceipt, ...] = ()
     recovery_required: bool = True
     reason: str = "initial_reconciliation_required"
     reconciled_at: datetime | None = None
@@ -74,10 +72,20 @@ class VenueState(WireRecord, frozen=True):
             raise ValueError("unsupported venue journal state")
         if self.fills_complete_through is not None:
             self._require_utc(self.fills_complete_through, field_name="venue fill mark")
-        if len({item.client_id for item in self.dispatches}) != len(self.dispatches):
-            raise ValueError("venue client identities collide")
-        if len({item.order_id for item in self.dispatches}) != len(self.dispatches):
-            raise ValueError("duplicate venue dispatch identity")
+
+
+# Dispatches and receipts are rows, so a frame or a flag costs one row, not a rewrite
+# of the whole history. Opening refuses any other layout, including an earlier one.
+_LAYOUT: tuple[str, ...] = (
+    "CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), binding BLOB NOT NULL, "
+    "payload BLOB NOT NULL)",
+    "CREATE TABLE dispatches (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "order_id TEXT NOT NULL UNIQUE, client_id TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)",
+    "CREATE TABLE receipts (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "identity TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, applied INTEGER NOT NULL, "
+    "payload BLOB NOT NULL)",
+    "CREATE INDEX receipts_kind ON receipts(kind, sequence)",
+)
 
 
 class VenueStateStore:
@@ -119,13 +127,8 @@ class VenueStateStore:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     def read(self) -> VenueState:
-        """Read validated current state only while the external-send fence is held."""
-        self._require_claim()
-        with closing(sqlite3.connect(self.path)) as connection:
-            row = cast(
-                tuple[object, ...] | None,
-                connection.execute("SELECT payload FROM state WHERE id=1").fetchone(),
-            )
+        """Read validated scalar state only while the external-send fence is held."""
+        row = self._one("SELECT payload FROM state WHERE id=1")
         payload = None if row is None else row[0]
         if not isinstance(payload, bytes):
             raise ValueError("venue journal state is missing")
@@ -134,37 +137,119 @@ class VenueStateStore:
         return result
 
     def save(self, state: VenueState) -> None:
-        """Commit state durably before allowing the next protocol side effect."""
-        self._require_claim()
+        """Commit scalar state durably before allowing the next protocol side effect."""
         state.__post_init__()
+        self._execute("UPDATE state SET payload=? WHERE id=1", (self._codec.encode_json(state),))
+
+    def dispatches(self) -> tuple[VenueDispatch, ...]:
+        """Read every dispatch in the order its intent was committed."""
+        return tuple(
+            self._dispatch_row(row)
+            for row in self._all("SELECT payload FROM dispatches ORDER BY sequence")
+        )
+
+    def dispatch(
+        self, *, order_id: str | None = None, client_id: str | None = None
+    ) -> VenueDispatch | None:
+        """Find one dispatch by its order or its client identity."""
+        if (order_id is None) == (client_id is None):
+            raise ValueError("venue dispatch lookup requires one identity")
+        row = (
+            self._one("SELECT payload FROM dispatches WHERE order_id=?", (order_id,))
+            if order_id is not None
+            else self._one("SELECT payload FROM dispatches WHERE client_id=?", (client_id,))
+        )
+        return None if row is None else self._dispatch_row(row)
+
+    def add_dispatch(self, dispatch: VenueDispatch, *, state: VenueState) -> None:
+        """Commit a new send intent with its scalar state in one transaction.
+
+        A dispatch's order and client identities are never reused.
+        """
+        state.__post_init__()
+        self._require_claim()
         with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("PRAGMA synchronous=FULL")
+            try:
+                connection.execute(
+                    "INSERT INTO dispatches(order_id, client_id, payload) VALUES (?, ?, ?)",
+                    (dispatch.order_id, dispatch.client_id, self._codec.encode_json(dispatch)),
+                )
+            except sqlite3.IntegrityError:
+                raise ValueError("duplicate venue dispatch or client identity") from None
             connection.execute(
                 "UPDATE state SET payload=? WHERE id=1", (self._codec.encode_json(state),)
             )
 
+    def update_dispatch(self, dispatch: VenueDispatch, *, state: VenueState | None = None) -> None:
+        """Replace one dispatch's mutable facts, and optionally scalar state, atomically.
+
+        The dispatch's identities stay as committed.
+        """
+        if state is not None:
+            state.__post_init__()
+        self._require_claim()
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute("PRAGMA synchronous=FULL")
+            changed = connection.execute(
+                "UPDATE dispatches SET payload=? WHERE order_id=? AND client_id=?",
+                (self._codec.encode_json(dispatch), dispatch.order_id, dispatch.client_id),
+            ).rowcount
+            if changed != 1:
+                raise ValueError("unowned or never-submitted venue order")
+            if state is not None:
+                connection.execute(
+                    "UPDATE state SET payload=? WHERE id=1", (self._codec.encode_json(state),)
+                )
+
     def receipt(self, kind: str, payload: bytes, at: datetime) -> VenueReceipt:
         """Append exact receipt bytes or return the original immutable retry."""
-        state = self.read()
         identity = hashlib.sha256(kind.encode() + b"\0" + payload).hexdigest()
-        for receipt in state.receipts:
-            if receipt.identity == identity:
-                return receipt
+        prior = self._one("SELECT applied, payload FROM receipts WHERE identity=?", (identity,))
+        if prior is not None:
+            return self._receipt_row(prior)
         receipt = VenueReceipt(identity=identity, kind=kind, received_at=at, payload=payload)
-        receipts: tuple[VenueReceipt, ...] = (*state.receipts, receipt)
-        self.save(replace(state, receipts=receipts))
+        self._execute(
+            "INSERT INTO receipts(identity, kind, applied, payload) VALUES (?, ?, 0, ?)",
+            (identity, kind, self._codec.encode_json(receipt)),
+        )
         return receipt
+
+    def find_receipt(self, kind: str) -> VenueReceipt | None:
+        """Return the first retained receipt of exactly this kind, if any."""
+        row = self._one(
+            "SELECT applied, payload FROM receipts WHERE kind=? ORDER BY sequence LIMIT 1",
+            (kind,),
+        )
+        return None if row is None else self._receipt_row(row)
+
+    def unapplied(self, prefix: str) -> tuple[VenueReceipt, ...]:
+        """Return receipts whose kind starts with ``prefix`` and whose effects are pending."""
+        if not prefix or prefix[-1] == "\U0010ffff":
+            raise ValueError("venue receipt prefix must be bounded")
+        # A kind range over the index: every kind starting with the prefix sorts below
+        # the prefix with its last character incremented.
+        end = prefix[:-1] + chr(ord(prefix[-1]) + 1)
+        return tuple(
+            self._receipt_row(row)
+            for row in self._all(
+                "SELECT applied, payload FROM receipts WHERE kind >= ? AND kind < ? "
+                "AND applied = 0 ORDER BY sequence",
+                (prefix, end),
+            )
+        )
+
+    def receipt_count(self) -> int:
+        """Count every retained receipt."""
+        row = self._one("SELECT COUNT(*) FROM receipts")
+        if row is None or type(row[0]) is not int:
+            raise ValueError("venue journal receipts are malformed")
+        return row[0]
 
     def applied(self, identity: str) -> None:
         """Mark a retained receipt only after its ledger effects have committed."""
-        state = self.read()
-        if identity not in {receipt.identity for receipt in state.receipts}:
+        if self._execute("UPDATE receipts SET applied=1 WHERE identity=?", (identity,)) != 1:
             raise ValueError("unknown venue receipt")
-        receipts: tuple[VenueReceipt, ...] = tuple(
-            replace(receipt, applied=True) if receipt.identity == identity else receipt
-            for receipt in state.receipts
-        )
-        self.save(replace(state, receipts=receipts))
 
     def bind_account(self, venue: str, environment: str, native_identity: str) -> None:
         """Prevent one physical wallet from funding two local account aliases."""
@@ -199,24 +284,61 @@ class VenueStateStore:
                 ) from None
 
     def _initialize(self) -> None:
-        """Create or verify the configuration binding while holding the OS fence."""
+        """Create the layout, or require it and the configuration binding, under the fence."""
         with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("PRAGMA synchronous=FULL")
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS state "
-                "(id INTEGER PRIMARY KEY CHECK(id=1), binding BLOB NOT NULL, payload BLOB NOT NULL)"
-            )
-            row = cast(
+            existing = cast(
                 tuple[object, ...] | None,
-                connection.execute("SELECT binding FROM state WHERE id=1").fetchone(),
+                connection.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone(),
             )
-            if row is None:
+            if existing is None:
+                for statement in _LAYOUT:
+                    connection.execute(statement)
                 connection.execute(
                     "INSERT INTO state VALUES (1, ?, ?)",
                     (self._binding, self._codec.encode_json(VenueState())),
                 )
-            elif row[0] != self._binding:
+                return
+            require_sqlite_layout(connection, _LAYOUT, "unsupported venue journal schema")
+            row = cast(
+                tuple[object, ...] | None,
+                connection.execute("SELECT binding FROM state WHERE id=1").fetchone(),
+            )
+            if row is None or row[0] != self._binding:
                 raise ValueError("venue journal configuration or account binding differs")
+
+    def _dispatch_row(self, row: tuple[object, ...]) -> VenueDispatch:
+        """Decode one stored dispatch."""
+        if type(row[0]) is not bytes:
+            raise ValueError("venue journal dispatch is malformed")
+        return self._codec.decode_json(row[0], VenueDispatch)
+
+    def _receipt_row(self, row: tuple[object, ...]) -> VenueReceipt:
+        """Decode one stored receipt with its applied flag."""
+        applied, payload = row
+        if applied not in (0, 1) or type(payload) is not bytes:
+            raise ValueError("venue journal receipt is malformed")
+        receipt = self._codec.decode_json(payload, VenueReceipt)
+        return replace(receipt, applied=applied == 1)
+
+    def _one(self, query: str, parameters: tuple[object, ...] = ()) -> tuple[object, ...] | None:
+        """Read one row while holding the fence."""
+        self._require_claim()
+        with closing(sqlite3.connect(self.path)) as connection:
+            return cast(tuple[object, ...] | None, connection.execute(query, parameters).fetchone())
+
+    def _all(self, query: str, parameters: tuple[object, ...] = ()) -> list[tuple[object, ...]]:
+        """Read rows while holding the fence."""
+        self._require_claim()
+        with closing(sqlite3.connect(self.path)) as connection:
+            return cast(list[tuple[object, ...]], connection.execute(query, parameters).fetchall())
+
+    def _execute(self, statement: str, parameters: tuple[object, ...]) -> int:
+        """Commit one durable change while holding the fence; return the changed rows."""
+        self._require_claim()
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute("PRAGMA synchronous=FULL")
+            return connection.execute(statement, parameters).rowcount
 
     def _require_claim(self) -> None:
         """Reject accidental access outside the single execution-owner lifetime."""

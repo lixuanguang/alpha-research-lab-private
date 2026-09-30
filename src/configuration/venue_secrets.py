@@ -15,7 +15,9 @@ Errors are raised from frames whose locals hold no raw credential text.
 from __future__ import annotations
 
 # standard library imports
+import errno
 import logging
+import os
 import stat
 import threading
 import traceback
@@ -24,8 +26,6 @@ from pathlib import Path
 from types import TracebackType
 from typing import Final, NoReturn, Protocol, cast
 
-_REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[2]
-DEFAULT_SECRETS_DIRECTORY: Final = _REPOSITORY_ROOT / "secrets"
 _MAXIMUM_FILE_BYTES: Final = 16384
 _REDACTED: Final = "<redacted>"
 _MINIMUM_REDACTED_LENGTH: Final = 6
@@ -142,16 +142,18 @@ class VenueSecrets:
         raise TypeError("VenueSecrets cannot be serialized")
 
     @classmethod
-    def read(cls, venue: str, directory: Path | None = None) -> VenueSecrets:
+    def read(cls, venue: str, directory: Path) -> VenueSecrets:
         """Read one venue's ``KEY=VALUE`` credential file from a local directory.
 
         Blank lines and ``#`` comments are allowed. The file must be a regular,
         owner-only file (mode 600 or stricter on POSIX). Values are never
-        interpolated, printed or included in exceptions.
+        interpolated, printed or included in exceptions. The directory is always
+        explicit: one derived from this module's location would point inside the
+        virtual environment of a non-editable install.
 
         Args:
             venue: Case-insensitive venue name from ``VENUE_SECRET_FILES``.
-            directory: Secrets directory; defaults to the repository ``secrets/``.
+            directory: Directory holding the venue's credential file.
 
         Returns:
             Validated credentials for the venue.
@@ -164,8 +166,7 @@ class VenueSecrets:
         if venue not in VENUE_SECRET_FILES:
             raise VenueSecretsError(f"unknown credential venue: {venue!r}")
         file_name, required = VENUE_SECRET_FILES[venue]
-        path = (DEFAULT_SECRETS_DIRECTORY if directory is None else directory) / file_name
-        return cls(venue, read_secret_fields(path, required))
+        return cls(venue, read_secret_fields(directory / file_name, required))
 
 
 def read_secret_fields(path: Path, required: frozenset[str]) -> dict[str, SecretValue]:
@@ -187,27 +188,72 @@ def read_secret_fields(path: Path, required: frozenset[str]) -> dict[str, Secret
         VenueSecretsError: The file is missing, unsafe, malformed or incomplete.
     """
     file_name = path.name
+    # One descriptor is both checked and read, so the path cannot be swapped in
+    # between. O_NOFOLLOW refuses a link, and O_NONBLOCK keeps a FIFO from blocking.
     try:
-        status = path.lstat()
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         raise VenueSecretsError(f"{file_name} is missing from the secrets directory") from None
-    except OSError:
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise VenueSecretsError(f"{file_name} must be a regular file, not a link") from None
         raise VenueSecretsError(f"{file_name} cannot be inspected") from None
-    if not stat.S_ISREG(status.st_mode):
-        raise VenueSecretsError(f"{file_name} must be a regular file, not a link")
-    if status.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-        raise VenueSecretsError(f"{file_name} is accessible by others; run chmod 600 on it")
-    if status.st_size > _MAXIMUM_FILE_BYTES:
-        raise VenueSecretsError(f"{file_name} exceeds {_MAXIMUM_FILE_BYTES} bytes")
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError, UnicodeDecodeError:
-        raise VenueSecretsError(f"{file_name} cannot be read as UTF-8") from None
+        status = os.fstat(descriptor)
+        if not stat.S_ISREG(status.st_mode):
+            raise VenueSecretsError(f"{file_name} must be a regular file, not a link")
+        if status.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            raise VenueSecretsError(f"{file_name} is accessible by others; run chmod 600 on it")
+        data = _read_bounded(descriptor)
+    finally:
+        os.close(descriptor)
+    if data is None:
+        raise VenueSecretsError(f"{file_name} cannot be read as UTF-8")
+    if len(data) > _MAXIMUM_FILE_BYTES:
+        del data
+        raise VenueSecretsError(f"{file_name} exceeds {_MAXIMUM_FILE_BYTES} bytes")
+    text = _decoded(data)
+    del data
+    if text is None:
+        raise VenueSecretsError(f"{file_name} cannot be read as UTF-8")
     outcome = _parse_fields(text, required)
     del text
     if isinstance(outcome, str):
         raise VenueSecretsError(f"{file_name} {outcome}")
     return outcome
+
+
+def _read_bounded(descriptor: int) -> bytes | None:
+    """Read at most one byte past the size limit, returning None if reading fails.
+
+    Returning rather than raising keeps the bytes read so far out of any
+    exception or traceback frame.
+    """
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        while size <= _MAXIMUM_FILE_BYTES:
+            chunk = os.read(descriptor, _MAXIMUM_FILE_BYTES + 1 - size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+    except OSError:
+        return None
+    return b"".join(chunks)
+
+
+def _decoded(data: bytes) -> str | None:
+    """Decode UTF-8, returning None rather than raising.
+
+    A ``UnicodeDecodeError`` holds the whole input in ``.object``, and ``raise
+    ... from None`` still leaves it reachable as ``__context__``; returning keeps
+    the file's bytes out of every exception chain.
+    """
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def _parse_fields(text: str, required: frozenset[str]) -> dict[str, SecretValue] | str:

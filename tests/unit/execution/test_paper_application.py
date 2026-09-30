@@ -12,6 +12,7 @@ from typing import cast
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 
 # project library imports
 from accounting import Fill
@@ -120,6 +121,14 @@ class TestPaperExecutionApplication:
             bid_quantity=cls._quantity("1"),
             ask_quantity=cls._quantity("1"),
         )
+
+    def test_configured_fee_rate_is_the_worst_case_a_scenario_may_charge(self) -> None:
+        """A scenario may charge less than the configured rate, never more."""
+        config = self._config("paper")
+        for rate in (Decimal("0.0005"), Decimal("0.001")):
+            replace(config, execution=replace(config.execution, fee_rate=rate))
+        with pytest.raises(ValueError, match="exceeds the configured worst case"):
+            replace(config, execution=replace(config.execution, fee_rate=Decimal("0.002")))
 
     def test_paper_cli_decides_matches_and_inspects_without_submission(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

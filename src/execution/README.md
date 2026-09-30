@@ -164,7 +164,8 @@ instrument's rate, plus one minor unit per lot for the rounding of each possible
 fill. Account journals take the rate from `AccountConfiguration.fee_rates` (one
 `InstrumentFeeRate`, such as the venue's taker rate, per instrument) in paper,
 shadow and `venue_test` alike; a dedicated `PaperOrderJournal` takes its
-`fee_rate`. A matching scenario may not charge more than that rate. Protective
+`fee_rate`, which `PaperConfiguration.fee_rate` supplies. A matching scenario
+may charge that rate or less, never more. Protective
 reductions are exempt, so a risk-reducing sell is never refused over fee sizing.
 A buy never fills above its limit, so its reserve then pays every fill.
 `PaperFeeSchedule` takes only the whole lots whose fee, both exact and rounded on
@@ -189,8 +190,9 @@ queue priority nor venue execution fidelity.
 For a dedicated account, `PaperOrderJournal.match_scenario_market(epoch=...,
 market=..., scenario=...)` pins the scenario and source quote, then commits all
 projected lifecycle and fill effects with the liquidity cursor in one fenced
-transaction. The older `PaperMatcher.match` remains available for its existing
-dedicated-journal replay contract. Neither method submits an order.
+transaction. `PaperMatcher.match` does the same for a matcher bound to one
+scenario and lot, and charges the scenario's own fee rate. Neither method submits
+an order.
 
 For one or several strategies on a shared account,
 `AccountJournal.bind_paper_scenario(account_id, scenario)` pins the exact profile
@@ -403,8 +405,10 @@ session does not itself resume submission. This correctness-first implementation
 does not qualify low-latency streaming or MR15 runtime budgets.
 
 State consists of the account SQLite journal, account-specific `.venue.sqlite3`,
-the shared `.venue-accounts.sqlite3` identity bindings and `.venue.lock`. Keep the
-whole workspace together. Nonces and conservative request intervals survive
+the shared `.venue-accounts.sqlite3` identity bindings and `.venue.lock`. The venue
+file keeps each dispatch and each receipt as its own row, so retaining a private
+frame or marking a receipt applied writes one row. Opening refuses any other layout.
+Keep the whole workspace together. Nonces and conservative request intervals survive
 restart; HTTP requests never hide submit retries or follow redirects. Private
 receipt bytes can contain sensitive account data and belong outside Git. A restored
 venue workspace requires fresh physical reconciliation. Remote venue anti-rewind

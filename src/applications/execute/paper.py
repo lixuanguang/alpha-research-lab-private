@@ -292,7 +292,6 @@ class PaperExecutionApplication:
                     journal.has_step(step_id, request_bytes)
                     PaperMatcher(
                         journal,
-                        fee_rate=config.fee_rate,
                         lot=config.lot,
                         scenario=config.execution,
                     ).match(request.market, epoch=epoch)

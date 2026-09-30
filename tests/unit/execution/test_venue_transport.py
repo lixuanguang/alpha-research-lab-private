@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import socket
+import ssl
 import threading
 import time
 from collections.abc import Callable
@@ -64,9 +65,10 @@ class Loopback:
     """Where the transport's pinned host is routed, and how slowly it connects."""
 
     def __init__(self) -> None:
-        """Start with no venue and no connect delay."""
+        """Start with no venue, no connect delay and no connect failure."""
         self.port = 0
         self.delay = 0.0
+        self.failure: OSError | None = None
 
     def serve(self, answer: Callable[[socket.socket], None]) -> LocalVenue:
         """Start a local venue and route the next connection to it."""
@@ -89,8 +91,10 @@ def loopback(monkeypatch: pytest.MonkeyPatch) -> Loopback:
             super().__init__("127.0.0.1", route.port, timeout=timeout)
 
         def connect(self) -> None:
-            """Stand in for slow resolution or a slow TLS handshake."""
+            """Stand in for slow or failing resolution, TCP connection or TLS handshake."""
             time.sleep(route.delay)
+            if route.failure is not None:
+                raise route.failure
             super().connect()
 
     monkeypatch.setattr(transport_module, "HTTPSConnection", LoopbackConnection)
@@ -157,3 +161,52 @@ class TestVenueTransport:
         response = transport.request(self.request, deadline=time.monotonic() + 5)
         venue.close()
         assert (response.status, response.body) == (200, b"{}")
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            b"garbage\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nX-Long: " + b"a" * 70_000 + b"\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{}",
+        ],
+        ids=["bad-status-line", "line-too-long", "bad-chunk", "truncated-body"],
+    )
+    def test_malformed_response_after_the_send_is_outcome_unknown(
+        self, loopback: Loopback, answer: bytes
+    ) -> None:
+        """A response HTTP cannot complete leaves the sent request's outcome unknown."""
+        venue = loopback.serve(lambda connection: connection.sendall(answer))
+        transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
+        with pytest.raises(VenueOutcomeUnknownError):
+            transport.request(self.request, deadline=time.monotonic() + 5)
+        venue.close()
+        assert venue.received.startswith(b"POST /v2/auth/w/order/submit")
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            socket.gaierror(socket.EAI_NONAME, "name does not resolve"),
+            ssl.SSLCertVerificationError("certificate verify failed"),
+            ConnectionResetError("reset during the handshake"),
+        ],
+        ids=["dns", "tls", "reset"],
+    )
+    def test_connect_failure_is_not_sent(self, loopback: Loopback, failure: OSError) -> None:
+        """Resolution, TCP and TLS failures happen before any request byte is written."""
+        venue = loopback.serve(_ok)
+        loopback.failure = failure
+        transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
+        with pytest.raises(VenueNotSentError):
+            transport.request(self.request, deadline=time.monotonic() + 5)
+        venue.close()
+        assert venue.received == b""
+
+    def test_refused_connection_is_not_sent(self, loopback: Loopback) -> None:
+        """A venue port that refuses the TCP connection received nothing."""
+        closed = socket.create_server(("127.0.0.1", 0))
+        loopback.port = cast(tuple[str, int], closed.getsockname())[1]
+        closed.close()
+        transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
+        with pytest.raises(VenueNotSentError):
+            transport.request(self.request, deadline=time.monotonic() + 5)

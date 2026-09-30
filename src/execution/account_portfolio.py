@@ -548,7 +548,7 @@ class PortfolioCoordinator:
                     )
                 )
             ).hexdigest()
-            if any(parent.order.identity == parent_id for parent in transaction.state.net_orders):
+            if transaction.find_net_order(parent_id) is not None:
                 raise ValueError("physical order identity was reused")
             physical = OrderState(
                 identity=parent_id,

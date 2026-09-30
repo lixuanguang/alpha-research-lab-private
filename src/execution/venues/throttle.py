@@ -41,14 +41,9 @@ class VenueRateLimiter:
             self._expire(self._clock())
 
     def acquire(self) -> None:
-        """Wait only until a local budget slot is available."""
-        now = self._clock()
-        self._expire(now)
-        if len(self.timestamps) >= self.requests:
-            self._pause(self.seconds - (now - self.timestamps[0]))
-            now = self._clock()
-            self._expire(now)
-        self.timestamps.append(now)
+        """Wait only until a local budget slot is available, then take it."""
+        self.wait()
+        self.timestamps.append(self._clock())
 
     def _expire(self, now: float) -> None:
         """Forget requests that have left the rolling window."""

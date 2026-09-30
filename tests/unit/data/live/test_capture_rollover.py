@@ -331,6 +331,36 @@ class TestCaptureRollover:
         finally:
             resumed.close()
 
+    def test_resume_finishes_a_run_interrupted_before_its_segments_directory(
+        self, tmp_path: Path
+    ) -> None:
+        """A crash after the run request but before segments/ leaves a resumable run."""
+        request = self._request()
+        root = tmp_path / "run"
+        mkdir = Path.mkdir
+
+        def crash_before_segments(
+            path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+        ) -> None:
+            """Fail creating the segments directory, as a crash at that point would."""
+            if path == root / "segments":
+                raise OSError("process died before provisioning segments")
+            mkdir(path, mode, parents, exist_ok)
+
+        run = CaptureRunJournal(root, request)
+        with patch.object(Path, "mkdir", crash_before_segments), pytest.raises(OSError):
+            run.open(resume=False)
+        assert sorted(path.name for path in root.iterdir()) == ["owner.lock", "run-request.json"]
+        with pytest.raises(FileExistsError):
+            CaptureRunJournal(root, request).open(resume=False)
+        resumed = CaptureRunJournal(root, request)
+        try:
+            assert resumed.open(resume=True) == ()
+            assert (root / "segments").is_dir()
+            assert resumed.start_segment(None).root.parent == root / "segments"
+        finally:
+            resumed.close()
+
     def test_resume_refuses_an_uncommitted_segment_holding_records(self, tmp_path: Path) -> None:
         """Only an empty, never-committed segment may be set aside on resume."""
         request = self._request()

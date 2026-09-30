@@ -61,8 +61,11 @@ class PaperConfiguration(WireRecord, frozen=True):
 
     Limits, tick and lot are authored simulation assumptions, not venue
     qualification. Initial cash starts a flat dedicated account. Maximum fee is
-    reserved per child order; actual fees use the explicit rate and half-even
-    quote-currency rounding. Only one instance/instrument can own this account.
+    reserved per child order. ``fee_rate`` is the worst-case rate that admission
+    checks each reserve against, as ``AccountConfiguration.fee_rates`` is for
+    account journals; the execution scenario may charge less, never more, with
+    half-even quote-currency rounding. Only one instance/instrument can own this
+    account.
     """
 
     account: str
@@ -112,10 +115,11 @@ class PaperConfiguration(WireRecord, frozen=True):
             self.execution.instrument_id != self.maximum.dimension.instrument_id
             or self.execution.adverse.per != self.maximum.dimension
             or self.execution.adverse.currency != self.tick.currency
-            or self.execution.fee_rate != self.fee_rate
             or (Fraction(self.execution.adverse.value) / Fraction(self.tick.value)).denominator != 1
         ):
             raise ValueError("paper execution scenario has incompatible units")
+        if self.execution.fee_rate > self.fee_rate:
+            raise ValueError("paper scenario fee rate exceeds the configured worst case")
 
     @property
     def identity(self) -> str:

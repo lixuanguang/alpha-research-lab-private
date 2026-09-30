@@ -7,7 +7,7 @@ import bisect
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, NamedTuple
 
 # third party library imports
 import msgspec
@@ -198,6 +198,9 @@ class AsOfSelector:
         self._binding_versions: (
             dict[InputBinding, tuple[list[tuple[datetime, datetime, int]], list[_Ordered]]] | None
         ) = None
+        self._disconnects: tuple[_Disconnect, ...] | None = None
+        # Trade revision identities hash their occurrences; see _version_identity.
+        self._version_identities: dict[int, str] = {}
 
     @property
     def history(self) -> tuple[bytes, ...]:
@@ -363,35 +366,71 @@ class AsOfSelector:
             One recovery per answered disconnect, in partition and raw order. A
             disconnect with no later trade known by the cutoff has none.
         """
-        versions = self._versions_by_binding()
         results: list[ContinuityResumed] = []
-        for partition in self._partitions:
-            request = partition.request
-            if request.instrument.instrument_id not in instruments:
+        for disconnect in self._disconnect_table():
+            if (
+                disconnect.binding[2] not in instruments
+                or disconnect.at >= end
+                or disconnect.known_at > known_at
+            ):
                 continue
-            binding = self._binding(request)
-            for control in partition.controls:
-                event = control.event
-                if not isinstance(event, Disconnect):
-                    continue
-                at = self._valid_from(control)
-                if at >= end or event.provenance.ts_knowledge > known_at:
-                    continue
-                keys, candidates = versions.get(binding, ([], []))
-                first = bisect.bisect_right(keys, (at, request.start, control.position))
-                for order, version_known_at, version in candidates[first:]:
-                    if version_known_at is not None and version_known_at <= known_at:
-                        results.append(
-                            ContinuityResumed(
-                                binding=binding,
-                                disconnect_identity=control.identity,
-                                trade_identity=version.identity,
-                                resumed_at=order[0],
-                                known_at=version_known_at,
-                            )
+            candidates = disconnect.candidates
+            source, stream, instrument_id = disconnect.binding
+            for index in range(disconnect.first, len(candidates)):
+                order, version_known_at, version = candidates[index]
+                if version_known_at is not None and version_known_at <= known_at:
+                    results.append(
+                        ContinuityResumed(
+                            # The retained request's identity is never handed out, so
+                            # no caller can change what later queries select.
+                            binding=(source, stream, instrument_id.model_copy()),
+                            disconnect_identity=disconnect.identity,
+                            trade_identity=self._version_identity(version),
+                            resumed_at=order[0],
+                            known_at=version_known_at,
                         )
-                        break
+                    )
+                    break
         return tuple(results)
+
+    def _disconnect_table(self) -> tuple[_Disconnect, ...]:
+        """List every disconnect with its identity and first later candidate, once.
+
+        A decision query only filters this table by instrument and cutoffs, instead
+        of re-deriving each disconnect's identity and candidate position.
+        """
+        if self._disconnects is None:
+            versions = self._versions_by_binding()
+            disconnects: list[_Disconnect] = []
+            for partition in self._partitions:
+                request = partition.request
+                binding = self._binding(request)
+                keys, candidates = versions.get(binding, ([], []))
+                for control in partition.controls:
+                    event = control.event
+                    if not isinstance(event, Disconnect):
+                        continue
+                    at = self._valid_from(control)
+                    disconnects.append(
+                        _Disconnect(
+                            binding=binding,
+                            identity=control.identity,
+                            at=at,
+                            known_at=event.provenance.ts_knowledge,
+                            candidates=candidates,
+                            first=bisect.bisect_right(keys, (at, request.start, control.position)),
+                        )
+                    )
+            self._disconnects = tuple(disconnects)
+        return self._disconnects
+
+    def _version_identity(self, version: TradeRevision) -> str:
+        """Return a retained trade revision's identity, derived once."""
+        identity = self._version_identities.get(id(version))
+        if identity is None:
+            identity = version.identity
+            self._version_identities[id(version)] = identity
+        return identity
 
     def _versions_by_binding(
         self,
@@ -439,6 +478,17 @@ class AsOfSelector:
             request.manifest.job.stream,
             request.instrument.instrument_id,
         )
+
+
+class _Disconnect(NamedTuple):
+    """One retained disconnect, its identity and where its later candidates start."""
+
+    binding: InputBinding
+    identity: str
+    at: datetime
+    known_at: datetime
+    candidates: list[_Ordered]
+    first: int
 
 
 class ContinuityResumed(WireRecord, frozen=True):

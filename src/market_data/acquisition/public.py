@@ -27,7 +27,7 @@ from market_data.contracts import (
 from market_data.storage import RawFiles, RawStore
 from reference_data.catalogs import InstrumentDefinition, ReferenceHistory
 from reference_data.instruments import InstrumentId
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, sync_directory
 
 
 class PendingResponse(WireRecord, frozen=True, kw_only=True):
@@ -78,30 +78,19 @@ class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
             self._require_utc(self.finished_at, field_name="finished_at")
             if self.job.mode == "capture" and self.finished_at < self.job.end:
                 raise ValueError("capture cannot complete before its selected end")
-        if len(self.receipts) > self.job.max_pages + len(self.job.universes.collection):
+        if len(self.receipts) > self._page_budget():
             raise ValueError("public acquisition exceeds page budget")
         # The job identity hashes the whole job; compute it once, not per receipt.
         job_identity = self.job.identity
         last: datetime | None = None
         for receipt in self.receipts:
-            if type(receipt) is not PublicReceipt:
-                raise ValueError("invalid public receipt record")
-            receipt.__post_init__()
-            self._request(receipt.request, job_identity)
-            if last is not None and receipt.raw.ts_received < last:
-                raise ValueError("public receipt clock regressed")
+            self._check_receipt(receipt, job_identity, last)
             last = receipt.raw.ts_ingested
-            if self.finished_at is not None and receipt.raw.ts_ingested > self.finished_at:
-                raise ValueError("completion precedes durable input")
-        used = sum(r.raw.size_bytes for r in self.receipts)
+        used = self._receipt_bytes()
         if self.pending is not None:
-            self.pending.__post_init__()
-            self._request(self.pending.request, job_identity)
+            self._check_pending(self.pending, job_identity, last)
             used += len(self.pending.payload)
-            if last is not None and self.pending.received < last:
-                raise ValueError("pending receipt clock regressed")
-        if used > self.job.max_bytes:
-            raise ValueError("public acquisition exceeds aggregate raw budget")
+        self._check_budget(used)
 
     def _request(self, request: PublicRequest, job_identity: str) -> None:
         """Ensure requests cannot escape the selected collection or implementation."""
@@ -113,24 +102,50 @@ class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
             raise ValueError("public request differs from resolved job")
         self.job.universes.require(request.instrument.instrument_id, "collection")
 
+    def _page_budget(self) -> int:
+        """Return the most receipts the job may retain."""
+        return self.job.max_pages + len(self.job.universes.collection)
+
+    def _check_receipt(
+        self, receipt: PublicReceipt, job_identity: str, last: datetime | None
+    ) -> None:
+        """Check one receipt after the receipts before it, whose last was ingested at ``last``."""
+        if type(receipt) is not PublicReceipt:
+            raise ValueError("invalid public receipt record")
+        receipt.__post_init__()
+        self._request(receipt.request, job_identity)
+        if last is not None and receipt.raw.ts_received < last:
+            raise ValueError("public receipt clock regressed")
+        if self.finished_at is not None and receipt.raw.ts_ingested > self.finished_at:
+            raise ValueError("completion precedes durable input")
+
+    def _check_pending(
+        self, pending: PendingResponse, job_identity: str, last: datetime | None
+    ) -> None:
+        """Check a pending response after the receipts, whose last was ingested at ``last``."""
+        if type(pending) is not PendingResponse:
+            raise ValueError("invalid public acquisition receipts")
+        pending.__post_init__()
+        self._request(pending.request, job_identity)
+        if last is not None and pending.received < last:
+            raise ValueError("pending receipt clock regressed")
+
+    def _check_budget(self, used: int) -> None:
+        """Refuse retained raw bytes beyond the job's aggregate budget."""
+        if used > self.job.max_bytes:
+            raise ValueError("public acquisition exceeds aggregate raw budget")
+
     def _with_pending(self, pending: PendingResponse) -> PublicAcquisition:
         """Return this validated state holding a new pending response.
 
-        Only the new response is checked, with the checks and messages that
-        __post_init__ applies to it. Every retained receipt was checked when it
-        was added; checking all of them again made each page cost grow with the
-        saved history.
+        Only the new response is checked, with the same checks __post_init__
+        applies to it. Every retained receipt was checked when it was added;
+        checking all of them again made each page cost grow with the saved history.
         """
-        if type(pending) is not PendingResponse:
-            raise ValueError("invalid public acquisition receipts")
         if self.complete:
             raise ValueError("completed acquisition cannot have pending bytes")
-        pending.__post_init__()
-        self._request(pending.request, self.job.identity)
-        if self.receipts and pending.received < self.receipts[-1].raw.ts_ingested:
-            raise ValueError("pending receipt clock regressed")
-        if self._receipt_bytes() + len(pending.payload) > self.job.max_bytes:
-            raise ValueError("public acquisition exceeds aggregate raw budget")
+        self._check_pending(pending, self.job.identity, self._last_ingested())
+        self._check_budget(self._receipt_bytes() + len(pending.payload))
         successor = copy.copy(self)
         force_setattr(successor, "pending", pending)
         return successor
@@ -138,26 +153,22 @@ class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
     def _with_receipt(self, receipt: PublicReceipt) -> PublicAcquisition:
         """Return this validated state with its pending response committed as a receipt.
 
-        Only the new receipt and the budgets it changes are checked, in the order
-        and with the messages of __post_init__.
+        Only the new receipt and the budgets it changes are checked, with the
+        same checks __post_init__ applies to it.
         """
-        if len(self.receipts) + 1 > self.job.max_pages + len(self.job.universes.collection):
+        if len(self.receipts) + 1 > self._page_budget():
             raise ValueError("public acquisition exceeds page budget")
-        if type(receipt) is not PublicReceipt:
-            raise ValueError("invalid public receipt record")
-        receipt.__post_init__()
-        self._request(receipt.request, self.job.identity)
-        if self.receipts and receipt.raw.ts_received < self.receipts[-1].raw.ts_ingested:
-            raise ValueError("public receipt clock regressed")
-        if self.finished_at is not None and receipt.raw.ts_ingested > self.finished_at:
-            raise ValueError("completion precedes durable input")
-        if self._receipt_bytes() + receipt.raw.size_bytes > self.job.max_bytes:
-            raise ValueError("public acquisition exceeds aggregate raw budget")
+        self._check_receipt(receipt, self.job.identity, self._last_ingested())
+        self._check_budget(self._receipt_bytes() + receipt.raw.size_bytes)
         receipts: tuple[PublicReceipt, ...] = (*self.receipts, receipt)
         successor = copy.copy(self)
         force_setattr(successor, "receipts", receipts)
         force_setattr(successor, "pending", None)
         return successor
+
+    def _last_ingested(self) -> datetime | None:
+        """Return when the last retained receipt was ingested, if any."""
+        return self.receipts[-1].raw.ts_ingested if self.receipts else None
 
     def _receipt_bytes(self) -> int:
         """Sum the retained raw bytes of committed receipts."""
@@ -177,11 +188,7 @@ class PublicAcquisition(WireRecord, frozen=True, kw_only=True):
                 output.flush()
                 os.fsync(output.fileno())
                 os.replace(staging, path)
-                descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-                try:
-                    os.fsync(descriptor)
-                finally:
-                    os.close(descriptor)
+                sync_directory(path.parent)
             finally:
                 staging.unlink(missing_ok=True)
 

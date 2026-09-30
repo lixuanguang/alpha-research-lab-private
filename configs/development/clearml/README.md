@@ -153,6 +153,12 @@ metadata bounds. The agent has its own vendored `pkg_resources` fallback. The
 patched lock passes `pip-audit`, and actual serial installed tasks exercise it.
 No audit finding is waived, and no unpinned install occurs during a task.
 
+As of 2026-10-01 the worker lock **fails its audit**. virtualenv 20.39.1 is affected
+by PYSEC-2026-4011 through PYSEC-2026-4014. They are fixed only in 21.7.11 to 21.7.13,
+and ClearML Agent 3.0.3, the latest release, requires `virtualenv<21`. The lock is
+unchanged. An override to virtualenv 21 is not adopted: it would first need the
+serial installed-task verification described above.
+
 The local agent uses Apache-2.0; Requests, virtualenv and distlib are Apache-2.0;
 certifi is MPL-2.0; psutil is BSD-3-Clause; idna is BSD-3-Clause;
 charset-normalizer, filelock, platformdirs, Setuptools and urllib3 are MIT.

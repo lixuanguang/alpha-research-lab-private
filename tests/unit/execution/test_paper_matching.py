@@ -177,7 +177,6 @@ class TestPaperMatcher:
         """Match at the displayed touch with no modeled delay or adverse cost."""
         return PaperMatcher(
             journal,
-            fee_rate=Decimal("0.005"),
             lot=cls._quantity("1"),
             scenario=cls._scenario(adverse="0.00"),
         )
@@ -334,9 +333,7 @@ class TestPaperMatcher:
                 limit="1.20",
                 maximum_fee="0.05",
             )
-            matcher = PaperMatcher(
-                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
-            )
+            matcher = PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario)
             # Each one-unit touch fills near 0.006 in fees, which rounds up to 0.01.
             for index, ask in enumerate(("1.19", "1.18", "1.19"), start=1):
                 matcher.match(
@@ -463,9 +460,7 @@ class TestPaperMatcher:
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("initial-owner")
             order = self._admit(journal, epoch, step_id="debt", quantity="3", limit="1.10")
-            matcher = PaperMatcher(
-                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
-            )
+            matcher = PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario)
             matcher.match(first, epoch=epoch)
             state = journal.order(order.identity)
             assert state is not None and state.filled.value == Decimal("2")
@@ -474,7 +469,6 @@ class TestPaperMatcher:
             epoch = restarted.claim("second-owner")
             matcher = PaperMatcher(
                 restarted,
-                fee_rate=scenario.fee_rate,
                 lot=self._quantity("1"),
                 scenario=scenario,
             )
@@ -524,7 +518,6 @@ class TestPaperMatcher:
             with pytest.raises(ValueError, match="scenario differs from retained journal"):
                 PaperMatcher(
                     restarted,
-                    fee_rate=scenario.fee_rate,
                     lot=self._quantity("1"),
                     scenario=self._scenario(adverse="0.03"),
                 ).match(first, epoch=epoch)
@@ -538,9 +531,7 @@ class TestPaperMatcher:
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("delayed-owner")
             order = self._admit(journal, epoch, step_id="delay", quantity="2", limit="1.10")
-            matcher = PaperMatcher(
-                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
-            )
+            matcher = PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario)
             matcher.match(
                 self._market("early", at=self.decision_at + timedelta(seconds=1)), epoch=epoch
             )
@@ -584,9 +575,7 @@ class TestPaperMatcher:
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("same-time-owner")
             order = self._admit(journal, epoch, step_id="same-time", quantity="1", limit="1.10")
-            matcher = PaperMatcher(
-                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
-            )
+            matcher = PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario)
             matcher.match(self._market("decision-quote", at=self.decision_at), epoch=epoch)
             assert journal.order(order.identity) == order
             assert journal.ledger_state().fills == ()
@@ -604,9 +593,7 @@ class TestPaperMatcher:
         scenario = self._scenario()
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("shrink-owner")
-            matcher = PaperMatcher(
-                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
-            )
+            matcher = PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario)
             matcher.match(
                 self._market(
                     "initial-large", at=self.decision_at + timedelta(seconds=1), ask_quantity="3"
@@ -645,9 +632,7 @@ class TestPaperMatcher:
                 event_id="pre-arrival-cancel",
                 at=self.decision_at + timedelta(seconds=1),
             )
-            PaperMatcher(
-                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
-            ).match(
+            PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario).match(
                 self._market("cancel-confirmation", at=self.decision_at + timedelta(seconds=2)),
                 epoch=epoch,
             )
@@ -676,7 +661,6 @@ class TestPaperMatcher:
             with pytest.raises(ValueError, match="fill exceeds order economics or limit"):
                 PaperMatcher(
                     journal,
-                    fee_rate=scenario.fee_rate,
                     lot=self._quantity("1"),
                     scenario=scenario,
                 ).match(
@@ -705,9 +689,7 @@ class TestPaperMatcher:
                 ),
             )
             reserved = journal.reservations()
-            PaperMatcher(
-                journal, fee_rate=scenario.fee_rate, lot=self._quantity("1"), scenario=scenario
-            ).match(
+            PaperMatcher(journal, lot=self._quantity("1"), scenario=scenario).match(
                 self._market("unknown-touch", at=self.decision_at + timedelta(seconds=1)),
                 epoch=epoch,
             )
@@ -790,7 +772,6 @@ class TestPaperMatcher:
             with pytest.raises(ValueError, match="paper market, account or scenario differs"):
                 PaperMatcher(
                     journal,
-                    fee_rate=scenario.fee_rate,
                     lot=self._quantity("1"),
                     scenario=scenario,
                 ).match(market, epoch=epoch)

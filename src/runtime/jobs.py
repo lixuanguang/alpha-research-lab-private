@@ -19,7 +19,7 @@ from types import TracebackType
 from typing import BinaryIO, Literal, Protocol, Self, cast
 
 # project library imports
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, publish_directory, sync_directory
 
 type JobStatus = Literal["queued", "running", "retry", "completed", "failed", "cancelled"]
 
@@ -493,7 +493,7 @@ class JobQueue:
                     raise ValueError("job database specification identity differs")
                 if (self.root / "results" / job_id).is_dir():
                     result = self._verify_result(job_id, None)
-                    self._sync_directory(self.root / "results")
+                    sync_directory(self.root / "results")
                     connection.execute(
                         "UPDATE jobs SET status='completed', result_sha256=? WHERE job_id=?",
                         (hashlib.sha256(result).hexdigest(), job_id),
@@ -641,11 +641,10 @@ class JobQueue:
             os.fsync(output.fileno())
         for path in sorted(directory.rglob("*"), reverse=True):
             if path.is_dir():
-                self._sync_directory(path)
-        self._sync_directory(directory)
+                sync_directory(path)
         destination = self.root / "results" / job_id
-        os.rename(directory, destination)
-        self._sync_directory(destination.parent)
+        if not publish_directory(directory, destination):
+            raise FileExistsError("published job result already exists")
         return hashlib.sha256(result).hexdigest()
 
     def _verify_result(self, job_id: str, expected_sha256: str | None) -> bytes:
@@ -699,15 +698,6 @@ class JobQueue:
         """Keep externally supplied job IDs out of filesystem paths and SQL ambiguity."""
         if type(name) is not str or _NAME.fullmatch(name) is None:
             raise ValueError("invalid job identity")
-
-    @staticmethod
-    def _sync_directory(path: Path) -> None:
-        """Durably retain published directory entries on local POSIX filesystems."""
-        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
 
 
 class JobWorkerPool:
@@ -840,7 +830,7 @@ class JobWorkerPool:
                 # A crash or write error after rename must never invoke the
                 # handler again. Verify and adopt the already published bytes.
                 result = self._queue._verify_result(spec.job_id, None)
-                self._queue._sync_directory(self._queue.root / "results")
+                sync_directory(self._queue.root / "results")
                 self._queue._finish(
                     spec.job_id, claimed.attempts, hashlib.sha256(result).hexdigest(), None
                 )

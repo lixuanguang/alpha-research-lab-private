@@ -32,10 +32,6 @@ class BookReplay:
     batch.
     """
 
-    _snapshot: BookSnapshot
-    _request_identity: str
-    _input_bytes: bytes
-
     @classmethod
     def read(
         cls,
@@ -71,7 +67,7 @@ class BookReplay:
         snapshot = BookSnapshot.read(
             directory, raw, readers=readers, identity=identity, max_bytes=max_bytes
         )
-        return cls.from_snapshot(
+        return cls(
             snapshot,
             request_identity=request_identity,
             terminal=terminal,
@@ -80,9 +76,8 @@ class BookReplay:
             cursor=cursor,
         )
 
-    @classmethod
-    def from_snapshot(
-        cls,
+    def __init__(
+        self,
         snapshot: BookSnapshot,
         *,
         request_identity: str,
@@ -90,8 +85,11 @@ class BookReplay:
         config_identity: str,
         batch_size: int,
         cursor: ReplayCursor | None = None,
-    ) -> BookReplay:
+    ) -> None:
         """Reuse explicit whole-snapshot admission without repeating raw reconstruction.
+
+        Receipt ordering and the restored position are validated before any
+        consumer callback.
 
         Args:
             snapshot: Verified session whose immutable stores remain protected.
@@ -101,17 +99,13 @@ class BookReplay:
             batch_size: Positive whole-message delivery bound.
             cursor: Completed cursor paired with restored consumer state.
 
-        Returns:
-            Replay with an independent cursor and fresh decoded observations.
-
         Raises:
             ValueError: Selection, ordering, identity or checkpoint is incompatible.
         """
         selected = snapshot.selection(request_identity)
-        instance = cls.__new__(cls)
-        instance._snapshot = snapshot
-        instance._request_identity = request_identity
-        instance._input_bytes = DomainCodec().encode_json(selected)
+        self._snapshot = snapshot
+        self._request_identity = request_identity
+        self._input_bytes = DomainCodec().encode_json(selected)
         identity = hashlib.sha256(
             DomainCodec().encode_json(
                 (
@@ -123,18 +117,6 @@ class BookReplay:
                 )
             )
         ).hexdigest()
-        instance._initialize(identity, terminal, config_identity, batch_size, cursor)
-        return instance
-
-    def _initialize(
-        self,
-        identity: str,
-        terminal: datetime,
-        config_identity: str,
-        batch_size: int,
-        cursor: ReplayCursor | None,
-    ) -> None:
-        """Validate receipt ordering and restored position before any consumer callback."""
         ReplayCursor(identity=config_identity, clock=terminal, position=None)
         if type(batch_size) is not int or batch_size <= 0:
             raise ValueError("book replay requires positive batch_size")

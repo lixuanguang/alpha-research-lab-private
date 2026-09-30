@@ -4,7 +4,6 @@ from __future__ import annotations
 
 # standard library imports
 import argparse
-import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -18,7 +17,7 @@ from market_data.adapters.transport import PublicHTTPS
 from market_data.contracts import PublicRequest
 from market_data.storage import RawStore
 from runtime import InstalledIdentity
-from serialization import DomainCodec
+from serialization import DomainCodec, sync_directory
 
 
 class _PublicArguments(argparse.Namespace):
@@ -66,11 +65,7 @@ def acquire_public(argv: list[str]) -> int:
         raw_path = args.output / "raw"
         raw_path.mkdir(exist_ok=True)
         for directory in (args.output.parent, args.output):
-            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            sync_directory(directory)
         ingestion = PublicIngestion(sources, RawStore(raw_path))
         state = ingestion.resume(
             job,

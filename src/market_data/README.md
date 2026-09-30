@@ -783,8 +783,8 @@ bounded, isolated projections. The existing `read` convenience method still
 collects its result in memory. A live query first checks whether any market value
 qualifies, preserving the no-values reason on every batch; this prescan and the
 delivery pass each verify the canonical digest and can each traverse the history.
-`BookReplay.from_snapshot` shares admission while
-owning a separate cursor. Receipt ties preserve the reference epoch/position
+Constructing `BookReplay` from an admitted `BookSnapshot` shares its admission
+while owning a separate cursor. Receipt ties preserve the reference epoch/position
 order using a temporary disk spill with a 2 MiB SQLite page cache; ordinary
 receipt progression retains one lookahead. Call `close()` on an unfinished
 stepping replay to release its canonical file and temporary spill. A separately

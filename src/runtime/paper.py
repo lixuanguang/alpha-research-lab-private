@@ -120,7 +120,6 @@ class PaperCandidateRuntime:
         self._codec = DomainCodec()
         self._matcher = PaperMatcher(
             journal,
-            fee_rate=config.fee_rate,
             lot=config.lot,
             scenario=config.execution,
         )

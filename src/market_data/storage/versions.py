@@ -18,7 +18,7 @@ from lakefs_sdk.api.objects_api import ObjectsApi
 from lakefs_sdk.api.tags_api import TagsApi
 
 # project library imports
-from serialization import DomainCodec, WireRecord
+from serialization import DomainCodec, WireRecord, sync_directory
 
 
 class VersionedObject(WireRecord, frozen=True):
@@ -206,8 +206,4 @@ class LakeFSStorage:
                     os.link(temporary, target)
                 finally:
                     temporary.unlink(missing_ok=True)
-            descriptor = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            sync_directory(target.parent)

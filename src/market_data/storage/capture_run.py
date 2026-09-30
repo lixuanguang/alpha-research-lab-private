@@ -22,7 +22,7 @@ from market_data.contracts import (
     RawObject,
 )
 from market_data.storage.journal import CaptureJournal
-from serialization import DomainCodec
+from serialization import DomainCodec, sync_directory
 
 
 class CaptureRunJournal:
@@ -64,11 +64,17 @@ class CaptureRunJournal:
                 )
                 if actual != self.request:
                     raise ValueError("capture resume requires the exact retained run request")
+                segments = self.root / "segments"
+                if not segments.exists():
+                    # Provisioning died after the run request committed and before its
+                    # segments directory: no segment exists, so nothing was acknowledged.
+                    segments.mkdir()
+                    sync_directory(self.root)
                 self._set_aside_unprovisioned()
             else:
                 self._write(self.root / "run-request.json", self.codec.encode_json(self.request))
                 (self.root / "segments").mkdir()
-                CaptureJournal._sync_directory(self.root)
+                sync_directory(self.root)
             journals = self.segments()
             if not (self.root / "run-summary.json").exists():
                 self.progress(status="owned", segments=len(journals))
@@ -105,9 +111,9 @@ class CaptureRunJournal:
                 raise ValueError("capture segment without a cursor holds unacknowledged data")
             held.mkdir(exist_ok=True)
             os.rename(root, held / root.name)
-            CaptureJournal._sync_directory(segments)
-            CaptureJournal._sync_directory(held)
-            CaptureJournal._sync_directory(self.root)
+            sync_directory(segments)
+            sync_directory(held)
+            sync_directory(self.root)
 
     def segments(self) -> tuple[CaptureJournal, ...]:
         """Read and validate one ordered chain; reject forks and omitted predecessors."""
@@ -247,4 +253,4 @@ class CaptureRunJournal:
             output.flush()
             os.fsync(output.fileno())
         os.replace(pending, path)
-        CaptureJournal._sync_directory(path.parent)
+        sync_directory(path.parent)

@@ -21,10 +21,20 @@ class FormatCompatibilityChecker:
     _NAME_ROOTS: ClassVar[tuple[str, ...]] = ("src", "tools", "tests", "configs")
     # Assembled from parts so this checker's own source never matches its rules.
     _WORDING: ClassVar[re.Pattern[str]] = re.compile(
-        "|".join(("leg" + "acy", "backward" + ".?" + "compat")), re.IGNORECASE
+        "|".join(("leg" + "acy", "backward" + "s?" + ".?" + "compat")), re.IGNORECASE
     )
+    # A revision marker is a v or V with digits after an underscore or hyphen, or a
+    # capital V with digits closing an alphabetic camel-case name. Either may end the
+    # name or be followed by more of it. A lowercase v inside a word, as in network
+    # protocol and UUID version names, and base64 text are not revision markers.
     _SUFFIX: ClassVar[re.Pattern[str]] = re.compile(
-        r"[A-Za-z0-9][A-Za-z0-9_-]*[_-]" + "v" + r"\d+\b"
+        r"[A-Za-z0-9][A-Za-z0-9_-]*[_-]["
+        + "vV"
+        + r"]\d+(?![A-Za-z0-9])"
+        + "|"
+        + r"(?<![A-Za-z0-9_-])[A-Za-z_]*[a-z]"
+        + "V"
+        + r"\d+(?![A-Za-z0-9])"
     )
     # External names owned by third parties, such as OKX's versioned API documentation path.
     _EXTERNAL: ClassVar[frozenset[str]] = frozenset({"docs-" + "v5"})

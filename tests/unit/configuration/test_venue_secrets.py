@@ -2,9 +2,12 @@
 
 # standard library imports
 import copy
+import inspect
 import logging
+import os
 import pickle
-import resource
+import subprocess
+import sys
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
@@ -51,8 +54,63 @@ def _write(directory: Path, venue: str, content: str, mode: int = 0o600) -> Path
     return path
 
 
+_GUARD_PROBE = """
+import logging
+import resource
+import sys
+
+import pytest
+
+from configuration import venue_secrets
+
+state = lambda: (
+    logging.getLogRecordFactory(),
+    venue_secrets._REGISTERED_VALUES,
+    resource.getrlimit(resource.RLIMIT_CORE),
+)
+before = state()
+code = pytest.main(
+    [sys.argv[1], "-q", "-p", "no:cacheprovider", "--basetemp", sys.argv[2], "-k", sys.argv[3]]
+)
+sys.exit(int(code) or (0 if state() == before else 3))
+"""
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo the process-wide guards that loading a credential installs.
+
+    Each test starts with an empty registry, and its redacting log-record factory
+    is removed afterwards. A lowered hard core-dump limit can never be raised
+    again by an unprivileged process, so core dumps are left alone here and
+    checked in a separate process.
+    """
+    monkeypatch.setattr(venue_secrets, "_REGISTERED_VALUES", frozenset())
+    factory: object = logging.getLogRecordFactory()
+    monkeypatch.setattr(logging, "_logRecordFactory", factory)
+    monkeypatch.setattr(venue_secrets, "_disable_core_dumps", lambda: None)
+
+
 class TestVenueSecrets:
     """Use invented values only; the repository secrets directory is never touched."""
+
+    def test_module_leaves_process_guards_as_it_found_them(self, tmp_path: Path) -> None:
+        """Running this module leaves logging, the registry and core limits unchanged."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _GUARD_PROBE,
+                __file__,
+                str(tmp_path / "run"),
+                "not process_guards",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # Exit 3: every test passed, but the process-wide guards they installed remained.
+        assert result.returncode == 0, result.stdout[-2000:]
 
     @pytest.mark.parametrize(
         ("venue", "content", "has_secret"),
@@ -114,6 +172,74 @@ class TestVenueSecrets:
         assert "sensitive" not in str(caught.value)
         assert "never-log" not in str(caught.value)
         assert not [v for v in _frame_strings(caught.value) if "sensitive" in v or "never-log" in v]
+
+    def test_credential_directory_is_always_explicit(self) -> None:
+        """No default directory: one derived from the module file lands inside .venv."""
+        directory = inspect.signature(VenueSecrets.read).parameters["directory"]
+        # A parameter with a default renders as "name: annotation = default".
+        assert "=" not in str(directory)
+        assert not hasattr(venue_secrets, "DEFAULT_SECRETS_DIRECTORY")
+
+    def test_file_swapped_after_its_check_is_not_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Values come from the file that passed the checks, not from a later swap."""
+        path = _write(tmp_path, "alpaca", "API_KEY=k-checked-1\nAPI_SECRET=s-checked-1\n")
+        planted = tmp_path / "planted"
+        planted.write_text("API_KEY=k-planted-1\nAPI_SECRET=s-planted-1\n")
+        planted.chmod(0o644)
+        swapped = False
+
+        def swap() -> None:
+            """Replace the checked path with a link to the planted file, once."""
+            nonlocal swapped
+            if not swapped:
+                swapped = True
+                path.unlink()
+                path.symlink_to(planted)
+
+        lstat, open_descriptor = Path.lstat, os.open
+
+        def checked_lstat(self: Path) -> os.stat_result:
+            """Stat the path, then race the swap in right after the check."""
+            status = lstat(self)
+            if self == path:
+                swap()
+            return status
+
+        def checked_open(file: str | Path, flags: int, mode: int = 0o777) -> int:
+            """Open the path, then race the swap in right after the open."""
+            descriptor = open_descriptor(file, flags, mode)
+            if Path(file) == path:
+                swap()
+            return descriptor
+
+        # Race the check against the read at whichever point the reader checks.
+        monkeypatch.setattr(Path, "lstat", checked_lstat)
+        monkeypatch.setattr(os, "open", checked_open)
+        secrets = VenueSecrets.read("alpaca", tmp_path)
+        assert swapped
+        assert secrets.api_key.reveal() == "k-checked-1"
+
+    def test_undecodable_file_leaves_no_bytes_in_the_exception_chain(self, tmp_path: Path) -> None:
+        """A file that is not UTF-8 is refused without its bytes reachable from the error."""
+        path = tmp_path / VENUE_SECRET_FILES["alpaca"][0]
+        path.write_bytes(b"API_KEY=k-sensitive\nAPI_SECRET=s-never-log\xff\n")
+        path.chmod(0o600)
+        with pytest.raises(VenueSecretsError, match="cannot be read as UTF-8") as caught:
+            VenueSecrets.read("alpaca", tmp_path)
+        chain: list[BaseException] = []
+        current: BaseException | None = caught.value
+        while current is not None:
+            chain.append(current)
+            current = current.__cause__ or current.__context__
+        # A UnicodeDecodeError's .object is the whole file, credentials included.
+        assert not [
+            item
+            for item in chain
+            if isinstance(item, UnicodeDecodeError) and b"never-log" in item.object
+        ]
+        assert caught.value.__context__ is None
 
     def test_logs_redact_revealed_values(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -232,8 +358,23 @@ class TestVenueSecrets:
     def test_core_dumps_disabled(self, tmp_path: Path) -> None:
         """Keep credential-bearing process memory out of crash dumps."""
         _write(tmp_path, "eia", "API_KEY=k-sensitive\n")
-        VenueSecrets.read("eia", tmp_path)
-        assert resource.getrlimit(resource.RLIMIT_CORE) == (0, 0)
+        # A fresh process: the lowered limit cannot be restored for later tests.
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import resource, sys\n"
+                "from pathlib import Path\n"
+                "from configuration.venue_secrets import VenueSecrets\n"
+                "VenueSecrets.read('eia', Path(sys.argv[1]))\n"
+                "print(resource.getrlimit(resource.RLIMIT_CORE))",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout.strip() == "(0, 0)"
 
     @pytest.mark.parametrize("mode", [0o640, 0o604, 0o644, 0o660])
     def test_rejects_shared_permissions(self, tmp_path: Path, mode: int) -> None:

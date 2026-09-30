@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import sqlite3
+import time
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
@@ -11,11 +12,20 @@ from typing import cast
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 from test_account_history_scaling import _SharedFirmHistory
 
 # project library imports
 from execution import AccountJournal
-from execution.account_state import AccountStateStore, _HistorySummary
+from execution.account_state import (
+    AccountStateStore,
+    _assemble,
+    _HistoryDigest,
+    _HistorySummary,
+    _row_values,
+    _RowSummary,
+    _strip,
+)
 from serialization import DomainCodec
 
 
@@ -52,6 +62,41 @@ class TestAccountStateRows:
         reopened = AccountJournal(history.journal.path, history._config())
         assert reopened._store.read() == history.journal._store.read()
         assert reopened.orders() == history.journal.orders()
+
+    def test_every_row_field_leaves_the_head_and_returns_from_rows(self, tmp_path: Path) -> None:
+        """Stripping and assembling cover exactly the row-kept fields, whichever they are."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        for _ in range(3):
+            history.round_trip()
+        state = history.journal._store.read()
+        stripped = _strip(state)
+        assert not any(_row_values(stripped).values())
+        assert _assemble(stripped, _row_values(state)) == state
+
+    @pytest.mark.parametrize("digest", ["g" * 64, "A" * 64, "a" * 63, ""])
+    def test_history_and_row_digests_share_one_rule(self, digest: str) -> None:
+        """Row summaries refuse exactly the digests that history digests refuse."""
+        with pytest.raises(ValueError, match="invalid account history digest"):
+            _HistoryDigest(count=1, sha256=digest)
+        with pytest.raises(ValueError, match="invalid account state row summary"):
+            _RowSummary(field="events", count=1, sha256=digest)
+
+    def test_order_lookups_follow_the_staged_orders(self, tmp_path: Path) -> None:
+        """Indexed lookups see an order saved in place and refuse unknown identities."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        with history.journal._store.write() as transaction:
+            first = transaction.state.orders[0]
+            assert transaction.order(first.order.identity) is first
+            saved = replace(first, instance_id=first.instance_id)
+            transaction.save_order(saved)
+            assert transaction.order(first.order.identity) is saved
+            assert transaction.find_order("absent") is None
+            assert transaction.find_net_order("absent") is None
+            with pytest.raises(ValueError, match="unknown child order"):
+                transaction.order("absent")
+            with pytest.raises(ValueError, match="unknown physical order"):
+                transaction.net_order("absent")
 
     def test_another_process_sees_every_commit(self, tmp_path: Path) -> None:
         """Two journals on one file each read the other's changed rows after every commit."""
@@ -168,3 +213,25 @@ class TestAccountStateRows:
         print(f"round trip at 40/400 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Rewriting the whole head and re-adding every posting grew with history.
         assert medians[1] < 1.5 * medians[0]
+
+    @pytest.mark.performance
+    def test_row_write_skips_unchanged_fields(self, tmp_path: Path) -> None:
+        """A commit that changes no row-kept field costs the same at 100 and 1,000 orders."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        store = history.journal._store
+        medians: list[float] = []
+        for orders in (100, 1000):
+            while history.orders < orders:
+                history.round_trip()
+            values = _row_values(store.read())
+            samples: list[float] = []
+            with closing(sqlite3.connect(store.path)) as connection:
+                for _ in range(31):
+                    started = time.perf_counter()
+                    store._rows.write(connection, values, values)
+                    samples.append(time.perf_counter() - started)
+                connection.rollback()
+            medians.append(sorted(samples)[15])
+        print(f"unchanged row write at 100/1000 orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Walking, copying and re-hashing every row of every field grew with history.
+        assert medians[1] < 2 * medians[0]

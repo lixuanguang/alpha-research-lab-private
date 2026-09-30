@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import operator
 import threading
 from collections import OrderedDict
 from datetime import datetime
@@ -213,6 +214,11 @@ class AccountState(WireRecord, frozen=True):
             identities.add(posting.identity)
 
 
+def _exact_money(value: Fraction, currency: Currency) -> Money:
+    """Create a bounded exact money value without Decimal context rounding."""
+    return Money(value=DecimalGrid.exact_decimal(value), currency=currency)
+
+
 class _AccountReplay:
     """Fold one account's postings, in order, into exact running totals.
 
@@ -322,23 +328,19 @@ class _AccountReplay:
     def require_scopes(self, instance_id: str | None) -> None:
         """Check the snapshot totals of the account and one instance scope.
 
-        These are the only scopes a posting can change. The checks match the
-        ``AccountSnapshot`` projection: exact money totals, nonnegative fees and
-        rebates, and nonnegative physical account cash.
+        These are the only scopes a posting can change. Every total must be exact
+        money and fees and rebates nonnegative, as ``AccountSnapshot`` requires.
+        The account scope's cash is the physical cash that ``apply`` already
+        keeps nonnegative.
         """
         scopes: tuple[str | None, ...] = (None,) if instance_id is None else (None, instance_id)
+        zero = Fraction(0)
         for scope in scopes:
             for code, currency in self.currencies.items():
                 key = (scope, code)
-                # Every total must be exact money, including transfers.
-                cash, fee, rebate, _ = (
-                    Money(
-                        value=DecimalGrid.exact_decimal(totals.get(key, Fraction(0))),
-                        currency=currency,
-                    )
-                    for totals in (self.scope_cash, self.fees, self.rebates, self.transfers)
-                )
-                if fee.value < 0 or rebate.value < 0 or (scope is None and cash.value < 0):
+                for totals in (self.scope_cash, self.fees, self.rebates, self.transfers):
+                    _exact_money(totals.get(key, zero), currency)
+                if self.fees.get(key, zero) < 0 or self.rebates.get(key, zero) < 0:
                     raise ValueError("snapshot has invalid cash or cost totals")
 
     def _adjust(self, effect: EffectiveAccountPosting, sign: int) -> None:
@@ -399,16 +401,20 @@ class _AccountReplays:
     always gives the same result, and account journals rebuild ledgers from the
     same state many times per transaction. Remembered folds are never changed:
     ledgers post to a copy. Each entry holds its state, so an object identity
-    cannot be reused while cached. The bound keeps memory to a few recent
-    states, and a lock serializes concurrent account observers.
+    cannot be reused while cached. Each fold is as large as its history, so the
+    bound is per account: a transaction needs only the committed state and the
+    few it stages. A lock serializes concurrent account observers.
     """
 
     def __init__(self, capacity: int) -> None:
-        """Bind a positive least-recently-used capacity."""
+        """Bind a positive least-recently-used capacity for each account."""
         self._capacity = capacity
-        self._entries: OrderedDict[
-            int, tuple[AccountState, _AccountReplay, tuple[EffectiveAccountPosting, ...]]
-        ] = OrderedDict()
+        self._accounts: dict[
+            str,
+            OrderedDict[
+                int, tuple[AccountState, _AccountReplay, tuple[EffectiveAccountPosting, ...]]
+            ],
+        ] = {}
         self._lock = threading.Lock()
 
     def find(
@@ -416,11 +422,36 @@ class _AccountReplays:
     ) -> tuple[_AccountReplay, tuple[EffectiveAccountPosting, ...]] | None:
         """Return the validated fold of exactly this state object, if remembered."""
         with self._lock:
-            entry = self._entries.get(id(state))
-            if entry is None or entry[0] is not state:
+            entries = self._accounts.get(state.account_id)
+            entry = None if entries is None else entries.get(id(state))
+            if entries is None or entry is None or entry[0] is not state:
                 return None
-            self._entries.move_to_end(id(state))
+            entries.move_to_end(id(state))
             return entry[1], entry[2]
+
+    def longest_prefix(
+        self,
+        account_id: str,
+        currencies: tuple[Currency, ...],
+        postings: tuple[AccountPosting, ...],
+    ) -> tuple[AccountState, _AccountReplay] | None:
+        """Return the remembered state of this account whose postings begin ``postings``.
+
+        Postings match by object identity, so a remembered state qualifies only
+        when ``postings`` holds its exact validated objects, in order, first.
+        """
+        best: tuple[AccountState, _AccountReplay] | None = None
+        with self._lock:
+            for state, fold, _ in self._accounts.get(account_id, {}).values():
+                size = len(state.postings)
+                if (
+                    state.currencies == currencies
+                    and size <= len(postings)
+                    and (best is None or size > len(best[0].postings))
+                    and all(map(operator.is_, state.postings, postings[:size]))
+                ):
+                    best = state, fold
+        return best
 
     def remember(
         self,
@@ -430,13 +461,14 @@ class _AccountReplays:
     ) -> None:
         """Record a state whose postings, fold and snapshots were all validated."""
         with self._lock:
-            self._entries[id(state)] = (state, fold, effective)
-            self._entries.move_to_end(id(state))
-            while len(self._entries) > self._capacity:
-                self._entries.popitem(last=False)
+            entries = self._accounts.setdefault(state.account_id, OrderedDict())
+            entries[id(state)] = (state, fold, effective)
+            entries.move_to_end(id(state))
+            while len(entries) > self._capacity:
+                entries.popitem(last=False)
 
 
-_ACCOUNT_REPLAYS = _AccountReplays(capacity=64)
+_ACCOUNT_REPLAYS = _AccountReplays(capacity=4)
 
 
 class AccountSnapshot(WireRecord, frozen=True):
@@ -536,6 +568,60 @@ class AccountLedger:
         else:
             fold, effective = remembered
         self._state, self._fold, self._effective = state, fold, effective
+
+    @classmethod
+    def attach(cls, head: AccountState, postings: tuple[AccountPosting, ...]) -> AccountState:
+        """Return ``head``'s account holding ``postings``, validating only unseen postings.
+
+        ``postings`` must hold records that were each validated when decoded. When
+        a remembered state's postings are the same objects as its first postings,
+        that state is returned unchanged, or its fold is extended by the remaining
+        postings with the checks ``post`` applies. Otherwise the whole history is
+        validated and replayed. The result is remembered, so building its ledger
+        or view does not validate it again.
+
+        Args:
+            head: The account's identity and currencies, with no postings.
+            postings: The account's complete ordered history.
+
+        Returns:
+            A validated state whose ledger is remembered.
+
+        Raises:
+            ValueError: The appended postings are incompatible with the history.
+        """
+        if type(head) is not AccountState or head.postings:
+            raise ValueError("account ledger attach requires an empty head state")
+        head.__post_init__()
+        if type(postings) is not tuple:
+            raise TypeError("account state requires account postings")
+        found = _ACCOUNT_REPLAYS.longest_prefix(head.account_id, head.currencies, postings)
+        if found is None:
+            state = AccountState(
+                account_id=head.account_id, currencies=head.currencies, postings=postings
+            )
+            cls(state)
+            return state
+        prior, prior_fold = found
+        if len(prior.postings) == len(postings):
+            return prior
+        fold = prior_fold.copy()
+        identities = {posting.identity for posting in prior.postings}
+        for posting in postings[len(prior.postings) :]:
+            if type(posting) is not AccountPosting:
+                raise TypeError("account state requires account postings")
+            posting.__post_init__()
+            if posting.account_id != head.account_id or posting.identity in identities:
+                raise ValueError("posting account mismatch or duplicate identity")
+            identities.add(posting.identity)
+            fold.apply(posting)
+            fold.require_scopes(posting.instance_id)
+        state = AccountState(account_id=head.account_id, currencies=head.currencies)
+        force_setattr(state, "postings", postings)
+        effective = fold.effective()
+        cls._snapshot(state, fold, effective, None)
+        _ACCOUNT_REPLAYS.remember(state, fold, effective)
+        return state
 
     @property
     def state(self) -> AccountState:
@@ -649,7 +735,7 @@ class AccountLedger:
             account_id=state.account_id,
             instance_id=instance_id,
             cash=tuple(
-                cls._money(fold.scope_cash.get((instance_id, currency.code), zero), currency)
+                _exact_money(fold.scope_cash.get((instance_id, currency.code), zero), currency)
                 for currency in currencies
             ),
             positions=tuple(
@@ -658,15 +744,15 @@ class AccountLedger:
                 if value
             ),
             fees=tuple(
-                cls._money(fold.fees.get((instance_id, currency.code), zero), currency)
+                _exact_money(fold.fees.get((instance_id, currency.code), zero), currency)
                 for currency in currencies
             ),
             rebates=tuple(
-                cls._money(fold.rebates.get((instance_id, currency.code), zero), currency)
+                _exact_money(fold.rebates.get((instance_id, currency.code), zero), currency)
                 for currency in currencies
             ),
             transfers=tuple(
-                cls._money(fold.transfers.get((instance_id, currency.code), zero), currency)
+                _exact_money(fold.transfers.get((instance_id, currency.code), zero), currency)
                 for currency in currencies
             ),
             fill_ids=tuple(
@@ -681,11 +767,6 @@ class AccountLedger:
                 if instance_id is None or posting.instance_id == instance_id
             ),
         )
-
-    @staticmethod
-    def _money(value: Fraction, currency: Currency) -> Money:
-        """Create a bounded exact money value without Decimal context rounding."""
-        return Money(value=DecimalGrid.exact_decimal(value), currency=currency)
 
     @classmethod
     def _dimension_order(cls, item: tuple[Dimension, Fraction]) -> bytes:

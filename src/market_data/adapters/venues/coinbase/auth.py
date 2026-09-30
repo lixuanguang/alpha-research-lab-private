@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import NoReturn
 
 # project library imports
-from configuration import SecretValue, VenueSecretsError, read_secret_fields
+from configuration import VENUE_SECRET_FILES, SecretValue, VenueSecretsError, read_secret_fields
 
-_FIELDS = frozenset({"API_KEY", "API_SECRET", "API_PASSPHRASE"})
+_FIELDS = VENUE_SECRET_FILES["coinbase"][1]
 
 
 class CoinbaseAccessError(ValueError):
@@ -24,23 +24,25 @@ class CoinbaseCredentials:
 
     __slots__ = ("_key", "_passphrase", "_secret")
 
-    def __init__(self, key: str, secret: bytes, passphrase: str) -> None:
+    def __init__(self, key: SecretValue, secret: SecretValue, passphrase: SecretValue) -> None:
         """Bind validated Exchange signing inputs with no network activity.
 
         Args:
             key: Exchange API key; retained privately and never logged.
-            secret: Decoded HMAC secret; retained privately and never logged.
+            secret: Base64 HMAC secret, as the credential file holds it; retained
+                privately and never logged.
             passphrase: Exchange API passphrase; retained privately and never logged.
 
         Raises:
-            CoinbaseAccessError: Exchange credentials are missing, malformed or incompatible.
+            CoinbaseAccessError: The secret is not nonempty base64.
         """
-        if not key or not secret or not passphrase:
-            del key, secret, passphrase
-            raise CoinbaseAccessError("Exchange key, base64 secret and passphrase are required")
-        self._key = SecretValue(key)
-        self._secret = SecretValue(base64.b64encode(secret).decode())
-        self._passphrase = SecretValue(passphrase)
+        if any(type(value) is not SecretValue for value in (key, secret, passphrase)):
+            raise TypeError("Exchange credentials must be SecretValue wrappers")
+        if not _decoded(secret):
+            raise CoinbaseAccessError(
+                "Fill API_KEY, API_SECRET (base64), and API_PASSPHRASE in the Exchange secrets file"
+            )
+        self._key, self._secret, self._passphrase = key, secret, passphrase
 
     @classmethod
     def read(cls, path: Path) -> CoinbaseCredentials:
@@ -65,12 +67,7 @@ class CoinbaseCredentials:
             raise CoinbaseAccessError(
                 f"{error}; Exchange L3 access unverified (API_SECRET must be base64)"
             ) from None
-        secret = _decoded(fields["API_SECRET"])
-        if not secret:
-            raise CoinbaseAccessError(
-                "Fill API_KEY, API_SECRET (base64), and API_PASSPHRASE in the Exchange secrets file"
-            )
-        return cls(fields["API_KEY"].reveal(), secret, fields["API_PASSPHRASE"].reveal())
+        return cls(fields["API_KEY"], fields["API_SECRET"], fields["API_PASSPHRASE"])
 
     def __repr__(self) -> str:
         """Render a fixed placeholder instead of signing material."""

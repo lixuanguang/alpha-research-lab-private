@@ -233,6 +233,11 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
         """
         if not self.accept_first_binding_message:
             return "scoped disconnect: recovery is unproven", ()
+        # Each disconnect's answers, in order, by its identity; one pass, not one per control.
+        answers: dict[str, list[ContinuityResumed]] = {}
+        for item in recoveries:
+            if item.binding == binding:
+                answers.setdefault(item.disconnect_identity, []).append(item)
         used: list[ContinuityResumed] = []
         for control in controls:
             event = control.event
@@ -241,13 +246,7 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
             if event.provenance.valid_from >= start:
                 return "scoped disconnect inside window", ()
             answer = next(
-                (
-                    item
-                    for item in recoveries
-                    if item.binding == binding
-                    and item.disconnect_identity == control.identity
-                    and item.known_at <= known_at
-                ),
+                (item for item in answers.get(control.identity, ()) if item.known_at <= known_at),
                 None,
             )
             if answer is None:

@@ -256,7 +256,7 @@ The retained development checks and release boundary are:
 
 QuantLib 1.43 remains in the complete research graph under its bounded
 [development/CI allowance](dependency-admission.md#wheel-only-development-allowance)
-through **2026-10-04**. Its source-to-wheel binding is unverified; the whole graph
+through **2026-10-31**. Its source-to-wheel binding is unverified; the whole graph
 still cannot be released. MR06's actual operating closures omit that adapter and
 unrelated research dependencies. This selected-closure admission retains the full
 root policy and vulnerability checks and does not resolve QuantLib's own source

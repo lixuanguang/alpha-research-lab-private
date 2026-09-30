@@ -11,8 +11,22 @@ from pathlib import Path
 from typing import cast
 
 # project library imports
-from serialization import DomainCodec
+from serialization import DomainCodec, require_sqlite_layout
 from telemetry.events import MonitoringEvent, MonitoringQuery
+
+# The complete journal layout; opening refuses any other.
+_LAYOUT: tuple[str, ...] = (
+    "CREATE TABLE metadata (version TEXT NOT NULL, floor TEXT, event_count INTEGER NOT NULL)",
+    "CREATE TABLE events (scope TEXT, mode TEXT, name TEXT, "
+    "version TEXT, sample TEXT, revision INTEGER, at TEXT, available TEXT, "
+    "recorded TEXT, payload BLOB, "
+    "PRIMARY KEY(scope, mode, name, version, sample, revision))",
+    "CREATE INDEX event_time ON events(scope, mode, at)",
+    "CREATE TRIGGER event_count_insert AFTER INSERT ON events "
+    "BEGIN UPDATE metadata SET event_count = event_count + 1; END",
+    "CREATE TRIGGER event_count_delete AFTER DELETE ON events "
+    "BEGIN UPDATE metadata SET event_count = event_count - 1; END",
+)
 
 
 class TelemetryStore:
@@ -125,6 +139,15 @@ class TelemetryStore:
             sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=0.05)
         ) as connection:
             connection.execute("BEGIN")
+            # A reader refuses another layout exactly as a writer does. A store whose
+            # schema is not committed yet has no objects; reading it raises SQLite's
+            # retryable "no such table" below, as callers waiting for it expect.
+            existing = cast(
+                tuple[object, ...] | None,
+                connection.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone(),
+            )
+            if existing is not None:
+                self._require_schema(connection)
             floor = self._floor(connection)
             if floor is not None and query.start < floor:
                 raise ValueError("monitoring query predates retained history")
@@ -204,40 +227,20 @@ class TelemetryStore:
 
     @classmethod
     def _require_schema(cls, connection: sqlite3.Connection) -> None:
-        """Refuse any journal without the current metadata, count and count triggers."""
+        """Refuse any journal without exactly the current tables, index and count triggers.
+
+        Names alone are not enough: a trigger or column changed under the same name
+        would otherwise open as current.
+        """
+        require_sqlite_layout(connection, _LAYOUT, "unsupported telemetry store schema")
         cls._floor(connection)
-        triggers = cast(
-            list[tuple[object, ...]],
-            connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name"
-            ).fetchall(),
-        )
-        if [row[0] for row in triggers] != ["event_count_delete", "event_count_insert"]:
-            raise ValueError("unsupported telemetry store schema")
 
     @staticmethod
     def _create(connection: sqlite3.Connection) -> None:
         """Create the journal with an exact row count maintained by the database itself."""
-        connection.execute(
-            "CREATE TABLE metadata (version TEXT NOT NULL, floor TEXT, "
-            "event_count INTEGER NOT NULL)"
-        )
+        for statement in _LAYOUT:
+            connection.execute(statement)
         connection.execute("INSERT INTO metadata VALUES ('telemetry-store', NULL, 0)")
-        connection.execute(
-            "CREATE TABLE events (scope TEXT, mode TEXT, name TEXT, "
-            "version TEXT, sample TEXT, revision INTEGER, at TEXT, available TEXT, "
-            "recorded TEXT, payload BLOB, "
-            "PRIMARY KEY(scope, mode, name, version, sample, revision))"
-        )
-        connection.execute("CREATE INDEX event_time ON events(scope, mode, at)")
-        connection.execute(
-            "CREATE TRIGGER event_count_insert AFTER INSERT ON events "
-            "BEGIN UPDATE metadata SET event_count = event_count + 1; END"
-        )
-        connection.execute(
-            "CREATE TRIGGER event_count_delete AFTER DELETE ON events "
-            "BEGIN UPDATE metadata SET event_count = event_count - 1; END"
-        )
 
     def _rows(self, cursor: sqlite3.Cursor) -> tuple[MonitoringEvent, ...]:
         """Narrow database values before decoding strict monitoring records."""
