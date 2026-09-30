@@ -204,6 +204,7 @@ class TestFormatCompatibilityChecker:
             "Backward compatible decoding of old journals.",
             "backward-compat alias",
             "LEGACY path",
+            "Backwards compatible decoding of old journals.",
         ],
     )
     def test_rejects_compatibility_wording_in_any_runtime_text(
@@ -249,6 +250,23 @@ class TestFormatCompatibilityChecker:
             "tests/test_x.py:1",
         ]
         assert all("revision suffix" in finding for finding in findings)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["decode_" + "v2" + "_rows", "DECODER_" + "V2", "decoder" + "V2", "api-" + "V3"],
+    )
+    def test_rejects_revision_suffixes_inside_names_and_in_any_case(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        """A revision marker is a suffix even when more name follows or it is uppercase."""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src/module.py").write_text(
+            f"{name} = 1  # IPv6 and UUIDv4 are not revisions\n"
+        )
+
+        findings = FormatCompatibilityChecker.findings(tmp_path)
+
+        assert len(findings) == 1 and "revision suffix" in findings[0]
 
     def test_repository_runtime_text_has_no_compatibility_wording(self) -> None:
         """Keep the checked-in runtime tree free of old-format compatibility wording."""
