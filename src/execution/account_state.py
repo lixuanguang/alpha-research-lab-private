@@ -148,6 +148,22 @@ class _FirmState(WireRecord, frozen=True):
     paper_restore_quarantine: bool = False
 
 
+def _require_digest(count: object, sha256: object, message: str) -> None:
+    """Require a row count, with no digest for no rows and lowercase hex sha256 otherwise."""
+    if (
+        type(count) is not int
+        or count < 0
+        or type(sha256) is not str
+        or (sha256 == "") != (count == 0)
+        or (count and (len(sha256) != 64 or sha256 != sha256.lower()))
+    ):
+        raise ValueError(message)
+    try:
+        bytes.fromhex(sha256)
+    except ValueError:
+        raise ValueError(message) from None
+
+
 class _HistoryDigest(WireRecord, frozen=True):
     """Bind one history table's row count to a hash chain over its item bytes."""
 
@@ -156,15 +172,7 @@ class _HistoryDigest(WireRecord, frozen=True):
 
     def __post_init__(self) -> None:
         """Require an empty chain for no rows and a sha256 digest otherwise."""
-        if (
-            type(self.count) is not int
-            or self.count < 0
-            or type(self.sha256) is not str
-            or (self.sha256 == "") != (self.count == 0)
-            or (self.count and (len(self.sha256) != 64 or self.sha256 != self.sha256.lower()))
-        ):
-            raise ValueError("invalid account history digest")
-        bytes.fromhex(self.sha256)
+        _require_digest(self.count, self.sha256, "invalid account history digest")
 
     def extend(self, item: bytes) -> _HistoryDigest:
         """Chain one more item's exact bytes after the current rows."""
@@ -187,17 +195,10 @@ class _RowSummary(WireRecord, frozen=True):
     sha256: str
 
     def __post_init__(self) -> None:
-        """Require an empty digest for no rows and a sha256 digest otherwise."""
-        if (
-            type(self.field) is not str
-            or not self.field
-            or type(self.count) is not int
-            or self.count < 0
-            or type(self.sha256) is not str
-            or (self.sha256 == "") != (self.count == 0)
-            or (self.count and (len(self.sha256) != 64 or self.sha256 != self.sha256.lower()))
-        ):
+        """Require a field name, an empty digest for no rows and a sha256 digest otherwise."""
+        if type(self.field) is not str or not self.field:
             raise ValueError("invalid account state row summary")
+        _require_digest(self.count, self.sha256, "invalid account state row summary")
 
     @staticmethod
     def of(field: str, digests: list[bytes]) -> _RowSummary:

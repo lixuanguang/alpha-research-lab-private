@@ -19,8 +19,10 @@ from execution import AccountJournal
 from execution.account_state import (
     AccountStateStore,
     _assemble,
+    _HistoryDigest,
     _HistorySummary,
     _row_values,
+    _RowSummary,
     _strip,
 )
 from serialization import DomainCodec
@@ -69,6 +71,14 @@ class TestAccountStateRows:
         stripped = _strip(state)
         assert not any(_row_values(stripped).values())
         assert _assemble(stripped, _row_values(state)) == state
+
+    @pytest.mark.parametrize("digest", ["g" * 64, "A" * 64, "a" * 63, ""])
+    def test_history_and_row_digests_share_one_rule(self, digest: str) -> None:
+        """Row summaries refuse exactly the digests that history digests refuse."""
+        with pytest.raises(ValueError, match="invalid account history digest"):
+            _HistoryDigest(count=1, sha256=digest)
+        with pytest.raises(ValueError, match="invalid account state row summary"):
+            _RowSummary(field="events", count=1, sha256=digest)
 
     def test_another_process_sees_every_commit(self, tmp_path: Path) -> None:
         """Two journals on one file each read the other's changed rows after every commit."""
