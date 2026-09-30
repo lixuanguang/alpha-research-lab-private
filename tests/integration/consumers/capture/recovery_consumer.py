@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import asyncio
+import base64
 import json
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from msgspec.structs import replace
 # project library imports
 import market_data
 from applications.collect import collect
-from configuration import CaptureConfig
+from configuration import CaptureConfig, SecretValue
 from market_data.adapters.sources import BookAdapters
 from market_data.adapters.transport import VenueTransport
 from market_data.adapters.venues.coinbase import CoinbaseBook, CoinbaseCredentials
@@ -150,7 +151,11 @@ def recovery(directory: Path, output: Path, mode: str) -> dict[str, object]:
                 config,
                 output,
                 implementation_identity="a" * 64,
-                credentials=CoinbaseCredentials("fixture", b"fixture-secret", "fixture-passphrase"),
+                credentials=CoinbaseCredentials(
+                    SecretValue("fixture"),
+                    SecretValue(base64.b64encode(b"fixture-secret").decode()),
+                    SecretValue("fixture-passphrase"),
+                ),
                 transport=transport,
             )
         )

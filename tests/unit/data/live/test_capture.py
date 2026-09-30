@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import asyncio
+import base64
 import contextlib
 import os
 import shutil
@@ -22,7 +23,7 @@ from msgspec.structs import replace
 
 # project library imports
 from applications.collect import collect, monitored_capture
-from configuration import CaptureConfig
+from configuration import CaptureConfig, SecretValue
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.adapters.transport import VenueSubscriptions, VenueTransport
 from market_data.adapters.venues.coinbase import CoinbaseAccessError, CoinbaseCredentials
@@ -908,7 +909,9 @@ class TestCoinbaseCapture:
                     tmp_path,
                     implementation_identity="a" * 64,
                     credentials=CoinbaseCredentials(
-                        "fixture", b"fixture-secret", "fixture-passphrase"
+                        SecretValue("fixture"),
+                        SecretValue(base64.b64encode(b"fixture-secret").decode()),
+                        SecretValue("fixture-passphrase"),
                     ),
                     transport=transport,
                 )
