@@ -981,21 +981,6 @@ class _AccountTransaction(_AccountSnapshot):
         )
 
 
-def _field_keys(record: type[msgspec.Struct]) -> tuple[tuple[str, bytes], ...]:
-    """Return each field's name and encoded key prefix in the codec's sorted order."""
-    return tuple(
-        (name, msgspec.json.encode(wire_name) + b":")
-        for wire_name, name in sorted(
-            (field.encode_name, field.name) for field in msgspec.structs.fields(record)
-        )
-    )
-
-
-# The codec encodes struct fields in sorted wire-name order with no omitted defaults.
-_FIRM_FIELD_KEYS = _field_keys(_FirmState)
-_HEAD_FIELD_KEYS = _field_keys(_FirmHead)
-
-
 class _FirmRow:
     """Own the single reader of the ``firm`` row."""
 
@@ -1029,7 +1014,6 @@ class AccountStateStore:
         self._configuration_payload = codec.encode_json(config)
         self._cached_snapshot: tuple[bytes, _LoadedHead] | None = None
         self._rows = _StateRows(codec)
-        self._encoded: dict[str, tuple[object, bytes, list[bytes] | None]] = {}
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -1049,7 +1033,7 @@ class AccountStateStore:
                 rows, updates = self._rows.write(connection, {}, _row_values(initial))
                 head = _FirmHead(history=replace(_EMPTY_HISTORY, rows=rows), state=_strip(initial))
                 connection.execute(
-                    "INSERT INTO firm VALUES (1, ?, ?)", (payload, self._encode_head(head))
+                    "INSERT INTO firm VALUES (1, ?, ?)", (payload, self.codec.encode_json(head))
                 )
                 connection.commit()
                 self._rows.accept(updates)
@@ -1171,7 +1155,7 @@ class AccountStateStore:
                     connection, _row_values(head.state), _row_values(complete)
                 )
                 written = _FirmHead(history=replace(history, rows=rows), state=_strip(complete))
-                payload = self._encode_head(written)
+                payload = self.codec.encode_json(written)
                 connection.execute("UPDATE firm SET payload=? WHERE id=1", (payload,))
                 connection.commit()
                 self._rows.accept(updates)
@@ -1185,53 +1169,6 @@ class AccountStateStore:
     def _tables(self, connection: sqlite3.Connection, history: _HistorySummary) -> _HistoryTables:
         """Bind history lookups to this connection's transaction."""
         return _HistoryTables(connection, self.codec, history)
-
-    def _encode_head(self, head: _FirmHead) -> bytes:
-        """Return exactly ``codec.encode_json(head)``, reusing the state's field cache."""
-        fields: list[bytes] = []
-        for name, key in _HEAD_FIELD_KEYS:
-            value: object = getattr(head, name)
-            encoded = self._encode(head.state) if name == "state" else self.codec.encode_json(value)
-            fields.append(key + encoded)
-        return b"{" + b",".join(fields) + b"}"
-
-    def _encode(self, state: _FirmState) -> bytes:
-        """Return exactly ``codec.encode_json(state)`` without re-encoding unchanged history.
-
-        The codec writes every field in sorted-name order. Each cache entry maps an
-        immutable value to its bytes, so reuse requires object identity: an
-        unchanged field, or a tuple whose previous items are the same objects with
-        only new items appended. Anything else is encoded afresh. An entry left by a
-        rolled-back or superseded state can only miss, never return other bytes.
-        """
-        fields: list[bytes] = []
-        for name, key in _FIRM_FIELD_KEYS:
-            value: object = getattr(state, name)
-            cached = self._encoded.get(name)
-            if cached is not None and cached[0] is value:
-                fields.append(key + cached[1])
-                continue
-            items: list[bytes] | None = None
-            if type(value) is tuple:
-                previous = cached[0] if cached is not None else None
-                if (
-                    cached is not None
-                    and cached[2] is not None
-                    and type(previous) is tuple
-                    and len(value) >= len(previous)
-                    and all(map(operator.is_, value, previous))
-                ):
-                    items = cached[2] + [
-                        self.codec.encode_json(item) for item in value[len(previous) :]
-                    ]
-                else:
-                    items = [self.codec.encode_json(item) for item in value]
-                encoded = b"[" + b",".join(items) + b"]"
-            else:
-                encoded = self.codec.encode_json(value)
-            self._encoded[name] = value, encoded, items
-            fields.append(key + encoded)
-        return b"{" + b",".join(fields) + b"}"
 
     def _initial(self) -> _FirmState:
         """Create explicit initial funding postings; require reconciliation before admission."""
