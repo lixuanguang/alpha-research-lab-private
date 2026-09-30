@@ -403,8 +403,10 @@ session does not itself resume submission. This correctness-first implementation
 does not qualify low-latency streaming or MR15 runtime budgets.
 
 State consists of the account SQLite journal, account-specific `.venue.sqlite3`,
-the shared `.venue-accounts.sqlite3` identity bindings and `.venue.lock`. Keep the
-whole workspace together. Nonces and conservative request intervals survive
+the shared `.venue-accounts.sqlite3` identity bindings and `.venue.lock`. The venue
+file keeps each dispatch and each receipt as its own row, so retaining a private
+frame or marking a receipt applied writes one row. Opening refuses any other layout.
+Keep the whole workspace together. Nonces and conservative request intervals survive
 restart; HTTP requests never hide submit retries or follow redirects. Private
 receipt bytes can contain sensitive account data and belong outside Git. A restored
 venue workspace requires fresh physical reconciliation. Remote venue anti-rewind

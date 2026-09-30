@@ -1637,6 +1637,18 @@ class TestVenueGateway:
             with pytest.raises(ValueError, match="unsupported venue journal schema"):
                 store.read()
 
+    def test_single_document_venue_state_layout_is_refused(self, tmp_path: Path) -> None:
+        """A state file that keeps dispatches and receipts in one document is never opened."""
+        store = VenueStateStore(tmp_path / "account.sqlite3", "account", b"scope")
+        with closing(sqlite3.connect(store.path)) as connection, connection:
+            connection.execute(
+                "CREATE TABLE state (id INTEGER PRIMARY KEY CHECK(id=1), binding BLOB NOT NULL, "
+                "payload BLOB NOT NULL)"
+            )
+            connection.execute("INSERT INTO state VALUES (1, ?, ?)", (b"scope", b"{}"))
+        with pytest.raises(ValueError, match="unsupported venue journal schema"), store.claim():
+            pytest.fail("an earlier venue state layout was opened")
+
     def test_same_physical_wallet_cannot_fund_two_local_accounts(self, tmp_path: Path) -> None:
         """Independent aliases cannot duplicate one authenticated account's funding."""
         path = tmp_path / "firm.sqlite3"
