@@ -1368,12 +1368,7 @@ class AccountJournal:
         while True:
             with self._store.write() as transaction:
                 self._drop_ended_leases(transaction)
-                held = any(
-                    (account_id is None or lease.account_id == account_id)
-                    and (instance_id is None or instance_id in lease.instance_ids)
-                    for lease in transaction.leases()
-                )
-                if not held:
+                if not transaction.lease_held(account_id=account_id, instance_id=instance_id):
                     yield transaction
                     return
             if self._monotonic() >= give_up:
@@ -1484,7 +1479,7 @@ class AccountJournal:
                         raise ValueError("dispatch price deviation")
                     self._admission.require_reissue_safe(transaction, account_id, at)
                     self._drop_ended_leases(transaction)
-                    if any(item.account_id == account_id for item in transaction.leases()):
+                    if transaction.lease_held(account_id=account_id):
                         raise ValueError("another dispatch is in progress")
                     # The OS lock precedes the committed row, so a live row is never lockless.
                     lock = self._hold_lease(holder)

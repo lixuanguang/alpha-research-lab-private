@@ -936,29 +936,31 @@ class _AccountTransaction(_AccountSnapshot):
                 "FROM dispatch_leases ORDER BY order_id"
             ).fetchall(),
         )
-        leases: list[DispatchLease] = []
-        for row in rows:
-            if len(row) != 5:
-                raise ValueError("invalid dispatch lease row")
+        return tuple(self._lease(row) for row in rows)
+
+    @staticmethod
+    def _lease(row: tuple[object, ...]) -> DispatchLease:
+        """Convert one lease row; DispatchLease checks each column's type and its rules."""
+        try:
             order_id, account_id, instance_ids, holder, armed_at = row
-            if not (
-                isinstance(order_id, str)
-                and isinstance(account_id, str)
-                and isinstance(instance_ids, bytes)
-                and isinstance(holder, str)
-                and isinstance(armed_at, str)
-            ):
-                raise ValueError("invalid dispatch lease row")
-            leases.append(
-                DispatchLease(
-                    order_id=order_id,
-                    account_id=account_id,
-                    instance_ids=msgspec.json.decode(instance_ids, type=tuple[str, ...]),
-                    holder=holder,
-                    armed_at=datetime.fromisoformat(armed_at),
-                )
-            )
-        return tuple(leases)
+            fields: dict[str, object] = {
+                "order_id": order_id,
+                "account_id": account_id,
+                "instance_ids": msgspec.json.decode(cast(bytes, instance_ids), type=list[str]),
+                "holder": holder,
+                "armed_at": armed_at,
+            }
+            return msgspec.convert(fields, DispatchLease)
+        except (msgspec.MsgspecError, TypeError, ValueError) as error:
+            raise ValueError("invalid dispatch lease row") from error
+
+    def lease_held(self, *, account_id: str | None = None, instance_id: str | None = None) -> bool:
+        """Report whether a lease covers the account, the instance, or both when both are given."""
+        return any(
+            (account_id is None or lease.account_id == account_id)
+            and (instance_id is None or instance_id in lease.instance_ids)
+            for lease in self.leases()
+        )
 
     def arm_lease(self, lease: DispatchLease) -> None:
         """Insert a lease; an order holds at most one."""

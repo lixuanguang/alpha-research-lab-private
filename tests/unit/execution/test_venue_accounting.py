@@ -447,6 +447,26 @@ class TestVenueAccounting:
                 permit.require_sendable()
         assert self._leases(journal) == ()
 
+    @pytest.mark.parametrize(
+        "row",
+        [
+            ("order", "venue", b'["alpha"]', "not a holder", "2026-10-01T12:00:00+00:00"),
+            ("order", "venue", b"not json", "holder1", "2026-10-01T12:00:00+00:00"),
+            ("order", "venue", b'["alpha"]', "holder1", "yesterday"),
+            ("order", "venue", b'["alpha"]', "holder1", "2026-10-01T12:00:00"),
+        ],
+        ids=["holder", "instances", "clock", "naive-clock"],
+    )
+    def test_malformed_lease_row_is_refused(self, tmp_path: Path, row: tuple[object, ...]) -> None:
+        """A lease row that is not a valid DispatchLease stops writers with one error."""
+        path = tmp_path / "leases.sqlite3"
+        journal = self._ready(path)
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("INSERT INTO dispatch_leases VALUES (?, ?, ?, ?, ?)", row)
+            connection.commit()
+        with pytest.raises(ValueError, match="invalid dispatch lease row"):
+            journal.block("venue", "operator-stop")
+
     def test_journal_without_dispatch_leases_is_refused(self, tmp_path: Path) -> None:
         """A journal in the layout before dispatch leases is refused, not extended."""
         path = tmp_path / "earlier.sqlite3"
