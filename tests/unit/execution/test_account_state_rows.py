@@ -16,7 +16,13 @@ from test_account_history_scaling import _SharedFirmHistory
 
 # project library imports
 from execution import AccountJournal
-from execution.account_state import AccountStateStore, _HistorySummary, _row_values
+from execution.account_state import (
+    AccountStateStore,
+    _assemble,
+    _HistorySummary,
+    _row_values,
+    _strip,
+)
 from serialization import DomainCodec
 
 
@@ -53,6 +59,16 @@ class TestAccountStateRows:
         reopened = AccountJournal(history.journal.path, history._config())
         assert reopened._store.read() == history.journal._store.read()
         assert reopened.orders() == history.journal.orders()
+
+    def test_every_row_field_leaves_the_head_and_returns_from_rows(self, tmp_path: Path) -> None:
+        """Stripping and assembling cover exactly the row-kept fields, whichever they are."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        for _ in range(3):
+            history.round_trip()
+        state = history.journal._store.read()
+        stripped = _strip(state)
+        assert not any(_row_values(stripped).values())
+        assert _assemble(stripped, _row_values(state)) == state
 
     def test_another_process_sees_every_commit(self, tmp_path: Path) -> None:
         """Two journals on one file each read the other's changed rows after every commit."""

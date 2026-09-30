@@ -291,17 +291,8 @@ def _strip(state: _FirmState) -> _FirmState:
         ledger: AccountState = replace(account.ledger, postings=())
         accounts.append(replace(account, ledger=ledger))
     views: tuple[AccountView, ...] = tuple(accounts)
-    return replace(
-        state,
-        events=(),
-        net_events=(),
-        reconciliations=(),
-        orders=(),
-        net_orders=(),
-        native_fills=(),
-        physical_reconciliations=(),
-        accounts=views,
-    )
+    emptied: dict[str, object] = {name: () for name, _ in _ROW_FIELDS}
+    return replace(state, accounts=views, **emptied)
 
 
 def _assemble(state: _FirmState, values: dict[str, tuple[object, ...]]) -> _FirmState:
@@ -319,19 +310,8 @@ def _assemble(state: _FirmState, values: dict[str, tuple[object, ...]]) -> _Firm
         ledger = AccountLedger.attach(account.ledger, postings)
         accounts.append(replace(account, ledger=ledger))
     views: tuple[AccountView, ...] = tuple(accounts)
-    return replace(
-        state,
-        events=cast(tuple[_SavedEvent, ...], values["events"]),
-        net_events=cast(tuple[_SavedNetEvent, ...], values["net_events"]),
-        reconciliations=cast(tuple[_Reconciliation, ...], values["reconciliations"]),
-        orders=cast(tuple[TaggedOrder, ...], values["orders"]),
-        net_orders=cast(tuple[NetOrder, ...], values["net_orders"]),
-        native_fills=cast(tuple[_SavedNativeFill, ...], values["native_fills"]),
-        physical_reconciliations=cast(
-            tuple[_PhysicalReconciliation, ...], values["physical_reconciliations"]
-        ),
-        accounts=views,
-    )
+    rows: dict[str, object] = {name: values[name] for name, _ in _ROW_FIELDS}
+    return replace(state, accounts=views, **rows)
 
 
 class _CachedRows(NamedTuple):
