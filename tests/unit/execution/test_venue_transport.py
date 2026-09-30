@@ -157,3 +157,24 @@ class TestVenueTransport:
         response = transport.request(self.request, deadline=time.monotonic() + 5)
         venue.close()
         assert (response.status, response.body) == (200, b"{}")
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            b"garbage\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nX-Long: " + b"a" * 70_000 + b"\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n",
+            b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n{}",
+        ],
+        ids=["bad-status-line", "line-too-long", "bad-chunk", "truncated-body"],
+    )
+    def test_malformed_response_after_the_send_is_outcome_unknown(
+        self, loopback: Loopback, answer: bytes
+    ) -> None:
+        """A response HTTP cannot complete leaves the sent request's outcome unknown."""
+        venue = loopback.serve(lambda connection: connection.sendall(answer))
+        transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
+        with pytest.raises(VenueOutcomeUnknownError):
+            transport.request(self.request, deadline=time.monotonic() + 5)
+        venue.close()
+        assert venue.received.startswith(b"POST /v2/auth/w/order/submit")

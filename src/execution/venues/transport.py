@@ -5,7 +5,7 @@ from __future__ import annotations
 # standard library imports
 import time
 from datetime import UTC, datetime
-from http.client import HTTPSConnection
+from http.client import HTTPException, HTTPSConnection
 from ssl import create_default_context
 from typing import Literal
 
@@ -62,7 +62,8 @@ class TlsVenueHttpTransport:
 
         Raises:
             VenueNotSentError: The bound passed before any request byte was written.
-            VenueOutcomeUnknownError: The request failed or overran after that.
+            VenueOutcomeUnknownError: The request failed, overran or got a malformed or
+                incomplete HTTP response after that.
         """
         if (
             not request.path.startswith("/")
@@ -114,10 +115,15 @@ class TlsVenueHttpTransport:
             body = b"".join(chunks)
             if len(body) > self.max_response_bytes:
                 raise VenueProtocolError("venue REST response exceeds bound or is not bytes")
+            if response.length:
+                # The connection ended before the declared body did.
+                raise VenueOutcomeUnknownError("venue REST response body is incomplete")
             status = response.status
             if type(status) is not int:
                 raise VenueProtocolError("venue REST response status is invalid")
-        except (TimeoutError, OSError) as error:
+        except (TimeoutError, OSError, HTTPException) as error:
+            # Malformed or incomplete HTTP (IncompleteRead, BadStatusLine, LineTooLong)
+            # after the request was written is as uncertain as a lost connection.
             raise VenueOutcomeUnknownError("venue REST response outcome unknown") from error
         finally:
             connection.close()
