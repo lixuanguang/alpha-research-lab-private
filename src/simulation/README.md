@@ -178,9 +178,14 @@ and initial capital covering all gross purchases without reuse of sale proceeds.
 Unsupported scope fails explicitly. It does not model queues, available size,
 impact, derivatives, leverage, shorting or multiple accounts. A bar library's
 same-bar defaults never select an execution time here. Float output is analytical:
-comparison uses absolute tolerance `1e-10` quote units and relative tolerance
-`1e-12`, accounting for float operations across this bounded trace. It never
-replaces the exact ledger or relaxes exact reconciliation.
+the terminal NAV must agree with the exact NAV within `nav_error_bound`, a bound
+derived from the exact replay of the same orders. It counts one rounding per
+engine operation and, where an exact intermediate sum falls inside vectorbt's
+`add_nb` zero-snap window (`1e-9` relative, `1e-12` absolute), the whole sum, then
+doubles the total. The bound is retained in the `vectorbt-comparison` record,
+which refuses to decode if the NAV difference exceeds it. A record with the
+earlier fixed tolerances is refused. The comparison never replaces the exact
+ledger or relaxes exact reconciliation.
 
 `applications.backtest.compare_vectorbt` requires an explicit no-fit experiment
 split, family, attempt store and `ClearMLDestination`. This first formal consumer

@@ -7,6 +7,7 @@ import time
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 from zipfile import ZIP_DEFLATED, ZipFile
 
 # third party library imports
@@ -30,7 +31,7 @@ from market_data.contracts import (
     Trade,
 )
 from market_data.datasets import DatasetPublication
-from market_data.query import AsOfSelector, InputBinding, PointEvent
+from market_data.query import AsOfSelector, InputBinding, PointEvent, QueryReader
 from market_data.storage import RawFiles, RawStore
 from market_data.validation import Correction, QualityPolicy, TradeRevision
 from reference_data.catalogs import CatalogSnapshot
@@ -374,6 +375,119 @@ class TestAsOfSelector:
         print(f"trailing selection at 15/60 minute partitions: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Walking and re-validating every earlier revision grew with the partition count.
         assert medians[1] < 2 * medians[0]
+
+    @pytest.mark.performance
+    def test_query_evidence_cost_does_not_grow_per_partition(self) -> None:
+        """Equal partition evidence is copied once per query, not once per partition."""
+        config = Configuration.read(_ROOT / "configs/data-jobs/fixture-inspection.json")
+        catalog = _CODEC.decode_json(
+            (_ROOT / "configs/reference/binance-spot.json").read_bytes(), CatalogSnapshot
+        )
+        run = config.resolve(
+            config.jobs[0].name, catalog, implementation_identity=ImplementationIdentity.sha256()
+        )
+        run = replace(run, instruments=(catalog.instruments[0],))
+        medians: list[float] = []
+        for minutes in (30, 120):
+            job = replace(run.job, end=run.job.start + timedelta(minutes=minutes))
+            requests = SourceRequest.partition(replace(run, job=job))
+            payloads = tuple(
+                self._canonical(
+                    request,
+                    tuple(
+                        self._item(
+                            request,
+                            trade_id=minute * 6 + index,
+                            capture=minute * 60 + index * 10,
+                            position=index,
+                        )
+                        for index in range(6)
+                    ),
+                )
+                for minute, request in enumerate(requests)
+            )
+            reader = QueryReader(
+                payloads,
+                readers=SourceAdapters(),
+                precedence=(self._binding(requests[0]),),
+                max_bytes=1_000_000_000,
+            )
+            end = _START + timedelta(minutes=minutes - 1, seconds=30)
+            samples: list[float] = []
+            for _ in range(9):
+                started = time.perf_counter()
+                batches = list(
+                    reader.batches(
+                        (requests[0].instrument.instrument_id,),
+                        start=end - timedelta(minutes=5),
+                        end=end,
+                        known_at=end,
+                        columns=("identity", "price"),
+                        batch_size=1000,
+                    )
+                )
+                samples.append(time.perf_counter() - started)
+            assert len(batches[0].evidence) == minutes
+            medians.append(sorted(samples)[4])
+        print(f"query at 30/120 minute partitions: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Copying every partition's manifest, catalog and history grew per partition.
+        assert medians[1] < 1.5 * medians[0]
+
+    @pytest.mark.performance
+    def test_history_query_adds_no_cost_per_older_partition(self) -> None:
+        """History mode's extra cost over cutoff mode does not grow with earlier partitions."""
+        extras: list[float] = []
+        for minutes in (15, 60):
+            payloads = tuple(
+                self._canonical(
+                    request,
+                    tuple(
+                        self._item(
+                            request,
+                            trade_id=minute * 6 + index,
+                            capture=minute * 60 + index * 10,
+                            position=index,
+                        )
+                        for index in range(6)
+                    ),
+                )
+                for minute in range(minutes)
+                for request in (self._request(minute=minute),)
+            )
+            request = self._request()
+            reader = QueryReader(
+                payloads,
+                readers=SourceAdapters(),
+                precedence=(self._binding(request),),
+                max_bytes=1_000_000_000,
+            )
+            end = _START + timedelta(minutes=minutes - 1, seconds=30)
+            medians: dict[Literal["cutoff", "history"], float] = {}
+            modes: tuple[Literal["cutoff", "history"], ...] = ("cutoff", "history")
+            for mode in modes:
+                samples: list[float] = []
+                for _ in range(9):
+                    started = time.perf_counter()
+                    rows = [
+                        row
+                        for batch in reader.batches(
+                            (request.instrument.instrument_id,),
+                            start=end - timedelta(minutes=5),
+                            end=end,
+                            known_at=end,
+                            columns=("identity", "revision"),
+                            batch_size=1000,
+                            mode=mode,
+                        )
+                        for row in batch.rows
+                    ]
+                    samples.append(time.perf_counter() - started)
+                assert len(rows) == 30
+                medians[mode] = sorted(samples)[4]
+            extras.append(medians["history"] - medians["cutoff"])
+        print(f"history extra at 15/60 minute partitions: {extras[0]:.6f}s/{extras[1]:.6f}s")
+        # Walking every chain and re-validating each revision grew with the partition count.
+        assert extras[1] < 1.8 * extras[0]
 
     def test_equal_captures_source_order_future_duplicates_and_digest_changes(self) -> None:
         """Equal-time order follows raw position, never trade ID, payload or whole-file hashes."""

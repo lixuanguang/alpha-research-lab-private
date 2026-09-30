@@ -38,6 +38,8 @@ type InputBinding = tuple[str, str, InstrumentId]
 type PointEvent = TradeRevision | Occurrence
 type EconomicOrder = tuple[datetime, int, datetime, int, int]
 type _Version = tuple[datetime | None, datetime, TradeRevision]
+# (instant, partition start, raw position), knowledge, version.
+type _Ordered = tuple[tuple[datetime, datetime, int], datetime | None, TradeRevision]
 
 
 class _Partition(WireRecord, frozen=True, kw_only=True):
@@ -193,6 +195,9 @@ class AsOfSelector:
         self._precedence = precedence
         self._ranks = {binding: rank for rank, binding in enumerate(precedence)}
         self._indexes = tuple(_RevisionIndex(partition) for partition in partitions)
+        self._binding_versions: (
+            dict[InputBinding, tuple[list[tuple[datetime, datetime, int]], list[_Ordered]]] | None
+        ) = None
 
     @property
     def history(self) -> tuple[bytes, ...]:
@@ -344,6 +349,79 @@ class AsOfSelector:
             raise ValueError("ambiguous economic ordering; reconcile logical source positions")
         selected[key] = event
 
+    def recoveries(
+        self, instruments: tuple[InstrumentId, ...], *, end: datetime, known_at: datetime
+    ) -> tuple[ContinuityResumed, ...]:
+        """Pair each disconnect known by the cutoff with its first later same-binding trade.
+
+        Args:
+            instruments: Instruments whose bindings' disconnects are answered.
+            end: Exclusive UTC business end; later disconnects are not answered.
+            known_at: Inclusive UTC cutoff for the disconnect and the answering trade.
+
+        Returns:
+            One recovery per answered disconnect, in partition and raw order. A
+            disconnect with no later trade known by the cutoff has none.
+        """
+        versions = self._versions_by_binding()
+        results: list[ContinuityResumed] = []
+        for partition in self._partitions:
+            request = partition.request
+            if request.instrument.instrument_id not in instruments:
+                continue
+            binding = self._binding(request)
+            for control in partition.controls:
+                event = control.event
+                if not isinstance(event, Disconnect):
+                    continue
+                at = self._valid_from(control)
+                if at >= end or event.provenance.ts_knowledge > known_at:
+                    continue
+                keys, candidates = versions.get(binding, ([], []))
+                first = bisect.bisect_right(keys, (at, request.start, control.position))
+                for order, version_known_at, version in candidates[first:]:
+                    if version_known_at is not None and version_known_at <= known_at:
+                        results.append(
+                            ContinuityResumed(
+                                binding=binding,
+                                disconnect_identity=event.provenance.event_id,
+                                trade_identity=version.identity,
+                                resumed_at=order[0],
+                                known_at=version_known_at,
+                            )
+                        )
+                        break
+        return tuple(results)
+
+    def _versions_by_binding(
+        self,
+    ) -> dict[InputBinding, tuple[list[tuple[datetime, datetime, int]], list[_Ordered]]]:
+        """Order every trade version of each binding by raw capture order, once."""
+        if self._binding_versions is None:
+            grouped: dict[InputBinding, list[_Ordered]] = {}
+            for index in self._indexes:
+                request = index.partition.request
+                binding = self._binding(request)
+                for chain in index.chains_all():
+                    for version_known_at, instant, version in chain:
+                        position = min(item.position for item in version.occurrences)
+                        grouped.setdefault(binding, []).append(
+                            ((instant, request.start, position), version_known_at, version)
+                        )
+            ordered: dict[
+                InputBinding, tuple[list[tuple[datetime, datetime, int]], list[_Ordered]]
+            ] = {}
+            for binding, items in grouped.items():
+                items.sort(key=self._raw_order)
+                ordered[binding] = [item[0] for item in items], items
+            self._binding_versions = ordered
+        return self._binding_versions
+
+    @staticmethod
+    def _raw_order(item: _Ordered) -> tuple[datetime, datetime, int]:
+        """Order by business instant, then partition start, then raw position."""
+        return item[0]
+
     @staticmethod
     def _valid_from(item: Occurrence) -> datetime:
         """Preserve the archive event instant or captured point's original business instant."""
@@ -361,6 +439,34 @@ class AsOfSelector:
             request.manifest.job.stream,
             request.instrument.instrument_id,
         )
+
+
+class ContinuityResumed(WireRecord, frozen=True):
+    """Answer one binding-scoped disconnect with the first later message on that binding.
+
+    ``first_binding_message`` is the weaker basis the features README refuses by
+    default: messages flowing again on the binding stand in for proof that the
+    subscription resumed. A window accepts it only when its policy says so.
+    """
+
+    binding: InputBinding
+    disconnect_identity: str
+    trade_identity: str
+    resumed_at: datetime
+    known_at: datetime
+    basis: Literal["first_binding_message"] = "first_binding_message"
+
+    def __post_init__(self) -> None:
+        """Require identities, UTC clocks and the one supported basis."""
+        self._require_utc(self.resumed_at, field_name="resumed_at")
+        self._require_utc(self.known_at, field_name="known_at")
+        if (
+            not self.disconnect_identity
+            or not self.trade_identity
+            or self.basis != "first_binding_message"
+            or len(self.binding) != 3
+        ):
+            raise ValueError("invalid continuity recovery")
 
 
 class _RevisionIndex:
@@ -400,6 +506,10 @@ class _RevisionIndex:
         self._moved = tuple(moved)
         bounds = [instant for chain in chains for _, instant, _ in chain]
         self._span = (min(bounds), max(bounds)) if bounds else None
+
+    def chains_all(self) -> tuple[tuple[_Version, ...], ...]:
+        """Return every chain in admission order."""
+        return self._chains
 
     def chains(self, start: datetime, end: datetime) -> tuple[tuple[_Version, ...], ...]:
         """Return, in admission order, every chain with a version valid in [start, end).

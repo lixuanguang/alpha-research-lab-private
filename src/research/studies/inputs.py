@@ -53,6 +53,7 @@ class ResearchInputs(WireRecord, frozen=True):
                         columns=("revision",),
                         batch_size=256,
                         mode="cutoff",
+                        recoveries=feature.policy.accept_first_binding_message,
                     )
                 )
                 features.append(

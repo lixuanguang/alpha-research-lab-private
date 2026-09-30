@@ -61,12 +61,19 @@ snapshot and transaction history lookups by identity (`find_decision`,
 `append_*`, so callers do not depend on where history is stored.
 
 The `firm` row holds the journal head: the current state without the three history
-collections, each collection's row count and sha256 hash chain, and every instance's
-latest checkpoint. The collections live in their own tables with each item's exact
-codec bytes ([design](../../docs/roadmap/account-journal-history.md)). A commit inserts
-only new rows and rewrites the head, reusing the encoded bytes of unchanged head fields,
-and a fresh process decodes only the head. Only the `account-journal` schema is
-readable; any other payload, including a whole-state document, fails closed. The journal composes admission and reconciliation from
+collections and without the state that grows with history, each collection's row count
+and sha256 hash chain, and every instance's latest checkpoint. The collections live in
+their own tables with each item's exact codec bytes
+([design](../../docs/roadmap/account-journal-history.md)). Orders, net orders, events,
+net events, reconciliations, native fills, physical reconciliations and each account's
+postings are kept in `state_rows`, one row per tuple position with the item's exact
+codec bytes and sha256; the head keeps each field's row count and a sha256 over its row
+digests in order. A commit writes only changed or new rows and a head of bounded size;
+another process reads the head, compares row digests and decodes only rows that
+changed. In memory the state still holds the complete tuples, so account behavior does
+not depend on this layout. Only this `account-journal` layout is readable: a journal
+with other tables, including one without `state_rows` or `dispatch_leases`, is refused
+as an unsupported account journal schema and is never migrated. The journal composes admission and reconciliation from
 [`account_admission.py`](account_admission.py), physical fill and fee attribution
 from [`account_allocation.py`](account_allocation.py), and atomic portfolio order
 formation and instance controls from [`account_portfolio.py`](account_portfolio.py).
@@ -313,10 +320,17 @@ each physical account; independent copied workspaces are not a distributed fence
 Each physical order must already be reserved through direct admission or MR09
 portfolio coordination. The gateway stores its client identity and uncertain
 attempt before I/O. A kernel lock excludes another sending owner while the first
-can still use its connection; a bounded account write lock protects the final
-independent risk/stop check. The adapter's local request budget is waited out
-before that lock is taken, so a throttle sleep never holds the shared journal; the
-network request itself still runs under the lock. Lost acknowledgements, restart and absent order lookup
+can still use its connection. The final independent risk/stop check commits in a
+short journal transaction together with a durable dispatch lease (30 seconds);
+the request is then sent with no journal transaction open, and the lease is
+released afterwards. The send must start within 10 seconds of arming, and the
+TLS transport bounds a whole request to 20 seconds, so the send ends before the
+lease does. Operator blocks, venue invalidation, account controls and strategy
+stops for that account or instance wait, outside any transaction, until the lease
+is released or expires, so a stop either commits before arming (arming refuses)
+or after the send. A lease left by a crashed sender expires; the order stays
+`unknown` for reconciliation. Cancellations hold no lease. The adapter's local
+request budget is waited out before arming. Lost acknowledgements, restart and absent order lookup
 never authorize another submit for that identity. Request acknowledgement is not
 acceptance. Cancellation acknowledgement is not terminal cancellation. A further
 explicit cancel requires successful reconciliation confirming the order is still
@@ -339,7 +353,10 @@ and refuses unknown orders, inconsistent cumulative fills, nonzero unmapped wall
 borrowed funds, history truncation or changed economic identity. An order whose
 terminal outcome is already journaled is not looked up again: later fills still
 arrive through fill history and a reopened order through the open-order snapshots,
-so venue lookup retention no longer limits account age. Local unsent intents
+so venue lookup retention no longer limits account age. Bitfinex looks an order up
+in active orders first, which has no age limit, and refuses only a lookup that
+falls through to closed-order history (about two weeks) more than 13 days after
+submission. Local unsent intents
 remain reserved and are not represented as venue-observed orders. A broken or
 unavailable observation invalidates independent account readiness before the
 transport diagnostic is saved. Operator stops are never cleared by reconciliation.
@@ -350,7 +367,12 @@ recovery. Bitfinex follows authentication with position and funding snapshots an
 sends periodic balance valuations (`bu`); these are heartbeats while flat, and any
 position or funding exposure requires recovery. Private wallet frames may report
 availability as not yet calculated (unknown), while REST wallets must report it.
-Economic notifications trigger the same authoritative REST reconciliation.
+Economic notifications mark the account stale at once and trigger the same
+authoritative REST reconciliation, coalesced: once the stream has been quiet for
+one second (longer than the gap between one fill's frames), at least every ten
+seconds while notifications continue, and before a normal exit. Authentication
+still reconciles at once. The session's five-second loss bound counts only time
+spent waiting for a frame, not time spent reconciling.
 The bounded session closes and invalidates account freshness on exit. Reopening a
 session does not itself resume submission. This correctness-first implementation
 does not qualify low-latency streaming or MR15 runtime budgets.
@@ -406,7 +428,7 @@ or live-capital authorization mechanism.
 Unknown schemas fail. `AccountJournal.verify(path, config)` performs
 read-only integrity/config/schema validation and sees committed WAL state; it also
 checks every history row, its key columns and the head's counts, hash chains and
-checkpoints;
+checkpoints, and every state row against its digest and the head's row summaries;
 `storage="snapshot"` additionally requires no SQLite sidecars and leaves a
 standalone snapshot unchanged. The [workspace recovery owner](../runtime/README.md#account-workspace-recovery)
 uses these checks under backup locks and before restore publication.

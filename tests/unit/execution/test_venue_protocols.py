@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, localcontext
+from types import SimpleNamespace
+from typing import cast
 
 # third party library imports
 import msgspec
 import pytest
+from websockets.sync.client import ClientConnection
 
 # project library imports
 from execution.venues import (
     BitfinexSpotAdapter,
     OKXSpotAdapter,
+    PrivateVenueSession,
     VenueCredentials,
     VenueHttpRequest,
     VenueHttpResponse,
@@ -647,18 +651,73 @@ class TestBitfinexSpotProtocol:
         assert fact.filled_quantity == Decimal("0.000000000000000002")
         assert fact.remaining_quantity == Decimal("1.000000000000000001")
 
-    def test_closed_order_outside_retention_fails_before_lookup(self) -> None:
-        """Two-week native history cannot prove a stale command's terminal state."""
-        transport = ScriptedVenueTransport(self._paper_info())
+    def test_closed_order_outside_retention_fails_before_history_lookup(self) -> None:
+        """Active orders prove any age; two-week closed history cannot prove absence."""
+        active_items: list[object] = [self._order()]
+        transport = ScriptedVenueTransport(
+            self._paper_info(), msgspec.json.encode(active_items), b"[]"
+        )
         adapter = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
         adapter.qualify_account(at=self.at, nonce=1)
+        submitted_at = datetime(2026, 9, 26, 12, tzinfo=UTC)
+        resting = adapter.order(
+            "tETHUSD",
+            "1234",
+            submitted_at=submitted_at,
+            venue_order_id="987",
+            at=submitted_at + timedelta(days=20),
+            nonce=2,
+        )
+        assert resting is not None and resting.status == "open"
         with pytest.raises(VenueProtocolError, match="retention"):
             adapter.order(
                 "tETHUSD",
                 "1234",
-                submitted_at=datetime(2026, 9, 1, tzinfo=UTC),
+                submitted_at=submitted_at,
                 venue_order_id="987",
-                at=self.at,
-                nonce=2,
+                at=submitted_at + timedelta(days=20),
+                nonce=4,
             )
-        assert len(transport.requests) == 1
+        assert [item.path for item in transport.requests[1:]] == ["/v2/auth/r/orders"] * 2
+
+
+class QuietConnection:
+    """Time out every receive after spending the requested wait on a fake clock."""
+
+    def __init__(self, clock: list[float]) -> None:
+        """Share a mutable monotonic reading with the patched time source."""
+        self.clock = clock
+        self.timeouts: list[float] = []
+        self.closed = False
+
+    def recv(self, timeout: float) -> bytes:
+        """Spend the whole timeout without a frame."""
+        self.timeouts.append(timeout)
+        self.clock[0] += timeout
+        raise TimeoutError
+
+    def close(self) -> None:
+        """Record socket cleanup."""
+        self.closed = True
+
+
+class TestPrivateVenueSession:
+    """Distinguish a quiet stream from a lost one without a network."""
+
+    def test_quiet_waits_count_toward_loss_but_caller_work_does_not(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Returns None within the bound, then treats five waiting seconds as loss."""
+        clock = [100.0]
+        monkeypatch.setattr(
+            "execution.venues.transport.time", SimpleNamespace(monotonic=lambda: clock[0])
+        )
+        session = PrivateVenueSession("bitfinex", timeout_seconds=5.0)
+        connection = QuietConnection(clock)
+        session.connection = cast(ClientConnection, connection)
+        assert session.receive(1.0) is None
+        clock[0] += 60.0  # reconciliation between receives does not count as waiting
+        assert session.receive(3.0) is None
+        with pytest.raises(VenueOutcomeUnknownError, match="stream lost"):
+            session.receive(2.0)
+        assert connection.timeouts == [1.0, 3.0, 1.0] and connection.closed

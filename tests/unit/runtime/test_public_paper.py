@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import asyncio
 import hashlib
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -43,7 +44,7 @@ from execution import (
 )
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
-from market_data.books import BookAsOfIndex, BookRegistry
+from market_data.books import BookAsOfIndex, BookProjection, BookRegistry, CaptureReplay
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level
 from reference_data.instruments import InstrumentId
 from research.features import FeatureVector
@@ -62,7 +63,12 @@ from runtime import (
     SharedStrategyInput,
 )
 from runtime.live_paper import LiveBookDelivery
-from runtime.shared_paper import _ObservedLiveBookDelivery, _ObservedSharedBookDelivery
+from runtime.shared_paper import (
+    _ObservedLiveBookDelivery,
+    _ObservedSharedBookDelivery,
+    _RetainedLiveBookDelivery,
+    _RetainedSharedBookDelivery,
+)
 from serialization import DomainCodec
 from strategies import ConfirmedSignal, DecisionContext, OrderIntent
 from telemetry import RuntimeMeasurementJournal
@@ -372,6 +378,118 @@ class TestSharedPublicPaper:
             inputs=(),
             coordinated_at=None,
         )
+
+    @classmethod
+    def _okx_records(cls, levels: int, updates: int) -> tuple[CaptureRecord, ...]:
+        """Author a session, acknowledgement, deep snapshot and single-level updates."""
+        codec = DomainCodec()
+
+        def frame(
+            action: str, sequence: int, bids: list[list[str]], asks: list[list[str]]
+        ) -> bytes:
+            """Encode one native OKX books message."""
+            return codec.encode_json(
+                {
+                    "arg": {"channel": "books", "instId": "BTC-USDT"},
+                    "action": action,
+                    "data": [
+                        {
+                            "seqId": sequence,
+                            "prevSeqId": sequence - 1 if action == "update" else -1,
+                            "ts": str(int(cls.at.timestamp()) * 1000 + sequence),
+                            "bids": bids,
+                            "asks": asks,
+                            "checksum": 0,
+                        }
+                    ],
+                }
+            )
+
+        base = int(cls.at.timestamp()) * 1_000_000_000
+        bids = [[f"{60000 - i}.5", f"{1 + i % 7}.{i % 10}", "0", "1"] for i in range(levels)]
+        asks = [[f"{60001 + i}.5", f"{1 + i % 5}.{i % 10}", "0", "1"] for i in range(levels)]
+        records = [
+            CaptureRecord(kind="session", epoch=0, received_ns=base),
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=base + 1,
+                raw=b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}',
+            ),
+            CaptureRecord(
+                kind="frame", epoch=0, received_ns=base + 2, raw=frame("snapshot", 1, bids, asks)
+            ),
+        ]
+        for index in range(updates):
+            level = [[f"{60000 - index % levels}.5", f"{2 + index % 9}.1", "0", "2"]]
+            records.append(
+                CaptureRecord(
+                    kind="frame",
+                    epoch=0,
+                    received_ns=base + 1_000_000 * (index + 3),
+                    raw=frame(
+                        "update", index + 2, level if index % 2 else [], [] if index % 2 else level
+                    ),
+                )
+            )
+        return tuple(records)
+
+    def _run_okx(
+        self, path: Path, records: tuple[CaptureRecord, ...], *, projected: bool
+    ) -> tuple[bytes, list[float]]:
+        """Feed native boundaries to a retaining observer; return its log and observe costs."""
+        clock = _SequenceClock(
+            tuple(self.at + timedelta(seconds=1, milliseconds=i) for i in range(len(records)))
+        )
+        observer, journal = self._observer(path, retain=True, clock=clock)
+        assert journal.reconcile(self._opening())
+        target = observer.projected_rows() if projected else observer
+        replay = CaptureReplay(self._request().config, book_factory=BookAdapters.create)
+        costs: list[float] = []
+        for position, record in enumerate(records):
+            row = BookProjection.capture(position, record, replay.apply(record), replay)
+            started = time.perf_counter()
+            target.observe(record, row)
+            costs.append(time.perf_counter() - started)
+        return path.with_suffix(".jsonl").read_bytes(), costs
+
+    def test_retained_deliveries_are_the_full_canonical_encoding(self, tmp_path: Path) -> None:
+        """Reused row bytes and trusted runner rows retain exactly the public-path bytes."""
+        records = self._okx_records(20, 12)
+        public, _ = self._run_okx(tmp_path / "public.sqlite3", records, projected=False)
+        projected, _ = self._run_okx(tmp_path / "projected.sqlite3", records, projected=True)
+        assert projected == public
+        codec = DomainCodec()
+        lines = public.splitlines()
+        assert len(lines) == len(records)
+        decoded = [codec.decode_json(line, SharedBookDelivery) for line in lines]
+        assert any(item.source.book.bids for item in decoded)
+        assert [codec.encode_json(item) for item in decoded] == lines
+        # The retention envelopes must keep exactly the retained schemas' fields.
+        assert {field.name for field in msgspec.structs.fields(_RetainedSharedBookDelivery)} == {
+            field.name for field in msgspec.structs.fields(SharedBookDelivery)
+        }
+        assert {field.name for field in msgspec.structs.fields(_RetainedLiveBookDelivery)} == {
+            field.name for field in msgspec.structs.fields(LiveBookDelivery)
+        }
+
+    @pytest.mark.performance
+    def test_runner_rows_are_validated_and_encoded_once(self, tmp_path: Path) -> None:
+        """A 400-level update costs the observer about one row projection, not three."""
+        records = self._okx_records(400, 200)
+        _, costs = self._run_okx(tmp_path / "paper.sqlite3", records, projected=True)
+        replay = CaptureReplay(self._request().config, book_factory=BookAdapters.create)
+        projections: list[float] = []
+        for position, record in enumerate(records):
+            outcome = replay.apply(record)
+            started = time.perf_counter()
+            BookProjection.capture(position, record, outcome, replay)
+            projections.append(time.perf_counter() - started)
+        observe = sorted(costs[3:])[len(costs[3:]) // 2]
+        projection = sorted(projections[3:])[len(projections[3:]) // 2]
+        print(f"observe/projection per 400-level update: {observe:.6f}s/{projection:.6f}s")
+        # Validating the row again and encoding it twice made observe about 3x projection.
+        assert observe < 2.2 * projection
 
     def test_market_interval_retains_every_book_but_only_selected_effects(
         self, tmp_path: Path

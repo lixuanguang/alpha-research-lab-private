@@ -16,7 +16,7 @@ from test_account_journal import TestAccountJournal as _AccountFixture
 
 # project library imports
 from execution import AccountJournal
-from execution.account_state import AccountStateStore, _FirmHead
+from execution.account_state import AccountStateStore, _FirmHead, _strip
 from serialization import DomainCodec
 
 
@@ -123,7 +123,9 @@ def test_incremental_encoding_commits_exact_full_head_bytes(tmp_path: Path) -> N
         payload = _stored_payload(path)
         head = codec.decode_json(payload, _FirmHead)
         assert codec.encode_json(head) == payload
-        assert head.state == store.read() == AccountStateStore(path, config, codec).read()
+        # The head holds the state without its row-kept fields and postings.
+        assert head.state == _strip(store.read())
+        assert store.read() == AccountStateStore(path, config, codec).read()
 
     assert journal.reconcile(
         fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())

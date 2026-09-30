@@ -38,7 +38,10 @@ payload bytes or a mutated previously returned object cannot substitute cached
 facts for the selected bytes.
 
 The default retained capacity is one million revisions. Capacity exhaustion
-rejects the whole append. `store.prune(before_utc)` explicitly removes complete
+rejects the whole append. The store keeps an exact row count in its metadata,
+maintained by insert and delete triggers, so the capacity check does not count
+rows; a file without that count or its triggers is refused as an unsupported
+telemetry store schema. `store.prune(before_utc)` explicitly removes complete
 event-time samples and advances a persistent retention floor; queries and appends
 before that floor fail. A caller must retain needed dashboards before pruning.
 There is no automatic destructive cleanup. A telemetry writer rejects another

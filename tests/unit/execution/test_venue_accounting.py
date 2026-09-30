@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 # standard library imports
+import sqlite3
+import threading
+from collections.abc import Callable
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -14,7 +18,8 @@ from msgspec.structs import replace
 # project library imports
 from accounting import AccountLedger
 from configuration.accounts import AccountConfiguration, OpeningAccount
-from execution.account_records import NativeFill, PhysicalAccountObservation
+from execution.account_records import AccountControl, NativeFill, PhysicalAccountObservation
+from execution.account_state import DispatchLease
 from execution.accounts import (
     AccountDecision,
     AccountJournal,
@@ -115,9 +120,9 @@ class TestVenueAccounting:
         )
 
     @classmethod
-    def _ready(cls, path: Path) -> AccountJournal:
+    def _ready(cls, path: Path, *, clock: Callable[[], datetime] | None = None) -> AccountJournal:
         """Reconcile the authorized opening wallet before sending orders."""
-        journal = AccountJournal(path, cls._config())
+        journal = AccountJournal(path, cls._config(), clock=clock)
         assert journal.reconcile_venue(cls._observation("opening", cls.opening_at, "1000", "0"))
         return journal
 
@@ -223,8 +228,8 @@ class TestVenueAccounting:
                 identity="pending-send", order_id=order.identity, at=unknown_at, kind="unknown"
             )
         )
-        with journal.execution_guard("venue", order.identity, unknown_at) as guarded:
-            assert guarded.identity == order.identity
+        with journal.execution_guard("venue", order.identity, unknown_at) as permit:
+            assert permit.order.identity == order.identity
         source = self._native(
             order,
             decision_at + timedelta(seconds=1),
@@ -250,6 +255,142 @@ class TestVenueAccounting:
         journal.invalidate_venue("venue", "private-disconnect")
         assert journal.accounts()[0].reconciled_at is None
         assert journal.accounts()[0].operator_block == "operator-stop"
+
+    def _pending_send(
+        self, journal: AccountJournal, *, identity: str = "buy"
+    ) -> tuple[OrderState, datetime]:
+        """Admit an order and record its send as unknown, as a submitter does."""
+        decision_at = self.opening_at + timedelta(seconds=1)
+        order = self._buy(journal, decision_at, identity=identity)
+        unknown_at = decision_at + timedelta(microseconds=1)
+        journal.apply_event(
+            OrderEvent(
+                identity=f"send-{identity}", order_id=order.identity, at=unknown_at, kind="unknown"
+            )
+        )
+        return order, unknown_at
+
+    @staticmethod
+    def _leases(journal: AccountJournal) -> tuple[DispatchLease, ...]:
+        """Read the journal's dispatch leases."""
+        with journal._store.write() as transaction:
+            return transaction.leases()
+
+    def test_dispatch_send_holds_a_lease_not_the_write_lock(self, tmp_path: Path) -> None:
+        """Other writers commit while a send is pending; release removes the lease."""
+        journal = self._ready(tmp_path / "lease.sqlite3")
+        order, unknown_at = self._pending_send(journal)
+        with journal.execution_guard("venue", order.identity, unknown_at) as permit:
+            assert permit.lease is not None and permit.lease.order_id == order.identity
+            assert permit.lease.instance_ids == ("alpha",)
+            # Before leases this write waited for the send and failed "database is locked".
+            journal.observe(AccountQuote(price=self._price(), at=unknown_at))
+            assert self._leases(journal) == (permit.lease,)
+            permit.require_sendable()
+        assert self._leases(journal) == ()
+
+    @pytest.mark.parametrize(
+        "writer", ["block", "invalidate_venue", "control_stop", "stop_instance"]
+    )
+    def test_stop_type_writers_wait_for_a_held_lease(self, tmp_path: Path, writer: str) -> None:
+        """A stop issued during a pending send commits only after the send ends."""
+        journal = self._ready(tmp_path / f"{writer}.sqlite3")
+        order, unknown_at = self._pending_send(journal)
+        stops: dict[str, Callable[[], object]] = {
+            "block": lambda: journal.block("venue", "operator-stop"),
+            "invalidate_venue": lambda: journal.invalidate_venue("venue", "stream-lost"),
+            "control_stop": lambda: journal.control(
+                AccountControl(
+                    identity="stop-during-send",
+                    account_id="venue",
+                    kind="stop",
+                    at=datetime.now(UTC),
+                    reason="operator",
+                )
+            ),
+            "stop_instance": lambda: journal.stop_instance("alpha", datetime.now(UTC)),
+        }
+        committed: dict[str, Callable[[], bool]] = {
+            "block": lambda: journal.accounts()[0].operator_block is not None,
+            "invalidate_venue": lambda: journal.accounts()[0].fault is not None,
+            "control_stop": lambda: journal.accounts()[0].phase != "running",
+            "stop_instance": lambda: "alpha" in journal.stopped_instances(),
+        }
+        finished = threading.Event()
+        errors: list[BaseException] = []
+
+        def stop() -> None:
+            """Issue the stop from another client thread."""
+            try:
+                stops[writer]()
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+
+        with journal.execution_guard("venue", order.identity, unknown_at):
+            worker = threading.Thread(target=stop)
+            worker.start()
+            assert not finished.wait(0.3)
+            assert not committed[writer]()
+        assert finished.wait(5) and not errors
+        worker.join(5)
+        assert committed[writer]()
+
+    def test_abandoned_lease_blocks_stops_only_until_its_deadline(self, tmp_path: Path) -> None:
+        """A sender that dies mid-send leaves the order unknown and delays stops boundedly."""
+        offset = [timedelta(0)]
+        journal = self._ready(
+            tmp_path / "abandoned.sqlite3", clock=lambda: datetime.now(UTC) + offset[0]
+        )
+        order, unknown_at = self._pending_send(journal)
+        guard = journal.execution_guard("venue", order.identity, unknown_at)
+        permit = guard.__enter__()  # the sender dies before releasing
+        assert permit.lease is not None
+        finished = threading.Event()
+
+        def stop() -> None:
+            """Issue the operator stop from another client thread."""
+            journal.block("venue", "operator-stop")
+            finished.set()
+
+        worker = threading.Thread(target=stop)
+        worker.start()
+        assert not finished.wait(0.3)
+        offset[0] = timedelta(seconds=31)
+        assert finished.wait(5)
+        worker.join(5)
+        assert journal.accounts()[0].operator_block == "operator-stop"
+        assert self._leases(journal) == ()
+        assert next(item.order for item in journal.orders()).status == "unknown"
+        with pytest.raises(ValueError, match="dispatch is blocked"):
+            with journal.execution_guard("venue", order.identity, unknown_at):
+                pass
+
+    def test_sender_past_its_send_window_does_not_send(self, tmp_path: Path) -> None:
+        """A send that would start too late to finish within its lease is refused."""
+        offset = [timedelta(0)]
+        journal = self._ready(
+            tmp_path / "late.sqlite3", clock=lambda: datetime.now(UTC) + offset[0]
+        )
+        order, unknown_at = self._pending_send(journal)
+        with journal.execution_guard("venue", order.identity, unknown_at) as permit:
+            offset[0] = timedelta(seconds=11)
+            with pytest.raises(ValueError, match="send window passed"):
+                permit.require_sendable()
+        assert self._leases(journal) == ()
+
+    def test_journal_without_dispatch_leases_is_refused(self, tmp_path: Path) -> None:
+        """A journal in the layout before dispatch leases is refused, not extended."""
+        path = tmp_path / "earlier.sqlite3"
+        self._ready(path)
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("DROP TABLE dispatch_leases")
+            connection.commit()
+        with pytest.raises(ValueError, match="unsupported account journal schema"):
+            AccountJournal(path, self._config())
+        with pytest.raises(ValueError, match="unsupported account journal schema"):
+            AccountJournal.verify(path, self._config())
 
     def test_partial_base_fees_cannot_reuse_the_same_quote_reservation(
         self, tmp_path: Path

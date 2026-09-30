@@ -4,10 +4,12 @@ from __future__ import annotations
 
 # standard library imports
 import sqlite3
+import time
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from fractions import Fraction
 from pathlib import Path
+from typing import cast
 
 # third party library imports
 import pytest
@@ -174,6 +176,84 @@ class TestTelemetryStore:
         with pytest.raises(ValueError, match="result limit"):
             store.query(replace(MonitoringFixture.query(), limit=1))
         assert len(store.query(MonitoringFixture.query())) == 2
+
+    def test_stored_event_count_tracks_every_insert_retry_and_prune(self, tmp_path: Path) -> None:
+        """Capacity reads a trigger-maintained count equal to the rows actually retained."""
+        path = tmp_path / "telemetry.sqlite"
+        store, other = TelemetryStore(path, max_events=3), TelemetryStore(path, max_events=3)
+        first = MonitoringFixture.event()
+        later = MonitoringFixture.event("two", seconds=2, available=2, recorded=2)
+        assert store.append((first,)) == 1
+        assert other.append((first, later)) == 1
+        assert self._counts(path) == (2, 2)
+        assert store.prune(MonitoringFixture.at + timedelta(seconds=1)) == 1
+        assert self._counts(path) == (1, 1)
+        third = MonitoringFixture.event("three", seconds=3, available=3, recorded=3)
+        fourth = MonitoringFixture.event("four", seconds=4, available=4, recorded=4)
+        assert other.append((third, fourth)) == 2
+        with pytest.raises(ValueError, match="capacity exhausted"):
+            store.append((MonitoringFixture.event("five", seconds=4, available=4, recorded=4),))
+        assert self._counts(path) == (3, 3)
+
+    def test_store_without_a_stored_event_count_is_refused(self, tmp_path: Path) -> None:
+        """A telemetry file in the earlier layout is refused, never counted or extended."""
+        path = tmp_path / "telemetry.sqlite"
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("CREATE TABLE metadata (version TEXT NOT NULL, floor TEXT)")
+            connection.execute("INSERT INTO metadata VALUES ('telemetry-store', NULL)")
+            connection.execute(
+                "CREATE TABLE events (scope TEXT, mode TEXT, name TEXT, "
+                "version TEXT, sample TEXT, revision INTEGER, at TEXT, available TEXT, "
+                "recorded TEXT, payload BLOB, "
+                "PRIMARY KEY(scope, mode, name, version, sample, revision))"
+            )
+            connection.commit()
+        before = path.read_bytes()
+        with pytest.raises(ValueError, match="unsupported telemetry store schema"):
+            TelemetryStore(path).append((MonitoringFixture.event(),))
+        with pytest.raises(ValueError, match="unsupported telemetry store schema"):
+            TelemetryStore(path).query(MonitoringFixture.query())
+        assert path.read_bytes() == before
+
+    @pytest.mark.performance
+    def test_append_cost_does_not_grow_with_retained_rows(self, tmp_path: Path) -> None:
+        """Capacity enforcement reads a stored count instead of counting every row."""
+        medians: list[float] = []
+        for rows in (20_000, 400_000):
+            path = tmp_path / f"telemetry-{rows}.sqlite"
+            store = TelemetryStore(path)
+            store.append((MonitoringFixture.event("seed"),))
+            with closing(sqlite3.connect(path)) as connection:
+                connection.executemany(
+                    "INSERT INTO events VALUES ('filler', 'paper', 'n', 'v1', ?, 0, "
+                    "'2020-01-01T00:00:00.000000+00:00', "
+                    "'2020-01-01T00:00:00.000000+00:00', "
+                    "'2020-01-01T00:00:00.000000+00:00', x'00')",
+                    ((str(index),) for index in range(rows - 1)),
+                )
+                connection.commit()
+            samples: list[float] = []
+            for index in range(9):
+                event = MonitoringFixture.event(f"sample-{index}")
+                started = time.perf_counter()
+                assert store.append((event,)) == 1
+                samples.append(time.perf_counter() - started)
+            medians.append(sorted(samples)[4])
+        print(f"one-event append at 20,000/400,000 rows: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # COUNT(*) on every append grew linearly with the retained rows.
+        assert medians[1] < 1.5 * medians[0]
+
+    @staticmethod
+    def _counts(path: Path) -> tuple[object, object]:
+        """Return the stored event count and the actual row count."""
+        with closing(sqlite3.connect(path)) as connection:
+            stored = cast(
+                tuple[object], connection.execute("SELECT event_count FROM metadata").fetchone()
+            )
+            actual = cast(
+                tuple[object], connection.execute("SELECT COUNT(*) FROM events").fetchone()
+            )
+        return stored[0], actual[0]
 
     def test_retention_floor_survives_restart_and_rejects_expired_queries(
         self, tmp_path: Path

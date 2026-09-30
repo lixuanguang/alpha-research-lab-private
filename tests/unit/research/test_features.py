@@ -416,6 +416,148 @@ class TestPriceDiagnostics:
             and "disconnect" in gap.window.missing
         )
 
+    def _recovery_capture(self, request: SourceRequest) -> tuple[Occurrence, ...]:
+        """A disconnect at 20 s answered by a trade captured at the same instant, later."""
+        return (
+            self._item(request, 1, 1, "100", 1, 0),
+            self._item(request, 0, 20, "1", 0, 1, disconnect=True),
+            self._item(request, 20, 20, "101", 2, 2),
+            self._item(request, 31, 31, "102", 3, 3),
+            self._item(request, 35, 35, "103", 4, 4),
+            self._item(request, 39, 39, "104", 5, 5),
+        )
+
+    def _recovery_batches(
+        self, reader: QueryReader, request: SourceRequest, start: int, end: int
+    ) -> tuple[QueryBatch, ...]:
+        """Query a cutoff window that also returns disconnect recoveries."""
+        return tuple(
+            reader.batches(
+                (request.instrument.instrument_id,),
+                start=_START + timedelta(seconds=start),
+                end=_START + timedelta(seconds=end),
+                known_at=_START + timedelta(seconds=end),
+                columns=("revision",),
+                batch_size=4,
+                recoveries=True,
+            )
+        )
+
+    def test_first_binding_message_recovery_is_opt_in_and_bounded(self) -> None:
+        """A disconnect answered before the window gives a value only when the policy accepts it."""
+        request = self._request()
+        reader = self._reader(request, self._recovery_capture(request))
+        binding = self._binding(request)
+        strict = WindowPolicy(lookback_us=10_000_000, min_trades=2, max_staleness_us=2_000_000)
+        accepting = replace(strict, accept_first_binding_message=True)
+        end = _START + timedelta(seconds=40)
+        batches = self._recovery_batches(reader, request, 30, 40)
+        (recovery,) = batches[0].recoveries
+        assert recovery.binding == binding
+        assert recovery.resumed_at == _START + timedelta(seconds=20)
+        assert recovery.basis == "first_binding_message"
+        # The default policy keeps refusing, even when recoveries were queried.
+        refused = strict.collect(batches, binding=binding, end=end, known_at=end)
+        assert refused.missing == "scoped disconnect: recovery is unproven"
+        assert refused.recoveries == ()
+        window = accepting.collect(batches, binding=binding, end=end, known_at=end)
+        assert window.missing is None and len(window.points) == 3
+        assert window.recoveries == (recovery,)
+        (control,) = window.controls
+        assert isinstance(control.event, Disconnect)
+        assert control.event.provenance.event_id == recovery.disconnect_identity
+        with pytest.raises(ValueError, match="history requires revision"):
+            next(
+                reader.batches(
+                    (request.instrument.instrument_id,),
+                    start=_START,
+                    end=end,
+                    known_at=end,
+                    columns=("revision",),
+                    batch_size=4,
+                    mode="history",
+                    recoveries=True,
+                )
+            )
+        # Without queried recoveries, or with one for another binding, nothing answers.
+        plain = self._batches(reader, request, 30, 40, 40)
+        assert plain[0].recoveries == ()
+        assert (
+            accepting.collect(plain, binding=binding, end=end, known_at=end).missing
+            == "scoped disconnect: recovery is unproven"
+        )
+        other = replace(recovery, binding=("another.source", "trade", binding[2]))
+        foreign = tuple(batch._replace(recoveries=(other,)) for batch in batches)
+        assert (
+            accepting.collect(foreign, binding=binding, end=end, known_at=end).missing
+            == "scoped disconnect: recovery is unproven"
+        )
+        late = tuple(
+            batch._replace(recoveries=(replace(recovery, known_at=end + timedelta(seconds=1)),))
+            for batch in batches
+        )
+        assert (
+            accepting.collect(late, binding=binding, end=end, known_at=end).missing
+            == "scoped disconnect: recovery is unproven"
+        )
+        # A disconnect inside the window, or answered only after its start, stays missing.
+        inside_end = _START + timedelta(seconds=25)
+        inside = accepting.collect(
+            self._recovery_batches(reader, request, 15, 25),
+            binding=binding,
+            end=inside_end,
+            known_at=inside_end,
+        )
+        assert inside.missing == "scoped disconnect inside window"
+        after = replace(recovery, resumed_at=_START + timedelta(seconds=31))
+        shifted = tuple(batch._replace(recoveries=(after,)) for batch in batches)
+        assert (
+            accepting.collect(shifted, binding=binding, end=end, known_at=end).missing
+            == "scoped disconnect: recovery after window start"
+        )
+
+    def test_recovery_needs_a_later_trade_known_by_the_cutoff(self) -> None:
+        """A second disconnect with no later trade is unanswered and poisons later windows."""
+        request = self._request()
+        capture = (
+            *self._recovery_capture(request),
+            self._item(request, 0, 50, "1", 0, 6, disconnect=True),
+        )
+        reader = self._reader(request, capture)
+        selector = reader._selector
+        instruments = (request.instrument.instrument_id,)
+        before = selector.recoveries(
+            instruments, end=_START + timedelta(seconds=60), known_at=_START + timedelta(seconds=19)
+        )
+        assert before == ()
+        after = selector.recoveries(
+            instruments, end=_START + timedelta(seconds=60), known_at=_START + timedelta(seconds=59)
+        )
+        assert [item.resumed_at for item in after] == [_START + timedelta(seconds=20)]
+        accepting = WindowPolicy(
+            lookback_us=10_000_000,
+            min_trades=1,
+            max_staleness_us=10_000_000,
+            accept_first_binding_message=True,
+        )
+        end = _START + timedelta(seconds=60)
+        window = accepting.collect(
+            self._recovery_batches(reader, request, 50, 60),
+            binding=self._binding(request),
+            end=end,
+            known_at=end,
+        )
+        assert window.missing == "scoped disconnect inside window"
+        # A later window starts after the unanswered disconnect and is still poisoned.
+        later_end = _START + timedelta(seconds=59)
+        later = replace(accepting, lookback_us=5_000_000, max_staleness_us=5_000_000).collect(
+            self._recovery_batches(reader, request, 54, 59),
+            binding=self._binding(request),
+            end=later_end,
+            known_at=later_end,
+        )
+        assert later.missing == "scoped disconnect: recovery is unproven"
+
     def test_definition_and_exact_ratio_validation(self) -> None:
         """Versions and parameters affect identity; malformed wire and unsafe mutation fail."""
         feature = self._feature()

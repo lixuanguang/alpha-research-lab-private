@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, NamedTuple, cast
 
 # third party library imports
 import msgspec
@@ -178,18 +178,51 @@ class _InstanceCheckpoint(WireRecord, frozen=True):
     checkpoint: bytes
 
 
+class _RowSummary(WireRecord, frozen=True):
+    """Bind one row-kept state field to its row count and a digest of its row digests."""
+
+    field: str
+    count: int
+    sha256: str
+
+    def __post_init__(self) -> None:
+        """Require an empty digest for no rows and a sha256 digest otherwise."""
+        if (
+            type(self.field) is not str
+            or not self.field
+            or type(self.count) is not int
+            or self.count < 0
+            or type(self.sha256) is not str
+            or (self.sha256 == "") != (self.count == 0)
+            or (self.count and (len(self.sha256) != 64 or self.sha256 != self.sha256.lower()))
+        ):
+            raise ValueError("invalid account state row summary")
+
+    @staticmethod
+    def of(field: str, digests: list[bytes]) -> _RowSummary:
+        """Summarize rows from their sha256 digests in position order."""
+        return _RowSummary(
+            field=field,
+            count=len(digests),
+            sha256=hashlib.sha256(b"".join(digests)).hexdigest() if digests else "",
+        )
+
+
 class _HistorySummary(WireRecord, frozen=True):
-    """Summarize the history tables committed with one head."""
+    """Summarize the history tables and state rows committed with one head."""
 
     decisions: _HistoryDigest
     portfolio_batches: _HistoryDigest
     paper_traces: _HistoryDigest
     checkpoints: tuple[_InstanceCheckpoint, ...]
+    rows: tuple[_RowSummary, ...]
 
     def __post_init__(self) -> None:
-        """Require one checkpoint entry per instance."""
+        """Require one checkpoint entry per instance and one summary per row field."""
         if len({item.instance_id for item in self.checkpoints}) != len(self.checkpoints):
             raise ValueError("invalid account history checkpoints")
+        if len({item.field for item in self.rows}) != len(self.rows):
+            raise ValueError("invalid account state row summaries")
 
 
 class _FirmHead(WireRecord, frozen=True):
@@ -203,14 +236,255 @@ class _FirmHead(WireRecord, frozen=True):
     schema_version: Literal["account-journal"] = "account-journal"
 
     def __post_init__(self) -> None:
-        """Reject other schemas and keep committed history out of the head."""
+        """Reject other schemas and keep committed history and row fields out of the head."""
         if (
             self.schema_version != "account-journal"
             or self.state.decisions
             or self.state.portfolio_batches
             or self.state.paper_traces
+            or any(cast(tuple[object, ...], getattr(self.state, name)) for name, _ in _ROW_FIELDS)
+            or any(account.ledger.postings for account in self.state.accounts)
         ):
             raise ValueError("unsupported account journal state schema")
+
+
+# State fields that grow with history. Each is kept as rows keyed by tuple
+# position, with a sha256 per row; each account's postings are kept the same way.
+_ROW_FIELDS: tuple[tuple[str, type[msgspec.Struct]], ...] = (
+    ("events", _SavedEvent),
+    ("net_events", _SavedNetEvent),
+    ("reconciliations", _Reconciliation),
+    ("orders", TaggedOrder),
+    ("net_orders", NetOrder),
+    ("native_fills", _SavedNativeFill),
+    ("physical_reconciliations", _PhysicalReconciliation),
+)
+_POSTINGS = "postings:"
+_ROWS_TABLE = (
+    "CREATE TABLE state_rows (field TEXT NOT NULL, seq INTEGER NOT NULL, "
+    "sha256 TEXT NOT NULL, payload BLOB NOT NULL, PRIMARY KEY(field, seq))"
+)
+
+
+class _LoadedHead(NamedTuple):
+    """A committed head's history summary with its complete in-memory state."""
+
+    history: _HistorySummary
+    state: _FirmState
+
+
+def _row_values(state: _FirmState) -> dict[str, tuple[object, ...]]:
+    """Return every row-kept tuple of a complete state by its row field name."""
+    values: dict[str, tuple[object, ...]] = {
+        name: cast(tuple[object, ...], getattr(state, name)) for name, _ in _ROW_FIELDS
+    }
+    for account in state.accounts:
+        values[_POSTINGS + account.ledger.account_id] = account.ledger.postings
+    return values
+
+
+def _strip(state: _FirmState) -> _FirmState:
+    """Return the head part of a complete state: row-kept fields and postings emptied."""
+    accounts: list[AccountView] = []
+    for account in state.accounts:
+        ledger: AccountState = replace(account.ledger, postings=())
+        accounts.append(replace(account, ledger=ledger))
+    views: tuple[AccountView, ...] = tuple(accounts)
+    return replace(
+        state,
+        events=(),
+        net_events=(),
+        reconciliations=(),
+        orders=(),
+        net_orders=(),
+        native_fills=(),
+        physical_reconciliations=(),
+        accounts=views,
+    )
+
+
+def _assemble(state: _FirmState, values: dict[str, tuple[object, ...]]) -> _FirmState:
+    """Restore a head state's row-kept fields and postings from decoded rows."""
+    expected = {name for name, _ in _ROW_FIELDS} | {
+        _POSTINGS + account.ledger.account_id for account in state.accounts
+    }
+    if set(values) != expected:
+        raise ValueError("account journal state rows differ from its head")
+    accounts: list[AccountView] = []
+    for account in state.accounts:
+        postings = cast(tuple[AccountPosting, ...], values[_POSTINGS + account.ledger.account_id])
+        ledger: AccountState = replace(account.ledger, postings=postings)
+        accounts.append(replace(account, ledger=ledger))
+    views: tuple[AccountView, ...] = tuple(accounts)
+    return replace(
+        state,
+        events=cast(tuple[_SavedEvent, ...], values["events"]),
+        net_events=cast(tuple[_SavedNetEvent, ...], values["net_events"]),
+        reconciliations=cast(tuple[_Reconciliation, ...], values["reconciliations"]),
+        orders=cast(tuple[TaggedOrder, ...], values["orders"]),
+        net_orders=cast(tuple[NetOrder, ...], values["net_orders"]),
+        native_fills=cast(tuple[_SavedNativeFill, ...], values["native_fills"]),
+        physical_reconciliations=cast(
+            tuple[_PhysicalReconciliation, ...], values["physical_reconciliations"]
+        ),
+        accounts=views,
+    )
+
+
+class _StateRows:
+    """Keep row-kept state fields in ``state_rows`` and reuse decoded rows in process.
+
+    A commit writes only rows whose item changed (by object identity, then by
+    bytes) and deletes rows past a shortened tuple. A read compares each field's
+    summary with the cached rows and decodes only rows whose digest differs, so
+    another process's commit costs one digest scan plus its changed rows.
+    """
+
+    def __init__(self, codec: DomainCodec) -> None:
+        """Start with no cached rows."""
+        self.codec = codec
+        self._cache: dict[str, tuple[tuple[object, ...], list[bytes]]] = {}
+
+    def write(
+        self,
+        connection: sqlite3.Connection,
+        committed: dict[str, tuple[object, ...]],
+        staged: dict[str, tuple[object, ...]],
+    ) -> tuple[tuple[_RowSummary, ...], dict[str, tuple[tuple[object, ...], list[bytes]]]]:
+        """Write changed rows; return the summaries and the cache entries to keep on commit."""
+        summaries: list[_RowSummary] = []
+        updates: dict[str, tuple[tuple[object, ...], list[bytes]]] = {}
+        for field in sorted(staged):
+            items = staged[field]
+            before = committed.get(field, ())
+            cached = self._cache.get(field)
+            digests = (
+                list(cached[1])
+                if cached is not None and cached[0] is before
+                else self._digests(connection, field)
+            )
+            if len(digests) != len(before):
+                raise ValueError("account journal state rows differ from its head")
+            for index, item in enumerate(items):
+                if index < len(before) and item is before[index]:
+                    continue
+                payload = self.codec.encode_json(item)
+                digest = hashlib.sha256(payload).digest()
+                if index < len(digests):
+                    if digests[index] == digest:
+                        continue
+                    digests[index] = digest
+                    connection.execute(
+                        "UPDATE state_rows SET sha256=?, payload=? WHERE field=? AND seq=?",
+                        (digest.hex(), payload, field, index),
+                    )
+                else:
+                    digests.append(digest)
+                    connection.execute(
+                        "INSERT INTO state_rows VALUES (?, ?, ?, ?)",
+                        (field, index, digest.hex(), payload),
+                    )
+            if len(items) < len(digests):
+                connection.execute(
+                    "DELETE FROM state_rows WHERE field=? AND seq>=?", (field, len(items))
+                )
+                del digests[len(items) :]
+            updates[field] = items, digests
+            summaries.append(_RowSummary.of(field, digests))
+        return tuple(summaries), updates
+
+    def accept(self, updates: dict[str, tuple[tuple[object, ...], list[bytes]]]) -> None:
+        """Cache rows whose commit succeeded."""
+        self._cache.update(updates)
+
+    def load(
+        self, connection: sqlite3.Connection, summary: _HistorySummary
+    ) -> dict[str, tuple[object, ...]]:
+        """Return every row-kept tuple, decoding only rows the cache does not hold."""
+        values: dict[str, tuple[object, ...]] = {}
+        for expected in summary.rows:
+            field = expected.field
+            cached = self._cache.get(field)
+            if cached is not None and _RowSummary.of(field, cached[1]) == expected:
+                values[field] = cached[0]
+                continue
+            target = self._target(field)
+            items: list[object] = []
+            if cached is None:
+                rows = cast(
+                    list[tuple[object, ...]],
+                    connection.execute(
+                        "SELECT seq, sha256, payload FROM state_rows WHERE field=? ORDER BY seq",
+                        (field,),
+                    ).fetchall(),
+                )
+                digests = [self._digest(row, index) for index, row in enumerate(rows)]
+                for row, digest in zip(rows, digests, strict=True):
+                    items.append(self._decode(row[2], digest, target))
+            else:
+                digests = self._digests(connection, field)
+                for index, digest in enumerate(digests):
+                    if index < len(cached[1]) and cached[1][index] == digest:
+                        items.append(cached[0][index])
+                        continue
+                    stored = cast(
+                        tuple[object, ...] | None,
+                        connection.execute(
+                            "SELECT payload FROM state_rows WHERE field=? AND seq=?",
+                            (field, index),
+                        ).fetchone(),
+                    )
+                    if stored is None:
+                        raise ValueError("account journal state rows differ from its head")
+                    items.append(self._decode(stored[0], digest, target))
+            if _RowSummary.of(field, digests) != expected:
+                raise ValueError("account journal state rows differ from its head")
+            values[field] = tuple(items)
+            self._cache[field] = values[field], digests
+        return values
+
+    def verify(self, connection: sqlite3.Connection, summary: _HistorySummary) -> None:
+        """Require stored row fields to be exactly those the head summarizes."""
+        stored = cast(
+            list[tuple[object, ...]],
+            connection.execute("SELECT DISTINCT field FROM state_rows").fetchall(),
+        )
+        present = {item.field for item in summary.rows}
+        if any(row[0] not in present for row in stored):
+            raise ValueError("account journal state rows differ from its head")
+
+    def _digests(self, connection: sqlite3.Connection, field: str) -> list[bytes]:
+        """Read one field's row digests in position order."""
+        rows = cast(
+            list[tuple[object, ...]],
+            connection.execute(
+                "SELECT seq, sha256 FROM state_rows WHERE field=? ORDER BY seq", (field,)
+            ).fetchall(),
+        )
+        return [self._digest(row, index) for index, row in enumerate(rows)]
+
+    @staticmethod
+    def _digest(row: tuple[object, ...], index: int) -> bytes:
+        """Require contiguous positions and a well-formed stored digest."""
+        if row[0] != index or type(row[1]) is not str or len(row[1]) != 64:
+            raise ValueError("account journal state rows differ from its head")
+        return bytes.fromhex(row[1])
+
+    def _decode(self, payload: object, digest: bytes, target: type[msgspec.Struct]) -> object:
+        """Decode one row after checking its bytes against its digest."""
+        if type(payload) is not bytes or hashlib.sha256(payload).digest() != digest:
+            raise ValueError("account journal state rows differ from its head")
+        return self.codec.decode_json(payload, target)
+
+    @staticmethod
+    def _target(field: str) -> type[msgspec.Struct]:
+        """Return the element type of a row field."""
+        if field.startswith(_POSTINGS) and len(field) > len(_POSTINGS):
+            return AccountPosting
+        for name, target in _ROW_FIELDS:
+            if name == field:
+                return target
+        raise ValueError("account journal state rows differ from its head")
 
 
 _EMPTY_HISTORY = _HistorySummary(
@@ -218,6 +492,7 @@ _EMPTY_HISTORY = _HistorySummary(
     portfolio_batches=_HistoryDigest(count=0, sha256=""),
     paper_traces=_HistoryDigest(count=0, sha256=""),
     checkpoints=(),
+    rows=(),
 )
 
 _HISTORY_TABLES = (
@@ -234,6 +509,47 @@ _HISTORY_TABLES = (
     "CREATE INDEX paper_traces_account ON paper_traces(account_id, seq)",
     "CREATE INDEX paper_traces_instrument ON paper_traces(account_id, instrument_id, seq)",
 )
+
+
+# A dispatch lease is transient coordination, not history: no digest covers it.
+_LEASE_TABLE = (
+    "CREATE TABLE dispatch_leases (order_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, "
+    "instance_ids BLOB NOT NULL, holder TEXT NOT NULL, armed_at TEXT NOT NULL, "
+    "deadline TEXT NOT NULL)"
+)
+_TABLES = frozenset(
+    ("firm", "decisions", "portfolio_batches", "paper_traces", "dispatch_leases", "state_rows")
+)
+
+
+class DispatchLease(WireRecord, frozen=True):
+    """Hold one physical send outside the journal transaction until it is released.
+
+    Arming commits the final dispatch checks and this lease together; the send
+    runs with no transaction open; release deletes it. A stop-type writer for the
+    same account or instance waits until the lease is released or its deadline
+    passes, so no stop commits while a send it did not precede is pending.
+    """
+
+    order_id: str
+    account_id: str
+    instance_ids: tuple[str, ...]
+    holder: str
+    armed_at: datetime
+    deadline: datetime
+
+    def __post_init__(self) -> None:
+        """Require identities and a deadline after arming."""
+        self._require_utc(self.armed_at, field_name="lease armed_at")
+        self._require_utc(self.deadline, field_name="lease deadline")
+        if (
+            not self.order_id
+            or not self.account_id
+            or not self.holder
+            or type(self.instance_ids) is not tuple
+            or self.deadline <= self.armed_at
+        ):
+            raise ValueError("invalid dispatch lease")
 
 
 def _decision_key(saved: _SavedDecision) -> tuple[str, ...]:
@@ -385,6 +701,7 @@ class _HistoryTables:
                 _InstanceCheckpoint(instance_id=instance_id, checkpoint=checkpoint)
                 for instance_id, checkpoint in checkpoints.items()
             ),
+            rows=self.summary.rows,
         )
 
     def verify(self) -> None:
@@ -609,6 +926,70 @@ class _AccountTransaction(_AccountSnapshot):
         )
         self.state = replace(self.state, net_orders=net_orders)
 
+    def leases(self) -> tuple[DispatchLease, ...]:
+        """Read every dispatch lease visible to this transaction."""
+        rows = cast(
+            list[tuple[object, ...]],
+            self.tables.connection.execute(
+                "SELECT order_id, account_id, instance_ids, holder, armed_at, deadline "
+                "FROM dispatch_leases ORDER BY order_id"
+            ).fetchall(),
+        )
+        leases: list[DispatchLease] = []
+        for row in rows:
+            if len(row) != 6:
+                raise ValueError("invalid dispatch lease row")
+            order_id, account_id, instance_ids, holder, armed_at, deadline = row
+            if not (
+                isinstance(order_id, str)
+                and isinstance(account_id, str)
+                and isinstance(instance_ids, bytes)
+                and isinstance(holder, str)
+                and isinstance(armed_at, str)
+                and isinstance(deadline, str)
+            ):
+                raise ValueError("invalid dispatch lease row")
+            leases.append(
+                DispatchLease(
+                    order_id=order_id,
+                    account_id=account_id,
+                    instance_ids=msgspec.json.decode(instance_ids, type=tuple[str, ...]),
+                    holder=holder,
+                    armed_at=datetime.fromisoformat(armed_at),
+                    deadline=datetime.fromisoformat(deadline),
+                )
+            )
+        return tuple(leases)
+
+    def arm_lease(self, lease: DispatchLease) -> None:
+        """Insert a lease; an order holds at most one."""
+        lease.__post_init__()
+        self.tables.connection.execute(
+            "INSERT INTO dispatch_leases VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                lease.order_id,
+                lease.account_id,
+                self.tables.codec.encode_json(lease.instance_ids),
+                lease.holder,
+                lease.armed_at.isoformat(timespec="microseconds"),
+                lease.deadline.isoformat(timespec="microseconds"),
+            ),
+        )
+
+    def release_lease(self, order_id: str, holder: str) -> None:
+        """Delete this holder's lease on an order, if it still exists."""
+        self.tables.connection.execute(
+            "DELETE FROM dispatch_leases WHERE order_id=? AND holder=?", (order_id, holder)
+        )
+
+    def drop_expired_leases(self, now: datetime) -> None:
+        """Delete leases whose deadline has passed; their sends have ended."""
+        for lease in self.leases():
+            if lease.deadline <= now:
+                self.tables.connection.execute(
+                    "DELETE FROM dispatch_leases WHERE order_id=?", (lease.order_id,)
+                )
+
 
 def _field_keys(record: type[msgspec.Struct]) -> tuple[tuple[str, bytes], ...]:
     """Return each field's name and encoded key prefix in the codec's sorted order."""
@@ -656,7 +1037,8 @@ class AccountStateStore:
         self.config = config
         self.codec = codec
         self._configuration_payload = codec.encode_json(config)
-        self._cached_snapshot: tuple[bytes, _FirmHead] | None = None
+        self._cached_snapshot: tuple[bytes, _LoadedHead] | None = None
+        self._rows = _StateRows(codec)
         self._encoded: dict[str, tuple[object, bytes, list[bytes] | None]] = {}
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
@@ -671,17 +1053,33 @@ class AccountStateStore:
             )
             payload = self._configuration_payload
             if row is None:
-                for statement in _HISTORY_TABLES:
+                for statement in (*_HISTORY_TABLES, _LEASE_TABLE, _ROWS_TABLE):
                     connection.execute(statement)
-                head = _FirmHead(history=_EMPTY_HISTORY, state=self._initial())
+                initial = self._initial()
+                rows, updates = self._rows.write(connection, {}, _row_values(initial))
+                head = _FirmHead(history=replace(_EMPTY_HISTORY, rows=rows), state=_strip(initial))
                 connection.execute(
                     "INSERT INTO firm VALUES (1, ?, ?)", (payload, self._encode_head(head))
                 )
+                connection.commit()
+                self._rows.accept(updates)
+                return
             elif row[0] != payload:
                 raise ValueError("account configuration or state schema differs")
             else:
+                self._require_layout(connection)
                 self._load(connection)
             connection.commit()
+
+    @staticmethod
+    def _require_layout(connection: sqlite3.Connection) -> None:
+        """Refuse a journal whose tables are not exactly the current layout."""
+        rows = cast(
+            list[tuple[object, ...]],
+            connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall(),
+        )
+        if frozenset(row[0] for row in rows) != _TABLES:
+            raise ValueError("unsupported account journal schema")
 
     def read(self) -> _FirmState:
         """Read one atomic firm snapshot; its history tuples are empty."""
@@ -695,7 +1093,7 @@ class AccountStateStore:
             connection.execute("BEGIN")
             try:
                 head = self._load(connection)
-                yield _AccountSnapshot(head.state, self._tables(connection, head))
+                yield _AccountSnapshot(head.state, self._tables(connection, head.history))
             finally:
                 connection.rollback()
 
@@ -731,13 +1129,19 @@ class AccountStateStore:
                 if integrity != ("ok",):
                     raise ValueError("account journal integrity check failed")
                 connection.execute("BEGIN")
+                AccountStateStore._require_layout(connection)
                 payload = _FirmRow.payload(connection, codec.encode_json(config))
                 head = codec.decode_json(payload, _FirmHead)
                 _HistoryTables(connection, codec, head.history).verify()
+                rows = _StateRows(codec)
+                rows.verify(connection, head.history)
+                state = _assemble(head.state, rows.load(connection, head.history))
+                for account in state.accounts:
+                    AccountLedger(account.ledger)
                 connection.rollback()
                 if storage == "snapshot":
                     AccountStateStore._require_standalone_snapshot(path)
-                return head.state.accounts
+                return state.accounts
         except sqlite3.DatabaseError as error:
             raise ValueError("account journal is not a valid SQLite database") from error
 
@@ -756,7 +1160,7 @@ class AccountStateStore:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 head = self._load(connection)
-                tables = self._tables(connection, head)
+                tables = self._tables(connection, head.history)
                 transaction = _AccountTransaction(head.state, tables)
                 yield transaction
                 staged = transaction.state
@@ -765,23 +1169,26 @@ class AccountStateStore:
                     # committed head instead of re-encoding and rewriting its bytes.
                     connection.commit()
                     return
-                written = _FirmHead(
-                    history=tables.append(staged),
-                    state=replace(staged, decisions=(), portfolio_batches=(), paper_traces=()),
+                history = tables.append(staged)
+                complete = replace(staged, decisions=(), portfolio_batches=(), paper_traces=())
+                rows, updates = self._rows.write(
+                    connection, _row_values(head.state), _row_values(complete)
                 )
+                written = _FirmHead(history=replace(history, rows=rows), state=_strip(complete))
                 payload = self._encode_head(written)
                 connection.execute("UPDATE firm SET payload=? WHERE id=1", (payload,))
                 connection.commit()
-                # Reuse only the immutable head whose exact bytes committed.
+                self._rows.accept(updates)
+                # Reuse only the immutable state whose exact bytes committed.
                 # Every subsequent read still verifies the current SQLite row.
-                self._cached_snapshot = payload, written
+                self._cached_snapshot = payload, _LoadedHead(written.history, complete)
             except BaseException:
                 connection.rollback()
                 raise
 
-    def _tables(self, connection: sqlite3.Connection, head: _FirmHead) -> _HistoryTables:
+    def _tables(self, connection: sqlite3.Connection, history: _HistorySummary) -> _HistoryTables:
         """Bind history lookups to this connection's transaction."""
-        return _HistoryTables(connection, self.codec, head.history)
+        return _HistoryTables(connection, self.codec, history)
 
     def _encode_head(self, head: _FirmHead) -> bytes:
         """Return exactly ``codec.encode_json(head)``, reusing the state's field cache."""
@@ -862,12 +1269,15 @@ class AccountStateStore:
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
-    def _load(self, connection: sqlite3.Connection) -> _FirmHead:
-        """Read current bytes and reuse a typed decode only for an identical row."""
+    def _load(self, connection: sqlite3.Connection) -> _LoadedHead:
+        """Read current bytes and reuse a typed state only for an identical head row."""
         payload = _FirmRow.payload(connection, self._configuration_payload)
         cached = self._cached_snapshot
         if cached is not None and payload == cached[0]:
             return cached[1]
         head = self.codec.decode_json(payload, _FirmHead)
-        self._cached_snapshot = payload, head
-        return head
+        loaded = _LoadedHead(
+            head.history, _assemble(head.state, self._rows.load(connection, head.history))
+        )
+        self._cached_snapshot = payload, loaded
+        return loaded

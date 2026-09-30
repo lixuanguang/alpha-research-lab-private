@@ -198,7 +198,7 @@ async def run_live_shared_paper(
             book_factory=BookAdapters.create,
             transport=VenueTransport(request.config) if transport is None else transport,
             subscriptions=VenueSubscriptions(),
-            observer=observer,
+            observer=observer.projected_rows(),
         )
         capture = await runner.run(request, output / "capture")
         if capture.summary.get("stop_reason") not in ("duration_limit", "message_limit") or (

@@ -10,12 +10,22 @@ from datetime import datetime
 from decimal import Decimal
 from itertools import batched
 from pathlib import Path
-from typing import ClassVar, Literal, NamedTuple
+from typing import ClassVar, Literal, NamedTuple, cast
+
+# third party library imports
+from msgspec.structs import replace
 
 # project library imports
 from market_data.contracts import ArchiveTrade, Occurrence, SourceRequest, Trade
 from market_data.datasets import DatasetReaders, SnapshotStore
-from market_data.query.asof import AsOfSelector, InputBinding, PointEvent, _Partition
+from market_data.query.asof import (
+    AsOfSelector,
+    ContinuityResumed,
+    InputBinding,
+    PointEvent,
+    _Partition,
+    _RevisionIndex,
+)
 from market_data.storage import RawStore
 from market_data.validation import QualityPolicy, TradeRevision
 from reference_data.eligibility import EligibilityAssertions
@@ -60,6 +70,8 @@ class QueryBatch(NamedTuple):
     columns: tuple[QueryColumn, ...]
     rows: tuple[QueryRow, ...]
     evidence: tuple[QueryEvidence, ...]
+    # Requested first-binding-message recoveries; empty unless the query asked.
+    recoveries: tuple[ContinuityResumed, ...] = ()
 
 
 class QueryReader:
@@ -96,6 +108,7 @@ class QueryReader:
         if sum(len(payload) for payload in canonical) > max_bytes:
             raise ValueError("query canonical input exceeds aggregate max_bytes")
         self._selector = AsOfSelector(canonical, precedence=precedence, readers=readers)
+        self._evidence = self._shared_evidence(self._selector._partitions)
         self._identity = hashlib.sha256(self._codec.encode_json(canonical)).hexdigest()
         self._precedence = precedence
 
@@ -163,6 +176,7 @@ class QueryReader:
         batch_size: int,
         mode: Literal["cutoff", "history"] = "cutoff",
         cancelled: Callable[[], bool] | None = None,
+        recoveries: bool = False,
     ) -> Generator[QueryBatch]:
         """Select before projecting, yielding at most batch_size market/control rows.
 
@@ -179,6 +193,8 @@ class QueryReader:
                 retained membership history at each decision. No event stepping is performed.
             cancelled: Optional cooperative cancellation predicate, checked before selection
                 and between batches. Generator close also releases its local selection.
+            recoveries: Cutoff only: also return each scoped disconnect's first later
+                same-binding trade known by the cutoff, as ``ContinuityResumed`` records.
 
         Yields:
             Typed tuples with exact values in requested column order, full unprojectable
@@ -202,6 +218,7 @@ class QueryReader:
                 for c in columns
             )
             or (mode == "history" and "revision" not in columns)
+            or (recoveries is not False and (recoveries is not True or mode != "cutoff"))
         ):
             raise ValueError(
                 "query requires positive batches and unique supported columns; "
@@ -209,43 +226,80 @@ class QueryReader:
             )
         self._check_cancelled(cancelled)
         selected = self._selector.select(instruments, start=start, end=end, known_at=known_at)
-        partitions = tuple(
-            partition
-            for partition in self._selector._partitions
-            if partition.request.instrument.instrument_id in instruments
-        )
+        # One deepcopy per result: shared manifests and histories are copied once.
         evidence = deepcopy(
             tuple(
-                QueryEvidence(p.request, p.scope, p.policy, p.eligibility, p.reasons)
-                for p in partitions
+                item
+                for item in self._evidence
+                if item.request.instrument.instrument_id in instruments
             )
         )
         if mode == "history":
-            selected = tuple(self._history(partitions, start, end, known_at)) + tuple(
+            indexes = tuple(
+                index
+                for index in self._selector._indexes
+                if index.partition.request.instrument.instrument_id in instruments
+            )
+            selected = tuple(self._history(indexes, start, end, known_at)) + tuple(
                 item for item in selected if isinstance(item, Occurrence)
             )
-        identity = hashlib.sha256(
-            self._codec.encode_json(
-                (
-                    "reference-query",
-                    self._identity,
-                    self._precedence,
-                    tuple(sorted(map(str, instruments))),
-                    start,
-                    end,
-                    known_at,
-                    columns,
-                    mode,
-                )
-            )
-        ).hexdigest()
+        instrument_texts: tuple[str, ...] = tuple(sorted(str(item) for item in instruments))
+        parts: tuple[object, ...] = (
+            "reference-query",
+            self._identity,
+            self._precedence,
+            instrument_texts,
+            start,
+            end,
+            known_at,
+            columns,
+            mode,
+        )
+        if recoveries:
+            parts = (*parts, "first-binding-message")
+        identity = hashlib.sha256(self._codec.encode_json(parts)).hexdigest()
+        recovered = (
+            self._selector.recoveries(instruments, end=end, known_at=known_at) if recoveries else ()
+        )
         for chunk in batched(selected, batch_size) if selected else ((),):
             self._check_cancelled(cancelled)
             rows = tuple(
                 self._project(deepcopy(item) if mode == "history" else item, columns)
                 for item in chunk
             )
-            yield QueryBatch(identity, mode, columns, rows, evidence)
+            yield QueryBatch(identity, mode, columns, rows, evidence, recovered)
+
+    @staticmethod
+    def _shared_evidence(partitions: tuple[_Partition, ...]) -> tuple[QueryEvidence, ...]:
+        """Map equal manifests, catalogs and eligibility histories to one cached instance.
+
+        Values are unchanged. Each query deep-copies its evidence in one call, so a
+        shared value is copied once per result instead of once per partition; a
+        result's partitions may alias those copies, but no result aliases the cache
+        or another result.
+        """
+        shared: dict[object, object] = {}
+
+        def one[T](value: T) -> T:
+            """Return the first cached value equal to this one."""
+            return cast(T, shared.setdefault(value, value))
+
+        evidence: list[QueryEvidence] = []
+        for partition in partitions:
+            manifest = partition.request.manifest
+            manifest = one(replace(manifest, catalog=one(manifest.catalog)))
+            eligibility = partition.eligibility
+            eligibility = one(replace(eligibility, catalog=one(eligibility.catalog)))
+            evidence.append(
+                QueryEvidence(
+                    replace(partition.request, manifest=manifest),
+                    partition.scope,
+                    partition.policy,
+                    eligibility,
+                    partition.reasons,
+                )
+            )
+        return tuple(evidence)
 
     @staticmethod
     def _check_cancelled(cancelled: Callable[[], bool] | None) -> None:
@@ -255,29 +309,20 @@ class QueryReader:
 
     @staticmethod
     def _history(
-        partitions: tuple[_Partition, ...], start: datetime, end: datetime, known_at: datetime
+        indexes: tuple[_RevisionIndex, ...], start: datetime, end: datetime, known_at: datetime
     ) -> Generator[TradeRevision]:
         """Retain complete chains touching the window without terminal membership filtering."""
-        for partition in partitions:
-            for head in partition.revisions:
-                version: TradeRevision | None = head
-                while (
-                    version is not None
-                    and version.ts_knowledge is not None
-                    and version.ts_knowledge > known_at
-                ):
-                    version = version.previous
-                retained = version
-                while version is not None:
-                    if (
-                        start
-                        <= min(AsOfSelector._valid_from(item) for item in version.occurrences)
-                        < end
-                    ):
-                        if retained is not None:
-                            yield retained
+        for index in indexes:
+            # Chains with no version valid in [start, end) cannot pass the window test.
+            for chain in index.chains(start, end):
+                # Chains are newest first; unknown knowledge counts as known.
+                for position, (version_known_at, _, _) in enumerate(chain):
+                    if version_known_at is None or version_known_at <= known_at:
                         break
-                    version = version.previous
+                else:
+                    continue
+                if any(start <= instant < end for _, instant, _ in chain[position:]):
+                    yield chain[position][2]
 
     @staticmethod
     def _project(item: PointEvent, columns: tuple[QueryColumn, ...]) -> QueryRow:

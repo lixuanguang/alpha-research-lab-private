@@ -75,6 +75,8 @@ class LiveBookDecisionSource:
         if type(history_capacity) is not int or not 1 <= history_capacity <= 10_000:
             raise ValueError("live history capacity must be within 1..10000")
         self._request = request
+        # The request is immutable; its identity hashes the encoded request.
+        self._request_identity = request.identity
         self._requirement = requirement
         self._codec = DomainCodec()
         self._history: deque[_LiveBoundary] = deque(maxlen=history_capacity)
@@ -186,7 +188,7 @@ class LiveBookDecisionSource:
             book,
             venue=config.venue,
             instrument_id=config.instrument_id,
-            source_id=self._request.identity,
+            source_id=self._request_identity,
             channel=config.channel,
             available_ns=available_ns,
         )
@@ -460,7 +462,7 @@ class LiveBookDecisionSource:
         return ":".join(
             (
                 "live-book",
-                self._request.identity,
+                self._request_identity,
                 str(row.position),
                 str(row.epoch),
                 str(record.received_ns),

@@ -57,8 +57,12 @@ class VenuePrivateConnection(Protocol):
     def send(self, frame: bytes) -> None:
         """Send a selected subscription frame."""
 
-    def receive(self) -> tuple[bytes, datetime]:
-        """Receive one bounded native frame with actual UTC receipt."""
+    def receive(self, wait_seconds: float | None = None) -> tuple[bytes, datetime] | None:
+        """Receive one bounded native frame with actual UTC receipt.
+
+        With ``wait_seconds``, return None if no frame arrives within it; stream
+        loss keeps its own bound and still raises.
+        """
 
     def close(self) -> None:
         """Close the socket without changing any account economics."""
@@ -105,6 +109,15 @@ class VenueGateway:
     # executions the venue published late, or stamped ahead of the local clock,
     # are still read. Repeated executions are applied once by identity.
     _FILL_HISTORY_OVERLAP = timedelta(hours=1)
+    # One fill arrives as several private frames (Bitfinex on/te/tu/wu) well
+    # within a second; reconcile once the stream is that quiet, and at least
+    # this often while facts keep arriving.
+    # A submission's lease covers the time to start its send plus the transport's
+    # total bound (TlsVenueHttpTransport.total_seconds).
+    DISPATCH_SEND_WINDOW = timedelta(seconds=10)
+    DISPATCH_LEASE = timedelta(seconds=30)
+    PRIVATE_QUIET = timedelta(seconds=1)
+    PRIVATE_MAX_PENDING = timedelta(seconds=10)
 
     def __init__(
         self,
@@ -206,8 +219,13 @@ class VenueGateway:
                     # Throttle sleeps happen here, never under the journal write fence.
                     adapter.wait_for_request_slot()
                     with self.journal.execution_guard(
-                        self.config.account_id, order_id, at, clock=self.clock.now
-                    ):
+                        self.config.account_id,
+                        order_id,
+                        at,
+                        clock=self.clock.now,
+                        lease=self.DISPATCH_LEASE,
+                        send_window=self.DISPATCH_SEND_WINDOW,
+                    ) as permit:
                         send_at = self.clock.now()
                         authorization.authorize(
                             self.config,
@@ -216,6 +234,7 @@ class VenueGateway:
                             order.intent.limit.amount(order.intent.quantity),
                         )
                         self._reference(order, instrument, send_at)
+                        permit.require_sendable()
                         ack = adapter.submit(request, at=send_at, nonce=nonce)
                 except VenueRejectedError:
                     rejected = self._store.read()
@@ -315,7 +334,11 @@ class VenueGateway:
         """Consume bounded private input, reconciling recovery and fencing on exit.
 
         Private pushes are retained observations, not proof of complete history.
-        Economic updates trigger the same REST fill/order/wallet reconciliation.
+        Economic updates mark the account stale and trigger one REST fill/order/
+        wallet reconciliation once the stream is quiet for ``PRIVATE_QUIET``, at
+        least every ``PRIVATE_MAX_PENDING`` while facts continue, and before a
+        normal exit. Authentication reconciles at once; recovery frames, sequence
+        gaps and malformed frames end the session at once.
         Loss, malformed input or end of this supervised session invalidates account
         freshness; the next dispatch must recover through independent observations.
         """
@@ -335,10 +358,28 @@ class VenueGateway:
                     configuration=adapter.private_configuration(),
                 )
                 deadline = self.clock.now() + timedelta(seconds=duration_seconds)
-                for _ in range(max_messages):
-                    if self.clock.now() >= deadline:
+                # Facts received since the last reconciliation: first and latest receipt.
+                pending: tuple[datetime, datetime] | None = None
+                messages = 0
+                while messages < max_messages:
+                    now = self.clock.now()
+                    if now >= deadline:
                         break
-                    raw, received_at = session.receive()
+                    wait: float | None = None
+                    if pending is not None:
+                        due = min(
+                            pending[1] + self.PRIVATE_QUIET, pending[0] + self.PRIVATE_MAX_PENDING
+                        )
+                        if now >= due:
+                            self._reconcile()
+                            pending = None
+                            continue
+                        wait = (due - now).total_seconds()
+                    received = session.receive(wait)
+                    if received is None:
+                        continue
+                    messages += 1
+                    raw, received_at = received
                     event = adapter.decode_private(raw, received_at=received_at)
                     self._store.receipt("private-frame", raw, received_at)
                     if event.kind == "authenticated":
@@ -348,6 +389,7 @@ class VenueGateway:
                         for frame in adapter.private_subscriptions():
                             session.send(frame)
                         self._reconcile()
+                        pending = None
                     elif event.kind == "recovery_required":
                         raise VenueProtocolError(
                             "private stream requires a new authenticated session"
@@ -355,9 +397,17 @@ class VenueGateway:
                     elif event.kind != "heartbeat":
                         if not authenticated:
                             raise VenueProtocolError("private facts arrived before authentication")
-                        self._reconcile()
+                        now = self.clock.now()
+                        if pending is None:
+                            # Durably stale until the coalesced reconciliation proves it.
+                            self._fault("private_facts_pending", stop_account=False)
+                            pending = (now, now)
+                        else:
+                            pending = (pending[0], now)
                 if not authenticated:
                     raise VenueProtocolError("private stream ended before authentication")
+                if pending is not None:
+                    self._reconcile()
             except (OSError, RuntimeError, ValueError) as error:
                 self._fault(type(error).__name__)
                 raise

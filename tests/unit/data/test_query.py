@@ -284,3 +284,50 @@ class TestQueryReader:
         force_setattr(evidence.policy, "max_gap", timedelta(0))
         force_setattr(evidence.eligibility.assertions[0], "state", "excluded")
         assert list(self._batches(reader)) == expected
+
+    def test_partitions_of_one_result_share_isolated_evidence_copies(self) -> None:
+        """Equal evidence is copied once per result, never shared with the cache or others."""
+        fixture = _Scenario()
+        requests = tuple(fixture._request(minute=minute) for minute in (0, 1))
+        payloads = tuple(
+            fixture._canonical(
+                request, (fixture._item(request, capture=60 * minute + 1, trade_id=minute),)
+            )
+            for minute, request in enumerate(requests)
+        )
+        reader = QueryReader(
+            payloads,
+            readers=SourceAdapters(),
+            precedence=(fixture._binding(requests[0]),),
+            max_bytes=2_000_000,
+        )
+        selector = AsOfSelector(
+            payloads, readers=SourceAdapters(), precedence=(fixture._binding(requests[0]),)
+        )
+
+        def query() -> list[QueryBatch]:
+            """Select both BTC partitions at a cutoff after both."""
+            return list(
+                reader.batches(
+                    (requests[0].instrument.instrument_id,),
+                    start=requests[0].start,
+                    end=requests[1].end,
+                    known_at=requests[1].end,
+                    columns=("price",),
+                    batch_size=10,
+                )
+            )
+
+        first, expected = query(), query()
+        evidence = first[0].evidence
+        # Values are exactly the admitted partitions' evidence.
+        assert evidence == tuple(
+            (p.request, p.scope, p.policy, p.eligibility, p.reasons) for p in selector._partitions
+        )
+        assert evidence[0].request.manifest is evidence[1].request.manifest
+        assert evidence[0].eligibility is evidence[1].eligibility
+        assert evidence[0].request.manifest is not expected[0].evidence[0].request.manifest
+        force_setattr(evidence[1].eligibility.assertions[0], "state", "excluded")
+        force_setattr(evidence[1].request.manifest, "implementation_identity", "0" * 64)
+        force_setattr(evidence[1].policy, "max_gap", timedelta(0))
+        assert query() == expected

@@ -110,7 +110,7 @@ class TelemetryStore:
                 inserted += 1
             count = cast(
                 tuple[object, ...] | None,
-                connection.execute("SELECT COUNT(*) FROM events").fetchone(),
+                connection.execute("SELECT event_count FROM metadata").fetchone(),
             )
             if count is None or type(count[0]) is not int or count[0] > self.max_events:
                 raise ValueError("telemetry capacity exhausted; explicit retention required")
@@ -181,30 +181,63 @@ class TelemetryStore:
             )
             if tables and {row[0] for row in tables} != {"metadata", "events"}:
                 raise ValueError("selected file is not a telemetry journal")
+            if tables:
+                # Refuse another layout before any pragma rewrites the file header.
+                self._require_schema(connection)
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS metadata (version TEXT NOT NULL, floor TEXT)"
+            # Another writer may have created the journal since the first check.
+            created = cast(
+                tuple[object, ...] | None,
+                connection.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone(),
             )
-            existing = cast(
-                tuple[object, ...] | None, connection.execute("SELECT 1 FROM metadata").fetchone()
-            )
-            if existing is None:
-                connection.execute("INSERT INTO metadata VALUES ('telemetry-store', NULL)")
-            self._floor(connection)
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS events (scope TEXT, mode TEXT, name TEXT, "
-                "version TEXT, sample TEXT, revision INTEGER, at TEXT, available TEXT, "
-                "recorded TEXT, payload BLOB, "
-                "PRIMARY KEY(scope, mode, name, version, sample, revision))"
-            )
-            connection.execute("CREATE INDEX IF NOT EXISTS event_time ON events(scope, mode, at)")
+            if created is not None:
+                self._require_schema(connection)
+            else:
+                self._create(connection)
             connection.commit()
             return connection
         except sqlite3.Error, TypeError, ValueError:
             connection.close()
             raise
+
+    @classmethod
+    def _require_schema(cls, connection: sqlite3.Connection) -> None:
+        """Refuse any journal without the current metadata, count and count triggers."""
+        cls._floor(connection)
+        triggers = cast(
+            list[tuple[object, ...]],
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name"
+            ).fetchall(),
+        )
+        if [row[0] for row in triggers] != ["event_count_delete", "event_count_insert"]:
+            raise ValueError("unsupported telemetry store schema")
+
+    @staticmethod
+    def _create(connection: sqlite3.Connection) -> None:
+        """Create the journal with an exact row count maintained by the database itself."""
+        connection.execute(
+            "CREATE TABLE metadata (version TEXT NOT NULL, floor TEXT, "
+            "event_count INTEGER NOT NULL)"
+        )
+        connection.execute("INSERT INTO metadata VALUES ('telemetry-store', NULL, 0)")
+        connection.execute(
+            "CREATE TABLE events (scope TEXT, mode TEXT, name TEXT, "
+            "version TEXT, sample TEXT, revision INTEGER, at TEXT, available TEXT, "
+            "recorded TEXT, payload BLOB, "
+            "PRIMARY KEY(scope, mode, name, version, sample, revision))"
+        )
+        connection.execute("CREATE INDEX event_time ON events(scope, mode, at)")
+        connection.execute(
+            "CREATE TRIGGER event_count_insert AFTER INSERT ON events "
+            "BEGIN UPDATE metadata SET event_count = event_count + 1; END"
+        )
+        connection.execute(
+            "CREATE TRIGGER event_count_delete AFTER DELETE ON events "
+            "BEGIN UPDATE metadata SET event_count = event_count - 1; END"
+        )
 
     def _rows(self, cursor: sqlite3.Cursor) -> tuple[MonitoringEvent, ...]:
         """Narrow database values before decoding strict monitoring records."""
@@ -248,7 +281,16 @@ class TelemetryStore:
             list[tuple[object, ...]],
             connection.execute("SELECT version, floor FROM metadata").fetchall(),
         )
-        if len(rows) != 1 or len(rows[0]) != 2 or rows[0][0] != "telemetry-store":
+        columns = cast(
+            list[tuple[object, ...]],
+            connection.execute("SELECT name FROM pragma_table_info('metadata')").fetchall(),
+        )
+        if (
+            len(rows) != 1
+            or len(rows[0]) != 2
+            or rows[0][0] != "telemetry-store"
+            or [row[0] for row in columns] != ["version", "floor", "event_count"]
+        ):
             raise ValueError("unsupported telemetry store schema")
         value = rows[0][1]
         if value is None:

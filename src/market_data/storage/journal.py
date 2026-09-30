@@ -22,6 +22,9 @@ from serialization import DomainCodec
 class CaptureJournal:
     """Fsync each append before use; incomplete journals remain inspectable after death.
 
+    An acknowledged append survives process and kernel crashes. It survives power
+    loss only where ``fsync`` flushes the device write cache; Darwin ``fsync`` does
+    not, and ``F_FULLFSYNC`` is deliberately not used (see docs/data/l3-collectors.md).
     One writer owns a unique directory. Published objects reuse RawStore; no
     partial journal is admitted as a completed capture. The final manifest is
     installed by durable rename only after raw publication. Peak disk use is at

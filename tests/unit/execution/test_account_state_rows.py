@@ -1,0 +1,145 @@
+"""Keep growing account state in verified rows and the account head independent of history."""
+
+from __future__ import annotations
+
+# standard library imports
+import sqlite3
+from collections.abc import Callable
+from contextlib import closing
+from pathlib import Path
+from typing import cast
+
+# third party library imports
+import pytest
+from test_account_history_scaling import _SharedFirmHistory
+
+# project library imports
+from execution import AccountJournal
+from execution.account_state import AccountStateStore
+from serialization import DomainCodec
+
+
+def _head_bytes(path: Path) -> int:
+    """Return the size of the committed firm head."""
+    with closing(sqlite3.connect(path)) as connection:
+        row = cast(
+            tuple[object, ...], connection.execute("SELECT payload FROM firm WHERE id=1").fetchone()
+        )
+    assert type(row[0]) is bytes
+    return len(row[0])
+
+
+def _execute(path: Path, statement: str) -> None:
+    """Change the stored rows outside the journal."""
+    with closing(sqlite3.connect(path)) as connection:
+        connection.executescript(statement)
+        connection.commit()
+
+
+class TestAccountStateRows:
+    """Exercise the row-kept state fields and postings through the account journal."""
+
+    def test_head_size_does_not_grow_with_orders_events_or_postings(self, tmp_path: Path) -> None:
+        """History lives in rows; the head holds only current, bounded state."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        sizes: list[int] = []
+        for orders in (10, 100):
+            while history.orders < orders:
+                history.round_trip()
+            sizes.append(_head_bytes(history.journal.path))
+        # Only digits of row counts may differ.
+        assert abs(sizes[1] - sizes[0]) < 64
+        reopened = AccountJournal(history.journal.path, history._config())
+        assert reopened._store.read() == history.journal._store.read()
+        assert reopened.orders() == history.journal.orders()
+
+    def test_another_process_sees_every_commit(self, tmp_path: Path) -> None:
+        """Two journals on one file each read the other's changed rows after every commit."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        other = AccountJournal(history.journal.path, history._config())
+        for _ in range(6):
+            history.round_trip()
+            fresh = AccountStateStore(history.journal.path, history._config(), DomainCodec())
+            assert other._store.read() == fresh.read() == history.journal._store.read()
+            assert other.orders() == history.journal.orders()
+            # The other client writes too; the first must see it.
+            other.bind_paper_scenario("quiet", history.scenario)
+            history.tick("quiet")
+            assert other._store.read() == history.journal._store.read()
+
+    @pytest.mark.parametrize(
+        "tamper",
+        [
+            "UPDATE state_rows SET payload=CAST(payload || ' ' AS BLOB) "
+            "WHERE field='events' AND seq=1",
+            "DELETE FROM state_rows WHERE field='orders' AND seq=(SELECT max(seq) FROM "
+            "state_rows WHERE field='orders')",
+            "UPDATE state_rows SET seq=-1 WHERE field='orders' AND seq=0;"
+            "UPDATE state_rows SET seq=0 WHERE field='orders' AND seq=1;"
+            "UPDATE state_rows SET seq=1 WHERE field='orders' AND seq=-1;",
+            "INSERT INTO state_rows SELECT 'unexpected', seq, sha256, payload FROM state_rows "
+            "WHERE field='orders' AND seq=0",
+        ],
+        ids=["changed", "missing", "reordered", "unexpected"],
+    )
+    def test_verify_and_open_refuse_altered_rows(self, tmp_path: Path, tamper: str) -> None:
+        """A changed, missing, reordered or unexpected row is refused."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        for _ in range(3):
+            history.round_trip()
+        path, config = history.journal.path, history._config()
+        assert AccountJournal.verify(path, config)
+        _execute(path, tamper)
+        with pytest.raises(ValueError, match="state rows differ from its head"):
+            AccountJournal.verify(path, config)
+        if not tamper.startswith("INSERT"):
+            with pytest.raises(ValueError, match="state rows differ from its head"):
+                AccountJournal(path, config).orders()
+
+    def test_head_digest_mismatch_is_refused(self, tmp_path: Path) -> None:
+        """A head whose row summary no longer matches the stored rows is refused."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        path, config = history.journal.path, history._config()
+        with closing(sqlite3.connect(path)) as connection:
+            row = cast(
+                tuple[object, ...],
+                connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+            )
+            payload = cast(bytes, row[0])
+            marker = b'"field":"events","sha256":"'
+            start = payload.index(marker) + len(marker)
+            digit = b"0" if payload[start : start + 1] != b"0" else b"1"
+            tampered = payload[:start] + digit + payload[start + 1 :]
+            connection.execute("UPDATE firm SET payload=? WHERE id=1", (tampered,))
+            connection.commit()
+        with pytest.raises(ValueError, match="state rows differ from its head"):
+            AccountJournal.verify(path, config)
+        with pytest.raises(ValueError, match="state rows differ from its head"):
+            AccountJournal(path, config).orders()
+
+    def test_journal_in_the_single_document_layout_is_refused(self, tmp_path: Path) -> None:
+        """A journal without state rows is an unsupported schema, never read or migrated."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        path, config = history.journal.path, history._config()
+        _execute(path, "DROP TABLE state_rows")
+        refusals: tuple[Callable[[], object], ...] = (
+            lambda: AccountJournal(path, config),
+            lambda: AccountJournal.verify(path, config),
+        )
+        for refusal in refusals:
+            with pytest.raises(ValueError, match="unsupported account journal schema"):
+                refusal()
+
+    @pytest.mark.performance
+    def test_round_trip_cost_is_flat_in_filled_orders(self, tmp_path: Path) -> None:
+        """Admitting and filling an order costs about the same at 40 and 400 filled orders."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        medians: list[float] = []
+        for orders in (40, 400):
+            while history.orders < orders:
+                history.round_trip()
+            medians.append(history.median_seconds(history.round_trip, repeats=9))
+        print(f"round trip at 40/400 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Rewriting the whole head and re-adding every posting grew with history.
+        assert medians[1] < 1.5 * medians[0]

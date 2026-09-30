@@ -531,7 +531,7 @@ class AccountLedger:
             for posting in state.postings:
                 fold.apply(posting)
             effective = fold.effective()
-            self._validate_snapshots(state, effective)
+            self._validate_snapshots(state, fold, effective)
             _ACCOUNT_REPLAYS.remember(state, fold, effective)
         else:
             fold, effective = remembered
@@ -582,7 +582,7 @@ class AccountLedger:
         )
         postings: tuple[AccountPosting, ...] = (*self._state.postings, posting)
         force_setattr(candidate, "postings", postings)
-        result = self._snapshot(candidate, effective, None)
+        result = self._snapshot(candidate, fold, effective, None)
         _ACCOUNT_REPLAYS.remember(candidate, fold, effective)
         self._state, self._fold, self._effective = candidate, fold, effective
         return result
@@ -600,84 +600,86 @@ class AccountLedger:
         Returns:
             Exact balances, cumulative cash-flow categories and current fill IDs.
         """
-        return self._snapshot(self._state, self._effective, instance_id)
+        return self._snapshot(self._state, self._fold, self._effective, instance_id)
 
     @classmethod
     def _validate_snapshots(
-        cls, state: AccountState, effective: tuple[EffectiveAccountPosting, ...]
+        cls,
+        state: AccountState,
+        fold: _AccountReplay,
+        effective: tuple[EffectiveAccountPosting, ...],
     ) -> AccountSnapshot:
         """Prove every projected balance is representable before state becomes visible."""
-        result = cls._snapshot(state, effective, None)
+        result = cls._snapshot(state, fold, effective, None)
         for instance_id in {
             posting.instance_id for posting in state.postings if posting.instance_id is not None
         }:
-            cls._snapshot(state, effective, instance_id)
+            cls._snapshot(state, fold, effective, instance_id)
         return result
 
     @classmethod
     def _snapshot(
         cls,
         state: AccountState,
+        fold: _AccountReplay,
         effective: tuple[EffectiveAccountPosting, ...],
         instance_id: str | None,
     ) -> AccountSnapshot:
-        """Project a staged state without mutating the live ledger."""
+        """Project a staged state from its fold's running totals without mutating the ledger.
+
+        The fold keeps each scope's cash, fee, rebate and transfer totals and its
+        positions, exactly as summing the effective postings of that scope would:
+        only a fill carries a quantity, and only an owned fee or rebate carries an
+        asset change. Only the fill and posting identities are collected here.
+        """
         if instance_id is not None and (type(instance_id) is not str or not instance_id):
             raise ValueError("invalid snapshot instance identity")
         currencies = state.currencies
-        cash: dict[str, Fraction] = {currency.code: Fraction(0) for currency in currencies}
-        fees = cash.copy()
-        rebates = cash.copy()
-        transfers = cash.copy()
-        positions: dict[Dimension, Fraction] = {}
-        fill_ids: list[str] = []
-        for effect in effective:
-            if instance_id is not None and effect.instance_id != instance_id:
-                continue
-            code = effect.cash.currency.code
-            value = Fraction(effect.cash.value)
-            if effect.asset_change is None:
-                cash[code] += value
-            if effect.kind == "fill":
-                if effect.quantity is None:
-                    raise ValueError("effective fill lacks quantity")
-                dimension = effect.quantity.dimension
-                positions[dimension] = positions.get(dimension, Fraction(0)) + Fraction(
-                    effect.quantity.value
-                )
-                fill_ids.append(effect.identity)
-            if effect.asset_change is not None:
-                dimension = effect.asset_change.dimension
-                positions[dimension] = positions.get(dimension, Fraction(0)) + Fraction(
-                    effect.asset_change.value
-                )
-            if effect.kind == "fee":
-                fees[code] -= value
-            elif effect.kind == "rebate":
-                rebates[code] += value
-            elif effect.kind == "transfer":
-                transfers[code] += value
-        posting_ids = tuple(
-            posting.identity
-            for posting in state.postings
-            if instance_id is None or posting.instance_id == instance_id
+        zero = Fraction(0)
+        positions = (
+            fold.positions.items()
+            if instance_id is None
+            else (
+                (dimension, value)
+                for (owner, dimension), value in fold.instance_positions.items()
+                if owner == instance_id
+            )
         )
         return AccountSnapshot(
             account_id=state.account_id,
             instance_id=instance_id,
-            cash=tuple(cls._money(cash[currency.code], currency) for currency in currencies),
+            cash=tuple(
+                cls._money(fold.scope_cash.get((instance_id, currency.code), zero), currency)
+                for currency in currencies
+            ),
             positions=tuple(
                 Quantity(value=DecimalGrid.exact_decimal(value), dimension=dimension)
-                for dimension, value in sorted(positions.items(), key=cls._dimension_order)
+                for dimension, value in sorted(positions, key=cls._dimension_order)
                 if value
             ),
-            fees=tuple(cls._money(fees[currency.code], currency) for currency in currencies),
-            rebates=tuple(cls._money(rebates[currency.code], currency) for currency in currencies),
-            transfers=tuple(
-                cls._money(transfers[currency.code], currency) for currency in currencies
+            fees=tuple(
+                cls._money(fold.fees.get((instance_id, currency.code), zero), currency)
+                for currency in currencies
             ),
-            fill_ids=tuple(fill_ids),
-            posting_ids=posting_ids,
+            rebates=tuple(
+                cls._money(fold.rebates.get((instance_id, currency.code), zero), currency)
+                for currency in currencies
+            ),
+            transfers=tuple(
+                cls._money(fold.transfers.get((instance_id, currency.code), zero), currency)
+                for currency in currencies
+            ),
+            fill_ids=tuple(
+                effect.identity
+                for effect in effective
+                if effect.kind == "fill"
+                and (instance_id is None or effect.instance_id == instance_id)
+            ),
+            posting_ids=tuple(
+                posting.identity
+                for posting in state.postings
+                if instance_id is None or posting.instance_id == instance_id
+            ),
         )
 
     @staticmethod

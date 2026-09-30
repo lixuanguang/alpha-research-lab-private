@@ -11,8 +11,14 @@ from typing import Literal, NamedTuple, Protocol
 
 # project library imports
 from financial_units import ExactRatio
-from market_data.contracts import ArchiveTrade, Occurrence, Trade
-from market_data.query import InputBinding, QueryBatch, QueryEvidence, QueryMarketRow
+from market_data.contracts import ArchiveTrade, Disconnect, Occurrence, Trade
+from market_data.query import (
+    ContinuityResumed,
+    InputBinding,
+    QueryBatch,
+    QueryEvidence,
+    QueryMarketRow,
+)
 from market_data.validation import TradeRevision
 from serialization import DomainCodec, WireRecord
 
@@ -39,6 +45,8 @@ class PriceWindow(NamedTuple):
     missing: str | None
     evidence: tuple[QueryEvidence, ...]
     controls: tuple[Occurrence, ...]
+    # Disconnect recoveries the window relied on (only when its policy accepts them).
+    recoveries: tuple[ContinuityResumed, ...] = ()
 
 
 class FeatureValue(NamedTuple):
@@ -55,14 +63,18 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
     """Require a complete declared window, enough trades and a fresh final event.
 
     Missing values stay missing. Scoped disconnects conservatively invalidate a
-    window, including retained boundary controls; this diagnostic claims no recovery.
-    Observed values never establish complete empirical coverage.
+    window, including retained boundary controls, unless the policy opts in to the
+    weaker first-binding-message recovery and every disconnect was answered before
+    the window started. Observed values never establish complete empirical coverage.
     """
 
     lookback_us: int
     min_trades: int
     max_staleness_us: int
     clock: Literal["query-business"] = "query-business"
+    # Opt in to the weaker recovery basis: the first same-binding trade after a
+    # disconnect stands in for proof that the subscription resumed.
+    accept_first_binding_message: bool = False
 
     def __post_init__(self) -> None:
         """Bound integer windows and reject invalid warm-up/freshness choices."""
@@ -74,6 +86,7 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
             or not 1 <= self.min_trades <= 1_000_000
             or type(self.max_staleness_us) is not int
             or not 0 <= self.max_staleness_us <= self.lookback_us
+            or type(self.accept_first_binding_message) is not bool
         ):
             raise ValueError("invalid window, warm-up count or staleness in microseconds")
 
@@ -180,16 +193,13 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
                 break
             covered = max(covered, right)
         missing: str | None = None
+        used: tuple[ContinuityResumed, ...] = ()
         if covered < end:
             missing = "warm-up: window extends outside saved request coverage"
         elif controls:
-            missing = "scoped disconnect: recovery is unproven"
-        elif len(points) < self.min_trades:
-            missing = "insufficient available trades"
-        elif end - points[-1].business_at > timedelta(microseconds=self.max_staleness_us):
-            missing = "stale final trade"
-        elif any(point.price <= 0 for point in points):
-            missing = "nonpositive price is unsupported for returns"
+            missing, used = self._recover(controls, batches[0].recoveries, binding, start, known_at)
+        if missing is None:
+            missing = self._shortfall(points, end)
         return PriceWindow(
             batches[0].identity,
             binding,
@@ -200,7 +210,57 @@ class WindowPolicy(WireRecord, frozen=True, kw_only=True):
             missing,
             evidence,
             tuple(controls),
+            used if missing is None else (),
         )
+
+    def _recover(
+        self,
+        controls: list[Occurrence],
+        recoveries: tuple[ContinuityResumed, ...],
+        binding: InputBinding,
+        start: datetime,
+        known_at: datetime,
+    ) -> tuple[str | None, tuple[ContinuityResumed, ...]]:
+        """Pair every scoped disconnect with a recovery before the window, if accepted.
+
+        Returns:
+            The missing reason, or None with the recoveries relied on.
+        """
+        if not self.accept_first_binding_message:
+            return "scoped disconnect: recovery is unproven", ()
+        used: list[ContinuityResumed] = []
+        for control in controls:
+            event = control.event
+            if not isinstance(event, Disconnect):
+                return "scoped control: recovery is unproven", ()
+            if event.provenance.valid_from >= start:
+                return "scoped disconnect inside window", ()
+            answer = next(
+                (
+                    item
+                    for item in recoveries
+                    if item.binding == binding
+                    and item.disconnect_identity == event.provenance.event_id
+                    and item.known_at <= known_at
+                ),
+                None,
+            )
+            if answer is None:
+                return "scoped disconnect: recovery is unproven", ()
+            if answer.resumed_at > start:
+                return "scoped disconnect: recovery after window start", ()
+            used.append(answer)
+        return None, tuple(used)
+
+    def _shortfall(self, points: list[PricePoint], end: datetime) -> str | None:
+        """Explain why the collected trades cannot give a value, if they cannot."""
+        if len(points) < self.min_trades:
+            return "insufficient available trades"
+        if end - points[-1].business_at > timedelta(microseconds=self.max_staleness_us):
+            return "stale final trade"
+        if any(point.price <= 0 for point in points):
+            return "nonpositive price is unsupported for returns"
+        return None
 
     @staticmethod
     def _event_time(point: PricePoint) -> datetime:

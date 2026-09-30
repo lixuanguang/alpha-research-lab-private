@@ -11,6 +11,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+# third party library imports
+import msgspec
+
 # project library imports
 from configuration import BookKey, PaperExecutionScenario
 from execution import AccountControl, AccountQuote, PaperAccount, PaperMarket, PortfolioCommit
@@ -96,6 +99,40 @@ class _ObservedSharedBookDelivery(SharedBookDelivery, frozen=True):
         self._require_coordination()
 
 
+class _RetainedLiveBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
+    """Encode ``LiveBookDelivery`` around row bytes the live source already encoded."""
+
+    record: CaptureRecord
+    book: msgspec.Raw
+    available_at: datetime
+
+
+class _RetainedSharedBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
+    """Encode ``SharedBookDelivery`` with the same fields; the sorted encoder fixes order."""
+
+    source: _RetainedLiveBookDelivery
+    inputs: tuple[SharedStrategyInput, ...]
+    coordinated_at: datetime | None
+    schema_version: str
+    market_effects: bool
+
+
+class _ProjectedRowObserver:
+    """Feed rows the in-process capture runner has just constructed and validated.
+
+    ``BookProjection.capture`` builds each row, which runs its full validation,
+    and passes it straight to the observer; no other code holds it in between.
+    """
+
+    def __init__(self, observer: SharedPaperCaptureObserver) -> None:
+        """Bind the shared observer that owns every downstream check."""
+        self._observer = observer
+
+    def observe(self, record: CaptureRecord, row: BookObservation) -> None:
+        """Skip only the repeated native row validation."""
+        self._observer._observe_validated(record, row)
+
+
 class SharedPaperCaptureObserver:
     """Match existing orders before decisions on selected eligible books.
 
@@ -152,6 +189,8 @@ class SharedPaperCaptureObserver:
         ):
             raise ValueError("shared public paper binding differs from source or account")
         self.source, self.books, self.journal, self.runtime = source, books, journal, runtime
+        # The request is immutable; its identity hashes the encoded request.
+        self._source_id = request.identity
         self.account_id, self.scenario, self.inputs = account_id, scenario, inputs
         self.delivery_path = delivery_path
         self.index = index
@@ -177,6 +216,14 @@ class SharedPaperCaptureObserver:
         BookObservation.__post_init__(row)
         self._observe_validated(record, row)
 
+    def projected_rows(self) -> _ProjectedRowObserver:
+        """Return the observer for an in-process ``CaptureRunner`` in this process.
+
+        Returns:
+            An observer that trusts rows the runner has just projected and validated.
+        """
+        return _ProjectedRowObserver(self)
+
     def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
         """Consume native invariants checked by public observe or typed pipe decoding."""
         book_started_ns = time.monotonic_ns() if self.measurements is not None else 0
@@ -194,7 +241,7 @@ class SharedPaperCaptureObserver:
             coordinated_at=self._coordination_time(source.available_at) if selected else None,
             market_effects=market is None or market_effects,
         )
-        offset, length = self._retain(delivery)
+        offset, length = self._retain(delivery, self._row_payload(row))
         if self.index is not None:
             latest = self.books.latest(self._key)
             if latest is None:
@@ -256,7 +303,7 @@ class SharedPaperCaptureObserver:
                 delivery.book,
                 venue=request.config.venue,
                 instrument_id=request.config.instrument_id,
-                source_id=request.identity,
+                source_id=self._source_id,
                 channel=request.config.channel,
                 available_ns=available_ns,
             )
@@ -381,11 +428,34 @@ class SharedPaperCaptureObserver:
         """Read the injected or system UTC clock without inventing a future instant."""
         return datetime.now(UTC) if self._clock is None else self._clock()
 
-    def _retain(self, delivery: SharedBookDelivery) -> tuple[int, int]:
-        """Persist bounded replay bytes before changing state; return their byte range."""
+    def _row_payload(self, row: BookObservation) -> bytes:
+        """Reuse the live source's encoding of this exact row, or encode it once."""
+        source = self.source
+        if source._latest_book is row and source._latest_book_payload is not None:
+            return source._latest_book_payload
+        return self._codec.encode_json(row)
+
+    def _retain(self, delivery: SharedBookDelivery, row_payload: bytes) -> tuple[int, int]:
+        """Persist bounded replay bytes before changing state; return their byte range.
+
+        The sorted encoder writes a nested row exactly as it writes the row alone,
+        so the envelope around the already encoded row equals the full encoding.
+        """
         if self.delivery_path is None:
             raise ValueError("live shared paper requires a retained delivery path")
-        payload = self._codec.encode_json(delivery) + b"\n"
+        source = delivery.source
+        envelope = _RetainedSharedBookDelivery(
+            source=_RetainedLiveBookDelivery(
+                record=source.record,
+                book=msgspec.Raw(row_payload),
+                available_at=source.available_at,
+            ),
+            inputs=delivery.inputs,
+            coordinated_at=delivery.coordinated_at,
+            schema_version=delivery.schema_version,
+            market_effects=delivery.market_effects,
+        )
+        payload = self._codec.encode_json(envelope) + b"\n"
         if self._retained_bytes + len(payload) > self._maximum_bytes:
             raise ValueError("shared paper delivery retention exceeded configured bound")
         with self.delivery_path.open("ab") as stream:

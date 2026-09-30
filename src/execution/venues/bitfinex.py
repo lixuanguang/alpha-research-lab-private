@@ -199,8 +199,6 @@ class BitfinexSpotAdapter:
         self._require_verified()
         self._validate_symbol(symbol)
         client_number = self._client_number(client_id)
-        if at - submitted_at > timedelta(days=13):
-            raise VenueProtocolError("Bitfinex closed-order retention cannot prove older outcome")
         active_body: dict[str, object] = (
             {"id": self._venue_order_number(venue_order_id)}
             if venue_order_id is not None
@@ -214,6 +212,9 @@ class BitfinexSpotAdapter:
             return self._verified_lookup(
                 active_items[0], active, symbol, client_id, venue_order_id, submitted_at
             )
+        # Active orders have no age limit; closed-order history keeps about two weeks.
+        if at - submitted_at > timedelta(days=13):
+            raise VenueProtocolError("Bitfinex closed-order retention cannot prove older outcome")
         # A distinct externally persisted nonce is needed for this second signed call.
         # The caller supplies a base nonce; the adapter never invents one from wall time.
         history_body: dict[str, object] = (
