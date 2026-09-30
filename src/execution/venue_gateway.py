@@ -175,6 +175,7 @@ class VenueGateway:
                     self._fault(type(error).__name__)
                     raise
                 return self._view()
+            fault: str | None = None
             try:
                 self._reconcile()
                 if self._store.read().recovery_required:
@@ -214,8 +215,11 @@ class VenueGateway:
                         reason="submission_outcome_unknown",
                     )
                 )
-                self._event(order_id, "unknown", at, f"send:{client_id}")
+                # Set immediately before the single send: whatever fails while it is
+                # unset left no bytes, and whatever fails after it may have.
+                sent = False
                 try:
+                    self._event(order_id, "unknown", at, f"send:{client_id}")
                     # Throttle sleeps happen here, never under the journal write fence.
                     adapter.wait_for_request_slot()
                     with self.journal.execution_guard(
@@ -235,24 +239,37 @@ class VenueGateway:
                         )
                         self._reference(order, instrument, send_at)
                         permit.require_sendable()
+                        sent = True
                         ack = adapter.submit(request, at=send_at, nonce=nonce)
                 except VenueRejectedError:
-                    rejected = self._store.read()
-                    rejected_dispatches: tuple[VenueDispatch, ...] = tuple(
-                        replace(item, submission_rejected=True)
-                        if item.order_id == order_id
-                        else item
-                        for item in rejected.dispatches
-                    )
-                    self._store.save(replace(rejected, dispatches=rejected_dispatches))
-                    self._event(order_id, "rejected", self.clock.now(), f"reject:{client_id}")
+                    self._reject(order_id, client_id)
                     self._fault("venue_rejected_submission")
+                    raise
+                except BaseException:
+                    if not sent:
+                        # Definitely unsent: reconcile resolves it without venue history.
+                        self._reject(order_id, client_id)
+                        fault = "dispatch_not_sent"
                     raise
                 self._ack(dispatch, ack)
             except (OSError, RuntimeError, ValueError) as error:
-                self._fault(type(error).__name__)
+                self._fault(fault or type(error).__name__)
                 raise
             return self._view(submission_attempted=True)
+
+    def _reject(self, order_id: str, client_id: str) -> None:
+        """Record a dispatch that never reached, or was refused by, the venue.
+
+        The venue-store flag is written first: it is the durable record, and
+        reconcile rebuilds the local ``rejected`` event from it.
+        """
+        state = self._store.read()
+        dispatches: tuple[VenueDispatch, ...] = tuple(
+            replace(item, submission_rejected=True) if item.order_id == order_id else item
+            for item in state.dispatches
+        )
+        self._store.save(replace(state, dispatches=dispatches))
+        self._event(order_id, "rejected", self.clock.now(), f"reject:{client_id}")
 
     def cancel(self, order_id: str, authorization: VenueAuthorization) -> GatewayView:
         """Request cancellation while retaining exposure until a venue terminal fact."""

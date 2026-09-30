@@ -36,6 +36,7 @@ from execution import (
     OrderState,
     VenueGateway,
 )
+from execution.account_state import DispatchLease
 from execution.venue_state import VenueState, VenueStateStore
 from execution.venues import (
     BitfinexSpotAdapter,
@@ -951,6 +952,48 @@ class TestVenueGateway:
         with pytest.raises(ValueError, match="dispatch is blocked"):
             gateway.submit(order_id, self._authorization(gateway.config, enabled=True))
         assert not any(item.path == "/v2/auth/w/order/submit" for item in account.requests)
+
+    @pytest.mark.parametrize("venue", ["okx", "bitfinex"])
+    @pytest.mark.parametrize("trigger", ["operator_stop", "other_lease"])
+    def test_dispatch_refused_before_sending_is_recorded_not_sent(
+        self, tmp_path: Path, venue: Literal["okx", "bitfinex"], trigger: str
+    ) -> None:
+        """A refusal before the send rejects the order locally instead of wedging reconcile."""
+        journal, gateway, account, clock = self._native_gateway(tmp_path, venue)
+        order_id = self._admit(journal, gateway.config, clock)
+        account_id = gateway.config.account_id
+        if trigger == "operator_stop":
+            journal.block(account_id, "operator-stop")
+            refusal = "dispatch is blocked"
+        else:
+            now = datetime.now(UTC)
+            with journal._store.write() as transaction:
+                transaction.arm_lease(
+                    DispatchLease(
+                        order_id="other-order",
+                        account_id=account_id,
+                        instance_ids=("reference-instance",),
+                        holder="other-holder",
+                        armed_at=now,
+                        deadline=now + VenueGateway.DISPATCH_LEASE,
+                    )
+                )
+            refusal = "another dispatch is in progress"
+        sent = len(account.requests)
+        with pytest.raises(ValueError, match=refusal):
+            gateway.submit(order_id, self._authorization(gateway.config, enabled=True))
+        submit_path = "/api/v5/trade/order" if venue == "okx" else "/v2/auth/w/order/submit"
+        assert not any(
+            item.path == submit_path and item.method == "POST" for item in account.requests[sent:]
+        )
+        assert self._order_state(journal, order_id).status == "rejected"
+        assert journal.accounts()[0].fault == "venue_unavailable:dispatch_not_sent"
+        if trigger == "other_lease":
+            with journal._store.write() as transaction:
+                transaction.release_lease("other-order", "other-holder")
+        # The unsent order no longer needs venue history, so reconcile matches.
+        assert not gateway.reconcile().recovery_required
+        assert self._order_state(journal, order_id).status == "rejected"
 
     def test_send_blocked_in_transport_holds_no_journal_lock(self, tmp_path: Path) -> None:
         """Other writers commit during a pending send; a stop waits for it to finish."""

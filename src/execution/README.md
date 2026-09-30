@@ -329,7 +329,12 @@ lease does. Operator blocks, venue invalidation, account controls and strategy
 stops for that account or instance wait, outside any transaction, until the lease
 is released or expires, so a stop either commits before arming (arming refuses)
 or after the send. A lease left by a crashed sender expires; the order stays
-`unknown` for reconciliation. Cancellations hold no lease. The adapter's local
+`unknown` for reconciliation. A dispatch refused before its single send (a stop
+committed before arming, a stale quote or authorization, a passed send window,
+another held lease or a failed throttle wait) is definitely unsent: the gateway
+marks it `submission_rejected`, records the order `rejected` and faults the
+account as `dispatch_not_sent`, which the next matched reconciliation clears.
+Anything raised by the send or after it stays `unknown`. Cancellations hold no lease. The adapter's local
 request budget is waited out before arming. Lost acknowledgements, restart and absent order lookup
 never authorize another submit for that identity. Request acknowledgement is not
 acceptance. Cancellation acknowledgement is not terminal cancellation. A further

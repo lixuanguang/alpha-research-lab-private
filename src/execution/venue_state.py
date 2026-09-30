@@ -30,6 +30,7 @@ class VenueDispatch(WireRecord, frozen=True):
     venue_order_id: str | None = None
     cancel_attempted: bool = False
     cancel_attempts: int = 0
+    # The venue refused the submit, or the gateway refused it before any byte was sent.
     submission_rejected: bool = False
 
 
