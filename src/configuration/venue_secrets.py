@@ -200,14 +200,31 @@ def read_secret_fields(path: Path, required: frozenset[str]) -> dict[str, Secret
     if status.st_size > _MAXIMUM_FILE_BYTES:
         raise VenueSecretsError(f"{file_name} exceeds {_MAXIMUM_FILE_BYTES} bytes")
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError, UnicodeDecodeError:
+        data = path.read_bytes()
+    except OSError:
         raise VenueSecretsError(f"{file_name} cannot be read as UTF-8") from None
+    text = _decoded(data)
+    del data
+    if text is None:
+        raise VenueSecretsError(f"{file_name} cannot be read as UTF-8")
     outcome = _parse_fields(text, required)
     del text
     if isinstance(outcome, str):
         raise VenueSecretsError(f"{file_name} {outcome}")
     return outcome
+
+
+def _decoded(data: bytes) -> str | None:
+    """Decode UTF-8, returning None rather than raising.
+
+    A ``UnicodeDecodeError`` holds the whole input in ``.object``, and ``raise
+    ... from None`` still leaves it reachable as ``__context__``; returning keeps
+    the file's bytes out of every exception chain.
+    """
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def _parse_fields(text: str, required: frozenset[str]) -> dict[str, SecretValue] | str:

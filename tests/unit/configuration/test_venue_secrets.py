@@ -115,6 +115,26 @@ class TestVenueSecrets:
         assert "never-log" not in str(caught.value)
         assert not [v for v in _frame_strings(caught.value) if "sensitive" in v or "never-log" in v]
 
+    def test_undecodable_file_leaves_no_bytes_in_the_exception_chain(self, tmp_path: Path) -> None:
+        """A file that is not UTF-8 is refused without its bytes reachable from the error."""
+        path = tmp_path / VENUE_SECRET_FILES["alpaca"][0]
+        path.write_bytes(b"API_KEY=k-sensitive\nAPI_SECRET=s-never-log\xff\n")
+        path.chmod(0o600)
+        with pytest.raises(VenueSecretsError, match="cannot be read as UTF-8") as caught:
+            VenueSecrets.read("alpaca", tmp_path)
+        chain: list[BaseException] = []
+        current: BaseException | None = caught.value
+        while current is not None:
+            chain.append(current)
+            current = current.__cause__ or current.__context__
+        # A UnicodeDecodeError's .object is the whole file, credentials included.
+        assert not [
+            item
+            for item in chain
+            if isinstance(item, UnicodeDecodeError) and b"never-log" in item.object
+        ]
+        assert caught.value.__context__ is None
+
     def test_logs_redact_revealed_values(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
