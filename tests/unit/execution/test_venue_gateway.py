@@ -33,10 +33,11 @@ from execution import (
     AccountJournal,
     AccountQuote,
     OrderDecision,
+    OrderEvent,
     OrderState,
     VenueGateway,
 )
-from execution.account_state import DispatchLease
+from execution.account_state import DispatchLease, _AccountTransaction
 from execution.venue_state import VenueState, VenueStateStore
 from execution.venues import (
     BitfinexSpotAdapter,
@@ -1378,6 +1379,61 @@ class TestVenueGateway:
         assert not gateway.reconcile().recovery_required
         gateway.submit(order_id, authorization)
         assert adapter.submit_count == 1
+
+    @staticmethod
+    def _locked_release(journal: AccountJournal, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Make the guard's lease release time out as if another writer held the lock."""
+
+        def release_lease(self: _AccountTransaction, order_id: str, holder: str) -> None:
+            """Time out the guard's release as if another writer held the lock."""
+            # The orphaned lease is dropped once its deadline passes; jump past it.
+            journal._clock = lambda: datetime.now(UTC) + VenueGateway.DISPATCH_LEASE
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(_AccountTransaction, "release_lease", release_lease)
+
+    def test_failed_lease_release_keeps_the_venue_rejection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A release timing out after a definite reject cannot hide the reject."""
+        journal, gateway, adapter, _, authorization, order_id = self._ready(tmp_path)
+        adapter.reject = True
+        self._locked_release(journal, monkeypatch)
+        with pytest.raises(VenueRejectedError) as raised:
+            gateway.submit(order_id, authorization)
+        assert any("lease release failed" in note for note in raised.value.__notes__)
+        assert journal.orders()[0].order.status == "rejected"
+        assert journal.accounts()[0].fault == "venue_unavailable:venue_rejected_submission"
+
+    def test_failed_lease_release_keeps_the_acknowledgement(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A release timing out after a sent order still records its acknowledgement."""
+        journal, gateway, adapter, _, authorization, order_id = self._ready(tmp_path)
+        self._locked_release(journal, monkeypatch)
+        assert gateway.submit(order_id, authorization).submission_attempted
+        assert journal.orders()[0].order.request_acknowledged
+        assert adapter.submit_count == 1
+
+    def test_journal_lock_timeout_before_the_send_faults_the_account(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A SQLite error inside submit faults the account instead of escaping the fence."""
+        journal, gateway, adapter, _, authorization, order_id = self._ready(tmp_path)
+        apply_event = journal.apply_event
+
+        def locked_unknown(event: OrderEvent) -> None:
+            """Time out the "unknown" event write; apply every other event."""
+            if event.kind == "unknown":
+                raise sqlite3.OperationalError("database is locked")
+            apply_event(event)
+
+        monkeypatch.setattr(journal, "apply_event", locked_unknown)
+        with pytest.raises(sqlite3.OperationalError):
+            gateway.submit(order_id, authorization)
+        assert adapter.submit_count == 0
+        assert journal.orders()[0].order.status == "rejected"
+        assert journal.accounts()[0].fault == "venue_unavailable:dispatch_not_sent"
 
     def test_private_loss_invalidates_account_and_closes_session(self, tmp_path: Path) -> None:
         """Losing authenticated input cannot leave independently admissible stale state."""

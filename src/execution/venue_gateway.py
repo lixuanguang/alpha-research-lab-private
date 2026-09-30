@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import sqlite3
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -150,7 +151,7 @@ class VenueGateway:
         with self._store.claim():
             try:
                 self._reconcile()
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
             return self._view()
@@ -171,7 +172,7 @@ class VenueGateway:
                 # Even an absent exchange lookup is not proof of a failed send.
                 try:
                     self._reconcile()
-                except (OSError, RuntimeError, ValueError) as error:
+                except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                     self._fault(type(error).__name__)
                     raise
                 return self._view()
@@ -243,7 +244,7 @@ class VenueGateway:
                         ack = adapter.submit(request, at=send_at, nonce=nonce)
                 except VenueRejectedError:
                     self._reject(order_id, client_id)
-                    self._fault("venue_rejected_submission")
+                    fault = "venue_rejected_submission"
                     raise
                 except BaseException:
                     if not sent:
@@ -252,7 +253,7 @@ class VenueGateway:
                         fault = "dispatch_not_sent"
                     raise
                 self._ack(dispatch, ack)
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(fault or type(error).__name__)
                 raise
             return self._view(submission_attempted=True)
@@ -292,7 +293,7 @@ class VenueGateway:
             if dispatch.cancel_attempted:
                 try:
                     self._reconcile()
-                except (OSError, RuntimeError, ValueError) as error:
+                except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                     self._fault(type(error).__name__)
                     raise
                 order = self._order(order_id)
@@ -302,7 +303,7 @@ class VenueGateway:
             try:
                 self._qualify()
                 at, nonce = self._request_clock()
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
             state = self._store.read()
@@ -336,7 +337,7 @@ class VenueGateway:
                         nonce=nonce,
                     )
                 self._ack(updated, ack, attempt=updated.cancel_attempts)
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
             return self._view()
@@ -425,7 +426,7 @@ class VenueGateway:
                     raise VenueProtocolError("private stream ended before authentication")
                 if pending is not None:
                     self._reconcile()
-            except (OSError, RuntimeError, ValueError) as error:
+            except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
                 self._fault(type(error).__name__)
                 raise
             finally:

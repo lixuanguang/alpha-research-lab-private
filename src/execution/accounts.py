@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import sqlite3
 import time
 import uuid
 from collections.abc import Callable, Iterator
@@ -1321,8 +1322,18 @@ class AccountJournal:
         if armed is None:
             yield DispatchPermit(order, None, None, self._now)
             return
+        failure: BaseException | None = None
         try:
             yield DispatchPermit(order, armed, armed.armed_at + send_window, self._now)
+        except BaseException as error:
+            failure = error
+            raise
         finally:
-            with self._store.write() as transaction:
-                transaction.release_lease(order_id, holder)
+            # Best effort: a lock timeout here must not replace the send's outcome.
+            # An unreleased lease is dropped by the next stop once it expires.
+            try:
+                with self._store.write() as transaction:
+                    transaction.release_lease(order_id, holder)
+            except sqlite3.Error as error:
+                if failure is not None:
+                    failure.add_note(f"dispatch lease release failed: {error}")
