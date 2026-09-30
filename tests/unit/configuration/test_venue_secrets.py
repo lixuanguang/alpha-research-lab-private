@@ -2,6 +2,7 @@
 
 # standard library imports
 import copy
+import inspect
 import logging
 import os
 import pickle
@@ -115,6 +116,13 @@ class TestVenueSecrets:
         assert "sensitive" not in str(caught.value)
         assert "never-log" not in str(caught.value)
         assert not [v for v in _frame_strings(caught.value) if "sensitive" in v or "never-log" in v]
+
+    def test_credential_directory_is_always_explicit(self) -> None:
+        """No default directory: one derived from the module file lands inside .venv."""
+        directory = inspect.signature(VenueSecrets.read).parameters["directory"]
+        # A parameter with a default renders as "name: annotation = default".
+        assert "=" not in str(directory)
+        assert not hasattr(venue_secrets, "DEFAULT_SECRETS_DIRECTORY")
 
     def test_file_swapped_after_its_check_is_not_read(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

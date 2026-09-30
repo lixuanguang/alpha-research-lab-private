@@ -26,8 +26,6 @@ from pathlib import Path
 from types import TracebackType
 from typing import Final, NoReturn, Protocol, cast
 
-_REPOSITORY_ROOT: Final = Path(__file__).resolve().parents[2]
-DEFAULT_SECRETS_DIRECTORY: Final = _REPOSITORY_ROOT / "secrets"
 _MAXIMUM_FILE_BYTES: Final = 16384
 _REDACTED: Final = "<redacted>"
 _MINIMUM_REDACTED_LENGTH: Final = 6
@@ -144,16 +142,18 @@ class VenueSecrets:
         raise TypeError("VenueSecrets cannot be serialized")
 
     @classmethod
-    def read(cls, venue: str, directory: Path | None = None) -> VenueSecrets:
+    def read(cls, venue: str, directory: Path) -> VenueSecrets:
         """Read one venue's ``KEY=VALUE`` credential file from a local directory.
 
         Blank lines and ``#`` comments are allowed. The file must be a regular,
         owner-only file (mode 600 or stricter on POSIX). Values are never
-        interpolated, printed or included in exceptions.
+        interpolated, printed or included in exceptions. The directory is always
+        explicit: one derived from this module's location would point inside the
+        virtual environment of a non-editable install.
 
         Args:
             venue: Case-insensitive venue name from ``VENUE_SECRET_FILES``.
-            directory: Secrets directory; defaults to the repository ``secrets/``.
+            directory: Directory holding the venue's credential file.
 
         Returns:
             Validated credentials for the venue.
@@ -166,8 +166,7 @@ class VenueSecrets:
         if venue not in VENUE_SECRET_FILES:
             raise VenueSecretsError(f"unknown credential venue: {venue!r}")
         file_name, required = VENUE_SECRET_FILES[venue]
-        path = (DEFAULT_SECRETS_DIRECTORY if directory is None else directory) / file_name
-        return cls(venue, read_secret_fields(path, required))
+        return cls(venue, read_secret_fields(directory / file_name, required))
 
 
 def read_secret_fields(path: Path, required: frozenset[str]) -> dict[str, SecretValue]:
