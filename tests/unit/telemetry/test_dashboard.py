@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import os
 import socket
+import stat
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -338,6 +339,24 @@ class TestDashboard:
         # Exactly one view is published, and the other writer is told so.
         assert DashboardSnapshot.read(directory) == second
         assert len(errors) == 1 and "different content" in str(errors[0])
+
+    def test_published_view_is_readable_as_any_directory_is(self, tmp_path: Path) -> None:
+        """A view gets the umask's mode, and a provisioned empty directory keeps its own."""
+        snapshot = self._view()
+        previous = os.umask(0o022)
+        try:
+            fresh = tmp_path / "fresh"
+            snapshot.write(fresh)
+            provisioned = tmp_path / "provisioned"
+            provisioned.mkdir()
+            provisioned.chmod(0o2775)
+            snapshot.write(provisioned)
+        finally:
+            os.umask(previous)
+        assert stat.S_IMODE(fresh.stat().st_mode) == 0o755
+        assert stat.S_IMODE((fresh / "dashboard.html").stat().st_mode) == 0o644
+        assert stat.S_IMODE(provisioned.stat().st_mode) == 0o2775
+        assert DashboardSnapshot.read(provisioned) == snapshot
 
     def test_exact_threshold_delivery_and_idempotency(self, tmp_path: Path) -> None:
         """Send one local alert and retain acceptance without a duplicate datagram."""

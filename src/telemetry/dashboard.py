@@ -8,12 +8,13 @@ import fcntl
 import hashlib
 import html
 import os
+import shutil
 import sqlite3
+import stat
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from fractions import Fraction
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Literal
 
 # project library imports
@@ -440,8 +441,14 @@ class DashboardSnapshot(WireRecord, frozen=True):
                 directory,
                 directory.with_name(f".{directory.name}.interrupted-{os.urandom(8).hex()}"),
             )
-        with TemporaryDirectory(dir=directory.parent, prefix=f".{directory.name}.staging-") as root:
-            staging = Path(root)
+        # A plain mkdir, not a 0700 temporary directory: the published view gets
+        # the umask's mode like any directory, so other users can serve it.
+        staging = directory.with_name(f".{directory.name}.staging-{os.urandom(8).hex()}")
+        staging.mkdir()
+        try:
+            if directory.is_dir():
+                # A provisioned (empty) destination keeps its permission bits.
+                staging.chmod(stat.S_IMODE(directory.stat().st_mode))
             for name, payload in (
                 ("snapshot.json", json_bytes),
                 ("dashboard.html", html_bytes),
@@ -459,6 +466,9 @@ class DashboardSnapshot(WireRecord, frozen=True):
                     raise
                 # A publisher outside this lock went first; its view must be this one.
                 return self._verified(directory)
+        finally:
+            if staging.is_dir():
+                shutil.rmtree(staging)
         self._sync_directory(directory.parent)
         return directory / "dashboard.html"
 
