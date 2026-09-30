@@ -102,6 +102,17 @@ class GatewayView(WireRecord, frozen=True):
     stranded: tuple[str, ...] = ()
 
 
+class _RetainedFill(WireRecord, frozen=True):
+    """Retain one execution's facts and the receipt holding its page's exact bytes.
+
+    ``fact.raw`` is empty: a page of executions is retained once, as a
+    ``fill-page`` receipt whose identity ``page`` names.
+    """
+
+    fact: VenueFillFact
+    page: str
+
+
 class VenueGateway:
     """Own one account's fenced test transport and replayable native receipts.
 
@@ -497,7 +508,7 @@ class VenueGateway:
         # Replay receipts first: a crash after the account commit but before the
         # receipt mark is handled by the account journal's identical-fill retry.
         for receipt in self._store.unapplied("fill:"):
-            self._ingest_fill(self._codec.decode_json(receipt.payload, VenueFillFact))
+            self._ingest_fill(self._codec.decode_json(receipt.payload, _RetainedFill).fact)
         at, nonce = self._request_clock()
         before = adapter.open_orders(at=at, nonce=nonce)
         for fact in before:
@@ -549,16 +560,23 @@ class VenueGateway:
         for fill in sorted(fills.values(), key=self._fill_sort):
             self._ingest_fill(fill)
         observed: list[OrderState] = []
+        # One journal read serves every lifetime dispatch; each dispatch changes only
+        # its own order below, so the map stays current for the others.
+        orders = self._orders()
         for dispatch in self._store.dispatches():
+            order = orders.get(dispatch.order_id)
+            if order is None:
+                raise ValueError("unknown or nonphysical venue order")
+            if order.is_terminal:
+                # A journaled terminal outcome already matched every identified fill,
+                # and a refused dispatch's local rejection is already recorded. Later
+                # fills still arrive through fill history, and a venue order that is
+                # open again appears in the open-order snapshots.
+                continue
             if dispatch.submission_rejected:
                 self._event(
                     dispatch.order_id, "rejected", self.clock.now(), f"reject:{dispatch.client_id}"
                 )
-                continue
-            if self._order(dispatch.order_id).is_terminal:
-                # A journaled terminal outcome already matched every identified fill.
-                # Later fills still arrive through fill history, and a venue order
-                # that is open again appears in the open-order snapshots.
                 continue
             at, nonce = self._request_clock()
             found = adapter.order(
@@ -652,15 +670,19 @@ class VenueGateway:
         if dispatch.venue_order_id is not None and fact.venue_order_id != dispatch.venue_order_id:
             raise VenueProtocolError("venue fill order identity changed")
         key = f"fill:{fact.symbol}:{fact.fill_id}"
-        prior = self._store.find_receipt(key)
-        if prior is not None:
-            saved = self._codec.decode_json(prior.payload, VenueFillFact)
+        receipt = self._store.find_receipt(key)
+        if receipt is not None:
+            saved = self._codec.decode_json(receipt.payload, _RetainedFill).fact
             if self._fill_economics(saved) != self._fill_economics(fact):
                 raise VenueProtocolError("venue fill identity changed economics")
-            if prior.applied:
+            if receipt.applied:
                 return
             fact = saved
-        receipt = self._store.receipt(key, self._codec.encode_json(fact), fact.received_at)
+        else:
+            # A page's exact bytes are retained once; each of its fills refers to them.
+            page = self._store.receipt("fill-page", fact.raw, fact.received_at)
+            retained = _RetainedFill(fact=replace(fact, raw=b""), page=page.identity)
+            receipt = self._store.receipt(key, self._codec.encode_json(retained), fact.received_at)
         if fact.source_at is None:
             raise VenueProtocolError("venue fill source time is unavailable")
         currency = next(
@@ -852,17 +874,27 @@ class VenueGateway:
 
     def _order(self, order_id: str) -> OrderState:
         """Resolve only this account's routable direct orders or physical parents."""
-        for parent in self.journal.net_orders():
-            if parent.account_id == self.config.account_id and parent.order.identity == order_id:
-                return parent.order
-        for child in self.journal.orders():
-            if (
-                child.account_id == self.config.account_id
-                and child.context is None
-                and child.order.identity == order_id
-            ):
-                return child.order
-        raise ValueError("unknown or nonphysical venue order")
+        order = self._orders().get(order_id)
+        if order is None:
+            raise ValueError("unknown or nonphysical venue order")
+        return order
+
+    def _orders(self) -> dict[str, OrderState]:
+        """Map this account's routable direct orders and physical parents by identity.
+
+        A physical parent takes precedence over a direct order of the same identity.
+        """
+        orders = {
+            child.order.identity: child.order
+            for child in self.journal.orders()
+            if child.account_id == self.config.account_id and child.context is None
+        }
+        orders.update(
+            (parent.order.identity, parent.order)
+            for parent in self.journal.net_orders()
+            if parent.account_id == self.config.account_id
+        )
+        return orders
 
     def _instrument(self, order: OrderState) -> VenueInstrument:
         """Resolve native units only through the pinned configuration mapping."""
