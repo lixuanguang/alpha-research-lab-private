@@ -6,7 +6,8 @@ import inspect
 import logging
 import os
 import pickle
-import resource
+import subprocess
+import sys
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
@@ -53,8 +54,63 @@ def _write(directory: Path, venue: str, content: str, mode: int = 0o600) -> Path
     return path
 
 
+_GUARD_PROBE = """
+import logging
+import resource
+import sys
+
+import pytest
+
+from configuration import venue_secrets
+
+state = lambda: (
+    logging.getLogRecordFactory(),
+    venue_secrets._REGISTERED_VALUES,
+    resource.getrlimit(resource.RLIMIT_CORE),
+)
+before = state()
+code = pytest.main(
+    [sys.argv[1], "-q", "-p", "no:cacheprovider", "--basetemp", sys.argv[2], "-k", sys.argv[3]]
+)
+sys.exit(int(code) or (0 if state() == before else 3))
+"""
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo the process-wide guards that loading a credential installs.
+
+    Each test starts with an empty registry, and its redacting log-record factory
+    is removed afterwards. A lowered hard core-dump limit can never be raised
+    again by an unprivileged process, so core dumps are left alone here and
+    checked in a separate process.
+    """
+    monkeypatch.setattr(venue_secrets, "_REGISTERED_VALUES", frozenset())
+    factory: object = logging.getLogRecordFactory()
+    monkeypatch.setattr(logging, "_logRecordFactory", factory)
+    monkeypatch.setattr(venue_secrets, "_disable_core_dumps", lambda: None)
+
+
 class TestVenueSecrets:
     """Use invented values only; the repository secrets directory is never touched."""
+
+    def test_module_leaves_process_guards_as_it_found_them(self, tmp_path: Path) -> None:
+        """Running this module leaves logging, the registry and core limits unchanged."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _GUARD_PROBE,
+                __file__,
+                str(tmp_path / "run"),
+                "not process_guards",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # Exit 3: every test passed, but the process-wide guards they installed remained.
+        assert result.returncode == 0, result.stdout[-2000:]
 
     @pytest.mark.parametrize(
         ("venue", "content", "has_secret"),
@@ -302,8 +358,23 @@ class TestVenueSecrets:
     def test_core_dumps_disabled(self, tmp_path: Path) -> None:
         """Keep credential-bearing process memory out of crash dumps."""
         _write(tmp_path, "eia", "API_KEY=k-sensitive\n")
-        VenueSecrets.read("eia", tmp_path)
-        assert resource.getrlimit(resource.RLIMIT_CORE) == (0, 0)
+        # A fresh process: the lowered limit cannot be restored for later tests.
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import resource, sys\n"
+                "from pathlib import Path\n"
+                "from configuration.venue_secrets import VenueSecrets\n"
+                "VenueSecrets.read('eia', Path(sys.argv[1]))\n"
+                "print(resource.getrlimit(resource.RLIMIT_CORE))",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout.strip() == "(0, 0)"
 
     @pytest.mark.parametrize("mode", [0o640, 0o604, 0o644, 0o660])
     def test_rejects_shared_permissions(self, tmp_path: Path, mode: int) -> None:
