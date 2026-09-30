@@ -1,6 +1,6 @@
 schema_version = 5
-as_of_date = "2026-09-04"
-review_due_on = "2026-10-04"
+as_of_date = "2026-10-01"
+review_due_on = "2026-10-31"
 native_python_packages = [
   "ast-serialize",
   "bottleneck",
@@ -405,5 +405,5 @@ version = "1.43"
 rationale = "User-selected C03 explicit day-count adapter; native source binding is unverified and all artifact release remains blocked."
 usage = "isolated_development_and_ci"
 source_to_wheel_binding = "unverified"
-reviewed_on = "2026-09-04"
-expires_on = "2026-10-04"
+reviewed_on = "2026-10-01"
+expires_on = "2026-10-31"

@@ -39,7 +39,7 @@ The [saved L2 command](research/l2-book-backtest.md) provides bounded reproducib
 simulation. It does not establish empirical source coverage or a profitable strategy.
 
 QuantLib's unresolved source-to-wheel binding permits isolated development/CI
-through 2026-10-04 and blocks release use. See the
+through 2026-10-31 and blocks release use. See the
 [dependency restriction](architecture/dependency-admission.md#quantlib-restriction)
 and [release workflow](governance/workflow.md#build-a-release).
 

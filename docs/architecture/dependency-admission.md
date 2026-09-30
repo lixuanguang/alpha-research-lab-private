@@ -36,11 +36,17 @@ removed; historical records remain in Git.
 ## QuantLib restriction
 
 QuantLib 1.43 is used by the C03 date-convention adapter. Its allowance applies
-only to isolated development and CI from **2026-09-04 through 2026-10-04**.
+only to isolated development and CI from **2026-10-01 through 2026-10-31**.
 The source-to-wheel binding remains unverified, so the
 [release boundary](../governance/workflow.md#build-a-release) blocks release use for the graph.
 Removing the allowance alone does not clear the block: ordinary admission still
 rejects its missing source distribution.
+
+The owner renewed the allowance on 2026-10-01 for the checker's 30-day maximum,
+and re-dated the whole policy review with it. PyPI still publishes no QuantLib
+source distribution: releases 1.40 through 1.43 are wheel-only. The alternative
+is to replace the adapter with exact repository-owned day counts and remove the
+dependency, which would also lift the release block.
 
 Resolve the source-binding requirement with an enforceable admission contract,
 or remove the dependency, imports, lock entries and affected tests together,
@@ -117,8 +123,8 @@ Lazy compatibility exports preserve existing research imports, while actual
 wheel manifests and independent installed consumers establish the separation.
 The [MR06 record](../roadmap/README.md#mr06-delivery-and-acceptance) owns acceptance
 results; the [runbook](../governance/operations.md#trusted-local-installation)
-owns signing and installation. Review the QuantLib allowance on its unchanged
-2026-10-04 deadline.
+owns signing and installation. Review the QuantLib allowance on its
+2026-10-31 deadline.
 
 ## Review and reversal
 

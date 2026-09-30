@@ -59,13 +59,13 @@ def test_policy_contains_only_retained_dependency_facts() -> None:
     assert policy.wheel_only_allowances[0].name == "quantlib"
     assert policy.wheel_only_allowances[0].version == "1.43"
     assert policy.wheel_only_allowances[0].source_to_wheel_binding == "unverified"
-    assert policy.wheel_only_allowances[0].expires_on == date(2026, 10, 4)
+    assert policy.wheel_only_allowances[0].expires_on == date(2026, 10, 31)
 
 
 def test_repository_validation_checks_lock_and_development_limits() -> None:
     """Accept frozen bytes during the allowance window without archived reports."""
     with patch.object(SourceArchiveVerifier, "verify", return_value=283) as verify:
-        policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 9, 20))
+        policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 10, 20))
     verify.assert_called_once_with(policy.source_archives[0])
     assert len(policy.packages) == 179
     assert any(
@@ -79,7 +79,7 @@ def test_release_admission_remains_blocked_by_unverified_quantlib() -> None:
         require_release_admission(REPOSITORY_ROOT)
 
 
-@pytest.mark.parametrize("validation_date", (date(2026, 9, 3), date(2026, 10, 5)))
+@pytest.mark.parametrize("validation_date", (date(2026, 9, 30), date(2026, 11, 1)))
 def test_wheel_only_allowance_rejects_dates_outside_its_window(validation_date: date) -> None:
     """Reject development and CI use outside the recorded allowance window."""
     with pytest.raises(DependencyAdmissionError, match="expired or not yet effective"):
@@ -166,8 +166,8 @@ def test_runtime_installation_scan_rejects_owned_source(tmp_path: Path) -> None:
             'source_to_wheel_binding = "verified"',
             "allowance fields",
         ),
-        ('reviewed_on = "2026-09-04"', 'reviewed_on = "2026-09-03"', "expire within 30 days"),
-        ('expires_on = "2026-10-04"', 'expires_on = "2026-10-05"', "expire within 30 days"),
+        ('reviewed_on = "2026-10-01"', 'reviewed_on = "2026-09-30"', "expire within 30 days"),
+        ('expires_on = "2026-10-31"', 'expires_on = "2026-11-01"', "expire within 30 days"),
     ],
 )
 def test_wheel_only_allowance_preserves_identity_scope_and_window(
@@ -198,7 +198,7 @@ def test_removing_allowance_does_not_admit_a_package_without_source(tmp_path: Pa
     path = tmp_path / "policy.toml"
     path.write_text("wheel_only_allowances = []\n" + source)
     findings = _python_lock_findings(
-        REPOSITORY_ROOT, load_policy(path), validation_date=date(2026, 9, 13)
+        REPOSITORY_ROOT, load_policy(path), validation_date=date(2026, 10, 1)
     )
     assert "quantlib lacks a digest-bound source distribution" in findings
 
@@ -223,7 +223,7 @@ def test_wheel_only_allowance_keeps_artifact_source_and_hash_checks(
         prefix + marker + package.replace(old, new, 1) + separator + suffix
     )
     findings = _python_lock_findings(
-        tmp_path, load_policy(POLICY_PATH), validation_date=date(2026, 9, 13)
+        tmp_path, load_policy(POLICY_PATH), validation_date=date(2026, 10, 1)
     )
     assert any("quantlib" in finding and message in finding for finding in findings)
 

@@ -196,7 +196,7 @@ class TestSourceArchives:
             SourceArchiveVerifier, "verify", side_effect=DependencyAdmissionError(["mismatch"])
         ):
             with pytest.raises(DependencyAdmissionError, match="mismatch"):
-                validate_repository(_ROOT, validation_date=date(2026, 9, 20))
+                validate_repository(_ROOT, validation_date=date(2026, 10, 1))
 
     @pytest.mark.parametrize(
         ("old", "new"),
@@ -239,7 +239,7 @@ class TestSourceArchives:
         binding = load_policy(_POLICY).source_archives[0]
         (tmp_path / "uv.lock").write_text(lock.replace(binding.wheel_sha256, "b" * 64))
         findings = _python_lock_findings(
-            tmp_path, load_policy(_POLICY), validation_date=date(2026, 9, 20)
+            tmp_path, load_policy(_POLICY), validation_date=date(2026, 10, 1)
         )
         assert any("source archive must bind the exact locked wheel" in item for item in findings)
 
@@ -250,7 +250,7 @@ class TestSourceArchives:
         path = tmp_path / "policy.toml"
         path.write_text("source_archives = []\n" + before + "[[wheel_only_allowances]]" + allowance)
         findings = _python_lock_findings(
-            _ROOT, load_policy(path), validation_date=date(2026, 9, 20)
+            _ROOT, load_policy(path), validation_date=date(2026, 10, 1)
         )
         assert "clearml lacks a digest-bound source distribution" in findings
 

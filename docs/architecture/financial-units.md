@@ -11,7 +11,7 @@ cash ledger, valuation engine, executable order, risk decision or market authori
 The convention adapter uses `QuantLib==1.43`. Version 1.40 failed the pinned
 Python 3.12.14 warnings-as-errors import check with a native segmentation fault;
 1.43 passes without changing warning filters. The dependency policy's bounded
-profile admits 1.43 only for isolated development and CI through 2026-10-04.
+profile admits 1.43 only for isolated development and CI through 2026-10-31.
 Authenticated wheel publication is not authenticated build provenance. The
 release boundary blocks production release, signing and publication while this
 admission remains. Development wheel builds and installation tests are permitted.
