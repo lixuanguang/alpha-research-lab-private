@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import errno
+import fcntl
 import hashlib
 import html
 import os
@@ -404,7 +405,9 @@ class DashboardSnapshot(WireRecord, frozen=True):
         rename, so a process that dies mid-write leaves either no view or a whole
         one. A directory holding only an interrupted earlier write's files, with
         no manifest, is moved aside to a hidden ``.<name>.interrupted-*`` sibling
-        rather than deleted. A directory holding other files is refused.
+        rather than deleted. A directory holding other files is refused. Writers
+        of one directory take turns on an OS lock on the hidden ``.<name>.lock``
+        sibling, so each sees a published view whole and only verifies it.
 
         Raises:
             ValueError: The directory holds a different view or unrelated files.
@@ -418,6 +421,15 @@ class DashboardSnapshot(WireRecord, frozen=True):
             json_sha256=hashlib.sha256(json_bytes).hexdigest(),
             html_sha256=hashlib.sha256(html_bytes).hexdigest(),
         )
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        with directory.with_name(f".{directory.name}.lock").open("a+b") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            return self._publish(directory, json_bytes, html_bytes, codec.encode_json(manifest))
+
+    def _publish(
+        self, directory: Path, json_bytes: bytes, html_bytes: bytes, manifest_bytes: bytes
+    ) -> Path:
+        """Verify, move aside or publish the view while holding the directory's lock."""
         if (directory / "manifest.json").exists():
             return self._verified(directory)
         if directory.is_dir() and any(directory.iterdir()):
@@ -428,13 +440,12 @@ class DashboardSnapshot(WireRecord, frozen=True):
                 directory,
                 directory.with_name(f".{directory.name}.interrupted-{os.urandom(8).hex()}"),
             )
-        directory.parent.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(dir=directory.parent, prefix=f".{directory.name}.staging-") as root:
             staging = Path(root)
             for name, payload in (
                 ("snapshot.json", json_bytes),
                 ("dashboard.html", html_bytes),
-                ("manifest.json", codec.encode_json(manifest)),
+                ("manifest.json", manifest_bytes),
             ):
                 with (staging / name).open("xb") as output:
                     output.write(payload)
@@ -446,7 +457,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
             except OSError as error:
                 if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
                     raise
-                # Another writer published first; its view must be this one.
+                # A publisher outside this lock went first; its view must be this one.
                 return self._verified(directory)
         self._sync_directory(directory.parent)
         return directory / "dashboard.html"

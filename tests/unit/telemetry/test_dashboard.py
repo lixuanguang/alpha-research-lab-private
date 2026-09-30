@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 # standard library imports
+import os
 import socket
+import threading
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from fractions import Fraction
 from pathlib import Path
@@ -255,6 +258,86 @@ class TestDashboard:
         with pytest.raises(ValueError, match="unrelated"):
             snapshot.write(shared)
         assert sorted(path.name for path in shared.iterdir()) == ["notes.txt"]
+
+    def _view(self, title: str = "Dashboard") -> DashboardSnapshot:
+        """Build one small view; a different title makes different content."""
+        metric = self._metric()
+        return DashboardBuilder.build(
+            self._config(metric, title=title),
+            self._query(),
+            (self._event("last", 3, self._ratio(2)),),
+            MetricRegistry((metric,)),
+        )
+
+    @staticmethod
+    def _race(target: Callable[[], object]) -> tuple[threading.Thread, list[BaseException]]:
+        """Start another writer and give it time to finish unless a lock holds it."""
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            """Record the other writer's failure instead of losing it in the thread."""
+            try:
+                target()
+            except BaseException as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join(0.5)
+        return thread, errors
+
+    def test_concurrent_writers_of_one_view_both_succeed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A writer that checked for a manifest before another published still verifies."""
+        snapshot = self._view()
+        directory = tmp_path / "view"
+        manifest = directory / "manifest.json"
+        exists = Path.exists
+        raced: list[tuple[threading.Thread, list[BaseException]]] = []
+        started = threading.Event()
+
+        def exists_then_race(path: Path, *, follow_symlinks: bool = True) -> bool:
+            """Let another writer run between the manifest check and the listing."""
+            seen = exists(path, follow_symlinks=follow_symlinks)
+            if path == manifest and not started.is_set():
+                started.set()
+                raced.append(self._race(lambda: snapshot.write(directory)))
+            return seen
+
+        monkeypatch.setattr(Path, "exists", exists_then_race)
+        assert snapshot.write(directory) == directory / "dashboard.html"
+        ((other, errors),) = raced
+        other.join(5)
+        assert not errors
+        assert DashboardSnapshot.read(directory) == snapshot
+
+    def test_concurrent_writer_cannot_replace_a_published_view(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Moving an interrupted write aside never moves another writer's complete view."""
+        first, second = self._view("First"), self._view("Second")
+        directory = tmp_path / "view"
+        directory.mkdir()
+        (directory / "snapshot.json").write_bytes(b'{"partial"')
+        rename = os.rename
+        raced: list[tuple[threading.Thread, list[BaseException]]] = []
+        started = threading.Event()
+
+        def race_then_rename(source: Path, target: Path) -> None:
+            """Let another writer publish just before this one moves the directory aside."""
+            if not started.is_set():
+                started.set()
+                raced.append(self._race(lambda: first.write(directory)))
+            rename(source, target)
+
+        monkeypatch.setattr("telemetry.dashboard.os.rename", race_then_rename)
+        assert second.write(directory) == directory / "dashboard.html"
+        ((other, errors),) = raced
+        other.join(5)
+        # Exactly one view is published, and the other writer is told so.
+        assert DashboardSnapshot.read(directory) == second
+        assert len(errors) == 1 and "different content" in str(errors[0])
 
     def test_exact_threshold_delivery_and_idempotency(self, tmp_path: Path) -> None:
         """Send one local alert and retain acceptance without a duplicate datagram."""
