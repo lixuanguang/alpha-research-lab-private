@@ -12,7 +12,13 @@ import pytest
 from msgspec.structs import replace
 
 # project library imports
-from accounting.accounts import AccountLedger, AccountPosting, AccountSnapshot, AccountState
+from accounting.accounts import (
+    _ACCOUNT_REPLAYS,
+    AccountLedger,
+    AccountPosting,
+    AccountSnapshot,
+    AccountState,
+)
 from financial_units import Currency, DecimalGrid, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from serialization import DomainCodec
@@ -664,6 +670,19 @@ class TestAccountLedger:
         ):
             with pytest.raises(ValueError, match=message):
                 AccountLedger.attach(head, (*extended.postings, appended))
+
+    def test_remembered_folds_are_bounded_per_account(self) -> None:
+        """A long run of posts keeps a few folds per account and never evicts another's."""
+        quiet = AccountLedger(AccountState(account_id="quiet", currencies=(self.usd,))).state
+        ledger = self._ledger()
+        states = [ledger.state]
+        for second in range(40):
+            ledger.post(self._transfer(f"deposit-{second}", seconds=second, value="1"))
+            states.append(ledger.state)
+        remembered = [state for state in states if _ACCOUNT_REPLAYS.find(state) is not None]
+        # Each fold is as large as its history; 64 of them per account made memory quadratic.
+        assert remembered == states[-4:]
+        assert _ACCOUNT_REPLAYS.find(quiet) is not None
 
     def test_exact_balances_survive_low_decimal_precision(self) -> None:
         """Avoid ambient Decimal rounding in cumulative multi-posting balances."""

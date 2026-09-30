@@ -400,16 +400,20 @@ class _AccountReplays:
     always gives the same result, and account journals rebuild ledgers from the
     same state many times per transaction. Remembered folds are never changed:
     ledgers post to a copy. Each entry holds its state, so an object identity
-    cannot be reused while cached. The bound keeps memory to a few recent
-    states, and a lock serializes concurrent account observers.
+    cannot be reused while cached. Each fold is as large as its history, so the
+    bound is per account: a transaction needs only the committed state and the
+    few it stages. A lock serializes concurrent account observers.
     """
 
     def __init__(self, capacity: int) -> None:
-        """Bind a positive least-recently-used capacity."""
+        """Bind a positive least-recently-used capacity for each account."""
         self._capacity = capacity
-        self._entries: OrderedDict[
-            int, tuple[AccountState, _AccountReplay, tuple[EffectiveAccountPosting, ...]]
-        ] = OrderedDict()
+        self._accounts: dict[
+            str,
+            OrderedDict[
+                int, tuple[AccountState, _AccountReplay, tuple[EffectiveAccountPosting, ...]]
+            ],
+        ] = {}
         self._lock = threading.Lock()
 
     def find(
@@ -417,10 +421,11 @@ class _AccountReplays:
     ) -> tuple[_AccountReplay, tuple[EffectiveAccountPosting, ...]] | None:
         """Return the validated fold of exactly this state object, if remembered."""
         with self._lock:
-            entry = self._entries.get(id(state))
-            if entry is None or entry[0] is not state:
+            entries = self._accounts.get(state.account_id)
+            entry = None if entries is None else entries.get(id(state))
+            if entries is None or entry is None or entry[0] is not state:
                 return None
-            self._entries.move_to_end(id(state))
+            entries.move_to_end(id(state))
             return entry[1], entry[2]
 
     def longest_prefix(
@@ -436,11 +441,10 @@ class _AccountReplays:
         """
         best: tuple[AccountState, _AccountReplay] | None = None
         with self._lock:
-            for state, fold, _ in self._entries.values():
+            for state, fold, _ in self._accounts.get(account_id, {}).values():
                 size = len(state.postings)
                 if (
-                    state.account_id == account_id
-                    and state.currencies == currencies
+                    state.currencies == currencies
                     and size <= len(postings)
                     and (best is None or size > len(best[0].postings))
                     and all(map(operator.is_, state.postings, postings[:size]))
@@ -456,13 +460,14 @@ class _AccountReplays:
     ) -> None:
         """Record a state whose postings, fold and snapshots were all validated."""
         with self._lock:
-            self._entries[id(state)] = (state, fold, effective)
-            self._entries.move_to_end(id(state))
-            while len(self._entries) > self._capacity:
-                self._entries.popitem(last=False)
+            entries = self._accounts.setdefault(state.account_id, OrderedDict())
+            entries[id(state)] = (state, fold, effective)
+            entries.move_to_end(id(state))
+            while len(entries) > self._capacity:
+                entries.popitem(last=False)
 
 
-_ACCOUNT_REPLAYS = _AccountReplays(capacity=64)
+_ACCOUNT_REPLAYS = _AccountReplays(capacity=4)
 
 
 class AccountSnapshot(WireRecord, frozen=True):
