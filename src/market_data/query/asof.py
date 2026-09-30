@@ -375,12 +375,15 @@ class AsOfSelector:
             ):
                 continue
             candidates = disconnect.candidates
+            source, stream, instrument_id = disconnect.binding
             for index in range(disconnect.first, len(candidates)):
                 order, version_known_at, version = candidates[index]
                 if version_known_at is not None and version_known_at <= known_at:
                     results.append(
                         ContinuityResumed(
-                            binding=disconnect.binding,
+                            # The retained request's identity is never handed out, so
+                            # no caller can change what later queries select.
+                            binding=(source, stream, instrument_id.model_copy()),
                             disconnect_identity=disconnect.identity,
                             trade_identity=self._version_identity(version),
                             resumed_at=order[0],

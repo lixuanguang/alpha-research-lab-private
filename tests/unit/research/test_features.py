@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import time
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -631,6 +632,19 @@ class TestPriceDiagnostics:
         print(f"recoveries of 500 disconnects, first/repeated: {cold:.5f}s/{warm:.5f}s")
         # Every query re-derived every disconnect's and trade's identity, as costly as the first.
         assert len(first) == 500 and warm < cold / 10
+
+    def test_recovery_bindings_do_not_share_the_retained_instrument(self) -> None:
+        """Mutating a returned binding's instrument cannot change later queries."""
+        request = self._request()
+        reader = self._reader(request, self._recovery_capture(request))
+        selector = reader._selector
+        instruments = (request.instrument.instrument_id,)
+        end = _START + timedelta(seconds=60)
+        (first,) = selector.recoveries(instruments, end=end, known_at=end)
+        # An unsafe caller bypasses the frozen model and rewrites the returned identity.
+        object.__setattr__(first.binding[2], "uuid_value", uuid.uuid4())
+        (again,) = selector.recoveries(instruments, end=end, known_at=end)
+        assert again.binding == self._binding(request)
 
     def test_recovery_needs_a_later_trade_known_by_the_cutoff(self) -> None:
         """A second disconnect with no later trade is unanswered and poisons later windows."""
