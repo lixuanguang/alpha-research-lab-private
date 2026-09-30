@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import sqlite3
+import time
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
@@ -15,7 +16,7 @@ from test_account_history_scaling import _SharedFirmHistory
 
 # project library imports
 from execution import AccountJournal
-from execution.account_state import AccountStateStore, _HistorySummary
+from execution.account_state import AccountStateStore, _HistorySummary, _row_values
 from serialization import DomainCodec
 
 
@@ -168,3 +169,25 @@ class TestAccountStateRows:
         print(f"round trip at 40/400 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Rewriting the whole head and re-adding every posting grew with history.
         assert medians[1] < 1.5 * medians[0]
+
+    @pytest.mark.performance
+    def test_row_write_skips_unchanged_fields(self, tmp_path: Path) -> None:
+        """A commit that changes no row-kept field costs the same at 100 and 1,000 orders."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        store = history.journal._store
+        medians: list[float] = []
+        for orders in (100, 1000):
+            while history.orders < orders:
+                history.round_trip()
+            values = _row_values(store.read())
+            samples: list[float] = []
+            with closing(sqlite3.connect(store.path)) as connection:
+                for _ in range(31):
+                    started = time.perf_counter()
+                    store._rows.write(connection, values, values)
+                    samples.append(time.perf_counter() - started)
+                connection.rollback()
+            medians.append(sorted(samples)[15])
+        print(f"unchanged row write at 100/1000 orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
+        # Walking, copying and re-hashing every row of every field grew with history.
+        assert medians[1] < 2 * medians[0]

@@ -6,9 +6,10 @@ from __future__ import annotations
 import hashlib
 import operator
 import sqlite3
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import closing, contextmanager
 from datetime import datetime
+from itertools import chain, compress
 from pathlib import Path
 from typing import Literal, NamedTuple, cast
 
@@ -333,43 +334,60 @@ def _assemble(state: _FirmState, values: dict[str, tuple[object, ...]]) -> _Firm
     )
 
 
+class _CachedRows(NamedTuple):
+    """One row field's committed items, their row digests and its summary."""
+
+    items: tuple[object, ...]
+    digests: list[bytes]
+    summary: _RowSummary
+
+
 class _StateRows:
     """Keep row-kept state fields in ``state_rows`` and reuse decoded rows in process.
 
-    A commit writes only rows whose item changed (by object identity, then by
-    bytes) and deletes rows past a shortened tuple. A read compares each field's
-    summary with the cached rows and decodes only rows whose digest differs, so
-    another process's commit costs one digest scan plus its changed rows.
+    A commit skips a field whose tuple is unchanged, writes only rows whose item
+    changed (by object identity, then by bytes) and deletes rows past a
+    shortened tuple. A read compares each field's summary with the cached rows
+    and decodes only rows whose digest differs, so another process's commit
+    costs one digest scan plus its changed rows.
     """
 
     def __init__(self, codec: DomainCodec) -> None:
         """Start with no cached rows."""
         self.codec = codec
-        self._cache: dict[str, tuple[tuple[object, ...], list[bytes]]] = {}
+        self._cache: dict[str, _CachedRows] = {}
 
     def write(
         self,
         connection: sqlite3.Connection,
         committed: dict[str, tuple[object, ...]],
         staged: dict[str, tuple[object, ...]],
-    ) -> tuple[tuple[_RowSummary, ...], dict[str, tuple[tuple[object, ...], list[bytes]]]]:
+    ) -> tuple[tuple[_RowSummary, ...], dict[str, _CachedRows]]:
         """Write changed rows; return the summaries and the cache entries to keep on commit."""
         summaries: list[_RowSummary] = []
-        updates: dict[str, tuple[tuple[object, ...], list[bytes]]] = {}
+        updates: dict[str, _CachedRows] = {}
         for field in sorted(staged):
             items = staged[field]
             before = committed.get(field, ())
             cached = self._cache.get(field)
-            digests = (
-                list(cached[1])
-                if cached is not None and cached[0] is before
-                else self._digests(connection, field)
-            )
+            if cached is not None and cached.items is before:
+                if items is before:
+                    # An untouched field keeps its rows and summary.
+                    summaries.append(cached.summary)
+                    continue
+                digests = list(cached.digests)
+            else:
+                digests = self._digests(connection, field)
             if len(digests) != len(before):
                 raise ValueError("account journal state rows differ from its head")
-            for index, item in enumerate(items):
-                if index < len(before) and item is before[index]:
-                    continue
+            # Positions whose item is another object, then appended positions.
+            replaced: Iterable[bool] = map(operator.is_not, items, before)
+            kept = min(len(items), len(before))
+            positions: Iterable[int] = chain(
+                compress(range(kept), replaced), range(len(before), len(items))
+            )
+            for index in positions:
+                item = items[index]
                 payload = self.codec.encode_json(item)
                 digest = hashlib.sha256(payload).digest()
                 if index < len(digests):
@@ -391,11 +409,12 @@ class _StateRows:
                     "DELETE FROM state_rows WHERE field=? AND seq>=?", (field, len(items))
                 )
                 del digests[len(items) :]
-            updates[field] = items, digests
-            summaries.append(_RowSummary.of(field, digests))
+            summary = _RowSummary.of(field, digests)
+            updates[field] = _CachedRows(items, digests, summary)
+            summaries.append(summary)
         return tuple(summaries), updates
 
-    def accept(self, updates: dict[str, tuple[tuple[object, ...], list[bytes]]]) -> None:
+    def accept(self, updates: dict[str, _CachedRows]) -> None:
         """Cache rows whose commit succeeded."""
         self._cache.update(updates)
 
@@ -407,8 +426,8 @@ class _StateRows:
         for expected in summary.rows:
             field = expected.field
             cached = self._cache.get(field)
-            if cached is not None and _RowSummary.of(field, cached[1]) == expected:
-                values[field] = cached[0]
+            if cached is not None and cached.summary == expected:
+                values[field] = cached.items
                 continue
             target = self._target(field)
             items: list[object] = []
@@ -426,8 +445,8 @@ class _StateRows:
             else:
                 digests = self._digests(connection, field)
                 for index, digest in enumerate(digests):
-                    if index < len(cached[1]) and cached[1][index] == digest:
-                        items.append(cached[0][index])
+                    if index < len(cached.digests) and cached.digests[index] == digest:
+                        items.append(cached.items[index])
                         continue
                     stored = cast(
                         tuple[object, ...] | None,
@@ -439,10 +458,11 @@ class _StateRows:
                     if stored is None:
                         raise ValueError("account journal state rows differ from its head")
                     items.append(self._decode(stored[0], digest, target))
-            if _RowSummary.of(field, digests) != expected:
+            loaded = _RowSummary.of(field, digests)
+            if loaded != expected:
                 raise ValueError("account journal state rows differ from its head")
             values[field] = tuple(items)
-            self._cache[field] = values[field], digests
+            self._cache[field] = _CachedRows(values[field], digests, loaded)
         return values
 
     def verify(self, connection: sqlite3.Connection, summary: _HistorySummary) -> None:
