@@ -138,7 +138,10 @@ def configuration() -> AccountConfiguration:
         accounts=(OpeningAccount(account_id=_ACCOUNT, cash=(_money("1000"),)),),
         instruments=spot_limits,
         fee_rates=tuple(
-            InstrumentFeeRate(instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0))
+            # The worst case admission sizes reserves for; the scenario charges this rate.
+            InstrumentFeeRate(
+                instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal("0.005")
+            )
             for limits in spot_limits
         ),
         budgets=BudgetPolicy(
