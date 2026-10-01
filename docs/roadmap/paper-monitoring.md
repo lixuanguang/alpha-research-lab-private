@@ -279,6 +279,24 @@ A pass re-verifies MR12's installed evidence for this bounded local scope. Human
 acknowledgement, remote monitoring services, source-clock accuracy and MR15 capacity
 stay outside it.
 
+### Uncounted re-verification rehearsals (2026-10-02)
+
+Rehearsal 1 passed every step, but both Bitfinex live runs traded nothing and sent no
+alert, so their reconciliation (0 = 0) and alert observation (0 of 0) passed
+vacuously. Every Bitfinex decision was refused `fee_reserve_below_worst_case`: review
+#9 (`6b43f6b`, 2026-10-01) reserved one minor unit per lot for rounding, which for a
+0.0001 BTC order on 1e-8 BTC lots in USD is about $100 against the consumer's $2. Live
+runs now must trade and alert. Paper and shadow reserves now follow the paper model's
+own half-even rounding (exact fee plus half a minor unit per fill that can round up),
+proved against the matcher's fees by a property test; `venue_test` keeps the per-lot
+bound.
+
+Rehearsal 2 (`d841602`) passed every step with activity on all four runs: OKX and
+Bitfinex shared each 2 fills and 3/3 alerts observed, dedicated each 1 fill and 2/2,
+with reconciled economics and every page passing inspection; all four replays were
+byte-identical with zero inserts; the installed suites passed (13 run, 1 Feast case
+skipped for its absent worker interpreter, as in `make check`).
+
 ## Evidence reuse and remaining limits
 
 MR08/MR11 matching, fee rounding/allocation, independent reconciliation, authored
