@@ -31,8 +31,10 @@ from capacity_inputs import CapacityWorkload
 from capacity_results import CapacityResultsCollector
 
 # project library imports
+import execution
 from configuration import PaperServiceConfiguration
 from execution import AccountExecutionRequest, InstalledPaperAccount
+from runtime import InstalledIdentity
 from serialization import DomainCodec
 
 PublicVenue = Literal["okx", "bitfinex"] | None
@@ -359,6 +361,10 @@ class Cohort:
         commit = self.command("freeze-commit", ["git", "rev-parse", "HEAD"], cwd=self.repository)
         if status.strip():
             raise ValueError("declared candidate source has uncommitted changes")
+        # Grants bind the installed implementation; an editable checkout has none.
+        if Path(execution.__file__).resolve().is_relative_to(self.repository.resolve()):
+            raise ValueError("research interpreter runs an editable checkout, not an install")
+        implementation = InstalledIdentity.sha256()
         self.consumers.mkdir()
         hashes: dict[str, str] = {}
         for path in sorted(Path(__file__).parent.glob("*.py")):
@@ -366,7 +372,11 @@ class Cohort:
                 continue
             shutil.copy2(path, self.consumers / path.name)
             hashes[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
-        return {"commit": commit.strip(), "consumer_sha256": hashes}
+        return {
+            "commit": commit.strip(),
+            "installed_implementation": implementation,
+            "consumer_sha256": hashes,
+        }
 
     def candidate(self) -> dict[str, object]:
         """Prepare inputs, then fetch, build, verify and install four signed targets."""
