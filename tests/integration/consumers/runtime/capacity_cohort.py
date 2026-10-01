@@ -396,7 +396,9 @@ class Cohort:
         key.chmod(0o600)
         public_key = " ".join(key.with_suffix(".pub").read_text().split()[:2])
         now = datetime.now(UTC)
-        python = Path(os.path.realpath(self.python))
+        # The research environment's interpreter: the same pinned binary, and the
+        # environment whose admitted hatchling the build checks in isolated mode.
+        python = self.python
         uv = Path(shutil.which("uv") or "/absent/uv")
         policy: dict[str, object] = {
             "schema_version": "installation-policy",
