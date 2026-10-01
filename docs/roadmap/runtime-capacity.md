@@ -1443,3 +1443,33 @@ slowly (4.24 s to the measured interval, which ended at 65.02 s, past the former
 window). With the 70 s window it passed 40/40 gates. Steady passed 58/58 gates, and the
 history queries passed all four classes (dashboard warm 82.1/110.3/118.4 ms, scheduled
 response p50 86.2 ms; dashboard cold p99 147.6 ms).
+
+#### Counted dashboard cohort result, second attempt (2026-10-02)
+
+**Passed.** The single counted attempt under the approved redeclaration froze `f16b580`
+(installed implementation `87f4a93c…`; releases `9fd932f2…` OKX shared, `97c5eb54…` OKX
+isolated, `d3b0643f…` Bitfinex shared, `18bb1276…` Bitfinex isolated) and ran every step
+once, into `logs/runtime-capacity/stage1-dashboard-2/`.
+
+| Step | Result |
+| --- | --- |
+| Freeze, signed candidate, grants | Pass |
+| Steady trial | 58/58 gates; first-touch oracle holds on all four accounts; 121 health witnesses; receipt-to-durable p99 6.1–13.9 ms, durable-to-BBO p99 34.3–45.6 ms; CPU 1.37 cores, RSS 2.30 GiB |
+| Populated-history queries | All four classes pass with matched-cutoff parity, 1,000 requests each, no failure (below) |
+| Public Bitfinex route (12,000 cap) | 40/40 gates; 3,266 and 1,883 public messages ended on supervisor stop with complete delivery parity and bounded queues; OKX fixture sources met their gates. Startup took 4.24 s and the interval ended at 64.98 s, inside the 70 s window |
+| Cleanup audits | Both pass: every observed process absent and all four accounts stopped |
+| `make check` on the frozen source | Passed (2,270 passed, 2 skipped); HEAD and tree unchanged |
+
+| Class | Service p50 / p95 / p99 | Scheduled response p50 / p95 / p99 | Budget |
+| --- | --- | --- | --- |
+| Depth/BBO, application-cold | 8.6 / 14.7 / 19.0 ms | 13.9 / 22.4 / 32.4 ms | 2 s p99 |
+| Depth/BBO, warm | 7.9 / 13.3 / 19.9 ms | 12.6 / 18.1 / 25.5 ms | 50 / 200 / 500 ms |
+| Dashboard, application-cold | 101.0 / 120.7 / 130.2 ms | 105.8 / 125.8 / 135.3 ms | 3 s p99 |
+| Dashboard, warm | 79.3 / 101.3 / 111.6 ms | 84.1 / 106.0 / 116.1 ms | 100 / 400 / 1,000 ms |
+
+This qualifies, for the bounded stage-1 envelope, the populated-history query classes
+on the bounded dashboard contract and the public Bitfinex route with the 12,000 cap.
+Warm dashboard p50 has about 20% margin. It is not MR15 acceptance: checkpoint
+percentiles (deferred to stage 2), filesystem-cold queries, renewed public OKX health,
+integrated feature serving, MR12's installed re-verification, stage 2 and 24-hour
+operation remain open.
