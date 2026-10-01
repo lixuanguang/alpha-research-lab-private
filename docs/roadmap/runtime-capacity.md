@@ -1421,10 +1421,10 @@ observed process absent and all four accounts stopped in both trials. MR15, MR12
 re-verification, stage 2 and 24-hour operation are not claimed. A new attempt needs
 a decision on the route's lifecycle margin and a fresh declaration.
 
-#### Dashboard cohort redeclaration (draft, not approved)
+#### Dashboard cohort redeclaration (approved 2026-10-02)
 
-Drafted 2026-10-01 after the owner chose the lifecycle repair; nothing counted runs
-without explicit approval. The supervisor's drain reserve becomes the last fifth of
+Drafted 2026-10-01 after the owner chose the lifecycle repair; the owner approved it
+on 2026-10-02 after rehearsal 5. The supervisor's drain reserve becomes the last fifth of
 its life, at most 5 s (was at most 10 s). Every observed drain finished in about a
 second, and the 75 s supervisor and 120 s account lifetimes are unchanged. A 75 s
 service now serves its sources for 70 s, so a public route has about five more
