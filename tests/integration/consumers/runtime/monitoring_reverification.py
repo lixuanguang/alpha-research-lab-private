@@ -177,7 +177,14 @@ class Reverification:
         status = self.codec.decode_json(
             (output / "run/monitoring/monitoring-status.json").read_bytes(), PaperMonitoringResult
         )
+        summary = msgspec.json.decode(
+            (output / "summary.json").read_bytes(), type=dict[str, object]
+        )
+        fills, accepted = summary.get("attributed_fills"), alerts.get("socket_accepted")
         gates = [
+            # A run with no fill or no alert would reconcile and observe nothing.
+            Gate("economics_exercised", type(fills) is int and fills > 0, fills),
+            Gate("alerts_exercised", type(accepted) is int and accepted > 0, accepted),
             Gate(
                 "economics_reconciled",
                 reconciliation.get("exact") is True,
