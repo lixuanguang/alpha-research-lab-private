@@ -240,9 +240,9 @@ consumers, passes on the new contract. The signed, installed and public-feed run
 recorded above predate it, so MR12's installed evidence needs re-running before
 it covers this contract. That re-run needs its own declaration.
 
-## Installed re-verification declaration (draft, not approved)
+## Installed re-verification declaration (approved 2026-10-02)
 
-Drafted 2026-10-02 to re-run MR12's installed evidence under the
+Drafted and approved by the owner on 2026-10-02, after rehearsal 2, to re-run MR12's installed evidence under the
 [bounded dashboard contract](#bounded-dashboard-contract-revision-2026-10-01). It repeats
 the journeys recorded above and adds no new kind of evidence. It is limited to **one
 counted attempt**, which stops at its first failure; one uncounted rehearsal precedes
