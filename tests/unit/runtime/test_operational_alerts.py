@@ -5,6 +5,8 @@ from __future__ import annotations
 # standard library imports
 import socket
 import sqlite3
+import tempfile
+from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
@@ -17,13 +19,22 @@ from serialization import DomainCodec
 from telemetry import OperationalAlerts, OperationAlert
 
 
+@pytest.fixture()
+def socket_directory() -> Iterator[Path]:
+    """Hold Unix sockets under a short path: AF_UNIX paths are limited to about 104 bytes."""
+    with tempfile.TemporaryDirectory(prefix="sock-", dir="/tmp") as directory:
+        yield Path(directory)
+
+
 class TestOperationalAlerts:
     """Check local delivery semantics, changed retries and interrupted attempts."""
 
-    def test_delivery_failure_and_exact_retry_are_retained(self, tmp_path: Path) -> None:
+    def test_delivery_failure_and_exact_retry_are_retained(
+        self, tmp_path: Path, socket_directory: Path
+    ) -> None:
         """A missing local receiver is explicit and an identical retry sends no duplicate."""
         store = OperationalAlerts(tmp_path / "alerts.sqlite3")
-        address = str(tmp_path / "absent.sock")
+        address = str(socket_directory / "absent.sock")
         first = store.send(identity="stop", control_sha256="1" * 64, address=address)
         assert first.status == "failed"
         with patch(
@@ -34,10 +45,12 @@ class TestOperationalAlerts:
         with pytest.raises(ValueError, match="different content"):
             store.send(identity="stop", control_sha256="2" * 64, address=address)
 
-    def test_real_local_datagram_and_pending_attempt(self, tmp_path: Path) -> None:
+    def test_real_local_datagram_and_pending_attempt(
+        self, tmp_path: Path, socket_directory: Path
+    ) -> None:
         """A received datagram proves local delivery; process loss cannot claim delivery."""
         store = OperationalAlerts(tmp_path / "alerts.sqlite3")
-        address = str(tmp_path / "alerts.sock")
+        address = str(socket_directory / "alerts.sock")
         with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
             receiver.bind(address)
             receiver.settimeout(1)
