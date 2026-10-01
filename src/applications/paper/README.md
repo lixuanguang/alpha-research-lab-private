@@ -310,7 +310,8 @@ alpha-execute deployment-control --socket /private/tmp/paper-supervisor.sock \
 `owners.json` encodes `PaperServiceOwners(owners=...)`. Operator control files encode
 `PaperServiceControl(action=..., identity=..., subject=...)`; actions are `inspect`,
 `stop_instance`, `restart_instance`, `stop_source`, `restart_source` and `shutdown`.
-During its final drain reserve the supervisor answers only `inspect` and `shutdown` and
+The supervisor reserves the last fifth of its life, at most five seconds, for draining.
+During that drain reserve it answers only `inspect` and `shutdown` and
 refuses the rest; when it starts that drain itself, it keeps answering until a
 `shutdown` arrives or its deadline is half a second away.
 Instance/source actions name their configured subject. A repeated control identity

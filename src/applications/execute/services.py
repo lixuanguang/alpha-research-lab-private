@@ -396,8 +396,10 @@ class PaperServices:
                         for item in self.config.instances
                     ):
                         self._start_source(source)
-                drain_reserve = min(10.0, self.config.duration_seconds / 5)
-                active_deadline, next_sample = service_deadline - drain_reserve, 0.0
+                active_deadline = service_deadline - self.drain_reserve(
+                    self.config.duration_seconds
+                )
+                next_sample = 0.0
                 while not self.is_stopping and time.monotonic() < active_deadline:
                     self._control(listener)
                     consumed = self._supervise()
@@ -416,6 +418,15 @@ class PaperServices:
                     finally:
                         self._observation_executor = None
             return self.status()
+
+    @staticmethod
+    def drain_reserve(duration_seconds: float) -> float:
+        """Reserve the end of the service life for draining sources and stopping accounts.
+
+        Observed drains finish in about a second; five seconds keeps that margin while
+        leaving a 75-second service 70 seconds to serve its sources.
+        """
+        return min(5.0, duration_seconds / 5)
 
     def _shutdown(self, listener: socket.socket, *, deadline: float | None = None) -> None:
         """Fence every child and request every account stop despite diagnostic close failure."""

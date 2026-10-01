@@ -1161,6 +1161,13 @@ class TestPaperServices:
         listener = services._listen()
         return services, listener
 
+    @pytest.mark.parametrize(("duration", "reserve"), ((75, 5.0), (25, 5.0), (10, 2.0)))
+    def test_drain_reserve_leaves_most_of_the_service_life_active(
+        self, duration: int, reserve: float
+    ) -> None:
+        """A 75-second service serves its sources for 70 seconds; short ones keep a fifth."""
+        assert PaperServices.drain_reserve(duration) == reserve
+
     def test_draining_supervisor_answers_only_inspect_and_shutdown(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
