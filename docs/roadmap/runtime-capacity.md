@@ -1437,3 +1437,9 @@ frozen source. One uncounted rehearsal precedes it, into
 `logs/runtime-capacity/stage1-dashboard-rehearsal-5/`, and the counted attempt writes
 to `logs/runtime-capacity/stage1-dashboard-2/`. The earlier counted attempt stays
 recorded as stopped and is not combined with this one.
+
+Rehearsal 5 (uncounted, `f9b0ca1`) passed every step. Its public route again started
+slowly (4.24 s to the measured interval, which ended at 65.02 s, past the former 65 s
+window). With the 70 s window it passed 40/40 gates. Steady passed 58/58 gates, and the
+history queries passed all four classes (dashboard warm 82.1/110.3/118.4 ms, scheduled
+response p50 86.2 ms; dashboard cold p99 147.6 ms).
