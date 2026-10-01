@@ -1383,3 +1383,40 @@ attempt, and none is combined with it.
 | Cleanup audits | Both pass; every observed process absent and all accounts stopped |
 
 The counted attempt freezes a later commit and needs the owner's go-ahead.
+
+#### Counted dashboard cohort result (2026-10-01)
+
+The single counted attempt froze `13331a5` (installed implementation `58a11f70…`,
+releases `b3da36e1…` OKX shared, `6e2542c4…` OKX isolated, `23e9353b…` Bitfinex shared,
+`b0476b1b…` Bitfinex isolated) and **stopped at the public Bitfinex route**. As
+declared, nothing was retried, and the cohort's cleanup audit and `make check` did not
+run.
+
+| Step | Result |
+| --- | --- |
+| Freeze, signed candidate, grants | Pass |
+| Steady trial | 58/58 gates; first-touch oracle holds on all four accounts; 122 health witnesses; receipt-to-durable p99 11.1–42.5 ms, durable-to-BBO p99 48.6–90.8 ms; CPU 1.48 cores, RSS 2.30 GiB |
+| Populated-history queries | **All four classes pass** with matched-cutoff parity, 1,000 requests each, no failure (below) |
+| Public Bitfinex route | 38/40 gates. Public captures (5,984 and 5,193 messages) ended on supervisor stop with complete delivery parity and bounded queues. The two OKX fixture schedule proofs failed |
+
+| Class | Service p50 / p95 / p99 | Scheduled response p50 / p95 / p99 | Budget |
+| --- | --- | --- | --- |
+| Depth/BBO, application-cold | 6.5 / 17.6 / 26.3 ms | 10.2 / 24.8 / 32.3 ms | 2 s p99 |
+| Depth/BBO, warm | 5.7 / 9.8 / 15.1 ms | 9.0 / 14.2 / 21.6 ms | 50 / 200 / 500 ms |
+| Dashboard, application-cold | 104.3 / 122.7 / 135.6 ms | 108.6 / 126.8 / 140.6 ms | 3 s p99 |
+| Dashboard, warm | 80.7 / 108.1 / 112.8 ms | 84.8 / 111.2 / 117.0 ms | 100 / 400 / 1,000 ms |
+
+**The route failure is the supervisor's active window, not load.** The supervisor
+serves its sources for 75 s less a 10 s drain reserve, about 65 s from launch. The
+route took 4.60 s from startup to the measured interval (the steady trial took 1.37 s),
+so its 60-second interval ran to about 65.3 s. The supervisor began its own drain and
+closed the OKX fixture sources 60–82 ms before the interval ended, so the last one or
+two authored slots (due 5–63 ms before the end) were never emitted. Every emitted frame
+was exact, contiguous, durable and on time; the trial itself recorded no failure.
+Rehearsal 4's route started in 3.24 s and fit. The shutdown-reply repair answered the
+operator but did not move this window.
+
+A read-only cleanup audit run afterwards, outside the counted sequence, found every
+observed process absent and all four accounts stopped in both trials. MR15, MR12
+re-verification, stage 2 and 24-hour operation are not claimed. A new attempt needs
+a decision on the route's lifecycle margin and a fresh declaration.
