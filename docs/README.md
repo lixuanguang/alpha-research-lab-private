@@ -38,10 +38,9 @@ records. Keep empirical research priorities separate from infrastructure deliver
 The [saved L2 command](research/l2-book-backtest.md) provides bounded reproducible
 simulation. It does not establish empirical source coverage or a profitable strategy.
 
-QuantLib's unresolved source-to-wheel binding permits isolated development/CI
-through 2026-10-31 and blocks release use. See the
-[dependency restriction](architecture/dependency-admission.md#quantlib-restriction)
-and [release workflow](governance/workflow.md#build-a-release).
+Every admitted package has a verified source binding, so no wheel-only exception
+blocks release. See [dependency admission](architecture/dependency-admission.md#repository-owned-day-counts)
+and the [release workflow](governance/workflow.md#build-a-release).
 
 ## Development environment
 
@@ -99,8 +98,8 @@ uv run --frozen --no-editable pytest -q <test-paths>
 The [architecture guide](architecture/README.md) explains the source and installed-package
 checks. Runtime consumers can install the built wheel with its declared domain
 dependencies; development tools are absent from the runtime distribution.
-This installation boundary does not override
-the QuantLib release restriction.
+This installation boundary does not replace
+the release workflow's signing and admission checks.
 
 ## Documentation map
 

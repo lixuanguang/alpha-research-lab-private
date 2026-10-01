@@ -203,9 +203,9 @@ UV_PROJECT_ENVIRONMENT=/private/tmp/paper-monitoring-env \
 3 deselected** and successful installed-wheel smoke, locks, Ruff, strict mypy,
 native stub checks, engineering/dependency/architecture governance, Bandit,
 dependency audit and secret scan. Performance-marked tests were outside this
-required gate; MR15 budgets are not claimed. The existing development-only
-QuantLib source-to-wheel exception still blocks artifact release under its own
-policy; this work does not change it. Changed owning-guide links and whitespace
+required gate; MR15 budgets are not claimed. The development-only native
+source-to-wheel exception of the time, since removed, still blocked artifact
+release under its own policy; this work did not change it. Changed owning-guide links and whitespace
 were checked separately. Retained OKX/Bitfinex HTML pages were visually inspected
 using the existing renderer; recovery links also have a targeted regression.
 

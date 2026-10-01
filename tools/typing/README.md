@@ -19,8 +19,8 @@ libraries.
 
 ## Native stubs
 
-`stubs/` contains narrow declarations for the consumed QuantLib 1.43,
-exchange-calendars 4.13.2 and pandas 3.0.5 surface. They describe the installed
+`stubs/` contains narrow declarations for the consumed exchange-calendars 4.13.2
+and pandas 3.0.5 surface. They describe the installed
 implementations; they do not replace them at runtime or claim coverage of each
 library's complete API. Unlisted members remain unavailable to owned typed code.
 The date inputs cover the adapter's usage; pandas timestamps and its NaT

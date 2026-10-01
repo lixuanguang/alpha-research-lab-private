@@ -44,10 +44,10 @@ authority.
 ## Build a release
 
 `make build` and `make wheel-smoke` retain the complete research development
-environment. Its QuantLib convention adapter remains restricted by
-[dependency admission](../architecture/dependency-admission.md#quantlib-restriction).
-`alpha-governance-artifacts release-check` still refuses release of that whole
-graph; deleting an allowance cannot make it admissible.
+environment. `alpha-governance-artifacts release-check` refuses that whole graph
+while any [wheel-only allowance](../architecture/dependency-admission.md#wheel-only-development-allowance)
+is active; deleting an allowance cannot make a package without a source
+distribution admissible.
 
 [MR06](../roadmap/README.md#mr06-delivery-and-acceptance) adds separate
 `alpha-research-contracts`, `alpha-research-collector` and

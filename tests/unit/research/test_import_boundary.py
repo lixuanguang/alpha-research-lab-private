@@ -25,7 +25,6 @@ import sys
 class RejectOperationalDependencies(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split(".", 1)[0] in {
-            "QuantLib",
             "exchange_calendars",
             "numpy",
             "pandas",

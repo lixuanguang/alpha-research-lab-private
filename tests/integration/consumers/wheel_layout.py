@@ -13,7 +13,7 @@ from importlib.util import find_spec
 from pathlib import Path
 
 # project library imports
-from financial_units import Currency, Money, QuantLibConventions
+from financial_units import Currency, DayCountConventions, Money
 from reference_data.calendars import (
     CalendarAuthority,
     CalendarSourceVersion,
@@ -48,7 +48,7 @@ def main() -> None:
     domain_codec = DomainCodec()
     amount = Money(value=Decimal("1.25"), currency=Currency.from_code("USD"))
     assert domain_codec.decode_json(domain_codec.encode_json(amount), Money) == amount
-    assert QuantLibConventions()
+    assert DayCountConventions()
     venue = Venue(
         venue_id=VenueId.from_canonical_text("11111111-1111-4111-8111-111111111111"),
         mic=MarketIdentifierCode(value="XNYS"),

@@ -108,8 +108,8 @@ UV_PROJECT_ENVIRONMENT=/private/tmp/public-paper-installed \
 3 deselected**; Ruff, strict mypy, stub checks, engineering standards, dependency
 admission/audit, architecture links, secret scan, Bandit and clean installed-wheel
 smoke passed. The two skips require the separately configured Feast worker;
-performance tests are outside this correctness lane. The existing development-only
-QuantLib source-to-wheel qualification restriction remains unchanged; this work
+performance tests are outside this correctness lane. The development-only native
+source-to-wheel restriction of the time, since removed, was unchanged; this work
 does not grant artifact release approval.
 
 After extending the consumer with a second-process `--replay` check, the affected

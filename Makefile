@@ -46,7 +46,7 @@ lint:
 
 typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
-	$(UV) run --frozen python -m mypy.stubtest --mypy-config-file=tools/typing/stubtest.toml --ignore-missing-stub QuantLib exchange_calendars pandas
+	$(UV) run --frozen python -m mypy.stubtest --mypy-config-file=tools/typing/stubtest.toml --ignore-missing-stub exchange_calendars pandas
 
 governance-check: engineering-standards-check dependency-admission-check architecture-check
 

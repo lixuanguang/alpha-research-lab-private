@@ -25,13 +25,15 @@ class TestArtifactCommands:
         assert main(arguments) == 2
         assert "usage: alpha-governance-artifacts" in capsys.readouterr().err
 
-    def test_whole_research_graph_retains_quantlib_block(
+    def test_whole_research_graph_has_no_native_admission_block(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """An independently admitted operating closure cannot exempt the research graph."""
+        """With no wheel-only package admitted, only the operating profile gate remains."""
         monkeypatch.chdir(REPOSITORY_ROOT)
         assert main(["release-check"]) == 1
-        assert "unresolved native dependency admission" in capsys.readouterr().err
+        error = capsys.readouterr().err
+        assert "select an admitted operating build profile" in error
+        assert "unresolved native dependency admission" not in error
 
     def test_missing_repository_cannot_write_artifacts(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]

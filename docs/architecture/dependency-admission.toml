@@ -1,6 +1,7 @@
 schema_version = 5
 as_of_date = "2026-10-01"
 review_due_on = "2026-10-31"
+wheel_only_allowances = []
 native_python_packages = [
   "ast-serialize",
   "bottleneck",
@@ -34,7 +35,6 @@ native_python_packages = [
   "pydantic-core",
   "pyyaml",
   "pyzmq",
-  "quantlib",
   "regex",
   "rpds-py",
   "ruff",
@@ -47,7 +47,7 @@ native_python_packages = [
 ]
 
 [lock_digests]
-"uv.lock" = "a066fed56498524e05682e959bdcb39dd5e1c2b6c06451855336eeeedad1b89c"
+"uv.lock" = "0151724bd82cc31821b60ae357bb5130717c0f56efcc6684277ba9badcb3ee84"
 "packages/collector/uv.lock" = "2636bdee502e7408ad8bd5719fb48c9fac327dfae91488795d234ccdcc5cbaea"
 "packages/execution/uv.lock" = "865c844852de7c53dc8badacb51367e82a28bc10aa0ea7b84ca9cf048edf1d6c"
 [pip_audit]
@@ -174,7 +174,6 @@ packages = [
   "psutil==7.2.2",
   "psygnal==0.16.1",
   "pycparser==3.0",
-  "quantlib==1.43",
   "seaborn==0.13.2",
   "starlette==1.6.0",
   "statsmodels==0.15.0",
@@ -398,12 +397,3 @@ commit = "559467f550c0d23dc3506ee551386c3b59e6b091"
 source_sha256 = "56fabf73b333d28c6bd6cf031215aa8ae387746b7088f08f5a54b89a4c98f7fa"
 wheel_sha256 = "3387cd6af16950b735857bcd275d40dd5d59b4aa63684d9fdf763d978b038e04"
 wheel_url = "https://files.pythonhosted.org/packages/85/b2/97968fa5455ec7a5371aedd2e334927a0144248c932bf4515ac90f9a5696/clearml-2.1.12-py2.py3-none-any.whl"
-
-[[wheel_only_allowances]]
-name = "quantlib"
-version = "1.43"
-rationale = "User-selected C03 explicit day-count adapter; native source binding is unverified and all artifact release remains blocked."
-usage = "isolated_development_and_ci"
-source_to_wheel_binding = "unverified"
-reviewed_on = "2026-10-01"
-expires_on = "2026-10-31"

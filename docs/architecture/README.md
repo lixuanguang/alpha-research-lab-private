@@ -211,7 +211,7 @@ commands are:
 | `make test` | Correctness tests with performance cases excluded |
 | `make engineering-standards-check` | Required typing, import, and Google-style docstring rules |
 | `make dependency-admission-check` and `make dependency-audit` | Frozen lock/source checks and vulnerability coverage |
-| `uv run --frozen alpha-governance-artifacts release-check` | Refuse the full research release graph while its QuantLib source binding is unresolved |
+| `uv run --frozen alpha-governance-artifacts release-check` | Refuse the full research release graph while any wheel-only allowance leaves a source binding unverified; otherwise require an operating build profile |
 | `uv run --frozen alpha-governance-artifacts build / verify / install / rollback / run` | Signed operating artifacts, complete closure admission, offline local installation and compatible state-preserving rollback; see the runbook |
 | `make architecture-check` | Repository-local links and heading fragments in `docs/**/*.md`; explicitly include component READMEs when changed |
 | `make build` and `make wheel-smoke` | Build the runtime wheel and test it outside the checkout |
@@ -254,13 +254,12 @@ The retained development checks and release boundary are:
   same authenticated bytes into a clean local environment and preserves compatible
   current state during rollback.
 
-QuantLib 1.43 remains in the complete research graph under its bounded
-[development/CI allowance](dependency-admission.md#wheel-only-development-allowance)
-through **2026-10-31**. Its source-to-wheel binding is unverified; the whole graph
-still cannot be released. MR06's actual operating closures omit that adapter and
-unrelated research dependencies. This selected-closure admission retains the full
-root policy and vulnerability checks and does not resolve QuantLib's own source
-binding. Native adapter conformance and domain goldens remain in research checks.
+No package in the complete research graph needs a
+[wheel-only allowance](dependency-admission.md#wheel-only-development-allowance);
+the C03 day counts are [repository-owned](dependency-admission.md#repository-owned-day-counts).
+MR06's actual operating closures omit the convention module and unrelated research
+dependencies. This selected-closure admission retains the full root policy and
+vulnerability checks. Day-count goldens remain in research checks.
 The [runbook](../governance/operations.md#trusted-local-installation) owns local
 trust, signing, installation, key rotation and rollback limits.
 
@@ -291,7 +290,7 @@ review triggers and reversal requirements:
 | Instrument identity models | C01 keeps strict immutable models while preserving its public constructors, temporal mappings, and graph invariants. |
 | Venue calendar adapter | C02 owns UTC/session semantics and uses `exchange_calendars` only behind a versioned adapter. |
 | [Wheel-only development allowance](dependency-admission.md#wheel-only-development-allowance) | An exact native package may receive an expiring development/CI allowance; its unverified source binding blocks release. |
-| Financial units and conventions | C03 uses exact dimensioned values and an explicit QuantLib date-convention boundary. |
+| Financial units and conventions | C03 uses exact dimensioned values and repository-owned exact day-count conventions. |
 
 Record decisions about expensive-to-reverse choices with their scope, evidence,
 consequences and safe reversal. Keep small decisions here and use a focused design

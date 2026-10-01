@@ -32,34 +32,31 @@ from financial_units.ratios import ExactRatio
 if TYPE_CHECKING:
     # project library imports
     from financial_units.conventions import (
-        QUANTLIB_VERSION,
         BusinessDayConvention,
         ConventionError,
+        DayCountConventions,
         DayCountResult,
-        QuantLibConventions,
         SettlementConventions,
     )
 
 
 def __getattr__(name: str) -> object:
-    """Load the optional native convention adapter only for explicit consumers."""
+    """Load the conventions, which import the settlement calendar, only for explicit consumers."""
     if name in {
-        "QUANTLIB_VERSION",
         "BusinessDayConvention",
         "ConventionError",
         "DayCountResult",
-        "QuantLibConventions",
+        "DayCountConventions",
         "SettlementConventions",
     }:
         # project library imports
         from financial_units import conventions
 
         exports: dict[str, object] = {
-            "QUANTLIB_VERSION": conventions.QUANTLIB_VERSION,
             "BusinessDayConvention": conventions.BusinessDayConvention,
             "ConventionError": conventions.ConventionError,
             "DayCountResult": conventions.DayCountResult,
-            "QuantLibConventions": conventions.QuantLibConventions,
+            "DayCountConventions": conventions.DayCountConventions,
             "SettlementConventions": conventions.SettlementConventions,
         }
         return exports[name]
@@ -67,12 +64,12 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
-    "QUANTLIB_VERSION",
     "BusinessDayConvention",
     "Compounding",
     "ConventionError",
     "Currency",
     "DayCount",
+    "DayCountConventions",
     "DayCountResult",
     "DecimalGrid",
     "Dimension",
@@ -84,7 +81,6 @@ __all__ = [
     "Money",
     "Multiplier",
     "Price",
-    "QuantLibConventions",
     "Quantity",
     "QuantityKind",
     "Rate",

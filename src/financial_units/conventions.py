@@ -1,16 +1,15 @@
-"""Adapt explicit day counts and bounded settlement conventions without ambient state."""
+"""Count explicit day-count year fractions and bounded settlement conventions exactly."""
 
 from __future__ import annotations
 
 # standard library imports
-import math
+import calendar
 from bisect import bisect_left, bisect_right
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from fractions import Fraction
 from functools import partial
-from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, ClassVar
 
 # third party library imports
@@ -28,11 +27,9 @@ from financial_units.models import (
 )
 from reference_data.calendars import SettlementCalendar
 
-QUANTLIB_VERSION: str = "1.43"
-
 
 class ConventionError(UnitError):
-    """Report incompatible native results or unavailable convention/calendar coverage."""
+    """Report an invalid interval or unavailable convention/calendar coverage."""
 
 
 class BusinessDayConvention(StrEnum):
@@ -46,7 +43,7 @@ class BusinessDayConvention(StrEnum):
 
 
 class DayCountResult(_FinancialUnitModel):
-    """Retain the explicit evaluation and interval inputs with the owned native result."""
+    """Retain the explicit evaluation and interval inputs with the exact result."""
 
     _validation_error_type: ClassVar[type[UnitError]] = ConventionError
 
@@ -64,29 +61,31 @@ class DayCountResult(_FinancialUnitModel):
             partial(_FinancialUnitModel._require_type, expected=Duration, name="duration")
         ),
     ]
-    adapter_version: str = QUANTLIB_VERSION
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate the interval and exact native-adapter identity.
+        """Validate the interval.
 
         Args:
             _context: Pydantic validation context; unused by this invariant check.
 
         Raises:
             UnitError: Context, dates, or duration have an unexpected concrete type.
-            ConventionError: The interval is reversed or the adapter version differs
-                from the pinned version.
+            ConventionError: The interval is reversed.
         """
         _FinancialUnitModel._require_type(self.context, EvaluationContext, "context")
         _FinancialUnitModel._require_type(self.start, date, "start")
         _FinancialUnitModel._require_type(self.end, date, "end")
         _FinancialUnitModel._require_type(self.duration, Duration, "duration")
-        if self.end < self.start or self.adapter_version != QUANTLIB_VERSION:
-            raise ConventionError("invalid result interval or adapter version")
+        if self.end < self.start:
+            raise ConventionError("invalid result interval")
 
 
-class QuantLibConventions:
-    """Use only explicit-date day counters; never read or write QuantLib Settings."""
+class DayCountConventions:
+    """Count year fractions from explicit dates with exact rational arithmetic.
+
+    Every supported convention is a ratio of whole day counts, so each result is
+    computed exactly and rounded once. No ambient or global date is read.
+    """
 
     def year_fraction(
         self,
@@ -98,67 +97,40 @@ class QuantLibConventions:
     ) -> DayCountResult:
         """Evaluate a nonnegative interval with explicit variant and retained attribution.
 
-        Native double output is rounded once to 1e-15 years. Golden acceptance uses
-        absolute tolerance 1e-12 years and relative tolerance 2e-15 over 1901-2199.
-        No cashflow, curve, fixing, reference-period, or global date is inferred.
+        The exact year fraction is rounded once, half-even, to 1e-15 years. No
+        cashflow, curve, fixing, reference-period, or global date is inferred.
+
+        - Actual/360 and Actual/365 Fixed divide the actual days by 360 or 365.
+        - Actual/Actual ISDA divides the days falling in each calendar year by
+          that year's length (365 or 366) and adds the parts.
+        - 30/360 Bond Basis sets a start day of 31 to 30, then an end day of 31
+          to 30 when the (adjusted) start day is 30.
+        - 30E/360 sets any day of 31 to 30.
 
         Args:
             context: Caller-supplied evaluation date and convention revision, retained
                 for attribution; the evaluation date need not equal ``start``.
-            start: Inclusive interval start as an exact date in 1901-2199.
-            end: Interval end as an exact date in 1901-2199, on or after ``start``.
-            day_count: Explicit supported day-count variant used by the native counter.
+            start: Inclusive interval start.
+            end: Interval end, on or after ``start``.
+            day_count: Explicit supported day-count variant.
 
         Returns:
             Attributed result containing a nonnegative duration in years, rounded
             once with ties to even, together with the original dates and context.
 
         Raises:
-            UnitError: An input has an unexpected concrete type or the rounded native
+            UnitError: An input has an unexpected concrete type or the rounded
                 result exceeds the owned Decimal bounds.
-            ConventionError: Any date, including the evaluation date, is outside
-                1901-2199; the interval is reversed; the pinned library is unavailable
-                or mismatched; or native evaluation fails or returns an invalid value.
+            ConventionError: The interval is reversed.
         """
         _FinancialUnitModel._require_type(context, EvaluationContext, "context")
         _FinancialUnitModel._require_type(day_count, DayCount, "day count")
         for value in (start, end, context.evaluation_date):
             _FinancialUnitModel._require_type(value, date, "date")
-            if not 1901 <= value.year <= 2199:
-                raise ConventionError("QuantLib date must be within 1901-2199")
         if end < start:
             raise ConventionError("end cannot precede start")
-        try:
-            # third party library imports
-            import QuantLib as _ql
-
-            if version("QuantLib") != QUANTLIB_VERSION or _ql.__version__ != QUANTLIB_VERSION:
-                raise ConventionError(f"QuantLib must be exactly {QUANTLIB_VERSION}")
-        except (ImportError, PackageNotFoundError) as error:
-            raise ConventionError("QuantLib distribution is unavailable") from error
-        counter: _ql.DayCounter
-        try:
-            match day_count:
-                case DayCount.ACTUAL_360:
-                    counter = _ql.Actual360()
-                case DayCount.ACTUAL_365_FIXED:
-                    counter = _ql.Actual365Fixed()
-                case DayCount.ACTUAL_ACTUAL_ISDA:
-                    counter = _ql.ActualActual(_ql.ActualActual.ISDA)
-                case DayCount.THIRTY_360_BOND_BASIS:
-                    counter = _ql.Thirty360(_ql.Thirty360.BondBasis)
-                case DayCount.THIRTY_E_360:
-                    counter = _ql.Thirty360(_ql.Thirty360.European)
-            raw: object = counter.yearFraction(
-                _ql.Date(start.day, start.month, start.year),
-                _ql.Date(end.day, end.month, end.year),
-            )
-        except (RuntimeError, TypeError, OverflowError) as error:
-            raise ConventionError("QuantLib day-count evaluation failed") from error
-        if type(raw) is not float or not math.isfinite(raw) or raw < 0:
-            raise ConventionError("QuantLib returned an invalid year fraction")
         fraction = DecimalGrid.round_fraction(
-            Fraction(Decimal(str(raw))), Decimal("1e-15"), Rounding.HALF_EVEN
+            self._exact(start, end, day_count), Decimal("1e-15"), Rounding.HALF_EVEN
         )
         return DayCountResult(
             context=context,
@@ -170,11 +142,11 @@ class QuantLibConventions:
     def time_to(
         self, *, context: EvaluationContext, end: date, day_count: DayCount
     ) -> DayCountResult:
-        """Measure from the caller's evaluation date, never the process-wide Settings date.
+        """Measure from the caller's evaluation date, never an ambient date.
 
         Args:
             context: Explicit start date and convention revision to retain.
-            end: Interval end, on or after the evaluation date, in 1901-2199.
+            end: Interval end, on or after the evaluation date.
             day_count: Supported day-count variant for the elapsed year fraction.
 
         Returns:
@@ -182,15 +154,46 @@ class QuantLibConventions:
             with the same rounding and attribution.
 
         Raises:
-            UnitError: An input has an unexpected concrete type or the rounded native
+            UnitError: An input has an unexpected concrete type or the rounded
                 result exceeds the owned Decimal bounds.
-            ConventionError: Date coverage, interval ordering, library compatibility,
-                or native-result validation fails as described by ``year_fraction``.
+            ConventionError: The interval is reversed.
         """
         _FinancialUnitModel._require_type(context, EvaluationContext, "context")
         return self.year_fraction(
             context=context, start=context.evaluation_date, end=end, day_count=day_count
         )
+
+    @staticmethod
+    def _exact(start: date, end: date, day_count: DayCount) -> Fraction:
+        """Return the exact year fraction of an ordered interval."""
+        match day_count:
+            case DayCount.ACTUAL_360:
+                return Fraction((end - start).days, 360)
+            case DayCount.ACTUAL_365_FIXED:
+                return Fraction((end - start).days, 365)
+            case DayCount.ACTUAL_ACTUAL_ISDA:
+                total = Fraction(0)
+                cursor = start
+                while cursor < end:
+                    boundary = min(end, date(cursor.year + 1, 1, 1))
+                    year_days = 366 if calendar.isleap(cursor.year) else 365
+                    total += Fraction((boundary - cursor).days, year_days)
+                    cursor = boundary
+                return total
+            case DayCount.THIRTY_360_BOND_BASIS:
+                first = 30 if start.day == 31 else start.day
+                last = 30 if end.day == 31 and first == 30 else end.day
+                return DayCountConventions._thirty_360(start, end, first, last)
+            case DayCount.THIRTY_E_360:
+                return DayCountConventions._thirty_360(
+                    start, end, min(start.day, 30), min(end.day, 30)
+                )
+
+    @staticmethod
+    def _thirty_360(start: date, end: date, first: int, last: int) -> Fraction:
+        """Return a 30/360 year fraction from already adjusted day-of-month values."""
+        days = 360 * (end.year - start.year) + 30 * (end.month - start.month) + (last - first)
+        return Fraction(days, 360)
 
 
 class SettlementConventions:

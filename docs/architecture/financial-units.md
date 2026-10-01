@@ -8,24 +8,18 @@ It supplies the repository's money, FX, price, yield, volatility, rate, duration
 multiplier, lot, tick and quantity abstractions. It adds no wire schema, position,
 cash ledger, valuation engine, executable order, risk decision or market authority.
 
-The convention adapter uses `QuantLib==1.43`. Version 1.40 failed the pinned
-Python 3.12.14 warnings-as-errors import check with a native segmentation fault;
-1.43 passes without changing warning filters. The dependency policy's bounded
-profile admits 1.43 only for isolated development and CI through 2026-10-31.
-Authenticated wheel publication is not authenticated build provenance. The
-release boundary blocks production release, signing and publication while this
-admission remains. Development wheel builds and installation tests are permitted.
+Day counts are computed by the repository itself with exact rational
+arithmetic; the conventions need no native library and add no dependency.
 
 MR06 separates the operating value closure from this optional adapter:
 `alpha-research-contracts` ships exact values, ratios and currency definitions,
-without `conventions.py` or QuantLib. The complete research wheel retains both.
-Existing explicit public convention imports remain available in that research
-environment through Python's lazy module-attribute hook; ordinary financial-value
-imports no longer initialize the native adapter. Requesting a convention API in
-an operating-only environment fails because its implementation is absent. The
+without `conventions.py`. The complete research wheel retains it. Explicit public
+convention imports remain available in that research environment through Python's
+lazy module-attribute hook, so ordinary financial-value imports do not load the
+conventions or their settlement calendar. Requesting a convention API in an
+operating-only environment fails because its implementation is absent. The
 [selected-closure admission](dependency-admission.md#first-deployment-dependency-decision)
-qualifies actual installed operating artifacts and preserves the separate
-QuantLib restriction.
+qualifies actual installed operating artifacts.
 
 ## Public values and operations
 
@@ -147,25 +141,34 @@ the baseline half-even policy without changing C03. These cases are covered by t
 [accounting consumer tests](../../tests/unit/accounting/test_ledger.py); foundation
 unit tests alone do not establish economic transitions.
 
-## Convention adapter
+## Day-count conventions
 
-`QuantLibConventions.year_fraction` requires context, start, end and one of:
+`DayCountConventions.year_fraction` requires context, start, end and one of:
 Actual/360, Actual/365 Fixed, Actual/Actual ISDA, 30/360 Bond Basis or 30E/360.
 Each has its own enum; generic Actual/Actual and 30/360 aliases are unsupported.
-Dates must be plain `date` values within 1901-2199, with end at or after start.
-`time_to` uses the supplied evaluation date as start. Zero-length periods return
-zero; reversed intervals fail. No coupon schedule or reference period is guessed.
+Dates must be plain `date` values, with end at or after start. `time_to` uses the
+supplied evaluation date as start. Zero-length periods return zero; reversed
+intervals fail. No coupon schedule or reference period is guessed.
 
-The adapter checks both installed distribution and library version, constructs
-only local date/day-counter objects and never reads or writes QuantLib Settings,
-fixings, calendars, curves or pricing handles. `DayCountResult` retains the exact
-context, interval, day-count basis, owned duration and adapter version. Native
-exceptions become `ConventionError` with their cause; invalid native results fail.
+Every convention is a ratio of whole day counts, computed exactly:
 
-The double result is rounded once to 1e-15 years. Hand-calculated goldens require
-absolute tolerance 1e-12 years and relative tolerance 2e-15 over the supported
-maximum 299-year scale. These budgets allow native double division and final
-rounding; they never apply to money, quantities or dimensional checks.
+- Actual/360 and Actual/365 Fixed divide the actual days by 360 or 365.
+- Actual/Actual ISDA divides the days in each calendar year by that year's length
+  (365 or 366) and adds the parts.
+- 30/360 Bond Basis sets a start day of 31 to 30, then an end day of 31 to 30 when
+  the adjusted start day is 30.
+- 30E/360 sets any day of 31 to 30.
+
+The exact result is rounded once, half-even, to 1e-15 years. Nothing reads an
+ambient or global date. `DayCountResult` retains the exact context, interval,
+day-count basis and owned duration. The hand-calculated rational goldens must
+match exactly after that single rounding.
+
+Before the implementation replaced a native library on 2026-10-01, it was
+compared with that library across 72,880 interval pairs spanning 1901 to 2198,
+including every month-end combination of 2023 to 2025. Four conventions matched
+exactly; Actual/Actual ISDA differed by at most 2.2e-16 relative, the library's
+own floating-point summation error.
 
 `SettlementConventions(calendar)` owns adjustment and lag operations for one
 explicit C02 calendar. Construction revalidates and retains an independent
@@ -210,22 +213,21 @@ that error translated back plus half a base minor unit.
 The requested Currency revision generalizes coverage to code/quantum identity,
 custom values and non-power-of-ten rounding grids, while retaining
 currency/instrument/convention mixing, type coercion, immutable values,
-non-finite/overflow/precision inputs, invalid native results, version and native
-failures, calendar limits, settlement lags, unchecked C01/C02 model copies,
-multi-year modified adjustments, and independence from Decimal context and
-QuantLib's evaluation date across concurrent calls.
+non-finite/overflow/precision inputs, calendar limits, settlement lags,
+unchecked C01/C02 model copies, multi-year modified adjustments, and independence
+from Decimal context and of evaluation dates across concurrent calls.
 Current coverage is organized by [arithmetic and rounding](../../tests/unit/financial_units/test_financial_units.py),
 [model validation](../../tests/unit/financial_units/test_unit_model_contracts.py),
 [settlement](../../tests/unit/financial_units/test_settlement_conventions.py),
-[native conventions](../../tests/unit/financial_units/test_quantlib_conventions.py),
+[day-count conventions](../../tests/unit/financial_units/test_day_count_conventions.py),
 and [currency identity](../../tests/unit/financial_units/test_currency_units.py).
 A bounded local performance check is diagnostic and supplies no target latency/SLO
 certification.
 
 The direct [golden fixture](../../tests/golden/financial_units/c03_units.json)
 and focused tests are the behavioral evidence for this contract. Dependency and
-artifact checks retain the exact lock, source-origin and hash checks, vulnerability coverage,
-and release block described in the [dependency policy](dependency-admission.toml)
+artifact checks retain the exact lock, source-origin and hash checks and vulnerability
+coverage described in the [dependency policy](dependency-admission.toml)
 and [release workflow](../governance/workflow.md#build-a-release).
 
 ## Migration, rollout, rollback and runbook
@@ -246,7 +248,7 @@ text. Configured backtests, simulated orders/fills, checkpoints and retained
 reports now use the shared serialization boundary; venue execution remains
 planned. The packaged currency JSON is an owned preset input;
 changing it changes package content and invalidates the corresponding uv cache
-key. QuantLib remains exactly 1.43. New consumer schemas require their own
+key. New consumer schemas require their own
 versioned compatibility and evidence.
 No deployment or activation is introduced.
 

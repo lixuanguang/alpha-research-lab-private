@@ -260,7 +260,7 @@ if __name__ == "__main__":
             "pytest",
             __file__,
             str(Path(__file__).with_name("test_settlement_conventions.py")),
-            str(Path(__file__).with_name("test_quantlib_conventions.py")),
+            str(Path(__file__).with_name("test_day_count_conventions.py")),
             str(Path(__file__).with_name("test_unit_model_contracts.py")),
             "-q",
             "-W",
