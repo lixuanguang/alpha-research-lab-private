@@ -235,10 +235,8 @@ metric definitions, alert policy and hard-control independence did not.
   metrics still evaluate every input.
 
 Earlier retained dashboards use the previous schema and are not readable by this
-code. The full test gate, including the installed paper, operational and research
-consumers, passes on the new contract. The signed, installed and public-feed runs
-recorded above predate it, so MR12's installed evidence needs re-running before
-it covers this contract. That re-run needs its own declaration.
+code. The installed and public-feed evidence was renewed on 2026-10-02; see the
+[re-verification result](#installed-re-verification-result-2026-10-02).
 
 ## Installed re-verification declaration (approved 2026-10-02)
 
@@ -296,6 +294,31 @@ Bitfinex shared each 2 fills and 3/3 alerts observed, dedicated each 1 fill and 
 with reconciled economics and every page passing inspection; all four replays were
 byte-identical with zero inserts; the installed suites passed (13 run, 1 Feast case
 skipped for its absent worker interpreter, as in `make check`).
+
+## Installed re-verification result (2026-10-02)
+
+**Passed.** The single counted attempt froze `1c57e48`, installed it into a separate
+non-editable environment (all 362 runtime inputs equal to the checkout), ran every
+step once into ignored `logs/paper-monitoring/reverification/`, and then passed
+`make check` on the unchanged source (2,279 passed, 2 skipped).
+
+| Run | Fills | Fees | Net P&L | Alerts accepted / observed | Dashboards | Replay |
+| --- | --- | --- | --- | --- | --- | --- |
+| OKX shared | 2 | 0.016923 USDT | -0.017165 USDT | 3 / 3 | 4 | identical, 0 inserts |
+| OKX dedicated | 1 | 0.00846139 USDT | -0.00847239 USDT | 2 / 2 | 3 | identical, 0 inserts |
+| Bitfinex shared | 2 | 0.02 USD | -0.021402 USD | 3 / 3 | 4 | identical, 0 inserts |
+| Bitfinex dedicated | 1 | 0.01 USD | -0.010601 USD | 2 / 2 | 3 | identical, 0 inserts |
+
+Every run reconciled dashboard economics exactly against committed fills; every
+retained dashboard reopened with its provenance verified and passed the page
+inspection. The installed operational, public-paper, study, candidate and decision
+suites passed (13 run; the Feast case skipped for its absent worker interpreter, as in
+`make check`). These authored paper losses establish machinery, not strategy economics.
+
+MR12's installed evidence is therefore renewed for the bounded dashboard contract in
+this local scope. Human acknowledgement, remote services, source-clock accuracy,
+long-outage failover and dashboard capacity beyond MR15's stage-1 envelope stay outside
+it.
 
 ## Evidence reuse and remaining limits
 
