@@ -1,4 +1,4 @@
-"""Focused tests for frozen dependencies and the retained QuantLib exception."""
+"""Focused tests for frozen dependencies and the wheel-only development exception."""
 
 from __future__ import annotations
 
@@ -33,6 +33,33 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 
 POLICY_PATH = REPOSITORY_ROOT / "docs/architecture/dependency-admission.toml"
 
+# No admitted package needs a wheel-only allowance, so these tests exercise the
+# exception on a copy of the lock where one native package lost its sdist.
+_WHEEL_ONLY = 'name = "msgspec"\nversion = "0.21.1"\n'
+_ALLOWANCE = (
+    "\n[[wheel_only_allowances]]\n"
+    'name = "msgspec"\n'
+    'version = "0.21.1"\n'
+    'rationale = "Synthetic native package without a source distribution."\n'
+    'usage = "isolated_development_and_ci"\n'
+    'source_to_wheel_binding = "unverified"\n'
+    'reviewed_on = "2026-10-01"\n'
+    'expires_on = "2026-10-31"\n'
+)
+
+
+def _wheel_only_repository(tmp_path: Path, *, allowance: str = _ALLOWANCE) -> Path:
+    """Write a policy with one wheel-only allowance and a lock whose package has no sdist."""
+    source = (REPOSITORY_ROOT / "uv.lock").read_text(encoding="utf-8")
+    prefix, marker, tail = source.partition(_WHEEL_ONLY)
+    assert marker
+    package, separator, suffix = tail.partition("\n[[package]]")
+    package = "\n".join(line for line in package.split("\n") if not line.startswith("sdist = "))
+    (tmp_path / "uv.lock").write_text(prefix + marker + package + separator + suffix)
+    policy = POLICY_PATH.read_text(encoding="utf-8").replace("wheel_only_allowances = []\n", "", 1)
+    (tmp_path / "policy.toml").write_text(policy.rstrip("\n") + "\n" + allowance)
+    return tmp_path / "policy.toml"
+
 
 def test_policy_translates_malformed_toml(tmp_path: Path) -> None:
     """Translate parser errors while preserving the original TOML exception cause."""
@@ -52,38 +79,43 @@ def test_policy_preserves_unicode_read_errors(tmp_path: Path) -> None:
 
 
 def test_policy_contains_only_retained_dependency_facts() -> None:
-    """Load the compact policy and retain the unresolved native exception."""
+    """Load the compact policy, which admits every package with its source."""
     policy = load_policy(POLICY_PATH)
 
     assert policy.schema_version == 5
-    assert policy.wheel_only_allowances[0].name == "quantlib"
-    assert policy.wheel_only_allowances[0].version == "1.43"
-    assert policy.wheel_only_allowances[0].source_to_wheel_binding == "unverified"
-    assert policy.wheel_only_allowances[0].expires_on == date(2026, 10, 31)
+    assert policy.wheel_only_allowances == ()
 
 
 def test_repository_validation_checks_lock_and_development_limits() -> None:
-    """Accept frozen bytes during the allowance window without archived reports."""
+    """Accept the frozen bytes before the policy review date without archived reports."""
     with patch.object(SourceArchiveVerifier, "verify", return_value=283) as verify:
         policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 10, 20))
     verify.assert_called_once_with(policy.source_archives[0])
-    assert len(policy.packages) == 179
+    assert len(policy.packages) == 178
     assert any(
         package.name == "websockets" and package.version == "16.0" for package in policy.packages
     )
 
 
-def test_release_admission_remains_blocked_by_unverified_quantlib() -> None:
-    """Keep the unresolved source-to-wheel binding release blocking."""
+def test_release_admission_is_blocked_while_any_wheel_only_allowance_is_active(
+    tmp_path: Path,
+) -> None:
+    """An unverified source-to-wheel binding blocks release before anything else runs."""
+    docs = tmp_path / "repository/docs/architecture"
+    docs.mkdir(parents=True)
+    _wheel_only_repository(tmp_path / "repository").rename(docs / "dependency-admission.toml")
     with pytest.raises(DependencyAdmissionError, match="release blocked"):
-        require_release_admission(REPOSITORY_ROOT)
+        require_release_admission(tmp_path / "repository")
 
 
 @pytest.mark.parametrize("validation_date", (date(2026, 9, 30), date(2026, 11, 1)))
-def test_wheel_only_allowance_rejects_dates_outside_its_window(validation_date: date) -> None:
+def test_wheel_only_allowance_rejects_dates_outside_its_window(
+    tmp_path: Path, validation_date: date
+) -> None:
     """Reject development and CI use outside the recorded allowance window."""
-    with pytest.raises(DependencyAdmissionError, match="expired or not yet effective"):
-        validate_repository(REPOSITORY_ROOT, validation_date=validation_date)
+    policy = load_policy(_wheel_only_repository(tmp_path))
+    findings = _python_lock_findings(tmp_path, policy, validation_date=validation_date)
+    assert "msgspec: wheel-only allowance is expired or not yet effective" in findings
 
 
 def test_lock_source_url_is_checked_even_when_lock_digest_is_supplied(tmp_path: Path) -> None:
@@ -158,8 +190,8 @@ def test_runtime_installation_scan_rejects_owned_source(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
-        ('version = "1.43"', 'version = "0"', "exact native package"),
-        ('name = "quantlib"', 'name = "unknown"', "exact native package"),
+        ('version = "0.21.1"', 'version = "0"', "exact native package"),
+        ('name = "msgspec"', 'name = "unknown"', "exact native package"),
         ('usage = "isolated_development_and_ci"', 'usage = "release"', "allowance fields"),
         (
             'source_to_wheel_binding = "unverified"',
@@ -174,33 +206,26 @@ def test_wheel_only_allowance_preserves_identity_scope_and_window(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
     """Reject mismatched identities, release use, verified claims and expanded dates."""
-    prefix, allowance = POLICY_PATH.read_text().split("[[wheel_only_allowances]]", 1)
-    assert old in allowance
-    path = tmp_path / "policy.toml"
-    path.write_text(prefix + "[[wheel_only_allowances]]" + allowance.replace(old, new, 1))
+    assert old in _ALLOWANCE
+    path = _wheel_only_repository(tmp_path, allowance=_ALLOWANCE.replace(old, new, 1))
     with pytest.raises(DependencyAdmissionError, match=message):
         load_policy(path)
 
 
 def test_duplicate_wheel_only_allowances_are_rejected(tmp_path: Path) -> None:
     """Reject conflicting grants for the same native dependency."""
-    source = POLICY_PATH.read_text()
-    allowance = source.split("[[wheel_only_allowances]]", 1)[1]
-    path = tmp_path / "policy.toml"
-    path.write_text(source + "\n[[wheel_only_allowances]]" + allowance)
+    path = _wheel_only_repository(tmp_path, allowance=_ALLOWANCE + _ALLOWANCE)
     with pytest.raises(DependencyAdmissionError, match="duplicate wheel-only allowance"):
         load_policy(path)
 
 
 def test_removing_allowance_does_not_admit_a_package_without_source(tmp_path: Path) -> None:
     """Require a source distribution when the explicit wheel-only allowance is absent."""
-    source = POLICY_PATH.read_text().split("[[wheel_only_allowances]]", 1)[0]
-    path = tmp_path / "policy.toml"
-    path.write_text("wheel_only_allowances = []\n" + source)
+    _wheel_only_repository(tmp_path)
     findings = _python_lock_findings(
-        REPOSITORY_ROOT, load_policy(path), validation_date=date(2026, 10, 1)
+        tmp_path, load_policy(POLICY_PATH), validation_date=date(2026, 10, 1)
     )
-    assert "quantlib lacks a digest-bound source distribution" in findings
+    assert "msgspec lacks a digest-bound source distribution" in findings
 
 
 @pytest.mark.parametrize(
@@ -213,19 +238,17 @@ def test_removing_allowance_does_not_admit_a_package_without_source(tmp_path: Pa
 def test_wheel_only_allowance_keeps_artifact_source_and_hash_checks(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
-    """Reject a malformed QuantLib wheel even while development use is allowed."""
-    source = (REPOSITORY_ROOT / "uv.lock").read_text()
-    prefix, marker, tail = source.partition('name = "quantlib"\n')
-    assert marker
+    """Reject a malformed wheel even while development use is allowed."""
+    policy = load_policy(_wheel_only_repository(tmp_path))
+    source = (tmp_path / "uv.lock").read_text()
+    prefix, marker, tail = source.partition(_WHEEL_ONLY)
     package, separator, suffix = tail.partition("\n[[package]]")
     assert old in package
     (tmp_path / "uv.lock").write_text(
         prefix + marker + package.replace(old, new, 1) + separator + suffix
     )
-    findings = _python_lock_findings(
-        tmp_path, load_policy(POLICY_PATH), validation_date=date(2026, 10, 1)
-    )
-    assert any("quantlib" in finding and message in finding for finding in findings)
+    findings = _python_lock_findings(tmp_path, policy, validation_date=date(2026, 10, 1))
+    assert any("msgspec" in finding and message in finding for finding in findings)
 
 
 def test_clean_pip_audit_report_covers_the_admitted_graph(tmp_path: Path) -> None:

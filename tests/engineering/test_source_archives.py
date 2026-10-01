@@ -245,10 +245,9 @@ class TestSourceArchives:
 
     def test_no_binding_restores_the_source_distribution_requirement(self, tmp_path: Path) -> None:
         """Removing an alternate source record never creates implicit wheel-only permission."""
-        before, binding = _POLICY.read_text().split("[[source_archives]]", 1)
-        _, allowance = binding.split("[[wheel_only_allowances]]", 1)
+        before, _ = _POLICY.read_text().split("[[source_archives]]", 1)
         path = tmp_path / "policy.toml"
-        path.write_text("source_archives = []\n" + before + "[[wheel_only_allowances]]" + allowance)
+        path.write_text("source_archives = []\n" + before)
         findings = _python_lock_findings(
             _ROOT, load_policy(path), validation_date=date(2026, 10, 1)
         )

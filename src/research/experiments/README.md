@@ -38,8 +38,8 @@ from research.studies import ClearMLDestination, ComparisonStudy, ResultManifest
 This replaces their former `research.experiments` imports; maintained callers
 and examples migrated together without changing retained record schemas.
 Opening an attempt store does not initialize ClearML, Optuna, pandas, NumPy,
-exchange-calendars, QuantLib or study implementations. Calendar and native
-day-count libraries load when their operations run.
+exchange-calendars or study implementations. Calendar libraries and day-count
+conventions load when their operations run.
 `research.results.FeatureStudyResult` is the `feature-study-result` shape
 shared by feature production, model admission and diagnostics.
 

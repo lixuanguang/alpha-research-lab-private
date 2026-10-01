@@ -165,9 +165,9 @@ TMPDIR=/private/tmp make check
 Result: **1,748 passed, 2 skipped, 3 performance cases deselected**, plus installed
 research-wheel smoke; lock checks, Ruff, strict mypy/native stubs, engineering
 standards, architecture links, dependency admission/audit, Bandit and secret scan
-passed (`logs/paper-activation/make-check-final.log`). The existing development-only
-QuantLib source-binding exception remains visible; the signed execution closure
-does not include QuantLib or the research wheel and does not use that exception.
+passed (`logs/paper-activation/make-check-final.log`). The development-only native
+source-binding exception of the time, since removed, remained visible; the signed
+execution closure did not include that library or the research wheel.
 The two skips are existing real-Feast worker integrations: this shell has no
 `ALPHA_FEAST_WORKER_PYTHON` selection (`skip-reasons.log`). They are unrelated to
 the paper authority/OMS boundary; this change does not requalify Feast services.

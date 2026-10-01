@@ -27,8 +27,8 @@ execution and observability boundaries.
 ## Deploy
 
 `make build` and `make wheel-smoke` verify the complete research development
-artifact. The [QuantLib restriction](../architecture/README.md#dependency-and-release-boundaries)
-still applies to that graph. MR06's independent collector/execution artifacts
+artifact under the [dependency and release boundaries](../architecture/README.md#dependency-and-release-boundaries).
+MR06's independent collector/execution artifacts
 have their own complete admitted closures and use the trusted lifecycle below.
 Remote/production deployment and service startup require separate authority.
 

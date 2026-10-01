@@ -129,7 +129,7 @@ its installation fence and configuration binding.
 
 The independent wheel depends on the exact shared-contract version and its
 admitted value/codec dependencies. It omits market data, research, notebook,
-training, reporting and QuantLib packages. The complete research environment
+training and reporting packages. The complete research environment
 also includes the application for development. Source public APIs preserve
 optional research imports through Python's module-attribute loading protocol;
 this narrow hook selects/imports explicitly named owned implementations, while

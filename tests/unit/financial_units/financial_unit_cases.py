@@ -32,14 +32,6 @@ CONVENTION = RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compoundi
 FIXTURE = Path(__file__).parents[2] / "golden/financial_units/c03_units.json"
 
 
-class _Tolerance(TypedDict):
-    """Retain decimal-string year tolerances and their numerical justification."""
-
-    absolute_years: str
-    relative: str
-    rationale: str
-
-
 class _DayCountCase(TypedDict):
     """Describe an ISO-date interval and its hand-calculated rational year count."""
 
@@ -60,12 +52,10 @@ class _RoundingCase(TypedDict):
 
 
 class _FinancialFixture(TypedDict):
-    """Bind synthetic golden cases to their convention, native version and tolerances."""
+    """Bind synthetic golden cases to their convention revision."""
 
     fixture_kind: str
     convention_revision: str
-    quantlib_version: str
-    tolerance: _Tolerance
     day_counts: list[_DayCountCase]
     rounding: list[_RoundingCase]
 

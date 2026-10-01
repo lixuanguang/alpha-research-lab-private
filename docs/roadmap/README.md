@@ -318,8 +318,7 @@ the [release workflow](../governance/workflow.md#build-a-release) and
 [operating runbook](../governance/operations.md#trusted-local-installation).
 Qualification covers the declared trusted local Darwin arm64, CPython 3.14.7
 profile and independent collector/execution closures. Linux and remote deployment,
-production key provisioning, live orders and capital activation remain unqualified;
-the research graph's QuantLib release restriction remains in force.
+production key provisioning, live orders and capital activation remain unqualified.
 
 ### Runtime, operations and handoff
 

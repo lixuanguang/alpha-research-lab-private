@@ -203,16 +203,16 @@ class TestSelectedClosureAdmission:
                     native_artifacts=False,
                 ),
                 PythonPackageAdmission(
-                    name="quantlib",
-                    version="1.43",
+                    name="nativepkg",
+                    version="1.0",
                     license_expression="BSD-3-Clause",
                     native_artifacts=True,
                 ),
             ),
             wheel_only_allowances=(
                 WheelOnlyAllowance(
-                    name="quantlib",
-                    version="1.43",
+                    name="nativepkg",
+                    version="1.0",
                     rationale="Unverified source binding retained for isolated development only.",
                     usage="isolated_development_and_ci",
                     source_to_wheel_binding="unverified",
@@ -367,7 +367,7 @@ class TestSelectedClosureAdmission:
     def test_incomplete_or_drifted_closure_fails(
         self, tmp_path: Path, mutation: str, message: str
     ) -> None:
-        """Fail on omitted dependencies, extra wheels, QuantLib and identity drift."""
+        """Fail on omitted dependencies, extra wheels, wheel-only packages and identity drift."""
         root, selected, inventory, policy = self._fixture(tmp_path)
         wheels = list(inventory)
         if mutation == "missing":
@@ -376,11 +376,11 @@ class TestSelectedClosureAdmission:
             wheels.append(TestSelectedWheelArchive._wheel(tmp_path, name="unneeded"))
         elif mutation == "allowance":
             wheels.append(
-                TestSelectedWheelArchive._wheel(tmp_path, name="quantlib", version="1.43")
+                TestSelectedWheelArchive._wheel(tmp_path, name="nativepkg", version="1.0")
             )
             selected.write_text(
                 selected.read_text(encoding="utf-8")
-                + '[[package]]\nname = "quantlib"\nversion = "1.43"\n'
+                + '[[package]]\nname = "nativepkg"\nversion = "1.0"\n'
                 + 'source = { registry = "https://pypi.org/simple" }\n',
                 encoding="utf-8",
             )

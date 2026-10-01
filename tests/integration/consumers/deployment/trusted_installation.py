@@ -45,7 +45,6 @@ _FORBIDDEN_MODULES = (
     "notebook",
     "pandas",
     "plotly",
-    "QuantLib",
     "reportlab",
     "research",
     "simulation",

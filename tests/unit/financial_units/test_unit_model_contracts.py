@@ -210,11 +210,10 @@ class TestFinancialModelContracts:
         with pytest.raises(ValidationError) as structured:
             Money.model_validate(structured_payload)
         assert secret not in str(structured.value)
-        with pytest.raises(ConventionError, match="adapter version"):
+        with pytest.raises(ConventionError, match="invalid result interval"):
             DayCountResult(
                 context=CONTEXT,
-                start=date(2024, 1, 1),
-                end=date(2024, 1, 2),
+                start=date(2024, 1, 2),
+                end=date(2024, 1, 1),
                 duration=Duration(value=D("0"), day_count=DayCount.ACTUAL_360),
-                adapter_version="1.40",
             )

@@ -1,8 +1,6 @@
 {
   "fixture_kind": "synthetic_hand_calculated",
   "convention_revision": "c03",
-  "quantlib_version": "1.43",
-  "tolerance": {"absolute_years": "1e-12", "relative": "2e-15", "rationale": "Native double division across at most 299 years, plus rounding to 1e-15 years; monetary operations remain exact until explicit grid rounding."},
   "day_counts": [
     {"basis": "actual_360", "start": "2024-02-28", "end": "2024-03-01", "numerator": 2, "denominator": 360},
     {"basis": "actual_365_fixed", "start": "2024-02-28", "end": "2024-03-01", "numerator": 2, "denominator": 365},
@@ -10,7 +8,12 @@
     {"basis": "actual_actual_isda", "start": "2023-07-01", "end": "2024-07-01", "numerator": 66887, "denominator": 66795},
     {"basis": "thirty_360_bond_basis", "start": "2024-02-29", "end": "2024-03-31", "numerator": 32, "denominator": 360},
     {"basis": "thirty_e_360", "start": "2024-02-29", "end": "2024-03-31", "numerator": 31, "denominator": 360},
-    {"basis": "actual_360", "start": "2024-01-01", "end": "2024-01-01", "numerator": 0, "denominator": 1}
+    {"basis": "actual_360", "start": "2024-01-01", "end": "2024-01-01", "numerator": 0, "denominator": 1},
+    {"basis": "actual_actual_isda", "start": "2023-12-31", "end": "2025-01-01", "numerator": 366, "denominator": 365},
+    {"basis": "thirty_360_bond_basis", "start": "2024-01-31", "end": "2024-03-31", "numerator": 60, "denominator": 360},
+    {"basis": "thirty_360_bond_basis", "start": "2024-01-30", "end": "2024-01-31", "numerator": 0, "denominator": 360},
+    {"basis": "thirty_360_bond_basis", "start": "2024-01-15", "end": "2024-01-31", "numerator": 16, "denominator": 360},
+    {"basis": "thirty_e_360", "start": "2024-01-15", "end": "2024-01-31", "numerator": 15, "denominator": 360}
   ],
   "rounding": [
     {"value": "1.025", "tick": "0.05", "mode": "half_even", "expected": "1.00"},

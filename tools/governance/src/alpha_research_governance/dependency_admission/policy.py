@@ -1,4 +1,4 @@
-"""Validate the frozen dependency graph and retained QuantLib exception.
+"""Validate the frozen dependency graph and any wheel-only exception.
 
 This module owns policy parsing and repository checks in one shallow path. It
 binds lock bytes, exact package/license/source/hash/platform/edge facts, complete
@@ -576,7 +576,7 @@ def validate_repository(
 
 
 def require_release_admission(repository_root: Path) -> None:
-    """Reject artifact release while QuantLib source-to-wheel binding is unverified.
+    """Reject artifact release while any wheel-only allowance leaves a binding unverified.
 
     Args:
         repository_root: Repository whose policy and lock are checked.

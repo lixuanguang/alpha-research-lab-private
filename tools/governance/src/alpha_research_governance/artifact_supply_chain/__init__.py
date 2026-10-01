@@ -46,8 +46,8 @@ class ArtifactArguments:
 def main(arguments: Sequence[str] | None = None) -> int:
     """Build, verify, install or roll back a signed local operating release.
 
-    The full research graph's ``release-check`` remains blocked by its QuantLib
-    allowance. Named operating builds prove their own complete closure.
+    The full research graph's ``release-check`` is refused while any wheel-only
+    allowance is active. Named operating builds prove their own complete closure.
     Installation does not start services or grant production submission authority.
     """
     tokens = list(sys.argv[1:] if arguments is None else arguments)

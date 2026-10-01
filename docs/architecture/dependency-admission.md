@@ -33,25 +33,17 @@ signatures or establish source-to-wheel provenance. Archived native evidence,
 its publication-attestation verifier and the Cosign CI installation have been
 removed; historical records remain in Git.
 
-## QuantLib restriction
+## Repository-owned day counts
 
-QuantLib 1.43 is used by the C03 date-convention adapter. Its allowance applies
-only to isolated development and CI from **2026-10-01 through 2026-10-31**.
-The source-to-wheel binding remains unverified, so the
-[release boundary](../governance/workflow.md#build-a-release) blocks release use for the graph.
-Removing the allowance alone does not clear the block: ordinary admission still
-rejects its missing source distribution.
-
-The owner renewed the allowance on 2026-10-01 for the checker's 30-day maximum,
-and re-dated the whole policy review with it. PyPI still publishes no QuantLib
-source distribution: releases 1.40 through 1.43 are wheel-only. The alternative
-is to replace the adapter with exact repository-owned day counts and remove the
-dependency, which would also lift the release block.
-
-Resolve the source-binding requirement with an enforceable admission contract,
-or remove the dependency, imports, lock entries and affected tests together,
-before enabling release use. Native adapter conformance tests and exact domain
-goldens remain behavioral checks, not provenance verification.
+Status: **implemented**, 2026-10-01, at the owner's request. The C03 day-count
+conventions are computed by the repository with exact rational arithmetic (see
+[financial units](financial-units.md#day-count-conventions)). The native library
+that previously supplied them, and its wheel-only allowance, have been removed
+together with their imports, lock entries, type stubs and tests. No admitted
+package now needs a wheel-only allowance, so the
+[release boundary](../governance/workflow.md#build-a-release) no longer refuses
+the research graph for an unverified source binding. The policy review remains
+due on 2026-10-31.
 
 ## Verified upstream source archives
 
@@ -91,14 +83,12 @@ The exact wheel identity remains in the policy and frozen lock. This establishes
 runtime byte correspondence to the reviewed source archive; it is not a signed
 publisher identity or reproducible-build attestation. New versions require fresh
 source/wheel pins, comparison and review. License, platform, lock, vulnerability
-and runtime-install checks remain enforced. QuantLib's separate release block
-and existing allowance expiry remain unchanged.
+and runtime-install checks remain enforced.
 
 ## First deployment dependency decision
 
-Status: MR06 implements the distinct-closure choice, 2026-09-24. The root
-research distribution retains QuantLib and its development-only restriction.
-The operating `alpha-research-contracts` wheel contains exact financial values
+Status: MR06 implements the distinct-closure choice, 2026-09-24. The
+operating `alpha-research-contracts` wheel contains exact financial values
 and omits `financial_units/conventions.py`; collector and execution have their
 own distributions and locked metadata closures. A compatible research environment
 retains the convention adapter and its conformance tests.
@@ -123,8 +113,7 @@ Lazy compatibility exports preserve existing research imports, while actual
 wheel manifests and independent installed consumers establish the separation.
 The [MR06 record](../roadmap/README.md#mr06-delivery-and-acceptance) owns acceptance
 results; the [runbook](../governance/operations.md#trusted-local-installation)
-owns signing and installation. Review the QuantLib allowance on its
-2026-10-31 deadline.
+owns signing and installation.
 
 ## Review and reversal
 
@@ -155,7 +144,6 @@ Removing that unused graph restores a clean audit; no finding is waived. The
 permits an admitted diagnostic implementation without Evidently. The subsequent
 [direct SciPy consumer](#direct-scipy-diagnostic-consumer) supplies that capability;
 the diagnostic capability is complete within its bounded offline scope.
-The existing QuantLib allowance and release block remain unchanged.
 
 Re-review on expiry, any dependency/policy change, or the first release consumer.
 If the admission contract is defective, revert or correct the affected policy,
@@ -258,8 +246,8 @@ boundary and report-consumer behavior are described in the
 
 Evidently and NLTK remain absent from the admitted graph. Their rejected
 candidate locks, advisories and failed evidence remain historical records.
-No admission rule, dependency requirement, vulnerability finding or QuantLib
-release restriction is weakened by the numerical consumer.
+No admission rule, dependency requirement or vulnerability finding is weakened by
+the numerical consumer.
 
 ## Vulnerability updates, 2026-10-01
 
@@ -291,7 +279,8 @@ uv run --frozen pip-audit --locked
 uv run --frozen alpha-governance-artifacts release-check
 ```
 
-The last command currently fails with the unresolved native dependency blocker.
+Run without a build profile, the last command refuses with "select an admitted
+operating build profile": a release always names an operating profile.
 
 ## Economic research adapter admission
 
@@ -326,9 +315,7 @@ It is a complete-notice reference, not a wildcard approval or an assertion that
 every bundled component uses the main project license. Retain the exact locked
 artifacts and their notices when reproducing this environment.
 
-This admission serves the bounded development/research consumer. QuantLib's
-pre-existing unresolved source-to-wheel binding still blocks release use of the
-whole graph. No deployed service, executable venue dependency or trading
+This admission serves the bounded development/research consumer. No deployed service, executable venue dependency or trading
 permission is introduced by the adapter.
 
 
