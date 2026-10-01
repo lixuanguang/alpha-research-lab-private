@@ -448,9 +448,9 @@ class BitfinexSubmitBody(msgspec.Struct, frozen=True):
 
 
 class BitfinexOrderQuery(msgspec.Struct, frozen=True):
-    """Read an active-order selector by native ID, client ID/date or everything."""
+    """Read an active-order selector by native IDs, client ID/date or everything."""
 
-    id: int | None = None
+    id: list[int] | None = None
     cid: int | None = None
     cid_date: str | None = None
 
@@ -514,6 +514,12 @@ class NativeVenueAccount:
             assert self.hold[2].wait(10)
         self.requests.append(request)
         self.request_times.append(self.clock.now())
+        if self.venue == "bitfinex" and request.path == "/v2/auth/r/orders":
+            selector = msgspec.json.decode(request.body, type=dict[str, object])
+            if "id" in selector and not isinstance(selector["id"], list):
+                # Bitfinex's answer to a scalar id, observed on a paper account.
+                refusal = b'["error",10020,"id: invalid"]'
+                return VenueHttpResponse(status=500, body=refusal, received_at=self.clock.now())
         body = self._okx(request) if self.venue == "okx" else self._bitfinex(request)
         return VenueHttpResponse(status=200, body=body, received_at=self.clock.now())
 
@@ -601,7 +607,7 @@ class NativeVenueAccount:
             return msgspec.json.encode(notice)
         if path == "/v2/auth/r/orders":
             query = msgspec.json.decode(request.body, type=BitfinexOrderQuery)
-            is_selected = query.id in (None, self.order_number) and query.cid in (
+            is_selected = (query.id is None or self.order_number in query.id) and query.cid in (
                 None,
                 None if self.client_id is None else int(self.client_id),
             )

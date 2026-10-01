@@ -203,8 +203,10 @@ class BitfinexSpotAdapter:
         self._require_verified()
         self._validate_symbol(symbol)
         client_number = self._client_number(client_id)
+        # The active-order endpoint takes ``id`` only as an array: a paper-account
+        # request on 2026-10-01 answered a scalar with HTTP 500 "id: invalid".
         active_body: dict[str, object] = (
-            {"id": self._venue_order_number(venue_order_id)}
+            {"id": [self._venue_order_number(venue_order_id)]}
             if venue_order_id is not None
             else {"cid": client_number, "cid_date": submitted_at.astimezone(UTC).date().isoformat()}
         )
