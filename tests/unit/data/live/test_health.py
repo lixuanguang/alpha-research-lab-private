@@ -6,8 +6,10 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -32,6 +34,13 @@ from telemetry import (
 )
 
 _ROOT = Path(__file__).parents[4]
+
+
+@pytest.fixture()
+def socket_directory() -> Iterator[Path]:
+    """Hold Unix sockets under a short path: AF_UNIX paths are limited to about 104 bytes."""
+    with tempfile.TemporaryDirectory(prefix="sock-", dir="/tmp") as directory:
+        yield Path(directory)
 
 
 class AdvancingWorkload:
@@ -369,9 +378,9 @@ class TestHealth:
         assert result["telemetry_error"] == "OSError"
         assert stop.read_text(encoding="utf-8") == "collector_lost"
 
-    def test_full_alert_socket_never_blocks(self, tmp_path: Path) -> None:
+    def test_full_alert_socket_never_blocks(self, socket_directory: Path) -> None:
         """Verify real delivery and deterministic kernel backpressure on nonblocking sockets."""
-        address = str(tmp_path / "a.sock")
+        address = str(socket_directory / "a.sock")
         with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
             receiver.bind(address)
             receiver.settimeout(2)

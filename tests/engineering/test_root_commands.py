@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import os
 import subprocess
 from pathlib import Path
 from shlex import quote
@@ -57,12 +58,20 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
         Completed process with captured text stdout and stderr; nonzero exit status does not
         raise because callers assert it explicitly.
     """
+    # A caller's own make (for example ``make -k source-check``) exports its flags;
+    # inheriting -k would make the nested make continue past the failure under test.
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES")
+    }
     return subprocess.run(
         ["make", "--no-print-directory", *arguments],
         cwd=REPOSITORY_ROOT,
         check=False,
         capture_output=True,
         text=True,
+        env=environment,
     )
 
 

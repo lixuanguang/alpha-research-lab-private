@@ -235,8 +235,9 @@ class PaperServiceWorkload:
             accounts=(OpeningAccount(account_id=account_id, cash=(self.money("100000"),)),),
             instruments=spot_limits,
             fee_rates=tuple(
+                # The worst case admission sizes reserves for; the source scenario charges it.
                 InstrumentFeeRate(
-                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal(0)
+                    instrument_id=limits.maximum.dimension.instrument_id, rate=Decimal("0.001")
                 )
                 for limits in spot_limits
             ),
