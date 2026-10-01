@@ -20,7 +20,7 @@ from typing import Literal
 from financial_units import ExactRatio
 from serialization import DomainCodec, WireRecord, publish_directory
 from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringQuery
-from telemetry.metrics import MetricRegistry, MetricResult
+from telemetry.metrics import MetricPoint, MetricRegistry, MetricResult
 from telemetry.operations import OperationalAlerts, OperationAlert
 
 ChartKind = Literal["line", "bar", "table"]
@@ -242,6 +242,8 @@ class _DashboardEvidence(WireRecord, frozen=True):
         if type(self.events) is not tuple or len(self.events) > self.query.limit:
             raise ValueError("dashboard requires bounded immutable input events")
         event_ids: set[str] = set()
+        # Digests in event order; this validation runs no injected code between its loops.
+        ordered_ids: list[str] = []
         samples: set[tuple[str, str, str]] = set()
         previous: tuple[datetime, str, str] | None = None
         for event in self.events:
@@ -265,6 +267,7 @@ class _DashboardEvidence(WireRecord, frozen=True):
             ):
                 raise ValueError("dashboard events require distinct ordered selected revisions")
             event_ids.add(identity)
+            ordered_ids.append(identity)
             samples.add(key)
             previous = order
         if type(self.results) is not tuple or len(self.results) != len(
@@ -286,13 +289,13 @@ class _DashboardEvidence(WireRecord, frozen=True):
             else:
                 inputs = {item.name: item for item in result.spec.inputs}
                 selected: list[str] = []
-                for event in self.events:
+                for event, identity in zip(self.events, ordered_ids, strict=True):
                     item = inputs.get(event.name)
                     if item is None or event.version != item.version:
                         continue
                     if event.units != item.units:
                         raise ValueError("dashboard metric input units differ")
-                    selected.append(event.identity)
+                    selected.append(identity)
                 expected = tuple(selected)
             if result.input_ids != expected or any(
                 item not in event_ids for item in result.input_ids
@@ -541,7 +544,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
         ]
         for panel in self.config.panels:
             result = result_by_id[panel.metric_identity]
-            parts.extend(self._panel_html(panel, result))
+            parts.extend(self._panel_html(panel, result, renderer))
         parts.append(
             '</section><section aria-labelledby="alerts-title">'
             '<h2 id="alerts-title">Alert evaluation</h2>'
@@ -628,7 +631,12 @@ class DashboardSnapshot(WireRecord, frozen=True):
         )
 
     @classmethod
-    def _panel_html(cls, panel: DashboardPanel, result: MetricResult) -> list[str]:
+    def _panel_html(
+        cls,
+        panel: DashboardPanel,
+        result: MetricResult,
+        renderer: DashboardRenderer | None = None,
+    ) -> list[str]:
         """Show applicability, exact aggregate, visible chart gaps and source rows."""
         escape = html.escape
         spec = result.spec
@@ -663,19 +671,26 @@ class DashboardSnapshot(WireRecord, frozen=True):
             )
             for point in result.points:
                 parts.append(
-                    cls._row(
-                        (
-                            point.sample,
-                            point.at.isoformat(),
-                            cls._exact(point.value) if point.value is not None else "—",
-                            spec.units,
-                            point.missing_reason or "",
-                        )
-                    )
+                    cls._point_html(point, spec.units)
+                    if renderer is None
+                    else renderer._point_html(point, spec.units)
                 )
             parts.append("</tbody></table></div>")
         parts.append("</section>")
         return parts
+
+    @classmethod
+    def _point_html(cls, point: MetricPoint, units: str) -> str:
+        """Format one chart point's table row from the point and its metric units alone."""
+        return cls._row(
+            (
+                point.sample,
+                point.at.isoformat(),
+                cls._exact(point.value) if point.value is not None else "—",
+                units,
+                point.missing_reason or "",
+            )
+        )
 
     @classmethod
     def _chart_svg(cls, panel: DashboardPanel, result: MetricResult) -> str:
@@ -801,12 +816,13 @@ class DashboardSnapshot(WireRecord, frozen=True):
 
 
 class DashboardRenderer:
-    """Build fresh validated snapshots while reusing at most 10,000 exact event-only rows.
+    """Build fresh validated snapshots while reusing at most 10,000 exact rows of each kind.
 
-    This renderer owns the row cache for its lifetime. Every call rebuilds query
+    This renderer owns the row caches for its lifetime. Every call rebuilds query
     cutoffs, metrics, freshness, alerts, header and snapshot identity. Only complete
-    serialized event bytes can reuse provenance text; revisions and late arrivals
-    still enter through the current query. No complete dashboard is cached.
+    serialized event bytes can reuse provenance text, and only complete point bytes
+    with their units can reuse chart-table text; revisions and late arrivals still
+    enter through the current query. No complete dashboard is cached.
     """
 
     def __init__(self, config: DashboardConfig, registry: MetricRegistry) -> None:
@@ -815,6 +831,7 @@ class DashboardRenderer:
         self.config, self.registry = config, registry
         self.codec = DomainCodec()
         self._event_rows: OrderedDict[bytes, str] = OrderedDict()
+        self._point_rows: OrderedDict[tuple[str, bytes], str] = OrderedDict()
 
     def render(
         self, query: MonitoringQuery, events: tuple[MonitoringEvent, ...]
@@ -839,6 +856,19 @@ class DashboardRenderer:
                 self._event_rows.popitem(last=False)
         else:
             self._event_rows.move_to_end(payload)
+        return row
+
+    def _point_html(self, point: MetricPoint, units: str) -> str:
+        """Reuse point-only table text keyed by the complete point bytes and units."""
+        key = units, self.codec.encode_json(point)
+        row = self._point_rows.get(key)
+        if row is None:
+            row = DashboardSnapshot._point_html(point, units)
+            self._point_rows[key] = row
+            if len(self._point_rows) > 10_000:
+                self._point_rows.popitem(last=False)
+        else:
+            self._point_rows.move_to_end(key)
         return row
 
 

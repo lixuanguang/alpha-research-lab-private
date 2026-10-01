@@ -10,6 +10,8 @@ import msgspec
 
 # project library imports
 
+_UTC_OFFSET = timedelta(0)
+
 
 class WireRecord(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Keep authored reference timestamps strictly UTC without normalization."""
@@ -19,6 +21,6 @@ class WireRecord(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_field
         """Require an aware datetime whose offset is exactly UTC."""
         if not isinstance(value, datetime) or value.tzinfo is None:
             raise TypeError(f"{field_name} must be a timezone-aware datetime")
-        if value.utcoffset() != timedelta(0):
+        if value.utcoffset() != _UTC_OFFSET:
             raise ValueError(f"{field_name} must use UTC")
         return value

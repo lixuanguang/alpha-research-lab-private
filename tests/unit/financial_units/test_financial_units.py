@@ -23,6 +23,7 @@ from hypothesis.strategies import SearchStrategy
 # project library imports
 from financial_units import (
     Currency,
+    ExactRatio,
     FXRate,
     Lot,
     Money,
@@ -59,8 +60,19 @@ class _FxConversionGiven(Protocol):
         ...
 
 
+class _RatioGiven(Protocol):
+    """Type the two-argument Hypothesis decorator used by ratio admission tests."""
+
+    def __call__(
+        self, *, numerator: SearchStrategy[int], denominator: SearchStrategy[int]
+    ) -> Callable[[Callable[[int, int], None]], Callable[[], None]]:
+        """Decorate a test callable with generated integer pairs."""
+        ...
+
+
 _given_rounding: _RoundingGiven = given
 _given_fx_conversion: _FxConversionGiven = given
+_given_ratio: _RatioGiven = given
 _ROUNDING_MODES: st.SearchStrategy[Rounding] = st.sampled_from(tuple(Rounding))
 
 
@@ -248,6 +260,51 @@ class TestFXConversionProperties:
         assert abs(Fraction(restored.value) - Fraction(money.value)) <= (
             Fraction(1, 200) / Fraction(fx.value) + Fraction(1, 200)
         )
+
+
+class TestExactRatioAdmission:
+    """Admit exactly the canonical reduced rationals that ``Fraction`` itself prints."""
+
+    @staticmethod
+    def _fraction_admits(numerator: str, denominator: str) -> bool:
+        """Apply the original reduction rule: printing the parsed fraction is lossless."""
+        value = Fraction(int(numerator), int(denominator))
+        return (str(value.numerator), str(value.denominator)) == (numerator, denominator)
+
+    @staticmethod
+    def _admits(numerator: str, denominator: str) -> bool:
+        """Report whether construction succeeds without changing the raised error type."""
+        try:
+            ExactRatio(numerator=numerator, denominator=denominator)
+        except ValueError:
+            return False
+        return True
+
+    def test_zero_sign_and_reduction_boundaries(self) -> None:
+        """Zero is only 0/1; signs live on the numerator; common factors reject."""
+        for numerator, denominator in (("0", "1"), ("-3", "4"), ("7", "1"), ("-1", "1")):
+            assert self._admits(numerator, denominator)
+        for numerator, denominator in (
+            ("0", "2"),
+            ("-0", "1"),
+            ("2", "4"),
+            ("-6", "9"),
+            ("3", "-4"),
+            ("03", "4"),
+            ("3", "0"),
+            ("3", "04"),
+            ("\uff11", "2"),
+        ):
+            assert not self._admits(numerator, denominator)
+
+    @staticmethod
+    @settings(max_examples=200, derandomize=True, database=None)
+    @_given_ratio(numerator=st.integers(-10_000, 10_000), denominator=st.integers(1, 10_000))
+    def test_gcd_admission_matches_fraction_printing(numerator: int, denominator: int) -> None:
+        """Every canonical integer pair is admitted exactly when Fraction would not reduce it."""
+        assert TestExactRatioAdmission._admits(
+            str(numerator), str(denominator)
+        ) == TestExactRatioAdmission._fraction_admits(str(numerator), str(denominator))
 
 
 if __name__ == "__main__":

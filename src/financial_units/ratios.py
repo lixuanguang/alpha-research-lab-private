@@ -5,9 +5,13 @@ from __future__ import annotations
 # standard library imports
 import re
 from fractions import Fraction
+from math import gcd
 
 # third party library imports
 import msgspec
+
+_NUMERATOR = re.compile(r"0|-?[1-9][0-9]*")
+_DENOMINATOR = re.compile(r"[1-9][0-9]*")
 
 
 class ExactRatio(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
@@ -20,13 +24,14 @@ class ExactRatio(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_field
         """Reject noncanonical integers, negative denominators and unreduced fractions."""
         if (
             type(self.numerator) is not str
-            or re.fullmatch(r"0|-?[1-9][0-9]*", self.numerator) is None
+            or _NUMERATOR.fullmatch(self.numerator) is None
             or type(self.denominator) is not str
-            or re.fullmatch(r"[1-9][0-9]*", self.denominator) is None
+            or _DENOMINATOR.fullmatch(self.denominator) is None
         ):
             raise ValueError("ratio requires canonical integer strings and positive denominator")
-        value = Fraction(int(self.numerator), int(self.denominator))
-        if (str(value.numerator), str(value.denominator)) != (self.numerator, self.denominator):
+        # Canonical strings with a positive denominator are reduced exactly when coprime;
+        # gcd(0, d) is d, so zero must be 0/1.
+        if gcd(int(self.numerator), int(self.denominator)) != 1:
             raise ValueError("ratio must be reduced; zero is 0/1")
 
     @classmethod

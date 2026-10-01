@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 
 # project library imports
 from financial_units import ExactRatio
@@ -14,6 +14,8 @@ from serialization import DomainCodec, WireRecord
 
 MonitoringMode = Literal["research", "paper", "shadow", "venue_test", "data"]
 _TEXT_CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f]")
+# Encoding is stateless; one shared codec avoids building an encoder per digest.
+_CODEC = DomainCodec()
 
 
 class MonitoringIdentity(WireRecord, frozen=True):
@@ -40,33 +42,49 @@ class MonitoringIdentity(WireRecord, frozen=True):
         self.check_text(self.scope)
         if self.mode not in ("research", "paper", "shadow", "venue_test", "data"):
             raise ValueError("unsupported monitoring mode")
-        for value in (
-            self.release,
-            self.strategy,
-            self.model,
-            self.dataset,
-            self.source,
-            self.study,
-            self.account,
-            self.instrument,
-            self.venue,
-            self.order,
-            self.fill,
-            self.state_epoch,
-            self.incident,
-        ):
-            if value is not None:
-                self.check_text(value)
+        self.check_texts(
+            tuple(
+                value
+                for value in (
+                    self.release,
+                    self.strategy,
+                    self.model,
+                    self.dataset,
+                    self.source,
+                    self.study,
+                    self.account,
+                    self.instrument,
+                    self.venue,
+                    self.order,
+                    self.fill,
+                    self.state_epoch,
+                    self.incident,
+                )
+                if value is not None
+            )
+        )
 
     @staticmethod
     def check_text(value: str) -> None:
         """Require a bounded nonempty identity or unit with no control characters."""
-        if (
-            type(value) is not str
-            or not value.strip()
-            or len(value.encode()) > 256
-            or _TEXT_CONTROL_CHARACTERS.search(value) is not None
-        ):
+        MonitoringIdentity.check_texts((value,))
+
+    @staticmethod
+    def check_texts(values: tuple[object, ...]) -> None:
+        """Apply ``check_text`` to every value with one control-character scan.
+
+        Every value is a ``str`` before the scan, so their concatenation contains a
+        control character exactly when one of them does.
+        """
+        for value in values:
+            # UTF-8 uses at most four bytes per character, so 64 characters fit unencoded.
+            if (
+                type(value) is not str
+                or not value.strip()
+                or (len(value) > 64 and len(value.encode()) > 256)
+            ):
+                raise ValueError("monitoring text must be bounded and nonempty")
+        if _TEXT_CONTROL_CHARACTERS.search("".join(cast(tuple[str, ...], values))) is not None:
             raise ValueError("monitoring text must be bounded and nonempty")
 
 
@@ -99,8 +117,7 @@ class MonitoringEvent(WireRecord, frozen=True):
         if type(self.context) is not MonitoringIdentity:
             raise TypeError("monitoring event requires a typed identity")
         self.context.__post_init__()
-        for value in (self.name, self.version, self.sample, self.units):
-            MonitoringIdentity.check_text(value)
+        MonitoringIdentity.check_texts((self.name, self.version, self.sample, self.units))
         for clock in (self.at, self.available_at, self.recorded_at):
             self._require_utc(clock, field_name="monitoring clock")
         if not self.at <= self.available_at <= self.recorded_at:
@@ -125,7 +142,7 @@ class MonitoringEvent(WireRecord, frozen=True):
     @property
     def identity(self) -> str:
         """Return the digest of all retained bytes, including knowledge and receipt clocks."""
-        return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()
+        return hashlib.sha256(_CODEC.encode_json(self)).hexdigest()
 
 
 class MonitoringQuery(WireRecord, frozen=True):
