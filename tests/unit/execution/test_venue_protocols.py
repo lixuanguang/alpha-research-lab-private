@@ -663,6 +663,29 @@ class TestBitfinexSpotProtocol:
         assert fact.filled_quantity == Decimal("0.000000000000000002")
         assert fact.remaining_quantity == Decimal("1.000000000000000001")
 
+    def test_active_order_lookup_sends_the_id_as_an_array(self) -> None:
+        """Bitfinex refuses a scalar active-order id with HTTP 500 "id: invalid".
+
+        A paper-account request on 2026-10-01 returned ``["error", 10020, "id:
+        invalid"]`` for ``{"id": n}`` and an order list for ``{"id": [n]}``.
+        """
+        active_items: list[object] = [self._order()]
+        transport = ScriptedVenueTransport(self._paper_info(), msgspec.json.encode(active_items))
+        adapter = BitfinexSpotAdapter(VenueCredentials("key", "secret"), transport)
+        adapter.qualify_account(at=self.at, nonce=1)
+        fact = adapter.order(
+            "tETHUSD",
+            "1234",
+            submitted_at=self.at,
+            venue_order_id="987",
+            at=self.at,
+            nonce=2,
+        )
+        assert fact is not None and fact.venue_order_id == "987"
+        lookup = transport.requests[1]
+        assert lookup.path == "/v2/auth/r/orders"
+        assert msgspec.json.decode(lookup.body, type=dict[str, object]) == {"id": [987]}
+
     def test_closed_order_outside_retention_fails_before_history_lookup(self) -> None:
         """Active orders prove any age; two-week closed history cannot prove absence."""
         active_items: list[object] = [self._order()]
