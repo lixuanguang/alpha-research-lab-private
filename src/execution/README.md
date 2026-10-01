@@ -160,8 +160,11 @@ adverse effective price, with exact quote-currency fee rounding. A limit or fee
 reservation that cannot cover those economics cannot silently become a fill.
 Admission refuses (`fee_reserve_below_worst_case`) an order whose `maximum_fee` is
 below the configured worst-case fee: the whole quantity at its limit at the
-instrument's rate, plus one minor unit per lot for the rounding of each possible
-fill. Account journals take the rate from `AccountConfiguration.fee_rates` (one
+instrument's rate, plus a rounding allowance. Paper and shadow accounts use the paper
+model's own half-even rounding per fill: half a minor unit for each fill whose fee can
+round up, which is at most `2 * fee / minor_unit` fills and at most one per lot.
+`venue_test` accounts, whose venue rounds by its own rules, keep one minor unit per
+lot. Account journals take the rate from `AccountConfiguration.fee_rates` (one
 `InstrumentFeeRate`, such as the venue's taker rate, per instrument) in paper,
 shadow and `venue_test` alike; a dedicated `PaperOrderJournal` takes its
 `fee_rate`, which `PaperConfiguration.fee_rate` supplies. A matching scenario
