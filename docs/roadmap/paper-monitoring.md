@@ -240,6 +240,44 @@ consumers, passes on the new contract. The signed, installed and public-feed run
 recorded above predate it, so MR12's installed evidence needs re-running before
 it covers this contract. That re-run needs its own declaration.
 
+## Installed re-verification declaration (draft, not approved)
+
+Drafted 2026-10-02 to re-run MR12's installed evidence under the
+[bounded dashboard contract](#bounded-dashboard-contract-revision-2026-10-01). It repeats
+the journeys recorded above and adds no new kind of evidence. It is limited to **one
+counted attempt**, which stops at its first failure; one uncounted rehearsal precedes
+it, and the counted attempt needs the owner's go-ahead.
+
+The candidate is the committed source the attempt freezes. A separate non-editable
+environment is installed from it with
+`UV_PROJECT_ENVIRONMENT=/private/tmp/<env> uv sync --frozen --no-editable`, and the
+driver
+[`monitoring_reverification.py`](../../tests/integration/consumers/runtime/monitoring_reverification.py)
+runs from that environment with `-I`. Evidence lives under ignored
+`logs/paper-monitoring/reverification/`. No private credential, venue order, signed
+grant or remote service is used.
+
+1. **Freeze.** A clean checkout; every installed runtime input equals the checkout
+   byte for byte; the public-paper consumer and both public profiles are copied out by
+   hash.
+2. **Four live public-paper runs** (`--live --adverse 0.01`): OKX and Bitfinex, shared
+   and dedicated. Each passes the consumer's own checks and requires exact independent
+   reconciliation of dashboard economics, every socket-accepted alert observed by the
+   local receiver, no monitoring error, and every retained dashboard reopening with its
+   provenance verified. Each page must show its selection digest and every panel, hold
+   at most 120 points per metric, and load no script or outside resource.
+3. **Four fresh-process replays** (`--replay`): identical account, order and trace
+   bytes, equal reopened dashboards and zero telemetry inserts.
+4. **Installed consumer suites** from the same environment, with workspaces retained:
+   the operational workflow (both venues, alert delivery through receiver loss and
+   restoration), the public-paper fixture workflow, and the study, candidate and
+   decision research workflows (custom metric, chart and delayed-label monitoring).
+5. **`make check`** on the unchanged frozen source.
+
+A pass re-verifies MR12's installed evidence for this bounded local scope. Human
+acknowledgement, remote monitoring services, source-clock accuracy and MR15 capacity
+stay outside it.
+
 ## Evidence reuse and remaining limits
 
 MR08/MR11 matching, fee rounding/allocation, independent reconciliation, authored
