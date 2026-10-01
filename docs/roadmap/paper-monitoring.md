@@ -261,8 +261,9 @@ grant or remote service is used.
    byte for byte; the public-paper consumer and both public profiles are copied out by
    hash.
 2. **Four live public-paper runs** (`--live --adverse 0.01`): OKX and Bitfinex, shared
-   and dedicated. Each passes the consumer's own checks and requires exact independent
-   reconciliation of dashboard economics, every socket-accepted alert observed by the
+   and dedicated. Each passes the consumer's own checks and requires at least one
+   attributed fill and one alert, exact independent reconciliation of dashboard
+   economics, every socket-accepted alert observed by the
    local receiver, no monitoring error, and every retained dashboard reopening with its
    provenance verified. Each page must show its selection digest and every panel, hold
    at most 120 points per metric, and load no script or outside resource.
