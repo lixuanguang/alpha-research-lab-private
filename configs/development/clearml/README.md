@@ -140,28 +140,32 @@ and current [release requirements](../../../docs/governance/workflow.md#build-a-
 The serial pipeline provides an explicit local worker consumer for
 [configured economics](../../../src/research/studies/README.md#configured-economics-reports-and-serial-pipelines).
 The Compose stack still starts no workers. The separate
-[worker lock](worker/uv.lock) pins ClearML Agent 3.0.3 and its 12 macOS dependencies;
+[worker lock](worker/uv.lock) pins ClearML Agent 3.0.3 and its 14 macOS dependencies;
 `uv sync --frozen --project configs/development/clearml/worker` installs it outside
 the research environment. The agent and runtime both use CPython 3.14.7.
 
-The stable agent's upstream requirements cap Requests below 2.33 and Setuptools
-below 82. Those versions failed the local audit with CVE-2026-25645 and
-CVE-2026-59890. The worker's explicit uv overrides instead pin Requests 2.34.2 and
-Setuptools 83.0.0. This is an intentionally qualified local compatibility choice,
+The stable agent's upstream requirements cap Requests below 2.33, Setuptools
+below 82 and virtualenv below 21. Those versions failed the local audit with
+CVE-2026-25645, CVE-2026-59890 and PYSEC-2026-4011 through PYSEC-2026-4014. The
+worker's explicit uv overrides instead pin Requests 2.34.2, Setuptools 83.0.0 and
+virtualenv 21.14.1. This is an intentionally qualified local compatibility choice,
 not an upstream-supported constraint claim: `uv pip check` reports the original
 metadata bounds. The agent has its own vendored `pkg_resources` fallback. The
 patched lock passes `pip-audit`, and actual serial installed tasks exercise it.
 No audit finding is waived, and no unpinned install occurs during a task.
 
-As of 2026-10-01 the worker lock **fails its audit**. virtualenv 20.39.1 is affected
-by PYSEC-2026-4011 through PYSEC-2026-4014. They are fixed only in 21.7.11 to 21.7.13,
-and ClearML Agent 3.0.3, the latest release, requires `virtualenv<21`. The lock is
-unchanged. An override to virtualenv 21 is not adopted: it would first need the
-serial installed-task verification described above.
+The virtualenv override was added on 2026-10-01; it also brings python-discovery
+1.6.1 and packaging 26.3 into the lock. The agent uses virtualenv only as a
+subprocess (`python -m virtualenv <path>`, optionally with `--system-site-packages`).
+With the exact locked closure installed, both forms created working CPython 3.14.7
+environments with pip, and the agent imported and started. The serial installed-task
+run above could not be repeated then because the local services were stopped;
+repeat it before relying on the worker.
 
 The local agent uses Apache-2.0; Requests, virtualenv and distlib are Apache-2.0;
 certifi is MPL-2.0; psutil is BSD-3-Clause; idna is BSD-3-Clause;
-charset-normalizer, filelock, platformdirs, Setuptools and urllib3 are MIT.
+charset-normalizer, filelock, platformdirs, python-discovery, Setuptools and
+urllib3 are MIT; packaging is Apache-2.0 OR BSD-2-Clause.
 Its wheel includes upstream vendored notices. This service-tool lock is outside
 the runtime dependency admission graph, like the Compose server images; it is not
 an admitted release artifact. Keep its independent audit and actual execution
