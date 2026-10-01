@@ -1353,3 +1353,33 @@ installed re-verification: the stage-1 services' telemetry is read by the query
 consumer, but retained paper dashboards come from the public-paper consumers (both
 venues' dedicated and shared public-feed dashboards and receiver-observed alerts),
 which need their own declared re-run.
+
+#### Uncounted rehearsals (2026-10-01)
+
+Four rehearsals ran under `logs/runtime-capacity/stage1-dashboard-rehearsal-{1..4}/`,
+each with its own builder key, signed targets, grants and sockets. None is the counted
+attempt, and none is combined with it.
+
+1. Stopped at the first build: the build policy pinned the base interpreter, which
+   lacks the admitted `hatchling`. The driver now pins the research environment's.
+2. Built, verified and installed all four targets, then stopped issuing grants: the
+   research interpreter was an editable checkout, so the installed identity had no
+   files. Freeze now refuses an editable install.
+3. Ran the whole sequence. The populated-history queries passed all four classes on a
+   signed trial (dashboard warm 82.0/107.5/115.8 ms). Two regressions on `main` since
+   the residual cohort failed the trials:
+   - Review #24 (`f681074`) priced the reference opening clip two ticks through the
+     ask. Under the fixture's 0.50 modeled adverse cost at a 0.01 tick the clip
+     (100.02) never filled, so the first-touch oracle failed on all four accounts.
+   - The supervisor answered controls only until 65 s (75 s less its drain reserve).
+     The public route took 4.32 s to start, sent `shutdown` at 65.87 s and got no reply.
+4. With both fixes (`45ba575`) the whole sequence passed:
+
+| Step | Result |
+| --- | --- |
+| Steady trial | 58/58 gates; oracle holds on all four accounts; 122 health witnesses; CPU 1.48 cores, RSS 2.26 GiB |
+| Populated-history queries | All four classes pass with parity; dashboard warm 85.9/120.7/139.8 ms, cold p99 190.2 ms; depth/BBO cold p99 43.7 ms |
+| Public Bitfinex route | 40/40 gates; 2,472 and 2,890 public messages, supervisor stop, complete delivery parity |
+| Cleanup audits | Both pass; every observed process absent and all accounts stopped |
+
+The counted attempt freezes a later commit and needs the owner's go-ahead.
