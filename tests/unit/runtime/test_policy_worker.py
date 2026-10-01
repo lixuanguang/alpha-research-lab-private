@@ -106,8 +106,8 @@ class TestPolicyWorker:
         first = policy.decide(self._context(), policy.initial_state())
         assert type(first.intent) is OrderIntent
         assert first.intent.quantity == self._quantity(expected_quantity)
-        # Two ticks through the 101 ask, then one tick below the 100 bid.
-        assert first.intent.limit == self._price("101.02")
+        # 200 bps through the 101 ask, then one tick below the 100 bid.
+        assert first.intent.limit == self._price("103.02")
         assert first.state == b"1"
         second = policy.decide(self._context(), first.state)
         assert type(second.intent) is OrderIntent
@@ -116,12 +116,12 @@ class TestPolicyWorker:
         assert policy.identity != self._policy("liquidity" if kind == "fixed" else "fixed").identity
 
     def test_clip_prices_scale_with_a_low_priced_book(self) -> None:
-        """Tick offsets keep prices positive and near the touch below one quote unit."""
+        """Relative and tick offsets keep prices positive and near the touch below one unit."""
         policy = self._policy(tick="0.0001")
         context = self._context(ask="0.05", bid="0.04")
         first = policy.decide(context, policy.initial_state())
         assert type(first.intent) is OrderIntent
-        assert first.intent.limit == self._price("0.0502")
+        assert first.intent.limit == self._price("0.0510")
         resting = policy.decide(context, first.state)
         assert type(resting.intent) is OrderIntent
         assert resting.intent.limit == self._price("0.0399")
@@ -130,6 +130,25 @@ class TestPolicyWorker:
         assert type(joined.intent) is OrderIntent
         assert joined.intent.limit == self._price("0.0001")
         assert policy.identity != self._policy(tick="0.001").identity
+
+    @pytest.mark.parametrize(
+        ("ask", "tick", "expected"),
+        (("100", "0.01", "102.00"), ("100.01", "0.01", "102.02"), ("0.0003", "0.0001", "0.0004")),
+    )
+    def test_opening_clip_covers_modeled_cost_inside_deviation_limit(
+        self, ask: str, tick: str, expected: str
+    ) -> None:
+        """The opening limit rounds up onto the grid, past a 50 bps cost and inside 500 bps."""
+        policy = self._policy(tick=tick)
+        bid = str(Decimal(ask) - Decimal(tick))
+        first = policy.decide(self._context(ask=ask, bid=bid), policy.initial_state())
+        assert type(first.intent) is OrderIntent
+        limit = first.intent.limit.value
+        assert limit == Decimal(expected)
+        assert limit % Decimal(tick) == 0
+        # The capacity fixture models a 0.50 adverse cost on a 100 touch.
+        assert limit >= Decimal(ask) * Decimal("1.005")
+        assert limit - Decimal(ask) <= max(Decimal(ask) * Decimal("0.05"), Decimal(tick))
 
     def test_reference_policy_rejects_foreign_signature_state_and_parameters(self) -> None:
         """Malformed book inputs cannot silently become an executable order."""
