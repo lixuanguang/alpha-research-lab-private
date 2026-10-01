@@ -29,8 +29,9 @@ alpha-execute monitor --config /absolute/view.json \
   --journal /absolute/monitor.sqlite3 --output /absolute/retained-view
 ```
 
-This command writes verified `snapshot.json`, `dashboard.html` and `manifest.json`
-and returns their directory and snapshot identity. Identical retries do not
+This command writes verified `snapshot.json`, `dashboard.html`, `provenance.jsonl`
+(the selected events) and `manifest.json` and returns their directory and snapshot
+identity. Identical retries do not
 overwrite content. Add `--alerts /absolute/alerts.sqlite3` only to attempt the
 configured local syslog routes. The command grants no venue or hard-control
 authority; local datagram acceptance is not remote or human acknowledgement.

@@ -195,6 +195,13 @@ class MetricRegistry:
             names.add(key)
             self._definitions[definition.spec.identity] = definition
 
+    def definition(self, identity: str) -> MonitoringMetric:
+        """Return the registered definition whose current specification has this identity."""
+        definition = self._definitions.get(identity)
+        if definition is None or definition.spec.identity != identity:
+            raise ValueError("unregistered or changed monitoring definition")
+        return definition
+
     def evaluate(
         self, identity: str, query: MonitoringQuery, events: tuple[MonitoringEvent, ...]
     ) -> MetricResult:

@@ -5,10 +5,11 @@ from __future__ import annotations
 # standard library imports
 import sqlite3
 from collections import OrderedDict
+from collections.abc import Iterable
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 # project library imports
 from serialization import DomainCodec, require_sqlite_layout
@@ -27,6 +28,32 @@ _LAYOUT: tuple[str, ...] = (
     "CREATE TRIGGER event_count_delete AFTER DELETE ON events "
     "BEGIN UPDATE metadata SET event_count = event_count - 1; END",
 )
+
+
+# (at, name, sample, version) of the last row a provenance page returned.
+ProvenanceCursor = tuple[str, str, str, str]
+
+
+class TelemetryRow(NamedTuple):
+    """Carry one selected revision's ordering key with its exact stored bytes."""
+
+    name: str
+    version: str
+    sample: str
+    at: str
+    payload: bytes
+
+    @property
+    def cursor(self) -> ProvenanceCursor:
+        """Return the query-order key a following page starts after."""
+        return self.at, self.name, self.sample, self.version
+
+
+class TelemetrySelection(NamedTuple):
+    """Hold one query's selected revisions in query order, not yet decoded."""
+
+    query: MonitoringQuery
+    rows: tuple[TelemetryRow, ...]
 
 
 class TelemetryStore:
@@ -132,6 +159,41 @@ class TelemetryStore:
 
     def query(self, query: MonitoringQuery) -> tuple[MonitoringEvent, ...]:
         """Read latest known revisions, with a hard result bound and no hidden truncation."""
+        return self._query_rows(row.payload for row in self.select(query).rows)
+
+    def select(self, query: MonitoringQuery) -> TelemetrySelection:
+        """Select the same latest known revisions as ``query`` without decoding them.
+
+        Raises:
+            ValueError: The selection exceeds ``query.limit`` or predates retention.
+        """
+        rows = self._select(query, after=None, size=query.limit + 1)
+        if len(rows) > query.limit:
+            raise ValueError("monitoring query exceeds its explicit result limit")
+        return TelemetrySelection(query=query, rows=rows)
+
+    def page(
+        self, query: MonitoringQuery, *, after: ProvenanceCursor | None, size: int
+    ) -> tuple[tuple[MonitoringEvent, ...], ProvenanceCursor | None]:
+        """Read one ordered page of the selection after a cursor, admitting every event.
+
+        Pages use the query's cutoffs, not one database snapshot. A reader can check
+        that its pages reproduce a view's ``events_sha256``; a mismatch means facts
+        known by the cutoff were appended between pages.
+
+        Returns:
+            The page and the cursor of its last row, or ``None`` after the last page.
+        """
+        if type(size) is not int or not 1 <= size <= 10_000:
+            raise ValueError("provenance page size must be between 1 and 10,000")
+        rows = self._select(query, after=after, size=size)
+        cursor = None if len(rows) < size else rows[-1].cursor
+        return self._query_rows(row.payload for row in rows), cursor
+
+    def _select(
+        self, query: MonitoringQuery, *, after: ProvenanceCursor | None, size: int
+    ) -> tuple[TelemetryRow, ...]:
+        """Run the latest-revision selection in query order from an optional cursor."""
         query.__post_init__()
         if not self.path.exists():
             return ()
@@ -154,12 +216,16 @@ class TelemetryStore:
             # A revision is current when no later revision of the same sample is both
             # available and recorded by as_of. Revisions share their event clock, so
             # the window selects whole samples. The primary key answers the later-
-            # revision probe; only selected payloads reach the final sort. Version
-            # orders distinct versions of one sample, which the earlier key left tied.
-            rows = self._query_rows(
+            # revision probe; only selected rows reach the final sort. Version orders
+            # distinct versions of one sample, which the earlier key left tied.
+            cursor = ("", "", "", "") if after is None else after
+            rows = cast(
+                list[tuple[object, object, object, object, object]],
                 connection.execute(
-                    "SELECT payload FROM events e WHERE scope=?1 AND mode=?2 "
+                    "SELECT name, version, sample, at, payload FROM events e "
+                    "WHERE scope=?1 AND mode=?2 "
                     "AND at>=?3 AND at<?4 AND available<=?5 AND recorded<=?5 "
+                    "AND (at, name, sample, version) > (?7, ?8, ?9, ?10) "
                     "AND NOT EXISTS (SELECT 1 FROM events later WHERE "
                     "later.scope=e.scope AND later.mode=e.mode AND later.name=e.name "
                     "AND later.version=e.version AND later.sample=e.sample "
@@ -172,13 +238,23 @@ class TelemetryStore:
                         query.start.isoformat(timespec="microseconds"),
                         query.end.isoformat(timespec="microseconds"),
                         query.as_of.isoformat(timespec="microseconds"),
-                        query.limit + 1,
+                        size,
+                        *cursor,
                     ),
-                )
+                ).fetchall(),
             )
-        if len(rows) > query.limit:
-            raise ValueError("monitoring query exceeds its explicit result limit")
-        return rows
+        result: list[TelemetryRow] = []
+        for name, version, sample, at, payload in rows:
+            if (
+                type(name) is not str
+                or type(version) is not str
+                or type(sample) is not str
+                or type(at) is not str
+                or type(payload) is not bytes
+            ):
+                raise ValueError("invalid monitoring selection row")
+            result.append(TelemetryRow(name, version, sample, at, payload))
+        return tuple(result)
 
     def prune(self, before: datetime) -> int:
         """Remove complete samples before a UTC floor; retained dashboards are independent.
@@ -258,19 +334,15 @@ class TelemetryStore:
             result.append(self.codec.decode_json(row[0], MonitoringEvent))
         return tuple(result)
 
-    def _query_rows(self, cursor: sqlite3.Cursor) -> tuple[MonitoringEvent, ...]:
+    def _query_rows(self, payloads: Iterable[bytes]) -> tuple[MonitoringEvent, ...]:
         """Reuse at most 10,000 exact payloads while checking every returned immutable event.
 
         The SQL snapshot still selects current causal revisions and the retention
         floor on every query. A changed database payload or a force-mutated public
         object is decoded again through the strict wire boundary.
         """
-        rows = cast(list[tuple[object, ...]], cursor.fetchall())
         result: list[MonitoringEvent] = []
-        for row in rows:
-            if len(row) != 1 or type(row[0]) is not bytes:
-                raise ValueError("invalid monitoring payload")
-            payload = row[0]
+        for payload in payloads:
             event = self._query_payloads.get(payload)
             if event is None or self.codec.encode_json(event) != payload:
                 event = self.codec.decode_json(payload, MonitoringEvent)

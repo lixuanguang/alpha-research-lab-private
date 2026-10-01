@@ -1275,19 +1275,54 @@ These figures are offline diagnostics, not a qualification. Meeting the budgets 
 declared would need a separate owner decision, for example a durable derived index or a
 change to the dashboard contract.
 
+#### Bounded dashboard contract and offline result (2026-10-01)
+
+The repair above removed repeated work but not the per-event output: every view
+still embedded, revalidated and rendered all 10,000 events. The owner chose to
+change the dashboard contract and to re-verify MR12 if the budgets could be met.
+An offline prototype first bounded each view to its exact metric results and the
+last N points per series. It met every dashboard budget at N = 120 (warm
+58.9/63.9/80.7 ms) and missed warm p50 at N = 500 (115 ms).
+
+The [MR12 revision](paper-monitoring.md#bounded-dashboard-contract-revision-2026-10-01)
+implements that view:
+
+- The store selects the same revisions without decoding them, with each row's stored
+  bytes, and pages them as provenance.
+- A view holds the selection's count and digest, and per metric the exact outcome,
+  input count and digest, and the last 120 points.
+- Installed series metrics admit strictly only the events they show, read just the
+  exact value of other aggregated inputs, and check every input's units in its
+  bytes. Tests prove their results equal full evaluation for every aggregation,
+  with gaps, staleness, ties and more than 120 points. Custom metrics still
+  evaluate every input.
+- Late revisions and receipt cutoffs select identical views from a store selection
+  and from the same events. Overflow still fails rather than truncating. Retained
+  views keep and verify every selected payload.
+
+The same authored store and harness as above:
+
+| Class | Samples | Service p50 / p95 / p99 | Scheduled response p99 | Budget |
+| --- | --- | --- | --- | --- |
+| Warm | 1,000 | 86.8 / 90.5 / 102.2 ms | 102.2 ms | 100 / 400 / 1,000 ms: pass |
+| Application-cold | 1,000 | 111.2 / 126.0 / 141.8 ms | 141.8 ms | 3 s p99: pass |
+
+Every request finishes inside its 200 ms slot, so nothing queues. Warm p50 has
+about 13% margin. These are offline diagnostics on an authored store, not a
+qualification; the signed cohort below must measure them.
+
 #### Dashboard continuation declaration (draft, not approved)
 
 Drafted 2026-10-01 for owner review; nothing runs without explicit approval. It is
-limited to **one attempt**, and the cohort stops at the first failure. Under the offline
-result above, the dashboard warm and both dashboard scheduled-response classes are
-expected to fail.
+limited to **one attempt**, and the cohort stops at the first failure. It
+supersedes the draft written with the first repair.
 
 The candidate is the source at the commit adding this section, frozen by hash, with
-drivers and evidence under ignored `logs/runtime-capacity/stage1-dashboard/`. Because the
-telemetry source changed, the four signed `paper` targets are built again, with the
-residual cohort's configuration, state, ephemeral builder key, seven-day policy, fresh
-journals, disabled deployments and ordinary one-hour grants. No grant, lifetime, budget,
-risk or authority limit changes.
+drivers and evidence under ignored `logs/runtime-capacity/stage1-dashboard/`. Because
+the telemetry source and dashboard contract changed, the four signed `paper` targets
+are built again, with the residual cohort's configuration, state, ephemeral builder
+key, seven-day policy, fresh journals, disabled deployments and ordinary one-hour
+grants. No grant, lifetime, budget, risk or authority limit changes.
 
 0. Freeze; fetch, build, verify and install the four targets. Run one steady fixture
    trial with the unchanged stage-1 shape and gates as the native history for step 1.
@@ -1297,11 +1332,15 @@ risk or authority limit changes.
    fresh output directory. The pass criteria are those of residual step 5: no failed
    request, matched-cutoff parity, and `pass` for service and scheduled response in every
    class against the unchanged budgets.
-2. The public Bitfinex route of residual step 6, on a new route root with freshly issued
-   ordinary one-hour grants for the same releases and the 12,000-message cap, with the
-   same criteria.
+2. The public Bitfinex route of residual step 6, on a new route root with freshly
+   issued ordinary one-hour grants for the same releases and the 12,000-message cap,
+   with the same criteria.
 3. Cleanup audit over every trial of this cohort, with all four accounts stopped.
 4. `make check` on the unchanged frozen source.
 
 Checkpoint percentiles, filesystem-cold queries, renewed public OKX health, integrated
-feature serving, stage 2 and 24-hour operation are outside this cohort.
+feature serving, stage 2 and 24-hour operation are outside this cohort. So is MR12's
+installed re-verification: the stage-1 services' telemetry is read by the query
+consumer, but retained paper dashboards come from the public-paper consumers (both
+venues' dedicated and shared public-feed dashboards and receiver-observed alerts),
+which need their own declared re-run.

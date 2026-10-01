@@ -274,7 +274,7 @@ def render_paper_monitoring(
                 as_of=as_of,
                 limit=100_000,
             )
-            events = store.query(query)
+            selection = store.select(query)
             configs = MonitoringConfiguration.paper(query, value.events, alert_socket=alert_socket)
             for page, config in enumerate(configs):
                 name = f"{hashlib.sha256(scope.encode()).hexdigest()[:16]}-{page + 1}"
@@ -282,11 +282,11 @@ def render_paper_monitoring(
                 snapshot = DashboardBuilder.build(
                     config.dashboard,
                     query,
-                    events,
+                    selection,
                     MetricRegistry(MonitoringDefinitions.resolve(config.metrics)),
                     alerts,
                 )
-                snapshot.write(output / name)
+                snapshot.write(output / name, selection)
                 DashboardSnapshot.read(output / name)
                 dashboards.append(name)
                 links.append(

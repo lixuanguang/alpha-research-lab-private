@@ -349,12 +349,13 @@ class _Run:
             end=receipt,
             as_of=receipt,
         )
-        dashboard = DashboardBuilder.build(config, query, journal.query(query), registry)
+        selection = journal.select(query)
+        dashboard = DashboardBuilder.build(config, query, selection, registry)
         assert dashboard.results[0].value == report.metrics[0].value
         assert dashboard.results[0].spec.identity == report.metrics[0].definition.sha256
         assert dashboard.results[0].points
         saved = root / f"dashboard-{attempt}"
-        assert dashboard.write(saved).exists()
+        assert dashboard.write(saved, selection).exists()
         assert DashboardSnapshot.read(saved) == dashboard
 
     @staticmethod

@@ -40,13 +40,13 @@ class MonitoringApplication:
         config = DomainCodec().decode_json(config_path.read_bytes(), MonitoringConfiguration)
         config.__post_init__()
         registry = MetricRegistry(MonitoringDefinitions.resolve(config.metrics))
-        events = TelemetryStore(journal_path).query(config.query)
+        selection = TelemetryStore(journal_path).select(config.query)
         snapshot = DashboardBuilder.build(
             config.dashboard,
             config.query,
-            events,
+            selection,
             registry,
             None if alerts_path is None else OperationalAlerts(alerts_path),
         )
-        snapshot.write(output)
+        snapshot.write(output, selection)
         return snapshot
