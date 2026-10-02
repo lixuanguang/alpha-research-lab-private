@@ -235,10 +235,90 @@ metric definitions, alert policy and hard-control independence did not.
   metrics still evaluate every input.
 
 Earlier retained dashboards use the previous schema and are not readable by this
-code. The full test gate, including the installed paper, operational and research
-consumers, passes on the new contract. The signed, installed and public-feed runs
-recorded above predate it, so MR12's installed evidence needs re-running before
-it covers this contract. That re-run needs its own declaration.
+code. The installed and public-feed evidence was renewed on 2026-10-02; see the
+[re-verification result](#installed-re-verification-result-2026-10-02).
+
+## Installed re-verification declaration (approved 2026-10-02)
+
+Drafted and approved by the owner on 2026-10-02, after rehearsal 2, to re-run MR12's installed evidence under the
+[bounded dashboard contract](#bounded-dashboard-contract-revision-2026-10-01). It repeats
+the journeys recorded above and adds no new kind of evidence. It is limited to **one
+counted attempt**, which stops at its first failure; one uncounted rehearsal precedes
+it, and the counted attempt needs the owner's go-ahead.
+
+The candidate is the committed source the attempt freezes. A separate non-editable
+environment is installed from it with
+`UV_PROJECT_ENVIRONMENT=/private/tmp/<env> uv sync --frozen --no-editable`, and the
+driver
+[`monitoring_reverification.py`](../../tests/integration/consumers/runtime/monitoring_reverification.py)
+runs from that environment with `-I`. Evidence lives under ignored
+`logs/paper-monitoring/reverification/`. No private credential, venue order, signed
+grant or remote service is used.
+
+1. **Freeze.** A clean checkout; every installed runtime input equals the checkout
+   byte for byte; the public-paper consumer and both public profiles are copied out by
+   hash.
+2. **Four live public-paper runs** (`--live --adverse 0.01`): OKX and Bitfinex, shared
+   and dedicated. Each passes the consumer's own checks and requires at least one
+   attributed fill and one alert, exact independent reconciliation of dashboard
+   economics, every socket-accepted alert observed by the
+   local receiver, no monitoring error, and every retained dashboard reopening with its
+   provenance verified. Each page must show its selection digest and every panel, hold
+   at most 120 points per metric, and load no script or outside resource.
+3. **Four fresh-process replays** (`--replay`): identical account, order and trace
+   bytes, equal reopened dashboards and zero telemetry inserts.
+4. **Installed consumer suites** from the same environment, with workspaces retained:
+   the operational workflow (both venues, alert delivery through receiver loss and
+   restoration), the public-paper fixture workflow, and the study, candidate and
+   decision research workflows (custom metric, chart and delayed-label monitoring).
+5. **`make check`** on the unchanged frozen source.
+
+A pass re-verifies MR12's installed evidence for this bounded local scope. Human
+acknowledgement, remote monitoring services, source-clock accuracy and MR15 capacity
+stay outside it.
+
+### Uncounted re-verification rehearsals (2026-10-02)
+
+Rehearsal 1 passed every step, but both Bitfinex live runs traded nothing and sent no
+alert, so their reconciliation (0 = 0) and alert observation (0 of 0) passed
+vacuously. Every Bitfinex decision was refused `fee_reserve_below_worst_case`: review
+#9 (`6b43f6b`, 2026-10-01) reserved one minor unit per lot for rounding, which for a
+0.0001 BTC order on 1e-8 BTC lots in USD is about $100 against the consumer's $2. Live
+runs now must trade and alert. Paper and shadow reserves now follow the paper model's
+own half-even rounding (exact fee plus half a minor unit per fill that can round up),
+proved against the matcher's fees by a property test; `venue_test` keeps the per-lot
+bound.
+
+Rehearsal 2 (`d841602`) passed every step with activity on all four runs: OKX and
+Bitfinex shared each 2 fills and 3/3 alerts observed, dedicated each 1 fill and 2/2,
+with reconciled economics and every page passing inspection; all four replays were
+byte-identical with zero inserts; the installed suites passed (13 run, 1 Feast case
+skipped for its absent worker interpreter, as in `make check`).
+
+## Installed re-verification result (2026-10-02)
+
+**Passed.** The single counted attempt froze `1c57e48`, installed it into a separate
+non-editable environment (all 362 runtime inputs equal to the checkout), ran every
+step once into ignored `logs/paper-monitoring/reverification/`, and then passed
+`make check` on the unchanged source (2,279 passed, 2 skipped).
+
+| Run | Fills | Fees | Net P&L | Alerts accepted / observed | Dashboards | Replay |
+| --- | --- | --- | --- | --- | --- | --- |
+| OKX shared | 2 | 0.016923 USDT | -0.017165 USDT | 3 / 3 | 4 | identical, 0 inserts |
+| OKX dedicated | 1 | 0.00846139 USDT | -0.00847239 USDT | 2 / 2 | 3 | identical, 0 inserts |
+| Bitfinex shared | 2 | 0.02 USD | -0.021402 USD | 3 / 3 | 4 | identical, 0 inserts |
+| Bitfinex dedicated | 1 | 0.01 USD | -0.010601 USD | 2 / 2 | 3 | identical, 0 inserts |
+
+Every run reconciled dashboard economics exactly against committed fills; every
+retained dashboard reopened with its provenance verified and passed the page
+inspection. The installed operational, public-paper, study, candidate and decision
+suites passed (13 run; the Feast case skipped for its absent worker interpreter, as in
+`make check`). These authored paper losses establish machinery, not strategy economics.
+
+MR12's installed evidence is therefore renewed for the bounded dashboard contract in
+this local scope. Human acknowledgement, remote services, source-clock accuracy,
+long-outage failover and dashboard capacity beyond MR15's stage-1 envelope stay outside
+it.
 
 ## Evidence reuse and remaining limits
 

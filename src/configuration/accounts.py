@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import math
 from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -69,6 +70,23 @@ class InstrumentFeeRate(WireRecord, frozen=True):
             return exact
         lots = Fraction(quantity.value) / Fraction(lot.value)
         return exact + lots * Fraction(limit.currency.minor_unit)
+
+    def paper_minimum_reserve(self, quantity: Quantity, limit: Price, lot: Quantity) -> Fraction:
+        """Return the smallest reservation for fees the paper model rounds per fill.
+
+        The paper model rounds each fill's fee half-even, so a fill adds at most half
+        a minor unit, and only a fill whose own fee reaches half a minor unit can
+        round up. Those fills' fees sum to at most the exact fee at the limit, so at
+        most ``2 * exact / minor`` of them, and never more than one per lot, exist.
+        A venue's own rounding is unknown, so venue accounts use ``minimum_reserve``.
+        """
+        exact = Fraction(quantity.value) * Fraction(limit.value) * Fraction(self.rate)
+        if not self.rate:
+            return exact
+        minor = Fraction(limit.currency.minor_unit)
+        lots = Fraction(quantity.value) / Fraction(lot.value)
+        rounding_fills = min(math.floor(lots), math.floor(2 * exact / minor))
+        return exact + rounding_fills * minor / 2
 
 
 class AccountConfiguration(WireRecord, frozen=True):

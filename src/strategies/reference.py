@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import math
 from fractions import Fraction
 from typing import Literal
 
@@ -14,13 +15,17 @@ from serialization import DomainCodec
 from strategies.decisions import DecisionContext, DecisionTransition
 from strategies.intents import OrderIntent
 
+# The opening clip bids this far through the ask: enough to stay marketable against a
+# modeled adverse execution cost at any price level, inside a 500 bps deviation limit.
+_OPENING_THROUGH = Fraction(200, 10_000)
+
 
 class ReferenceClipPolicy:
     """Buy one fixed opening clip, then leave nonmarketable book interests.
 
-    Prices move in ticks of the admitted grid, so they scale with the price level:
-    the opening clip bids two ticks through the ask, and later interests rest one
-    tick below the best bid, or at it when the bid is a single tick.
+    Prices scale with the price level: the opening clip bids 200 bps through the ask,
+    rounded up onto the admitted tick grid, and later interests rest one tick below
+    the best bid, or at it when the bid is a single tick.
     """
 
     fields = (
@@ -118,7 +123,7 @@ class ReferenceClipPolicy:
             raise ValueError("reference clip requires positive uncrossed prices")
         tick = Fraction(self.tick.value)
         if state == b"0":
-            raw = ask_value + 2 * tick
+            raw = math.ceil(ask_value * (1 + _OPENING_THROUGH) / tick) * tick
         else:
             raw = bid_value - tick if bid_value > tick else bid_value
         price = Price(

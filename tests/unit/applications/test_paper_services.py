@@ -414,6 +414,32 @@ class _SupervisorHarness(PaperServices):
         self.events.append(f"refresh:{source_name}")
 
 
+class _DrainingServices(_SupervisorHarness):
+    """Record applied controls; no child or account remains to drain."""
+
+    def __init__(
+        self,
+        config: PaperServiceConfiguration,
+        owner: PaperOwner,
+        root: Path,
+        control_socket: Path,
+    ) -> None:
+        """Build the real supervisor, then leave nothing for shutdown to stop."""
+        super().__init__(config, owner, root, control_socket)
+        self.accounts = {}
+        self.applied: list[str] = []
+
+    def apply(self, control: PaperServiceControl) -> dict[str, object]:
+        """Record the control and mark an operator shutdown as the real method does."""
+        self.applied.append(control.action)
+        if control.action == "shutdown":
+            self.is_stopping = self.shutdown_requested = True
+        return {"applied": control.action}
+
+    def _write_status(self) -> None:
+        """Keep the drain test independent of status files."""
+
+
 class _ObservationGate(SharedPaperCaptureObserver):
     """Expose independent account progress and the exact per-source delivery order."""
 
@@ -1103,6 +1129,100 @@ class TestPaperServices:
                     client.connect(str(path))
             finally:
                 path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _request(path: Path, action: str, replies: list[dict[str, object]]) -> None:
+        """Send one control frame and retain the decoded reply."""
+        control = PaperServiceControl(
+            action=cast(Literal["inspect", "shutdown", "stop_instance"], action),
+            identity=uuid4().hex,
+            subject="book" if action == "stop_instance" else None,
+        )
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(3)
+            client.connect(str(path))
+            client.sendall(DomainCodec().encode_json(control) + b"\n")
+            reply = bytearray()
+            while b"\n" not in reply:
+                block = client.recv(65536)
+                if not block:
+                    break
+                reply.extend(block)
+        replies.append(msgspec.json.decode(bytes(reply).split(b"\n", 1)[0], type=dict[str, object]))
+
+    def _draining(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> tuple[_DrainingServices, socket.socket]:
+        """Start a real listener for a supervisor with nothing left to drain."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        path = self._socket_path()
+        services = _DrainingServices(
+            self._config(self._socket_path()), self._owner(), tmp_path, path
+        )
+        listener = services._listen()
+        return services, listener
+
+    @pytest.mark.parametrize(("duration", "reserve"), ((75, 5.0), (25, 5.0), (10, 2.0)))
+    def test_drain_reserve_leaves_most_of_the_service_life_active(
+        self, duration: int, reserve: float
+    ) -> None:
+        """A 75-second service serves its sources for 70 seconds; short ones keep a fifth."""
+        assert PaperServices.drain_reserve(duration) == reserve
+
+    def test_draining_supervisor_answers_only_inspect_and_shutdown(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A drain applies inspect and shutdown and refuses every other control."""
+        services, listener = self._draining(tmp_path, monkeypatch)
+        try:
+            replies: list[dict[str, object]] = []
+            for action in ("inspect", "stop_instance", "shutdown"):
+                client = threading.Thread(
+                    target=self._request, args=(services.control_socket, action, replies)
+                )
+                client.start()
+                deadline = time.monotonic() + 3
+                while not services._control(listener, draining=True):
+                    assert time.monotonic() < deadline
+                    time.sleep(0.01)
+                client.join(3)
+            assert [reply["ok"] for reply in replies] == [True, False, True]
+            assert "draining" in str(replies[1]["error"])
+            assert services.applied == ["inspect", "shutdown"]
+        finally:
+            listener.close()
+            services.control_socket.unlink(missing_ok=True)
+
+    def test_self_started_drain_answers_a_late_operator_shutdown(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A shutdown racing the end of the active window is answered, then the drain ends."""
+        services, listener = self._draining(tmp_path, monkeypatch)
+        replies: list[dict[str, object]] = []
+        client = threading.Timer(
+            0.3, self._request, args=(services.control_socket, "shutdown", replies)
+        )
+        client.start()
+        started = time.monotonic()
+        services._shutdown(listener, deadline=started + 5)
+        client.join(3)
+        assert replies == [{"ok": True, "status": {"applied": "shutdown"}}]
+        assert services.shutdown_requested
+        assert time.monotonic() - started < 2
+        assert not services.control_socket.exists()
+
+    def test_unrequested_drain_ends_inside_the_service_lifetime(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without an operator shutdown the drain still closes before the service deadline."""
+        services, listener = self._draining(tmp_path, monkeypatch)
+        started = time.monotonic()
+        services._shutdown(listener, deadline=started + 1)
+        elapsed = time.monotonic() - started
+        assert 0.4 <= elapsed < 1
+        assert not services.shutdown_requested and not services.control_socket.exists()
 
     def test_supervise_consumes_one_delivery_per_source_on_each_productive_pass(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

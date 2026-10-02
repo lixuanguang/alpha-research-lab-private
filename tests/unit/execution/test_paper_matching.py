@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 # standard library imports
+import random
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 # third party library imports
 import pytest
@@ -18,6 +21,7 @@ from msgspec.structs import replace
 # project library imports
 from accounting import Ledger, LedgerState
 from configuration import PaperConfiguration, PaperExecutionScenario
+from configuration.accounts import InstrumentFeeRate
 from execution import (
     OrderDecision,
     OrderEvent,
@@ -27,7 +31,15 @@ from execution import (
     PaperOrderJournal,
 )
 from execution.paper import PaperFeeSchedule
-from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
+from financial_units import (
+    Currency,
+    DecimalGrid,
+    Dimension,
+    Money,
+    Price,
+    Quantity,
+    QuantityKind,
+)
 from reference_data.instruments import InstrumentId
 from risk import SpotLimits
 from serialization import DomainCodec
@@ -52,6 +64,84 @@ class _OverchargingFeeSchedule(_ReserveBlindFeeSchedule):
         """Charge ten times the modeled fee, beyond any reserve sized for the rate."""
         modeled = super().fee(size, price)
         return Money(value=modeled.value * 10, currency=modeled.currency)
+
+
+class TestPaperFeeReserve:
+    """Bound every split of a paper order's fees by its admitted reserve."""
+
+    @staticmethod
+    def _units(
+        currency: Currency,
+    ) -> tuple[Dimension, InstrumentFeeRate, Callable[[str], Quantity], Callable[[str], Price]]:
+        """Bind one instrument, its configured rate and exact unit constructors."""
+        dimension = Dimension(instrument_id=InstrumentId(UUID(int=7)), kind=QuantityKind.BASE_UNIT)
+        rate = InstrumentFeeRate(instrument_id=dimension.instrument_id, rate=Decimal("0.001"))
+        return (
+            dimension,
+            rate,
+            lambda value: Quantity(value=Decimal(value), dimension=dimension),
+            lambda value: Price(value=Decimal(value), currency=currency, per=dimension),
+        )
+
+    @pytest.mark.parametrize(
+        ("code", "lot", "quantity", "limit", "expected"),
+        (
+            # Live Bitfinex: 10,000 one-satoshi lots; per-lot rounding would need $100.
+            (
+                "USD",
+                "0.00000001",
+                "0.0001",
+                "84359",
+                Fraction(84359, 10_000_000) + Fraction(1, 200),
+            ),
+            ("USD", "1", "2", "100", Fraction(21, 100)),
+            ("USDT", "0.00000001", "0.0002", "84240.5", None),
+        ),
+    )
+    def test_paper_reserve_matches_the_bound(
+        self, code: str, lot: str, quantity: str, limit: str, expected: Fraction | None
+    ) -> None:
+        """The paper reserve is the exact fee plus half a minor unit per possible round-up."""
+        currency = Currency.from_code(code)
+        _, rate, as_quantity, as_price = self._units(currency)
+        reserve = rate.paper_minimum_reserve(
+            as_quantity(quantity), as_price(limit), as_quantity(lot)
+        )
+        exact = Fraction(Decimal(quantity)) * Fraction(Decimal(limit)) / 1000
+        minor = Fraction(currency.minor_unit)
+        lots = Fraction(Decimal(quantity)) / Fraction(Decimal(lot))
+        rounding_fills = min(lots, Fraction((2 * exact) // minor))
+        assert reserve == exact + rounding_fills * minor / 2
+        if expected is not None:
+            assert reserve == expected
+        assert reserve <= rate.minimum_reserve(
+            as_quantity(quantity), as_price(limit), as_quantity(lot)
+        )
+
+    def test_every_split_of_a_buy_stays_within_the_reserve(self) -> None:
+        """Random whole-lot fills at or below the limit, at any rate up to the configured one."""
+        generator = random.Random(20261002)
+        for _ in range(3000):
+            currency = Currency.from_code(generator.choice(("USD", "USDT", "JPY")))
+            _, rate, as_quantity, as_price = self._units(currency)
+            lot = generator.choice(("1", "0.001", "0.00000001"))
+            lots = generator.randint(1, 40)
+            limit = Fraction(generator.randint(1, 10**7), generator.choice((1, 100, 10_000)))
+            limit_price = as_price(str(DecimalGrid.exact_decimal(limit)))
+            reserve = rate.paper_minimum_reserve(
+                as_quantity(str(Decimal(lot) * lots)), limit_price, as_quantity(lot)
+            )
+            schedule = PaperFeeSchedule(
+                Decimal(rate.rate) * Decimal(generator.choice(("1", "0.5", "0.25")))
+            )
+            remaining, charged = lots, Fraction(0)
+            while remaining:
+                take = generator.randint(1, remaining)
+                remaining -= take
+                price = limit * Fraction(generator.randint(500, 1000), 1000)
+                fill_price = as_price(str(DecimalGrid.exact_decimal(price)))
+                charged += Fraction(schedule.fee(Fraction(Decimal(lot)) * take, fill_price).value)
+            assert charged <= reserve, (currency.code, lot, lots, limit, charged, reserve)
 
 
 class TestPaperMatcher:
@@ -303,7 +393,8 @@ class TestPaperMatcher:
         scenario = self._scenario(adverse="0.01")
         with self._journal(tmp_path) as journal:
             epoch = journal.claim("rounding-owner")
-            # Three units at 1.20 cost 0.018, plus one cent per lot for rounding: 0.048.
+            # Three units at 1.20 cost 0.018; each one-unit fill (0.006) can round up by
+            # half a cent, so the reserve is 0.018 + 3 * 0.005 = 0.033.
             refused = journal.commit_step(
                 epoch=epoch,
                 step_id="under-reserved",
@@ -319,7 +410,7 @@ class TestPaperMatcher:
                     ),
                 ),
                 reference=self._price("1.00"),
-                maximum_fee=self._money("0.04"),
+                maximum_fee=self._money("0.03"),
             )
             assert (refused.status, refused.reason) == (
                 "rejected",

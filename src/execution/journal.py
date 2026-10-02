@@ -816,7 +816,7 @@ class PaperOrderJournal:
             reason = self._lifecycle.order_reason(intent)
             if reason is not None:
                 return StepCommit(status="rejected", reason=reason, orders=())
-            if Fraction(maximum_fee.value) < self.fee_rate.minimum_reserve(
+            if Fraction(maximum_fee.value) < self.fee_rate.paper_minimum_reserve(
                 intent.quantity, intent.limit, self.limits.lot
             ):
                 return StepCommit(

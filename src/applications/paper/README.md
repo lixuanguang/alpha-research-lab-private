@@ -281,9 +281,11 @@ selects its source and installed reference policy. The supported local envelope 
 at most four accounts, eight source processes and sixteen policy instances, with
 bounded 1–120 second invocations. These resource ceilings are not MR15 throughput
 qualification. `fixed_clip` and `liquidity_clip` are different engineering formulas,
-not profitability recommendations. Both price in ticks of the instrument limits in the
-instance's installed account: the opening clip bids two ticks through the ask, and later
-interests rest one tick below the best bid, or at a bid of a single tick.
+not profitability recommendations. Both price on the tick grid of the instrument limits
+in the instance's installed account: the opening clip bids 200 bps through the ask,
+rounded up to a tick, so it stays marketable against the scenario's modeled adverse
+cost at any price level; later interests rest one tick below the best bid, or at a bid
+of a single tick.
 
 The interval is positive and no larger than source freshness or capture idle time.
 It is part of the signed input identity. All native books are retained and validated;
@@ -308,6 +310,10 @@ alpha-execute deployment-control --socket /private/tmp/paper-supervisor.sock \
 `owners.json` encodes `PaperServiceOwners(owners=...)`. Operator control files encode
 `PaperServiceControl(action=..., identity=..., subject=...)`; actions are `inspect`,
 `stop_instance`, `restart_instance`, `stop_source`, `restart_source` and `shutdown`.
+The supervisor reserves the last fifth of its life, at most five seconds, for draining.
+During that drain reserve it answers only `inspect` and `shutdown` and
+refuses the rest; when it starts that drain itself, it keeps answering until a
+`shutdown` arrives or its deadline is half a second away.
 Instance/source actions name their configured subject. A repeated control identity
 must retain identical content. Restarting a source provides fresh synchronization
 and may settle accepted obligations; it does not clear the account stop or authorize

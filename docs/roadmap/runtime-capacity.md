@@ -1353,3 +1353,123 @@ installed re-verification: the stage-1 services' telemetry is read by the query
 consumer, but retained paper dashboards come from the public-paper consumers (both
 venues' dedicated and shared public-feed dashboards and receiver-observed alerts),
 which need their own declared re-run.
+
+#### Uncounted rehearsals (2026-10-01)
+
+Four rehearsals ran under `logs/runtime-capacity/stage1-dashboard-rehearsal-{1..4}/`,
+each with its own builder key, signed targets, grants and sockets. None is the counted
+attempt, and none is combined with it.
+
+1. Stopped at the first build: the build policy pinned the base interpreter, which
+   lacks the admitted `hatchling`. The driver now pins the research environment's.
+2. Built, verified and installed all four targets, then stopped issuing grants: the
+   research interpreter was an editable checkout, so the installed identity had no
+   files. Freeze now refuses an editable install.
+3. Ran the whole sequence. The populated-history queries passed all four classes on a
+   signed trial (dashboard warm 82.0/107.5/115.8 ms). Two regressions on `main` since
+   the residual cohort failed the trials:
+   - Review #24 (`f681074`) priced the reference opening clip two ticks through the
+     ask. Under the fixture's 0.50 modeled adverse cost at a 0.01 tick the clip
+     (100.02) never filled, so the first-touch oracle failed on all four accounts.
+   - The supervisor answered controls only until 65 s (75 s less its drain reserve).
+     The public route took 4.32 s to start, sent `shutdown` at 65.87 s and got no reply.
+4. With both fixes (`45ba575`) the whole sequence passed:
+
+| Step | Result |
+| --- | --- |
+| Steady trial | 58/58 gates; oracle holds on all four accounts; 122 health witnesses; CPU 1.48 cores, RSS 2.26 GiB |
+| Populated-history queries | All four classes pass with parity; dashboard warm 85.9/120.7/139.8 ms, cold p99 190.2 ms; depth/BBO cold p99 43.7 ms |
+| Public Bitfinex route | 40/40 gates; 2,472 and 2,890 public messages, supervisor stop, complete delivery parity |
+| Cleanup audits | Both pass; every observed process absent and all accounts stopped |
+
+The counted attempt freezes a later commit and needs the owner's go-ahead.
+
+#### Counted dashboard cohort result (2026-10-01)
+
+The single counted attempt froze `13331a5` (installed implementation `58a11f70…`,
+releases `b3da36e1…` OKX shared, `6e2542c4…` OKX isolated, `23e9353b…` Bitfinex shared,
+`b0476b1b…` Bitfinex isolated) and **stopped at the public Bitfinex route**. As
+declared, nothing was retried, and the cohort's cleanup audit and `make check` did not
+run.
+
+| Step | Result |
+| --- | --- |
+| Freeze, signed candidate, grants | Pass |
+| Steady trial | 58/58 gates; first-touch oracle holds on all four accounts; 122 health witnesses; receipt-to-durable p99 11.1–42.5 ms, durable-to-BBO p99 48.6–90.8 ms; CPU 1.48 cores, RSS 2.30 GiB |
+| Populated-history queries | **All four classes pass** with matched-cutoff parity, 1,000 requests each, no failure (below) |
+| Public Bitfinex route | 38/40 gates. Public captures (5,984 and 5,193 messages) ended on supervisor stop with complete delivery parity and bounded queues. The two OKX fixture schedule proofs failed |
+
+| Class | Service p50 / p95 / p99 | Scheduled response p50 / p95 / p99 | Budget |
+| --- | --- | --- | --- |
+| Depth/BBO, application-cold | 6.5 / 17.6 / 26.3 ms | 10.2 / 24.8 / 32.3 ms | 2 s p99 |
+| Depth/BBO, warm | 5.7 / 9.8 / 15.1 ms | 9.0 / 14.2 / 21.6 ms | 50 / 200 / 500 ms |
+| Dashboard, application-cold | 104.3 / 122.7 / 135.6 ms | 108.6 / 126.8 / 140.6 ms | 3 s p99 |
+| Dashboard, warm | 80.7 / 108.1 / 112.8 ms | 84.8 / 111.2 / 117.0 ms | 100 / 400 / 1,000 ms |
+
+**The route failure is the supervisor's active window, not load.** The supervisor
+serves its sources for 75 s less a 10 s drain reserve, about 65 s from launch. The
+route took 4.60 s from startup to the measured interval (the steady trial took 1.37 s),
+so its 60-second interval ran to about 65.3 s. The supervisor began its own drain and
+closed the OKX fixture sources 60–82 ms before the interval ended, so the last one or
+two authored slots (due 5–63 ms before the end) were never emitted. Every emitted frame
+was exact, contiguous, durable and on time; the trial itself recorded no failure.
+Rehearsal 4's route started in 3.24 s and fit. The shutdown-reply repair answered the
+operator but did not move this window.
+
+A read-only cleanup audit run afterwards, outside the counted sequence, found every
+observed process absent and all four accounts stopped in both trials. MR15, MR12
+re-verification, stage 2 and 24-hour operation are not claimed. A new attempt needs
+a decision on the route's lifecycle margin and a fresh declaration.
+
+#### Dashboard cohort redeclaration (approved 2026-10-02)
+
+Drafted 2026-10-01 after the owner chose the lifecycle repair; the owner approved it
+on 2026-10-02 after rehearsal 5. The supervisor's drain reserve becomes the last fifth of
+its life, at most 5 s (was at most 10 s). Every observed drain finished in about a
+second, and the 75 s supervisor and 120 s account lifetimes are unchanged. A 75 s
+service now serves its sources for 70 s, so a public route has about five more
+seconds of startup margin before its 60 s interval.
+
+Everything else in the approved continuation declaration stands: the same committed
+driver, gates, budgets, grants, limits and steps, and **one counted attempt** that
+stops at the first failure. Its cleanup audit and `make check` run on the unchanged
+frozen source. One uncounted rehearsal precedes it, into
+`logs/runtime-capacity/stage1-dashboard-rehearsal-5/`, and the counted attempt writes
+to `logs/runtime-capacity/stage1-dashboard-2/`. The earlier counted attempt stays
+recorded as stopped and is not combined with this one.
+
+Rehearsal 5 (uncounted, `f9b0ca1`) passed every step. Its public route again started
+slowly (4.24 s to the measured interval, which ended at 65.02 s, past the former 65 s
+window). With the 70 s window it passed 40/40 gates. Steady passed 58/58 gates, and the
+history queries passed all four classes (dashboard warm 82.1/110.3/118.4 ms, scheduled
+response p50 86.2 ms; dashboard cold p99 147.6 ms).
+
+#### Counted dashboard cohort result, second attempt (2026-10-02)
+
+**Passed.** The single counted attempt under the approved redeclaration froze `f16b580`
+(installed implementation `87f4a93c…`; releases `9fd932f2…` OKX shared, `97c5eb54…` OKX
+isolated, `d3b0643f…` Bitfinex shared, `18bb1276…` Bitfinex isolated) and ran every step
+once, into `logs/runtime-capacity/stage1-dashboard-2/`.
+
+| Step | Result |
+| --- | --- |
+| Freeze, signed candidate, grants | Pass |
+| Steady trial | 58/58 gates; first-touch oracle holds on all four accounts; 121 health witnesses; receipt-to-durable p99 6.1–13.9 ms, durable-to-BBO p99 34.3–45.6 ms; CPU 1.37 cores, RSS 2.30 GiB |
+| Populated-history queries | All four classes pass with matched-cutoff parity, 1,000 requests each, no failure (below) |
+| Public Bitfinex route (12,000 cap) | 40/40 gates; 3,266 and 1,883 public messages ended on supervisor stop with complete delivery parity and bounded queues; OKX fixture sources met their gates. Startup took 4.24 s and the interval ended at 64.98 s, inside the 70 s window |
+| Cleanup audits | Both pass: every observed process absent and all four accounts stopped |
+| `make check` on the frozen source | Passed (2,270 passed, 2 skipped); HEAD and tree unchanged |
+
+| Class | Service p50 / p95 / p99 | Scheduled response p50 / p95 / p99 | Budget |
+| --- | --- | --- | --- |
+| Depth/BBO, application-cold | 8.6 / 14.7 / 19.0 ms | 13.9 / 22.4 / 32.4 ms | 2 s p99 |
+| Depth/BBO, warm | 7.9 / 13.3 / 19.9 ms | 12.6 / 18.1 / 25.5 ms | 50 / 200 / 500 ms |
+| Dashboard, application-cold | 101.0 / 120.7 / 130.2 ms | 105.8 / 125.8 / 135.3 ms | 3 s p99 |
+| Dashboard, warm | 79.3 / 101.3 / 111.6 ms | 84.1 / 106.0 / 116.1 ms | 100 / 400 / 1,000 ms |
+
+This qualifies, for the bounded stage-1 envelope, the populated-history query classes
+on the bounded dashboard contract and the public Bitfinex route with the 12,000 cap.
+Warm dashboard p50 has about 20% margin. It is not MR15 acceptance: checkpoint
+percentiles (deferred to stage 2), filesystem-cold queries, renewed public OKX health,
+integrated feature serving, MR12's installed re-verification, stage 2 and 24-hour
+operation remain open.

@@ -216,6 +216,7 @@ class PaperServices:
         self.account_phases: dict[str, object] = {}
         self.delivery_accounting: dict[str, object] = {}
         self.is_stopping = False
+        self.shutdown_requested = False
         self.run_id = uuid4().hex
         self._observation_executor: concurrent.futures.ThreadPoolExecutor | None = None
         self._has_disjoint_source_accounts = self._sources_have_disjoint_accounts()
@@ -395,8 +396,10 @@ class PaperServices:
                         for item in self.config.instances
                     ):
                         self._start_source(source)
-                drain_reserve = min(10.0, self.config.duration_seconds / 5)
-                active_deadline, next_sample = service_deadline - drain_reserve, 0.0
+                active_deadline = service_deadline - self.drain_reserve(
+                    self.config.duration_seconds
+                )
+                next_sample = 0.0
                 while not self.is_stopping and time.monotonic() < active_deadline:
                     self._control(listener)
                     consumed = self._supervise()
@@ -415,6 +418,15 @@ class PaperServices:
                     finally:
                         self._observation_executor = None
             return self.status()
+
+    @staticmethod
+    def drain_reserve(duration_seconds: float) -> float:
+        """Reserve the end of the service life for draining sources and stopping accounts.
+
+        Observed drains finish in about a second; five seconds keeps that margin while
+        leaving a 75-second service 70 seconds to serve its sources.
+        """
+        return min(5.0, duration_seconds / 5)
 
     def _shutdown(self, listener: socket.socket, *, deadline: float | None = None) -> None:
         """Fence every child and request every account stop despite diagnostic close failure."""
@@ -442,6 +454,7 @@ class PaperServices:
             )
             and time.monotonic() < drain_deadline
         ):
+            self._control(listener, draining=True)
             if not self._supervise():
                 time.sleep(0.005)
         for name, child in self.sources.items():
@@ -464,6 +477,15 @@ class PaperServices:
             except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                 self._record("shutdown_failed", account_id, str(error))
         self._write_status()
+        # A drain this service started itself still answers the operator's shutdown
+        # until just before the service deadline, so a request racing the end of the
+        # active window is not lost and the process still exits inside its lifetime.
+        service_end = time.monotonic() if deadline is None else deadline - 0.5
+        while not self.shutdown_requested and time.monotonic() < service_end:
+            if not self._control(listener, draining=True):
+                time.sleep(0.02)
+        while self._control(listener, draining=True):
+            pass
         listener.close()
         self.control_socket.unlink(missing_ok=True)
 
@@ -520,6 +542,7 @@ class PaperServices:
         name = control.subject
         if control.action == "shutdown":
             self.is_stopping = True
+            self.shutdown_requested = True
         elif control.action in ("stop_instance", "restart_instance"):
             if name is None or name not in self.instances:
                 raise ValueError("unknown service instance")
@@ -1207,12 +1230,24 @@ class PaperServices:
             self.monitor.failures += 1
             self.monitor.last_error = f"status_retention:{type(error).__name__}"
 
-    def _control(self, listener: socket.socket) -> None:
-        """Handle one bounded control request while the source loop retains scheduling ownership."""
+    def _control(self, listener: socket.socket, *, draining: bool = False) -> bool:
+        """Handle one bounded control request while the source loop retains scheduling ownership.
+
+        While draining, only ``inspect`` and ``shutdown`` are applied; any other
+        control is answered with a refusal.
+
+        Returns:
+            Whether a pending connection was handled.
+        """
         try:
             connection, _ = listener.accept()
         except BlockingIOError:
-            return
+            return False
+        except OSError:
+            # A drain may meet a listener that never listened; nothing is pending there.
+            if draining:
+                return False
+            raise
         with connection:
             self._join_observations()
             connection.settimeout(2)
@@ -1231,6 +1266,8 @@ class PaperServices:
                 control = self.codec.decode_json(
                     bytes(payload).split(b"\n", 1)[0], PaperServiceControl
                 )
+                if draining and control.action not in ("inspect", "shutdown"):
+                    raise ValueError("service is draining; only inspect and shutdown apply")
                 result = {"ok": True, "status": self.apply(control)}
             except (OSError, ValueError, RuntimeError, TimeoutError) as error:
                 result = {"ok": False, "error": str(error)}
@@ -1240,6 +1277,7 @@ class PaperServices:
                 # A lost operator response must not replay a completed control.
                 self.monitor.failures += 1
                 self.monitor.last_error = "operator_response_lost"
+        return True
 
     @staticmethod
     def _account_socket(account: PaperServiceAccount) -> str:
