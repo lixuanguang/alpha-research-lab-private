@@ -90,6 +90,9 @@ from runtime import (
 from serialization import DomainCodec
 from telemetry import HealthMetric, HealthMetrics, RuntimeMeasurementJournal
 
+# A short existing root keeps AF_UNIX paths in limits on macOS and Linux.
+_SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
+
 
 class _ScriptedBookSocket:
     """Deliver one finite OKX public book script, then drop the connection."""
@@ -696,7 +699,7 @@ class TestPaperServices:
     @staticmethod
     def _socket_path() -> Path:
         """Stay below the platform's AF_UNIX pathname limit."""
-        return Path("/private/tmp") / f"ps-{uuid4().hex[:12]}.sock"
+        return Path(_SOCKET_ROOT) / f"ps-{uuid4().hex[:12]}.sock"
 
     @staticmethod
     def _config(socket_path: Path) -> PaperServiceConfiguration:

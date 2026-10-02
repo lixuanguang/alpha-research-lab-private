@@ -1074,8 +1074,9 @@ class TestPinnedInstallationTools:
         replacements = {
             "implementation": (0, "pypy"),
             "version": (1, "3.14.6"),
-            "platform": (2, "linux"),
-            "machine": (3, "x86_64"),
+            # Report a platform and machine other than this host's.
+            "platform": (2, "linux" if sys.platform != "linux" else "darwin"),
+            "machine": (3, "x86_64" if platform.machine() != "x86_64" else "arm64"),
             "gil": (4, "1"),
         }
         if mutation == "uv":
