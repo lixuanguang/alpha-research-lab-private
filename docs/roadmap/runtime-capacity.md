@@ -1311,14 +1311,23 @@ Every request finishes inside its 200 ms slot, so nothing queues. Warm p50 has
 about 13% margin. These are offline diagnostics on an authored store, not a
 qualification; the signed cohort below must measure them.
 
-#### Dashboard continuation declaration (draft, not approved)
+#### Dashboard continuation declaration (approved 2026-10-01)
 
-Drafted 2026-10-01 for owner review; nothing runs without explicit approval. It is
-limited to **one attempt**, and the cohort stops at the first failure. It
-supersedes the draft written with the first repair.
+The owner approved this declaration on 2026-10-01. It is limited to **one counted
+attempt**, and the cohort stops at the first failure. It supersedes the draft
+written with the first repair.
 
-The candidate is the source at the commit adding this section, frozen by hash, with
-drivers and evidence under ignored `logs/runtime-capacity/stage1-dashboard/`. Because
+The earlier cohorts' drivers lived only under ignored `logs/` and did not survive,
+so the owner chose committed drivers and one rehearsal first. The driver is
+[`capacity_cohort.py`](../../tests/integration/consumers/runtime/capacity_cohort.py).
+Its gate tests trace each criterion to the collected status or documented ceiling
+it reads. One rehearsal runs the whole sequence on separately built and installed
+targets into a separate output; it is not counted and its result is reported. The
+counted attempt then needs the owner's go-ahead.
+
+The candidate is the committed source the counted attempt freezes, recorded with
+each consumer's hash in its `steps.jsonl`. Evidence lives under ignored
+`logs/runtime-capacity/stage1-dashboard/`. Because
 the telemetry source and dashboard contract changed, the four signed `paper` targets
 are built again, with the residual cohort's configuration, state, ephemeral builder
 key, seven-day policy, fresh journals, disabled deployments and ordinary one-hour
