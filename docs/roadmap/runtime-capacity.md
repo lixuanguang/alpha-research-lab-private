@@ -1474,9 +1474,9 @@ percentiles (deferred to stage 2), filesystem-cold queries, renewed public OKX h
 integrated feature serving, MR12's installed re-verification, stage 2 and 24-hour
 operation remain open.
 
-#### Public OKX route renewal declaration (draft 2026-10-02)
+#### Public OKX route renewal declaration (approved 2026-10-02)
 
-Draft, not yet approved. The last healthy public OKX route (606 BTC and 608 ETH messages,
+Approved by the owner on 2026-10-02 after rehearsal 2. The last healthy public OKX route (606 BTC and 608 ETH messages,
 121 health witnesses) ran on candidate 10. Runtime bytes have changed since, so a fresh
 signed route is needed. This cohort renews only that route; nothing else is retested.
 
@@ -1522,6 +1522,26 @@ Uncounted rehearsals (`8883f31`, separate non-editable environment):
    parity, and peaked at 16 ms oldest queue age and two queued records. The Bitfinex
    fixture sources met their gates, and the cleanup audit found every observed process
    absent and all four accounts stopped.
+
+#### Counted public OKX route result (2026-10-02)
+
+**Passed.** The single counted attempt under the approved declaration froze `a906155`
+(installed implementation `39d803b4…`; releases `67963bea…` OKX shared, `13c471a5…` OKX
+isolated, `566ad478…` Bitfinex shared, `17c0e3e8…` Bitfinex isolated) and ran every step
+once, into `logs/runtime-capacity/public-okx/`.
+
+| Step | Result |
+| --- | --- |
+| Freeze, signed candidate, route grants | Pass |
+| Public OKX route | 44/44 gates over a 60.000 s measured interval with 122 health witnesses. Public OKX BTC and ETH delivered 551 and 542 native messages (8.9 and 8.7 Hz steady), ended on supervisor stop with complete delivery parity, and peaked at 13.5 ms oldest queue age. The Bitfinex fixture sources met their gates |
+| Cleanup audit | Pass: every observed process absent and all four accounts stopped |
+| `make check` on the frozen source | Passed (2,289 passed, 2 skipped); HEAD and tree unchanged |
+
+This renews public OKX health for the bounded stage-1 envelope on the current runtime.
+Public latency is reported, not graded, and an observed rate under 9 Hz does not
+qualify the authored load. It is not MR15 acceptance: checkpoint percentiles (deferred
+to stage 2), filesystem-cold queries, integrated feature serving, stage 2 and 24-hour
+operation remain open.
 
 #### Checkpoint yield on the current runtime (2026-10-02)
 
