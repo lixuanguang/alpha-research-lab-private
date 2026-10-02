@@ -32,6 +32,9 @@ from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringQuer
 from telemetry.metrics import MetricInput, MetricRegistry, MetricResult, MetricSpec, SeriesMetric
 from telemetry.operations import OperationalAlerts
 
+# A short existing root keeps AF_UNIX paths in limits on macOS and Linux.
+_SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
+
 
 class _RetainedResultMetric:
     """Retain an injected metric result so a later buggy definition can corrupt it."""
@@ -363,7 +366,7 @@ class TestDashboard:
         metric = self._metric()
         events = (self._event("last", 3, self._ratio(3, 2)),)
         alerts = OperationalAlerts(tmp_path / "alerts.sqlite")
-        with TemporaryDirectory(prefix="dashboard-", dir="/private/tmp") as socket_dir:
+        with TemporaryDirectory(prefix="dashboard-", dir=_SOCKET_ROOT) as socket_dir:
             address = Path(socket_dir) / "syslog.sock"
             config = self._config(metric, address=address)
             with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver:
@@ -391,7 +394,7 @@ class TestDashboard:
     def test_missing_stale_and_failed_delivery_are_visible(self, tmp_path: Path) -> None:
         """Never classify absent input as clear and retain failed socket delivery."""
         metric = self._metric(stale_after_seconds=60)
-        with TemporaryDirectory(prefix="dashboard-", dir="/private/tmp") as socket_dir:
+        with TemporaryDirectory(prefix="dashboard-", dir=_SOCKET_ROOT) as socket_dir:
             address = Path(socket_dir) / "absent.sock"
             rule = self._rule(metric, address, on_missing="trigger", on_stale="unavailable")
             config = DashboardConfig(
