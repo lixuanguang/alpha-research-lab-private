@@ -5,11 +5,13 @@ from __future__ import annotations
 # standard library imports
 import copy
 import os
+import pathlib
 from typing import cast
 
 # third party library imports
+import msgspec
 import pytest
-from capacity_cohort import CleanupAudit, Gate, GateAssessment
+from capacity_cohort import CleanupAudit, Cohort, Gate, GateAssessment, PublicVenue, Sequence
 
 Path = tuple[str, ...]
 
@@ -55,18 +57,21 @@ class TestCapacityCohortGates:
 
     @classmethod
     def _evidence(
-        cls, *, public: bool = False
+        cls, *, public: PublicVenue = None
     ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
         """Return passing summary, collected results and resource summary."""
-        bitfinex = "live_public" if public else "base_fixture"
+        okx = "live_public" if public == "okx" else "base_fixture"
+        bitfinex = "live_public" if public == "bitfinex" else "base_fixture"
         results: dict[str, object] = {
             "steady_monotonic_interval_ns": [0, 60_003_000_000],
             "sources": {
                 "okx-btc-book": {
-                    "transport_origin": "base_fixture",
-                    "recordings": {"r1": cls._recording("base_fixture")},
+                    "venue": "okx",
+                    "transport_origin": okx,
+                    "recordings": {"r1": cls._recording(okx)},
                 },
                 "bitfinex-btc-book": {
+                    "venue": "bitfinex",
                     "transport_origin": bitfinex,
                     "recordings": {"r2": cls._recording(bitfinex)},
                 },
@@ -91,12 +96,31 @@ class TestCapacityCohortGates:
         """Name every failed gate."""
         return {gate.name for gate in gates if not gate.passed}
 
-    def test_passing_fixture_and_public_evidence_pass(self) -> None:
+    @pytest.mark.parametrize("venue", ("okx", "bitfinex"))
+    def test_passing_fixture_and_public_evidence_pass(self, venue: PublicVenue) -> None:
         """Ungraded public latency and an unread public schedule do not fail a route."""
         assert not self._failed(GateAssessment.trial(*self._evidence(), public_venue=None))
-        summary, results, _ = self._evidence(public=True)
+        summary, results, _ = self._evidence(public=venue)
         del results["reads"]
-        assert not self._failed(GateAssessment.trial(summary, results, {}, public_venue="bitfinex"))
+        assert not self._failed(GateAssessment.trial(summary, results, {}, public_venue=venue))
+
+    @pytest.mark.parametrize(
+        ("evidence", "route", "gate"),
+        (
+            ("okx", None, "okx-btc-book.transport_origin"),
+            ("bitfinex", "okx", "bitfinex-btc-book.transport_origin"),
+            (None, "okx", "okx-btc-book.transport_origin"),
+            ("okx", "bitfinex", "okx-btc-book.transport_origin"),
+        ),
+    )
+    def test_only_the_route_venue_is_public(
+        self, evidence: PublicVenue, route: PublicVenue, gate: str
+    ) -> None:
+        """A public source outside the route, or a route venue still on the fixture, fails."""
+        summary, results, resources = self._evidence(public=evidence)
+        assert gate in self._failed(
+            GateAssessment.trial(summary, results, resources, public_venue=route)
+        )
 
     @pytest.mark.parametrize(
         ("path", "value", "gate"),
@@ -306,11 +330,40 @@ class TestCapacityCohortGates:
     )
     def test_public_route_criteria(self, path: Path, value: object, gate: str) -> None:
         """A capped or incomplete public stream, or a failing fixture source, fails a route."""
-        summary, results, _ = self._evidence(public=True)
+        summary, results, _ = self._evidence(public="bitfinex")
         _set(results, path, value)
         assert gate in self._failed(
             GateAssessment.trial(summary, results, {}, public_venue="bitfinex")
         )
+
+    @pytest.mark.parametrize(
+        ("path", "value", "gate"),
+        (
+            (
+                ("sources", "okx-btc-book", "recordings", "r1", "capture", "stop_status"),
+                "fail",
+                "okx-btc-book.stop_status",
+            ),
+            (
+                (
+                    "sources",
+                    "bitfinex-btc-book",
+                    "recordings",
+                    "r2",
+                    "capture",
+                    "fixture_schedule_proof",
+                    "status",
+                ),
+                "fail",
+                "bitfinex-btc-book.fixture_schedule_status",
+            ),
+        ),
+    )
+    def test_public_okx_route_criteria(self, path: Path, value: object, gate: str) -> None:
+        """An OKX route grades its public captures and the Bitfinex fixture's unchanged gates."""
+        summary, results, _ = self._evidence(public="okx")
+        _set(results, path, value)
+        assert gate in self._failed(GateAssessment.trial(summary, results, {}, public_venue="okx"))
 
     def test_failed_trial(self) -> None:
         """Any retained trial failure, such as one unhealthy witness, fails the trial gate."""
@@ -389,3 +442,97 @@ class TestHistoryAndCleanup:
         assert CleanupAudit.observed_pids(iter(rows)) == {11, 12, 13, 14}
         assert CleanupAudit.alive(os.getpid())
         assert not CleanupAudit.alive(4_194_303)
+
+
+_PASSING = (Gate("ok", True, None),)
+
+
+class _ReportingCohort(Cohort):
+    """Replace every side-effecting action with a report of its inputs."""
+
+    def freeze(self) -> dict[str, object]:
+        """Freeze nothing."""
+        return {}
+
+    def candidate(self) -> dict[str, object]:
+        """Build nothing."""
+        return {}
+
+    def history(self) -> tuple[Gate, ...]:
+        """Query nothing and pass."""
+        return _PASSING
+
+    def prepare_route(self) -> dict[str, object]:
+        """Report the route root this sequence selected."""
+        return {"root": self.route_root.name}
+
+    def grant(self, root: pathlib.Path, public_venue: PublicVenue) -> dict[str, object]:
+        """Report the root and public venue the grants would bind."""
+        return {"root": root.name, "venue": public_venue}
+
+    def trial(self, root: pathlib.Path, name: str, public_venue: PublicVenue) -> tuple[Gate, ...]:
+        """Run nothing and pass."""
+        return _PASSING
+
+    def audit(self, root: pathlib.Path, trial: str) -> tuple[Gate, ...]:
+        """Audit nothing and pass."""
+        return _PASSING
+
+
+class TestCohortSequence:
+    """Each declared sequence runs exactly its steps, in order, into one fresh output."""
+
+    @staticmethod
+    def _steps(tmp_path: pathlib.Path, sequence: Sequence) -> list[tuple[str, object]]:
+        """Run a cohort whose actions only report their inputs, and read its step log."""
+        _ReportingCohort(
+            tmp_path / "cohort",
+            repository=tmp_path,
+            launcher=tmp_path / "launcher",
+            python=tmp_path / "python",
+            key_root=tmp_path / "keys",
+            socket_base=tmp_path / "sockets",
+            label="sequence-test",
+            sequence=sequence,
+        ).run()
+        rows = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in (tmp_path / "cohort/steps.jsonl").read_bytes().splitlines()
+        ]
+        return [(cast(str, row["step"]), row["values"]) for row in rows]
+
+    def test_dashboard_sequence_is_unchanged(self, tmp_path: pathlib.Path) -> None:
+        """The approved dashboard cohort keeps its steps and its Bitfinex route."""
+        steps = self._steps(tmp_path, "dashboard")
+        assert [name for name, _ in steps] == [
+            "freeze",
+            "candidate",
+            "grant-steady",
+            "steady-trial",
+            "history-queries",
+            "route-prepare",
+            "grant-route",
+            "public-bitfinex-trial",
+            "cleanup-audit-steady",
+            "cleanup-audit-route",
+        ]
+        assert dict(steps)["grant-route"] == {"root": "route-bitfinex", "venue": "bitfinex"}
+
+    def test_public_okx_sequence_runs_only_the_route(self, tmp_path: pathlib.Path) -> None:
+        """The OKX sequence signs the same candidate and runs no steady trial or queries."""
+        steps = self._steps(tmp_path, "public-okx")
+        assert [name for name, _ in steps] == [
+            "freeze",
+            "candidate",
+            "route-prepare",
+            "grant-route",
+            "public-okx-trial",
+            "cleanup-audit-route",
+        ]
+        assert dict(steps)["grant-route"] == {"root": "route-okx", "venue": "okx"}
+
+    def test_a_second_attempt_into_the_same_output_is_refused(self, tmp_path: pathlib.Path) -> None:
+        """A declared single attempt cannot be repeated into its own output."""
+        self._steps(tmp_path, "public-okx")
+        with pytest.raises(FileExistsError):
+            self._steps(tmp_path, "public-okx")

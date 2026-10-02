@@ -1,9 +1,11 @@
-"""Drive one declared stage-1 dashboard cohort: signed candidate, trials, gates and audit.
+"""Drive one declared stage-1 cohort: signed candidate, trials, gates and audit.
 
 Run this file from a frozen copy of this directory with the installed research
 interpreter. One invocation owns one fresh output directory; a second invocation
 into the same directory is refused, so a declared single attempt stays single.
 Every step stops the cohort at its first failure and is retained in ``steps.jsonl``.
+The ``dashboard`` sequence runs the steady trial, populated-history queries and the
+public Bitfinex route; the ``public-okx`` sequence runs only the public OKX route.
 
 The trial gates restate the stage-1 targets the runtime-capacity record keeps
 unchanged: they read the statuses ``CapacityResultsCollector`` derives from the
@@ -38,6 +40,7 @@ from runtime import InstalledIdentity
 from serialization import DomainCodec
 
 PublicVenue = Literal["okx", "bitfinex"] | None
+Sequence = Literal["dashboard", "public-okx"]
 _GIB = 1024**3
 # Unchanged stage-1 resource ceilings (budgets_unchanged in the capacity record).
 _AVERAGE_CPU_CORES = 7
@@ -126,6 +129,13 @@ class GateAssessment:
         )
         for name, source in sorted(_Tree.mapping(results.get("sources")).items()):
             origin = get(source, "transport_origin")
+            # Only the route's venue is public; every other source stays the fixture.
+            expected_origin = (
+                "live_public"
+                if public_venue is not None and get(source, "venue") == public_venue
+                else "base_fixture"
+            )
+            gates.append(Gate(f"{name}.transport_origin", origin == expected_origin, origin))
             recordings = _Tree.mapping(get(source, "recordings") or {})
             gates.append(Gate(f"{name}.one_recording", len(recordings) == 1, sorted(recordings)))
             for recording in recordings.values():
@@ -145,8 +155,6 @@ class GateAssessment:
                             probe, "steady_receipt_to_durable", "status"
                         ),
                     }
-                elif origin != "live_public" or public_venue is None:
-                    gates.append(Gate(f"{name}.transport_origin", False, origin))
                 for check, value in checks.items():
                     expected: object = True if check == "completed_manifest" else "pass"
                     gates.append(Gate(f"{name}.{check}", value == expected, value))
@@ -315,6 +323,7 @@ class Cohort:
         key_root: Path,
         socket_base: Path,
         label: str,
+        sequence: Sequence = "dashboard",
     ) -> None:
         """Bind absolute inputs; nothing runs until ``run``."""
         for path in (output, repository, launcher, python, key_root, socket_base):
@@ -327,9 +336,13 @@ class Cohort:
             socket_base,
             label,
         )
+        self.sequence = sequence
+        self.route_venue: Literal["okx", "bitfinex"] = (
+            "okx" if sequence == "public-okx" else "bitfinex"
+        )
         self.codec = DomainCodec()
         self.root = output / "candidate"
-        self.route_root = output / "route-bitfinex"
+        self.route_root = output / f"route-{self.route_venue}"
         self.consumers = output / "consumers"
         self.releases: dict[str, Path] = {}
 
@@ -545,7 +558,7 @@ class Cohort:
         )
 
     def prepare_route(self) -> dict[str, object]:
-        """Prepare the public Bitfinex root with the same signed account inputs."""
+        """Prepare the public route's root with the same signed account inputs."""
         self.route_root.mkdir()
         steady = self.codec.decode_json(
             (self.root / "preparation/services-initial.json").read_bytes(),
@@ -554,7 +567,7 @@ class Cohort:
         CapacityWorkload(
             opening_at=steady.accounts[0].configuration.opening_at,
             socket_root=self.socket_base / "route",
-            public_venue="bitfinex",
+            public_venue=self.route_venue,
         ).prepare(self.route_root / "preparation")
         for account in steady.accounts:
             name = account.account_id
@@ -678,15 +691,16 @@ class Cohort:
         self.output.mkdir(parents=True, exist_ok=False)
         self.step("freeze", self.freeze)
         self.step("candidate", self.candidate)
-        self.step("grant-steady", lambda: self.grant(self.root, None))
-        self.step("steady-trial", lambda: self.trial(self.root, "steady", None))
-        self.step("history-queries", self.history)
+        if self.sequence == "dashboard":
+            self.step("grant-steady", lambda: self.grant(self.root, None))
+            self.step("steady-trial", lambda: self.trial(self.root, "steady", None))
+            self.step("history-queries", self.history)
+        venue = self.route_venue
         self.step("route-prepare", self.prepare_route)
-        self.step("grant-route", lambda: self.grant(self.route_root, "bitfinex"))
-        self.step(
-            "public-bitfinex-trial", lambda: self.trial(self.route_root, "public", "bitfinex")
-        )
-        self.step("cleanup-audit-steady", lambda: self.audit(self.root, "steady"))
+        self.step("grant-route", lambda: self.grant(self.route_root, venue))
+        self.step(f"public-{venue}-trial", lambda: self.trial(self.route_root, "public", venue))
+        if self.sequence == "dashboard":
+            self.step("cleanup-audit-steady", lambda: self.audit(self.root, "steady"))
         self.step("cleanup-audit-route", lambda: self.audit(self.route_root, "public"))
 
 
@@ -700,6 +714,7 @@ class _Arguments(argparse.Namespace):
     key_root: Path
     socket_base: Path
     label: str
+    sequence: Sequence
 
 
 def main() -> None:
@@ -715,6 +730,7 @@ def main() -> None:
     ):
         parser.add_argument(option, type=Path, required=True)
     parser.add_argument("--label", required=True)
+    parser.add_argument("--sequence", choices=("dashboard", "public-okx"), default="dashboard")
     args = parser.parse_args(namespace=_Arguments())
     cohort = Cohort(
         args.output,
@@ -724,6 +740,7 @@ def main() -> None:
         key_root=args.key_root,
         socket_base=args.socket_base,
         label=args.label,
+        sequence=args.sequence,
     )
     try:
         cohort.run()

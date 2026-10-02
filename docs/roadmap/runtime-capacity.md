@@ -1473,3 +1473,40 @@ Warm dashboard p50 has about 20% margin. It is not MR15 acceptance: checkpoint
 percentiles (deferred to stage 2), filesystem-cold queries, renewed public OKX health,
 integrated feature serving, MR12's installed re-verification, stage 2 and 24-hour
 operation remain open.
+
+#### Public OKX route renewal declaration (draft 2026-10-02)
+
+Draft, not yet approved. The last healthy public OKX route (606 BTC and 608 ETH messages,
+121 health witnesses) ran on candidate 10. Runtime bytes have changed since, so a fresh
+signed route is needed. This cohort renews only that route; nothing else is retested.
+
+The committed driver
+[`capacity_cohort.py`](../../tests/integration/consumers/runtime/capacity_cohort.py)
+gains a `public-okx` sequence: freeze, build, verify and install the four signed `paper`
+targets as in the dashboard cohort, prepare a route root with the same signed account
+inputs, issue fresh ordinary one-hour grants, run the public OKX route trial, then audit
+cleanup. It runs no steady trial or history queries, and the `dashboard` sequence is
+unchanged. Every public route now also requires that exactly the route's venue is
+`live_public` and every other source is `base_fixture` (one gate per source); the
+retained second dashboard attempt's steady and Bitfinex route evidence passes this
+added gate unchanged.
+
+Configuration, state schemas, ephemeral builder key, seven-day policy, fresh journals,
+disabled deployments, one-hour grants and the 5,000-message OKX cap are unchanged. No
+grant, lifetime, budget, risk or authority limit changes.
+
+1. Freeze; fetch, build, verify and install the four targets.
+2. Prepare the public OKX route root and issue its grants.
+3. Public OKX route trial. Pass requires the trial to pass with health covering its
+   60-second measured interval; each public OKX capture to end without a message, byte or
+   frame cap and with complete native delivery parity for its accounts and bounded
+   queues; the Bitfinex fixture sources to meet their unchanged source gates; and only
+   OKX sources to be public. Public latency is reported, not graded.
+4. Cleanup audit, with every observed process absent and all four accounts stopped.
+5. `make check` on the unchanged frozen source.
+
+One uncounted rehearsal runs first into `logs/runtime-capacity/public-okx-rehearsal-1/`.
+The counted attempt writes to `logs/runtime-capacity/public-okx/`, runs once, stops at
+the first failure and needs the owner's go-ahead. It does not qualify checkpoint
+percentiles, filesystem-cold queries, integrated feature serving, stage 2 or 24-hour
+operation.
