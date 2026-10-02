@@ -1505,8 +1505,41 @@ grant, lifetime, budget, risk or authority limit changes.
 4. Cleanup audit, with every observed process absent and all four accounts stopped.
 5. `make check` on the unchanged frozen source.
 
-One uncounted rehearsal runs first into `logs/runtime-capacity/public-okx-rehearsal-1/`.
-The counted attempt writes to `logs/runtime-capacity/public-okx/`, runs once, stops at
-the first failure and needs the owner's go-ahead. It does not qualify checkpoint
+Uncounted rehearsals ran first; the counted attempt writes to
+`logs/runtime-capacity/public-okx/`, runs once, stops at the first failure and needs the
+owner's go-ahead. It does not qualify checkpoint
 percentiles, filesystem-cold queries, integrated feature serving, stage 2 or 24-hour
 operation.
+
+Uncounted rehearsals (`8883f31`, separate non-editable environment):
+
+1. `public-okx-rehearsal-1` stopped at the first fetch: the harness was given the paper
+   service launcher (`alpha-execute`) instead of the artifact launcher
+   (`alpha-governance-artifacts`). Nothing was built or granted.
+2. `public-okx-rehearsal-2` passed every step. The route met 44/44 gates over a 60.000 s
+   measured interval with 121 health witnesses. Public OKX BTC and ETH delivered 535 and
+   532 native messages (8.7 Hz steady), ended on supervisor stop with complete delivery
+   parity, and peaked at 16 ms oldest queue age and two queued records. The Bitfinex
+   fixture sources met their gates, and the cleanup audit found every observed process
+   absent and all four accounts stopped.
+
+#### Checkpoint yield on the current runtime (2026-10-02)
+
+Offline, from retained evidence only. The
+[2026-09-29 deferral](#stage-1-residual-decisions-and-declaration-2026-09-29) rested on
+two committed checkpoints per account per trial, the rest persisted rejections. That no
+longer holds. Every retained dashboard-era steady trial (the first and second counted
+attempts and rehearsals 3–5) committed all 21 acknowledged checkpoints on all four
+accounts, with no rejection. All 84 commits in the second counted attempt have reason
+`reserved`, meaning each admitted orders: every account ended with 21 net and 42
+physical orders. Selected-book-to-committed-checkpoint durations ranged from 45.1 to
+133.4 ms (84 samples; no percentile claim).
+
+Deferring the percentiles to stage 2 still holds, since fresh stage-1 journals cannot
+reach 1,000 commits per account. Its stated reason changes, though. At the fixture's
+current rate, every commit places orders, so a 24-hour run under the unchanged 80-order
+grant would exhaust that grant within minutes. Stage 2 supplies 1,000 committed
+checkpoints per account without an authority change only if its declared workload
+commits mostly without orders (`target_matched` or `no_intent`) and stays within its
+40-order daily target. The stage-2 design must declare and verify that mix before it
+counts on those checkpoints.
