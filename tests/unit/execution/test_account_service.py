@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import os
 import socket
 import stat
 import struct
@@ -32,6 +33,9 @@ from execution import (
     SocketPaperAccount,
 )
 from serialization import DomainCodec
+
+# A short existing root keeps AF_UNIX paths in limits on macOS and Linux.
+_SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
 
 
 class _ServiceHealth(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
@@ -177,7 +181,7 @@ class TestAccountOwnerService:
         codec = DomainCodec()
         config_path = tmp_path / "config.json"
         config_path.write_bytes(codec.encode_json(config))
-        socket_directory = TemporaryDirectory(prefix="paper-account-", dir="/private/tmp")
+        socket_directory = TemporaryDirectory(prefix="paper-account-", dir=_SOCKET_ROOT)
         socket_path = Path(socket_directory.name) / "s.sock"
         serve_path = tmp_path / "serve.json"
         serve_path.write_bytes(
@@ -364,7 +368,7 @@ class TestAccountOwnerService:
         config_path = tmp_path / "config.json"
         codec = DomainCodec()
         config_path.write_bytes(codec.encode_json(config))
-        socket_directory = TemporaryDirectory(prefix="paper-account-", dir="/private/tmp")
+        socket_directory = TemporaryDirectory(prefix="paper-account-", dir=_SOCKET_ROOT)
         socket_path = Path(socket_directory.name) / "s.sock"
         serve_path = tmp_path / "serve.json"
         serve_path.write_bytes(

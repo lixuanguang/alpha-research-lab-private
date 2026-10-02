@@ -22,6 +22,9 @@ from capacity_trial import CapacityTrial, _AccountPhase, _Child, _Health, _Statu
 from execution import PaperOwner
 from serialization import DomainCodec
 
+# A short existing root keeps AF_UNIX paths in limits on macOS and Linux.
+_SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
+
 
 class _RunningSupervisor:
     """Expose an independently running supervisor without launching a service."""
@@ -42,7 +45,7 @@ class TestCapacityHealth:
     @pytest.fixture()
     def health_root(self) -> Iterator[Path]:
         """Keep admitted Unix endpoint paths within their platform byte limit."""
-        with TemporaryDirectory(prefix="capacity-health-", dir="/private/tmp") as root:
+        with TemporaryDirectory(prefix="capacity-health-", dir=_SOCKET_ROOT) as root:
             yield Path(root)
 
     @staticmethod

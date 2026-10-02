@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import concurrent.futures
+import os
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,6 +20,9 @@ from applications.execute.services import PaperServices
 from configuration import PaperServiceAccount, PaperServiceConfiguration
 from execution import PaperOwner
 from serialization import DomainCodec
+
+# A short existing root keeps AF_UNIX paths in limits on macOS and Linux.
+_SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
 
 
 class _OwnerHealthHarness(PaperServices):
@@ -65,7 +69,7 @@ class TestServiceOwnerHealth:
 
     def test_disjoint_owner_health_is_checked_on_the_first_turn(self) -> None:
         """The first parallel turn fences a missing owner file without waiting for a deadline."""
-        with TemporaryDirectory(prefix="service-health-", dir="/private/tmp") as directory:
+        with TemporaryDirectory(prefix="service-health-", dir=_SOCKET_ROOT) as directory:
             services = self._owner_harness(Path(directory))
             owner = services.owners[1]
             Path(services.config.accounts[1].socket_path).with_suffix(".health.json").write_bytes(
@@ -79,7 +83,7 @@ class TestServiceOwnerHealth:
     @pytest.mark.parametrize("shared", (False, True))
     def test_owner_replacement_is_fenced_by_the_original_idle_deadline(self, shared: bool) -> None:
         """Owner replacement respects parallel deadlines and immediate shared checks."""
-        with TemporaryDirectory(prefix="service-health-", dir="/private/tmp") as directory:
+        with TemporaryDirectory(prefix="service-health-", dir=_SOCKET_ROOT) as directory:
             services = self._owner_harness(Path(directory), shared=shared)
             checked_ns = 9_000_000_000
             for account, owner in zip(services.config.accounts, services.owners, strict=True):
@@ -114,7 +118,7 @@ class TestServiceOwnerHealth:
 
     def test_dead_owner_pid_fences_account_with_fresh_heartbeat(self) -> None:
         """Process exit is visible even while the retained heartbeat is under two seconds old."""
-        with TemporaryDirectory(prefix="service-health-", dir="/private/tmp") as directory:
+        with TemporaryDirectory(prefix="service-health-", dir=_SOCKET_ROOT) as directory:
             config = _PaperFixture._config(Path(directory) / "account.sock")
             owner = _PaperFixture._owner()
             health = replace(_PaperFixture._owner_health(owner, time.monotonic_ns()), pid=123456)

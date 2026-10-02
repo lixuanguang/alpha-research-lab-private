@@ -153,8 +153,8 @@ class TestPaperServicePreparation:
                 NativeBookFixture(source, frame_count=4, interval_seconds=0.5, start_high=True)
             )
         )
+        # The native frame carries a wall-clock timestamp, so check parsed asks, not bytes.
         assert b"103" in recovery[offset]
-        assert b"100" not in recovery[offset]
         recovered_book = BookAdapters.create(source.capture)
         for frame in recovery:
             recovered_book.apply(frame)
