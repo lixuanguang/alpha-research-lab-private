@@ -7,7 +7,9 @@ import base64
 import csv
 import hashlib
 import io
+import platform
 import subprocess
+import sys
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -29,6 +31,13 @@ from alpha_research_governance.dependency_admission.selected_closure import (
 )
 from alpha_research_governance.dependency_admission.wheel_archive import WheelArchive
 from alpha_research_governance.dependency_admission.wheelhouse import SelectedWheelhouse
+
+# Selected admission refuses every host but its one supported release target, and
+# evaluates dependency markers on the real interpreter, so these need that host.
+_DARWIN_ARM64_HOST = pytest.mark.skipif(
+    sys.platform != "darwin" or platform.machine() != "arm64",
+    reason="the selected release target is darwin arm64; admission refuses other hosts",
+)
 
 
 class TestSelectedWheelArchive:
@@ -120,6 +129,7 @@ class TestSelectedWheelArchive:
             WheelArchive.inspect(path)
 
 
+@_DARWIN_ARM64_HOST
 class TestSelectedClosureAdmission:
     """Prove the selected installed set matches actual metadata and both locks."""
 
@@ -416,6 +426,7 @@ class TestSelectedClosureAdmission:
                 )
 
 
+@_DARWIN_ARM64_HOST
 class TestSelectedWheelhouse:
     """Fetch only exact compatible external wheels named by the selected export."""
 

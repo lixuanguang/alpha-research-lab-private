@@ -59,6 +59,9 @@ from telemetry import (
     TelemetryStore,
 )
 
+# A short existing root keeps AF_UNIX paths in limits on macOS and Linux.
+_SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
+
 
 class _AccountFailureResponse:
     """Bind a watchdog failure to independent durable account protection."""
@@ -308,7 +311,7 @@ class AccountOperationsConsumer:
             beta_fee="0.01",
         )
         with (
-            TemporaryDirectory(prefix="ops-", dir="/private/tmp") as temporary,
+            TemporaryDirectory(prefix="ops-", dir=_SOCKET_ROOT) as temporary,
             socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as receiver,
         ):
             address = str(Path(temporary) / "alerts.sock")
@@ -452,7 +455,7 @@ class AccountOperationsConsumer:
         journal = AccountJournal(self.journal_path, self.config)
         before = (journal.accounts(), journal.orders(), journal.net_orders(), journal.controls())
         store = TelemetryStore(self.output / "monitoring.sqlite")
-        with TemporaryDirectory(prefix="paper-alert-", dir="/private/tmp") as temporary:
+        with TemporaryDirectory(prefix="paper-alert-", dir=_SOCKET_ROOT) as temporary:
             address = Path(temporary) / "alerts.sock"
             self._project_paper_account(journal, store, "initial-monitoring")
             first_config = self._monitoring_configuration(store, str(address))
