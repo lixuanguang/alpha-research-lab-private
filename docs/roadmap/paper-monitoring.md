@@ -217,6 +217,29 @@ observation using an environment concurrently switched to editable installation
 failed preflight; final observations used a separate immutable installed
 environment. These attempts establish no source-availability success claim.
 
+## Bounded dashboard contract revision (2026-10-01)
+
+MR15 found that a dashboard over a populated hour (10,000 events per account) could
+not meet its query budget while every view embedded, revalidated and rendered every
+selected event. With owner approval the view contract changed; queries, cutoffs,
+metric definitions, alert policy and hard-control independence did not.
+
+- A `DashboardSnapshot` (`dashboard-view`) holds each metric's exact outcome,
+  input count and digest, and its last 120 points, plus the count and digest of the
+  whole selection, instead of the selected events.
+- Retained views add `provenance.jsonl` with every selected payload. Reopening
+  verifies it is a complete ordered selection inside the query matching the digest.
+  Live readers page the same payloads from the store.
+- Installed series metrics decode only what they show; their results equal full
+  evaluation, which tests check for every aggregation. Custom and delayed-label
+  metrics still evaluate every input.
+
+Earlier retained dashboards use the previous schema and are not readable by this
+code. The full test gate, including the installed paper, operational and research
+consumers, passes on the new contract. The signed, installed and public-feed runs
+recorded above predate it, so MR12's installed evidence needs re-running before
+it covers this contract. That re-run needs its own declaration.
+
 ## Evidence reuse and remaining limits
 
 MR08/MR11 matching, fee rounding/allocation, independent reconciliation, authored

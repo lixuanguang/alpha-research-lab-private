@@ -426,12 +426,12 @@ class _DashboardReader:
             as_of=at,
             limit=10_000,
         )
-        events = self.store.query(query)
-        rendered, identity = self.renderer.render(query, events)
+        selection = self.store.select(query)
+        rendered, identity = self.renderer.render(query, selection)
         return {
             "scope": query.scope,
-            "event_count": len(events),
-            "event_bytes": len(self.codec.encode_json(events)),
+            "event_count": len(selection.rows),
+            "event_bytes": sum(len(row.payload) for row in selection.rows),
             "returned_bytes": len(rendered),
             "result_sha256": identity,
             "scan_bytes": None,

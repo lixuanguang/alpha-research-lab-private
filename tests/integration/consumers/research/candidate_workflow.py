@@ -118,7 +118,8 @@ class _PaperMonitoringAcceptance:
         assert waiting.results[0].points[0].missing_reason == "pending"
         assert store.append((observed_event,)) == 1
         known_query = replace(pending_query, as_of=observed.available_at)
-        known = DashboardBuilder.build(config, known_query, store.query(known_query), registry)
+        known_selection = store.select(known_query)
+        known = DashboardBuilder.build(config, known_query, known_selection, registry)
         assert known.results[0].status == "ok"
         assert known.results[0].value is not None
         assert known.results[0].points[0].value == known.results[0].value
@@ -126,7 +127,7 @@ class _PaperMonitoringAcceptance:
             DashboardBuilder.build(config, pending_query, store.query(pending_query), registry)
             == waiting
         )
-        assert known.write(root / "learned-paper-dashboard").exists()
+        assert known.write(root / "learned-paper-dashboard", known_selection).exists()
         return {
             "saved_paper_prediction": True,
             "pending_before_label": True,

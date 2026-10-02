@@ -26,7 +26,9 @@ earlier queries. Changed retries fail; identical retries are idempotent.
 `TelemetryStore.append` atomically persists a bounded batch in a separate SQLite
 journal. `query(MonitoringQuery(...))` selects one scope/mode in `[start, end)`,
 with `end <= as_of`; both availability and receipt must be at or before `as_of`.
-Only the latest eligible revision of each sample is returned. Queries default
+Only the latest eligible revision of each sample is returned, ordered by event
+time, name, sample and version. `select(query)` returns the same revisions
+undecoded, with their stored bytes. Queries default
 to 10,000 facts, permit up to 100,000, and fail on overflow. No truncation is
 hidden in a metric. An absent journal yields no observations, which metrics
 report as missing. A malformed or incompatible journal fails visibly.
@@ -72,19 +74,37 @@ retains study and paper views, and exports actual saved predictions/outcomes.
 No collector, shared study runner or dashboard renderer changes for that extension.
 
 `DashboardConfig` selects up to 32 panels (line/bar/table) and 32 alert rules.
-`DashboardBuilder.build` evaluates only the registered definitions. Its
-metric batch validates the complete query once, then checks each definition's
-named/versioned inputs, units and selected revisions through `MetricRegistry`.
-The retained `DashboardSnapshot` contains config, query, selected input bytes, exact results
-and alert outcomes. `write(directory)` writes JSON, self-contained HTML and a
-digest manifest; `read(directory)` verifies both data and rendered bytes.
+`DashboardBuilder.build(config, query, inputs, registry)` evaluates only the
+registered definitions over one selection: a `TelemetryStore.select(query)` result
+or caller events, which are admitted and ordered as the store orders them.
 
-For repeated reads, `DashboardRenderer(config, registry).render(query, events)`
-returns complete HTML and the corresponding snapshot identity. Each call builds
-and validates a fresh snapshot, including metrics, freshness, partial coverage
-and alerts. Its bounded 10,000-entry cache reuses only event provenance rows
-keyed by complete serialized event bytes; it does not reuse query results or
-causal cutoffs. The renderer performs no alert delivery.
+A `DashboardSnapshot` (`dashboard-view`) is bounded. It holds config, query, the
+selected event count, `events_sha256` and, per metric, a `PanelResult`: the exact
+value or explicit missing/stale/inapplicable state, the input count, an input
+digest and the last `POINT_LIMIT` (120) points with the total point count. Both
+digests hash the SHA256 of each selected payload, which is that event's identity,
+in query order. Alert outcomes are assessed for every rule before any delivery.
+
+An installed `SeriesMetric` admits strictly only the events it shows (the last 120
+and any tied at the latest event time), reads just the exact value of other
+sum/mean/maximum inputs, and checks every input's units in its stored bytes; its
+result equals evaluating every input. Any other definition, such as
+`DelayedLabelError` or an injected metric, receives all of its admitted inputs
+through `MetricRegistry.evaluate`, so its cost grows with its input count.
+
+`write(directory, inputs)` writes JSON, self-contained HTML, the selected payloads
+as `provenance.jsonl` and a digest manifest. `read(directory)` verifies the data,
+the rendered bytes and that the payloads are a complete ordered selection inside
+the query reproducing the count and digest. A live reader pages the same payloads
+with `TelemetryStore.page(query, after=cursor, size=n)`; pages that do not reproduce
+the digest mean facts known by the cutoff were appended between pages.
+
+For repeated reads, `DashboardRenderer(config, registry).render(query, inputs)`
+returns complete HTML and the corresponding view identity. Each call builds and
+validates a fresh view, including metrics, freshness and alerts, without alert
+delivery. Its decode cache reuses only events with identical canonical payload
+bytes, checked against each read's query and row; events given to injected
+definitions are validated again on reuse. No complete dashboard is cached.
 Identical writes are idempotent; conflicting or incomplete outputs fail visibly.
 Preserve incomplete output for diagnosis and regenerate into a fresh directory.
 Charts break at missing points and retain exact tables alongside approximate SVG

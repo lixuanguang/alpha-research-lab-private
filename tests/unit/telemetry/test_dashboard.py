@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 import os
 import socket
 import stat
@@ -194,7 +195,9 @@ class TestDashboard:
             self._config(metric), self._query(), events, MetricRegistry((metric,))
         )
         assert snapshot.results[0].value == self._ratio(2)
-        assert snapshot.results[0].input_ids == tuple(event.identity for event in events)
+        assert snapshot.results[0].input_count == 3
+        assert snapshot.results[0].inputs_sha256 == self._digest(events)
+        assert (snapshot.event_count, snapshot.events_sha256) == (3, self._digest(events))
         rendered = snapshot.render_html().decode()
         assert rendered.count('<svg class="chart"') == 2
         assert '<line class="gap"' in rendered
@@ -206,10 +209,12 @@ class TestDashboard:
         assert metric.spec.identity in rendered
 
         directory = tmp_path / "retained"
-        html_path = snapshot.write(directory)
+        with pytest.raises(ValueError, match="provenance differs"):
+            snapshot.write(directory, (events[1], events[2]))
+        html_path = snapshot.write(directory, events)
         before = html_path.stat().st_mtime_ns
         assert DashboardSnapshot.read(directory) == snapshot
-        assert snapshot.write(directory) == html_path
+        assert snapshot.write(directory, events) == html_path
         assert html_path.stat().st_mtime_ns == before
         other = DashboardBuilder.build(
             self._config(metric, title="Different"),
@@ -218,7 +223,7 @@ class TestDashboard:
             MetricRegistry((metric,)),
         )
         with pytest.raises(ValueError, match="different content"):
-            other.write(directory)
+            other.write(directory, events)
         html_path.write_bytes(b"changed")
         with pytest.raises(ValueError, match="digest"):
             DashboardSnapshot.read(directory)
@@ -228,17 +233,15 @@ class TestDashboard:
     ) -> None:
         """A view appears whole or not at all, and a retry completes an interrupted write."""
         metric = self._metric()
+        events = (self._event("last", 3, self._ratio(2)),)
         snapshot = DashboardBuilder.build(
-            self._config(metric),
-            self._query(),
-            (self._event("last", 3, self._ratio(2)),),
-            MetricRegistry((metric,)),
+            self._config(metric), self._query(), events, MetricRegistry((metric,))
         )
         # A writer that died after its first file left an uncommitted directory.
         interrupted = tmp_path / "interrupted"
         interrupted.mkdir()
         (interrupted / "snapshot.json").write_bytes(b'{"partial"')
-        assert snapshot.write(interrupted) == interrupted / "dashboard.html"
+        assert snapshot.write(interrupted, events) == interrupted / "dashboard.html"
         assert DashboardSnapshot.read(interrupted) == snapshot
         (quarantined,) = tuple(tmp_path.glob(".interrupted.interrupted-*"))
         assert (quarantined / "snapshot.json").read_bytes() == b'{"partial"'
@@ -247,20 +250,20 @@ class TestDashboard:
         with monkeypatch.context() as patched:
             patched.setattr("telemetry.dashboard.os.rename", _FailingRename())
             with pytest.raises(OSError, match="synthetic"):
-                snapshot.write(failed)
+                snapshot.write(failed, events)
         assert not failed.exists()
         assert not tuple(tmp_path.glob(".failed.staging-*"))
-        snapshot.write(failed)
+        snapshot.write(failed, events)
         assert DashboardSnapshot.read(failed) == snapshot
         empty = tmp_path / "empty"
         empty.mkdir()
-        snapshot.write(empty)
+        snapshot.write(empty, events)
         assert DashboardSnapshot.read(empty) == snapshot
         shared = tmp_path / "shared"
         shared.mkdir()
         (shared / "notes.txt").write_bytes(b"unrelated")
         with pytest.raises(ValueError, match="unrelated"):
-            snapshot.write(shared)
+            snapshot.write(shared, events)
         assert sorted(path.name for path in shared.iterdir()) == ["notes.txt"]
 
     def _view(self, title: str = "Dashboard") -> DashboardSnapshot:
@@ -269,9 +272,21 @@ class TestDashboard:
         return DashboardBuilder.build(
             self._config(metric, title=title),
             self._query(),
-            (self._event("last", 3, self._ratio(2)),),
+            self._view_events(),
             MetricRegistry((metric,)),
         )
+
+    @classmethod
+    def _view_events(cls) -> tuple[MonitoringEvent, ...]:
+        """Select the single input of every small view."""
+        return (cls._event("last", 3, cls._ratio(2)),)
+
+    @staticmethod
+    def _digest(events: tuple[MonitoringEvent, ...]) -> str:
+        """Hash event identities in order, as a view digests its selection."""
+        return hashlib.sha256(
+            b"".join(bytes.fromhex(event.identity) for event in events)
+        ).hexdigest()
 
     @staticmethod
     def _race(target: Callable[[], object]) -> tuple[threading.Thread, list[BaseException]]:
@@ -306,11 +321,11 @@ class TestDashboard:
             seen = exists(path, follow_symlinks=follow_symlinks)
             if path == manifest and not started.is_set():
                 started.set()
-                raced.append(self._race(lambda: snapshot.write(directory)))
+                raced.append(self._race(lambda: snapshot.write(directory, self._view_events())))
             return seen
 
         monkeypatch.setattr(Path, "exists", exists_then_race)
-        assert snapshot.write(directory) == directory / "dashboard.html"
+        assert snapshot.write(directory, self._view_events()) == directory / "dashboard.html"
         ((other, errors),) = raced
         other.join(5)
         assert not errors
@@ -332,11 +347,11 @@ class TestDashboard:
             """Let another writer publish just before this one moves the directory aside."""
             if not started.is_set():
                 started.set()
-                raced.append(self._race(lambda: first.write(directory)))
+                raced.append(self._race(lambda: first.write(directory, self._view_events())))
             rename(source, target)
 
         monkeypatch.setattr("telemetry.dashboard.os.rename", race_then_rename)
-        assert second.write(directory) == directory / "dashboard.html"
+        assert second.write(directory, self._view_events()) == directory / "dashboard.html"
         ((other, errors),) = raced
         other.join(5)
         # Exactly one view is published, and the other writer is told so.
@@ -349,11 +364,11 @@ class TestDashboard:
         previous = os.umask(0o022)
         try:
             fresh = tmp_path / "fresh"
-            snapshot.write(fresh)
+            snapshot.write(fresh, self._view_events())
             provisioned = tmp_path / "provisioned"
             provisioned.mkdir()
             provisioned.chmod(0o2775)
-            snapshot.write(provisioned)
+            snapshot.write(provisioned, self._view_events())
         finally:
             os.umask(previous)
         assert stat.S_IMODE(fresh.stat().st_mode) == 0o755
@@ -388,7 +403,7 @@ class TestDashboard:
                 with pytest.raises(TimeoutError):
                     receiver.recv(512)
         assert alerts.read() == (first.alert_results[0].delivery,)
-        first.write(tmp_path / "view")
+        first.write(tmp_path / "view", events)
         assert DashboardSnapshot.read(tmp_path / "view") == first
 
     def test_missing_stale_and_failed_delivery_are_visible(self, tmp_path: Path) -> None:
@@ -426,7 +441,7 @@ class TestDashboard:
             assert "alert persistence failed; delivery unknown" in (
                 persistence_failed.render_html().decode()
             )
-            persistence_failed.write(tmp_path / "persistence-failed-view")
+            persistence_failed.write(tmp_path / "persistence-failed-view", ())
             assert DashboardSnapshot.read(tmp_path / "persistence-failed-view") == (
                 persistence_failed
             )
@@ -523,36 +538,34 @@ class TestDashboard:
             config, self._query(), (newer,), MetricRegistry((metric,))
         )
         assert snapshot.results[0].status == "missing"
-        assert snapshot.results[0].input_ids == ()
-        assert snapshot.events == (newer,)
+        assert snapshot.results[0].input_count == 0
+        assert (snapshot.event_count, snapshot.events_sha256) == (1, self._digest((newer,)))
         older = self._event("older", 2, self._ratio(1))
         chart = DashboardBuilder.build(
             config, self._query(), (newer, older), MetricRegistry((metric,))
         )
-        assert chart.results[0].input_ids == (older.identity,)
+        assert chart.results[0].inputs_sha256 == self._digest((older,))
         rendered = chart.render_html().decode()
         title_ids = [item.split('"', maxsplit=1)[0] for item in rendered.split('<title id="')[1:]]
         assert len(title_ids) == 2
         assert len(title_ids) == len(set(title_ids))
-        snapshot.write(tmp_path / "versions")
+        snapshot.write(tmp_path / "versions", (newer,))
         assert DashboardSnapshot.read(tmp_path / "versions") == snapshot
 
-    def test_public_snapshot_boundaries_revalidate_mutated_events(self, tmp_path: Path) -> None:
-        """A frozen snapshot's render, identity and retention reject forced invalid input."""
+    def test_public_snapshot_boundaries_revalidate_mutated_points(self, tmp_path: Path) -> None:
+        """A frozen snapshot's render, identity and retention reject a forced invalid point."""
         metric = self._metric()
+        events = (self._event("sample", 1, self._ratio(2)),)
         snapshot = DashboardBuilder.build(
-            self._config(metric),
-            self._query(),
-            (self._event("sample", 1, self._ratio(2)),),
-            MetricRegistry((metric,)),
+            self._config(metric), self._query(), events, MetricRegistry((metric,))
         )
-        force_setattr(snapshot.events[0], "recorded_at", self.start + timedelta(hours=5))
+        force_setattr(snapshot.results[0].points[0], "at", self.start + timedelta(hours=5))
         with pytest.raises(ValueError, match="selected query"):
             snapshot.render_html()
         with pytest.raises(ValueError, match="selected query"):
             _ = snapshot.identity
         with pytest.raises(ValueError, match="selected query"):
-            snapshot.write(tmp_path / "invalid")
+            snapshot.write(tmp_path / "invalid", events)
         assert not (tmp_path / "invalid").exists()
 
     def test_renderer_reuse_matches_public_snapshots_at_changed_cutoffs_and_revisions(self) -> None:
@@ -580,10 +593,10 @@ class TestDashboard:
             revised.render_html(),
             revised.identity,
         )
-        with pytest.raises(ValueError, match="scope or availability"):
+        with pytest.raises(ValueError, match="selected query"):
             renderer.render(query, (correction,))
         force_setattr(first, "recorded_at", self.start + timedelta(hours=5))
-        with pytest.raises(ValueError, match="scope or availability"):
+        with pytest.raises(ValueError, match="selected query"):
             renderer.render(query, (first,))
 
     @pytest.mark.parametrize("mutate_prior_result", (False, True))

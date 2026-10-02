@@ -10,6 +10,7 @@ from telemetry.dashboard import (
     DashboardPanel,
     DashboardRenderer,
     DashboardSnapshot,
+    PanelResult,
 )
 from telemetry.defaults import MonitoringDefinitions
 from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringMode, MonitoringQuery
@@ -27,7 +28,7 @@ from telemetry.metrics import (
 )
 from telemetry.operations import OperationalAlerts, OperationAlert
 from telemetry.runtime_measurements import RuntimeMeasurementJournal
-from telemetry.store import TelemetryStore
+from telemetry.store import ProvenanceCursor, TelemetryRow, TelemetrySelection, TelemetryStore
 
 __all__ = [
     "AlertEvaluation",
@@ -59,7 +60,11 @@ __all__ = [
     "MonitoringQuery",
     "OperationAlert",
     "OperationalAlerts",
+    "PanelResult",
+    "ProvenanceCursor",
     "RuntimeMeasurementJournal",
     "SeriesMetric",
+    "TelemetryRow",
+    "TelemetrySelection",
     "TelemetryStore",
 ]

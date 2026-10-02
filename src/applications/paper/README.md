@@ -129,7 +129,8 @@ snapshot views select cumulative state series.
 The workflow writes `monitoring-input.json`, a telemetry journal, per-scope
 configuration JSON, one directory per dashboard page, and `monitoring-status.json`.
 Each dashboard directory contains `snapshot.json`, self-contained
-`dashboard.html`, and `manifest.json`; the names in the returned `dashboards`
+`dashboard.html`, the selected events in `provenance.jsonl`, and `manifest.json`;
+the names in the returned `dashboards`
 field identify those directories. Open `monitoring/index.html` for the account
 and strategy pages, report, original inputs and diagnostic status. This finite
 invocation does not run a continuously refreshed dashboard service.
