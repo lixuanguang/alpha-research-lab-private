@@ -151,20 +151,26 @@ class TelemetryStore:
             floor = self._floor(connection)
             if floor is not None and query.start < floor:
                 raise ValueError("monitoring query predates retained history")
+            # A revision is current when no later revision of the same sample is both
+            # available and recorded by as_of. Revisions share their event clock, so
+            # the window selects whole samples. The primary key answers the later-
+            # revision probe; only selected payloads reach the final sort. Version
+            # orders distinct versions of one sample, which the earlier key left tied.
             rows = self._query_rows(
                 connection.execute(
-                    "SELECT payload FROM (SELECT payload, at, name, sample, "
-                    "ROW_NUMBER() OVER (PARTITION BY name, version, sample "
-                    "ORDER BY revision DESC) rank "
-                    "FROM events WHERE scope=? AND mode=? AND at>=? AND at<? "
-                    "AND available<=? AND recorded<=?) WHERE rank=1 "
-                    "ORDER BY at, name, sample LIMIT ?",
+                    "SELECT payload FROM events e WHERE scope=?1 AND mode=?2 "
+                    "AND at>=?3 AND at<?4 AND available<=?5 AND recorded<=?5 "
+                    "AND NOT EXISTS (SELECT 1 FROM events later WHERE "
+                    "later.scope=e.scope AND later.mode=e.mode AND later.name=e.name "
+                    "AND later.version=e.version AND later.sample=e.sample "
+                    "AND later.revision>e.revision "
+                    "AND later.available<=?5 AND later.recorded<=?5) "
+                    "ORDER BY at, name, sample, version LIMIT ?6",
                     (
                         query.scope,
                         query.mode,
                         query.start.isoformat(timespec="microseconds"),
                         query.end.isoformat(timespec="microseconds"),
-                        query.as_of.isoformat(timespec="microseconds"),
                         query.as_of.isoformat(timespec="microseconds"),
                         query.limit + 1,
                     ),

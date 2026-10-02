@@ -266,24 +266,38 @@ class MetricRegistry:
             raise ValueError("metric selections must be bounded and distinct")
         if type(events) is not tuple or len(events) > query.limit:
             raise ValueError("metric requires a bounded immutable event query")
-        series: dict[tuple[str, str], list[MonitoringEvent]] = {}
-        for event in events:
-            if type(event) is not MonitoringEvent:
-                raise TypeError("metric input events must be typed")
-            event.__post_init__()
-            if (
-                (event.context.scope, event.context.mode) != (query.scope, query.mode)
-                or not query.start <= event.at < query.end
-                or event.recorded_at > query.as_of
-                or event.available_at > query.as_of
-            ):
-                raise ValueError("metric input violates query scope or availability")
-            series.setdefault((event.name, event.version), []).append(event)
-        results: list[MetricResult] = []
+        definitions: list[MonitoringMetric] = []
         for identity in identities:
             definition = self._definitions.get(identity)
             if definition is None:
                 raise ValueError("unregistered or changed monitoring definition")
+            definitions.append(definition)
+        # An inapplicable definition returns before admitting its inputs.
+        inputs = {
+            (item.name, item.version)
+            for definition in definitions
+            if query.mode in definition.spec.modes
+            for item in definition.spec.inputs
+        }
+        series: dict[tuple[str, str], list[MonitoringEvent]] = {}
+        for event in events:
+            if type(event) is not MonitoringEvent:
+                raise TypeError("metric input events must be typed")
+            key = event.name, event.version
+            # ``evaluate`` admits a selected input immediately before its definition
+            # runs, after any earlier definition; admitting it here too adds nothing.
+            if key not in inputs:
+                event.__post_init__()
+                if (
+                    (event.context.scope, event.context.mode) != (query.scope, query.mode)
+                    or not query.start <= event.at < query.end
+                    or event.recorded_at > query.as_of
+                    or event.available_at > query.as_of
+                ):
+                    raise ValueError("metric input violates query scope or availability")
+            series.setdefault(key, []).append(event)
+        results: list[MetricResult] = []
+        for identity, definition in zip(identities, definitions, strict=True):
             selected = tuple(
                 event
                 for item in definition.spec.inputs

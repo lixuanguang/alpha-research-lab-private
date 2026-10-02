@@ -1201,3 +1201,107 @@ attribute the warm dashboard cost in the
 [monitoring query](../../src/telemetry/events.py) and report the cost of a change,
 not another run.
 
+
+#### Dashboard query attribution (2026-10-01)
+
+No retained trial was available, so the attribution used an authored store built by the
+consumer's `_populate_dashboard` recipe: four accounts of 10,000 time-shifted copies of
+one paper observation (the 20 default paper signals plus cash and position), on an Apple
+M1 Max. One warm `_DashboardReader.read` took 660 ms (585 ms in the retained run), and
+an application-cold one 777 ms. Every request scans and returns 10,000 events.
+
+| Stage | Warm ms | Share | Cause |
+| --- | --- | --- | --- |
+| SQL fetch | 130 | 20% | Window function over the `event_time` range, then two temporary B-tree sorts that carry every 826-byte payload (8.3 MB) |
+| Store reuse check | 70 | 11% | Re-encoding each cached event, then its `__post_init__` |
+| Metric evaluation | 214 | 32% | Each event admitted twice and hashed twice; each chart point validated about 3.6 times |
+| Snapshot evidence | 136 | 21% | Each event admitted and hashed again after the injected definitions ran |
+| Snapshot identity | 16 | 2% | |
+| HTML render | 81 | 12% | SVG charts about 28 ms, point tables and escaping |
+| Harness `event_bytes` | 9 | 1% | Encoding the result inside the measured service time |
+
+Across a read, each event is validated about 3.9 times and hashed about 3.7 times, and
+`check_text` runs about 435,000 times. A covering index did not change the SQL time and
+would change the exact store layout. The repeated admissions are deliberate: an injected
+metric definition can mutate any event or earlier result it has seen, so an event is
+admitted again before each definition runs and the evidence is checked after all of them.
+Removing every repeated admission, which those guarantees forbid, would still leave about
+200 ms warm. The per-event floor comes from the dashboard contract itself: a snapshot and
+its HTML contain every selected event, its point and its provenance row.
+
+The owner chose to rewrite the SQL, to make admission cheaper without removing a guarantee,
+and to cache derived rows by exact bytes. A durable derived index, a cache of complete
+dashboards, and a per-panel aggregate (which leaves the per-event output unchanged) were
+not chosen.
+
+#### Dashboard query repair and offline result (2026-10-01)
+
+- The [store](../../src/telemetry/store.py) selects a revision when no later revision of
+  the same sample is both available and recorded by `as_of`. The primary key answers that
+  probe, so only selected payloads are sorted. Version breaks ties between versions of
+  one sample, which the earlier ordering left unspecified. The layout is unchanged.
+- Admission is cheaper without being removed: text checks scan once per record,
+  [`ExactRatio`](../../src/financial_units/ratios.py) checks reduction by `gcd`, and
+  event digests reuse one codec. `MetricRegistry.evaluate_many` admits a selected input
+  only in `evaluate`, immediately before its definition runs. It still admits unselected
+  inputs and the inputs of an inapplicable metric up front. The evidence check reuses the
+  digests it has just computed.
+- The renderer also reuses chart-table rows keyed by the exact point bytes and units.
+
+New tests compare the store with the earlier window query at every cutoff, over late,
+out-of-order-available and other-scope revisions. They also prove that superseded revisions
+do not count toward the limit and that one current fact over the limit still fails.
+The authored store gives the same selected events and the same HTML as the earlier code
+for two accounts at the hour cutoff and at an off-grid cutoff. Only the metric
+implementation digest differs, because it hashes the changed `metrics.py`. The resulting
+snapshot identities therefore differ from earlier releases.
+
+The offline benchmark used four concurrent account processes, as the consumer does, with
+serial unpaced requests at the fixed cutoff. Scheduled response replays the measured
+service times on the consumer's 200 ms slots. The baseline used the same harness on `main`
+with 100 requests per reader.
+
+| Class | Source | Samples | Service p50 / p95 / p99 | Scheduled response p99 |
+| --- | --- | --- | --- | --- |
+| Warm | `main` | 400 | 786 / 895 / 951 ms | 58.8 s |
+| Warm | repair | 1,000 | 423 / 480 / 520 ms | 56.9 s |
+| Application-cold | `main` | 400 | 882 / 987 / 1,050 ms | 67.9 s |
+| Application-cold | repair | 1,000 | 550 / 586 / 618 ms | 88.1 s |
+
+The repair halves service time. It still misses the warm p50 and p95 targets (100 and
+400 ms); the warm p99 and cold service targets are met. Every mean service time stays
+above the 200 ms slot, so scheduled response still fails in both dashboard classes.
+These figures are offline diagnostics, not a qualification. Meeting the budgets as
+declared would need a separate owner decision, for example a durable derived index or a
+change to the dashboard contract.
+
+#### Dashboard continuation declaration (draft, not approved)
+
+Drafted 2026-10-01 for owner review; nothing runs without explicit approval. It is
+limited to **one attempt**, and the cohort stops at the first failure. Under the offline
+result above, the dashboard warm and both dashboard scheduled-response classes are
+expected to fail.
+
+The candidate is the source at the commit adding this section, frozen by hash, with
+drivers and evidence under ignored `logs/runtime-capacity/stage1-dashboard/`. Because the
+telemetry source changed, the four signed `paper` targets are built again, with the
+residual cohort's configuration, state, ephemeral builder key, seven-day policy, fresh
+journals, disabled deployments and ordinary one-hour grants. No grant, lifetime, budget,
+risk or authority limit changes.
+
+0. Freeze; fetch, build, verify and install the four targets. Run one steady fixture
+   trial with the unchanged stage-1 shape and gates as the native history for step 1.
+1. Populated-history queries on that trial with
+   [`capacity_history_queries.py`](../../tests/integration/consumers/runtime/capacity_history_queries.py):
+   10,000 authored events per account, 250 samples per reader, all four classes into a
+   fresh output directory. The pass criteria are those of residual step 5: no failed
+   request, matched-cutoff parity, and `pass` for service and scheduled response in every
+   class against the unchanged budgets.
+2. The public Bitfinex route of residual step 6, on a new route root with freshly issued
+   ordinary one-hour grants for the same releases and the 12,000-message cap, with the
+   same criteria.
+3. Cleanup audit over every trial of this cohort, with all four accounts stopped.
+4. `make check` on the unchanged frozen source.
+
+Checkpoint percentiles, filesystem-cold queries, renewed public OKX health, integrated
+feature serving, stage 2 and 24-hour operation are outside this cohort.

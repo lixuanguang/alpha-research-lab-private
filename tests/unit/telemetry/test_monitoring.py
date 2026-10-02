@@ -177,6 +177,97 @@ class TestTelemetryStore:
             store.query(replace(MonitoringFixture.query(), limit=1))
         assert len(store.query(MonitoringFixture.query())) == 2
 
+    @staticmethod
+    def _window_reference(path: Path, query: MonitoringQuery) -> tuple[MonitoringEvent, ...]:
+        """Select latest known revisions with the earlier window-function query.
+
+        Version breaks the ties the earlier ordering left unspecified.
+        """
+        start, end, as_of = (
+            clock.isoformat(timespec="microseconds")
+            for clock in (query.start, query.end, query.as_of)
+        )
+        with closing(sqlite3.connect(path)) as connection:
+            rows = cast(
+                list[tuple[bytes]],
+                connection.execute(
+                    "SELECT payload FROM (SELECT payload, at, name, sample, version, "
+                    "ROW_NUMBER() OVER (PARTITION BY name, version, sample "
+                    "ORDER BY revision DESC) rank "
+                    "FROM events WHERE scope=? AND mode=? AND at>=? AND at<? "
+                    "AND available<=? AND recorded<=?) WHERE rank=1 "
+                    "ORDER BY at, name, sample, version",
+                    (
+                        query.scope,
+                        query.mode,
+                        start,
+                        end,
+                        as_of,
+                        as_of,
+                    ),
+                ).fetchall(),
+            )
+        codec = DomainCodec()
+        return tuple(codec.decode_json(row[0], MonitoringEvent) for row in rows)
+
+    def test_query_matches_window_reference_at_every_revision_cutoff(self, tmp_path: Path) -> None:
+        """Late, out-of-order and other-scope revisions select as before at every cutoff."""
+        store = TelemetryStore(tmp_path / "telemetry.sqlite")
+        base = MonitoringFixture.event
+        other = MonitoringFixture.event("other")
+        store.append(
+            (
+                base("start"),
+                base("start", value=Fraction(3), available=4, recorded=9, revision=1),
+                base("start", value=Fraction(5), available=11, recorded=11, revision=2),
+                # The later revision is available first but received after the earlier one.
+                base("swap", seconds=2, available=6, recorded=6),
+                base("swap", value=None, seconds=2, available=3, recorded=8, revision=1),
+                base("tie", name="label", seconds=2, available=2, recorded=2),
+                base("tie", seconds=2, available=7, recorded=7),
+                base("late", seconds=4, available=13, recorded=13),
+                base(
+                    "late", value=Fraction(1, 3), seconds=4, available=14, recorded=15, revision=1
+                ),
+                base("edge", seconds=5, available=5, recorded=5),
+                replace(base("start", available=1, recorded=1), version="v0"),
+                replace(other, context=replace(other.context, scope="strategy:two")),
+                replace(other, context=replace(other.context, mode="shadow")),
+            )
+        )
+        compared = 0
+        for cutoff in range(5, 17):
+            for start, end in ((0, 5), (2, 5), (0, 2), (4, 5)):
+                query = replace(
+                    MonitoringFixture.query(cutoff),
+                    start=MonitoringFixture.at + timedelta(seconds=start),
+                    end=MonitoringFixture.at + timedelta(seconds=end),
+                )
+                selected = store.query(query)
+                assert selected == self._window_reference(store.path, query)
+                compared += len(selected)
+        assert compared > 0
+        assert [
+            (event.sample, event.revision) for event in store.query(MonitoringFixture.query(16))
+        ] == [("start", 0), ("start", 2), ("tie", 0), ("swap", 1), ("tie", 0), ("late", 1)]
+
+    def test_limit_counts_current_revisions_and_overflow_fails(self, tmp_path: Path) -> None:
+        """Superseded revisions never count; one current fact over the limit fails the read."""
+        store = TelemetryStore(tmp_path / "telemetry.sqlite")
+        for sample in ("one", "two", "three"):
+            store.append(
+                (
+                    MonitoringFixture.event(sample),
+                    MonitoringFixture.event(
+                        sample, value=Fraction(9), available=7, recorded=7, revision=1
+                    ),
+                )
+            )
+        assert len(store.query(replace(MonitoringFixture.query(), limit=3))) == 3
+        with pytest.raises(ValueError, match="result limit"):
+            store.query(replace(MonitoringFixture.query(), limit=2))
+        assert len(store.query(replace(MonitoringFixture.query(5), limit=3))) == 3
+
     def test_stored_event_count_tracks_every_insert_retry_and_prune(self, tmp_path: Path) -> None:
         """Capacity reads a trigger-maintained count equal to the rows actually retained."""
         path = tmp_path / "telemetry.sqlite"
@@ -433,10 +524,17 @@ class TestMonitoringMetrics:
         for character in range(32):
             with pytest.raises(ValueError, match="bounded and nonempty"):
                 MonitoringIdentity(scope=f"account{chr(character)}one", mode="paper")
-        for scope in (" ", "é" * 129):
+        for scope in (" ", "é" * 129, "\U0001d11e" * 65, "a" * 257):
             with pytest.raises(ValueError, match="bounded and nonempty"):
                 MonitoringIdentity(scope=scope, mode="paper")
-        for scope in ("é" * 128, "scope\u007f", "市场:账户", "with space"):
+        for scope in (
+            "é" * 128,
+            "\U0001d11e" * 64,
+            "a" * 256,
+            "scope\u007f",
+            "市场:账户",
+            "with space",
+        ):
             assert MonitoringIdentity(scope=scope, mode="paper").scope == scope
 
     def test_grouped_evaluation_preserves_version_units_and_full_query_cutoffs(self) -> None:
@@ -460,6 +558,27 @@ class TestMonitoringMetrics:
         ):
             with pytest.raises(ValueError):
                 registry.evaluate_many((spec.identity,), query, (invalid,))
+
+    def test_grouped_evaluation_admits_selected_and_inapplicable_inputs(self) -> None:
+        """Deferred admission still rejects a selected input or one of an inapplicable metric."""
+        spec = MonitoringFixture.metric()
+        shadow_only = replace(
+            spec,
+            name="shadow-only",
+            inputs=(MetricInput(name="label", version="v1", units="return"),),
+            modes=("shadow",),
+        )
+        registry = MetricRegistry((SeriesMetric(spec), SeriesMetric(shadow_only)))
+        identities = (spec.identity, shadow_only.identity)
+        for name in ("prediction", "label"):
+            event = MonitoringFixture.event(name=name)
+            assert event.value is not None
+            force_setattr(event.value, "numerator", "invalid")
+            with pytest.raises(ValueError):
+                registry.evaluate_many(identities, MonitoringFixture.query(), (event,))
+            late = MonitoringFixture.event(name=name, available=11, recorded=11)
+            with pytest.raises(ValueError, match="scope or availability"):
+                registry.evaluate_many(identities, MonitoringFixture.query(), (late,))
 
     def test_grouped_evaluation_keeps_revision_and_nested_ratio_admission(self) -> None:
         """Selected duplicate revisions and an unselected force-mutated value remain invalid."""
