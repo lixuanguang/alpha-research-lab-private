@@ -33,7 +33,7 @@ entry points are:
 | `make format-check` / `make format` | Check or apply Ruff formatting to `src`, `tests`, governance tooling, and owned stubs |
 | `make lint` | Ruff lint and import checks over the same Python scope |
 | `make typecheck` | Strict mypy over the same scope, followed by native `stubtest` |
-| `make engineering-standards-check` | Local import, explicit-`Any`, docstring, suppression, tool-configuration, and [format-compatibility wording](#format-changes-replace-in-place) checks |
+| `make engineering-standards-check` | Local import, explicit-`Any`, docstring, suppression, tool-configuration, class-ownership and [format-compatibility wording](#format-changes-replace-in-place) checks |
 | `make security` | Bandit over runtime and governance source |
 | `make check` | Complete source checks and installed-wheel smoke validation |
 
@@ -58,13 +58,37 @@ The checker scans every `.py` and `.pyi` file recursively under exactly:
 that Git does not track. It also scans every UTF-8 text file under `src` for
 [format-compatibility wording](#format-changes-replace-in-place), and under `src`,
 `tools`, `tests` and `configs` (outside hidden directories) for revision-suffixed names. A missing root,
-unreadable source, malformed configuration, or finding fails closed. It has no source-rule waiver or
-function-registration mechanism. The checker does not yet enforce the
-orchestrator-only function rule or assess class cohesion; those are review
-requirements pending the [OOP migration](../roadmap/README.md#delivery-order-and-dependencies).
-A passing check does not establish OOP compliance. Line-scoped tool suppressions
-are separate and must carry the owner, rationale, and expiry metadata described
-below.
+unreadable source, malformed configuration, or finding fails closed. It has no
+function-registration mechanism.
+
+The ownership check scans the same four roots plus `examples` and enforces the
+[orchestrator and ownership rules](#python-scope-and-migration) structurally:
+
+- module-level functions are limited to public functions in `applications`
+  modules, `main` command functions in applications, governance tooling, test
+  consumers, subprocess support and example scripts, `pytest_*` hooks in
+  `conftest.py`, runtime lazy-export `__getattr__`, `@overload` signatures and
+  native stubs;
+- nested functions and lambdas are refused everywhere;
+- names from a library with an owned stub under `tools/typing/stubs` may be used
+  only inside class bodies, apart from imports and annotations, and
+  `applications` modules may not import those libraries; and
+- tests, tooling and examples may not import private runtime modules or names,
+  may import only names in an owner's `__all__` from owner APIs, and outside
+  `tests/unit` may not import below an owner API. No maintained source may
+  mutate `sys.path`.
+
+Whether a permitted function actually orchestrates, and whether a class is
+cohesive, remain review requirements; a passing check does not establish OOP
+compliance. The only waiver is the temporary MR16 migration ledger,
+`tools/governance/ownership-ledger.toml`, keyed by path, rule and symbol. A
+finding not recorded there fails, an entry above the current count is stale and
+fails, and the ledger may not grow relative to any committed version since the
+merge-base with `main`; without Git history the check fails closed. The ledger
+and this waiver are removed when the
+[ownership migration](../roadmap/python-ownership.md) completes. Line-scoped tool
+suppressions are separate and must carry the owner, rationale, and expiry
+metadata described below.
 
 The configured tools currently require:
 
@@ -235,13 +259,13 @@ functions; they MUST retain those signatures. Calls into those libraries belong
 behind owned adapter classes. Historical fixtures and recorded examples retain
 their original meaning and are not evidence of current OOP compliance.
 
-Existing non-orchestrator functions remain migration work, not a permanent
-exception or evidence that migration is complete. New and materially changed
-implementation MUST follow this rule. Migrate each affected API with its callers,
-exports, tests and documentation; retain current API descriptions until the code
-changes. The [roadmap](../roadmap/README.md#delivery-order-and-dependencies) owns the remaining
-implementation and enforcement work. This policy update changes no runtime API
-or checker behavior by itself.
+Existing violations are recorded in the shrink-only ownership ledger as
+migration work, not a permanent exception or evidence that migration is complete.
+New and materially changed implementation MUST follow these rules. Migrate each
+affected API with its callers, exports, tests and documentation, and remove its
+ledger entries in the same change; retain current API descriptions until the code
+changes. The [ownership migration](../roadmap/python-ownership.md) owns the
+remaining work and its order.
 
 ### Generalized code and configuration-driven activation
 

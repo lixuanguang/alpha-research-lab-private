@@ -28,7 +28,7 @@ VALIDATION_DATE = date(2026, 9, 7)
 
 def _fixture_root(tmp_path: Path, source: str) -> Path:
     """Create all owned source roots with one Python fixture."""
-    for source_root in ("src", "tests", "tools/governance/src", "tools/typing/stubs"):
+    for source_root in ("src", "tests", "tools/governance/src", "tools/typing/stubs", "examples"):
         (tmp_path / source_root).mkdir(parents=True)
     (tmp_path / "pyproject.toml").write_text(
         (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"),

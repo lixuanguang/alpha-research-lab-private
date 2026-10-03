@@ -18,6 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 from alpha_research_governance.engineering_standards.format_compatibility import (
     FormatCompatibilityChecker,
 )
+from alpha_research_governance.engineering_standards.ownership import OwnershipChecker
 from alpha_research_governance.engineering_standards.python_standards import (
     DEFAULT_SOURCE_ROOTS,
     PythonStandardsChecker,
@@ -241,6 +242,7 @@ def validate_repository(
         *tooling_configuration_findings(repository_root),
         *SourceLayoutChecker.findings(repository_root),
         *FormatCompatibilityChecker.findings(repository_root),
+        *OwnershipChecker.findings(repository_root),
         *source_tree_findings(
             repository_root,
             source_roots=source_roots,

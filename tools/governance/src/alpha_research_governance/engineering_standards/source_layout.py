@@ -154,7 +154,7 @@ class SourceLayoutChecker:
                     if isinstance(binding, ast.Name):
                         bound.add(binding.id)
             bound.update(cls._checked_lazy_exports(tree))
-            for missing in sorted(cls._exports(source) - bound):
+            for missing in sorted(cls.exports(source) - bound):
                 findings.append(f"{module}: public export {missing} is not bound")
         return tuple(findings)
 
@@ -320,8 +320,15 @@ class SourceLayoutChecker:
         return ""
 
     @staticmethod
-    def _exports(source: str) -> frozenset[str]:
-        """Read a validated literal API declaration without importing the package."""
+    def exports(source: str) -> frozenset[str]:
+        """Read a literal ``__all__`` declaration without importing the package.
+
+        Args:
+            source: Complete UTF-8 source of a package initializer.
+
+        Returns:
+            The declared string names, or an empty set when none are declared.
+        """
         for node in ast.parse(source).body:
             if (
                 isinstance(node, ast.Assign)
@@ -355,7 +362,7 @@ class SourceLayoutChecker:
                 return ("source layout: missing src root",)
             sources = sorted(source_root.rglob("*.py"))
             apis = {
-                ".".join(path.relative_to(source_root).parts[:-1]): cls._exports(
+                ".".join(path.relative_to(source_root).parts[:-1]): cls.exports(
                     path.read_text(encoding="utf-8")
                 )
                 for path in sources

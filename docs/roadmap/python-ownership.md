@@ -99,9 +99,10 @@ Whether each class that holds these calls is a genuine owned adapter is a review
   across 20 deep modules. Examples are `applications.execute.services.PaperServices`,
   `execution.account_state.AccountStateStore`, `execution.venues.contracts.*` and
   `telemetry.dashboard.POINT_LIMIT`.
-- **Path mutation.** 2 consumers (`research/decision_study.py`, `runtime/live_paper.py`)
-  prepend their own directory to `sys.path` to load the sibling `research_workflows`
-  extension package. The runtime consumers and their tests import siblings
+- **Path mutation.** 5 consumers (`research/decision_study.py`, `research/candidate_workflow.py`,
+  `runtime/live_paper.py`, `runtime/account_operations.py`, `runtime/portfolio_account.py`)
+  prepend their own directory to `sys.path` to load sibling modules such as the
+  `research_workflows` extension package. The runtime consumers and their tests import siblings
   (`capacity_inputs` and others) through pytest's rootdir insertion; 27 files do this,
   including the private `capacity_deliveries._IndexedSharedDelivery`.
 
@@ -292,7 +293,7 @@ error messages.
 8. **Integration tests and consumers.** The capacity harness goes last, since it is also
    the harness for the deferred stage 2b. This step covers its 20-function
    `account_history_capacity.py`, the `capacity_deliveries` private import, the `sys.path`
-   mutation in two consumers, and `examples/run_notebook.py` with its locked `notebooks`
+   mutation in five consumers, and `examples/run_notebook.py` with its locked `notebooks`
    group, owned stubs and Ruff, mypy and Bandit scope. The ledger is then empty and is
    removed.
 
@@ -340,3 +341,12 @@ The owner approved this design on 2026-10-04, with these decisions:
    `examples/`, and the runner's findings sit in the ledger.
 4. **Capacity harness timing.** The harness is migrated in MR16, before the deferred
    stage 2b, which runs on the migrated harness under its own declaration and rehearsals.
+
+## Progress
+
+- **Milestone 1 (2026-10-04): checker and ledger.** `OwnershipChecker` and the
+  shrink-only ledger are enforced by `make engineering-standards-check`, with behavioral
+  tests in `tests/engineering/test_ownership.py`. The seeded ledger records 555 findings
+  under 504 entries: 293 module-level functions, 77 nested functions, 85 lambdas, 3
+  native calls, 3 native imports in applications, 35 private, 52 deep and 2 unexported
+  imports, and 5 `sys.path` mutations. These match the inventory above.
