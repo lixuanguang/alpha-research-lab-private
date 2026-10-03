@@ -45,7 +45,7 @@ from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import InstalledIdentity
 from serialization import DomainCodec
-from strategies import LiquidityClipPolicy, ReferenceClipPolicy
+from strategies import reference_policy
 
 
 class NativeBookFixture:
@@ -372,8 +372,8 @@ class PaperServiceWorkload:
         """Match the installed service's selected policy constructor exactly."""
         if self.implementation is None:
             raise ValueError("policy identity requires the installed release")
-        factory = ReferenceClipPolicy if instance.policy == "fixed_clip" else LiquidityClipPolicy
-        return factory(
+        return reference_policy(
+            instance.policy,
             instance.quantity,
             source.scenario.adverse.currency,
             instance.lot,

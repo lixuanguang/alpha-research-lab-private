@@ -278,14 +278,21 @@ explicitly activated signed account socket. Each source binds one native capture
 venue/instrument identity, execution scenario, freshness budget and explicit
 `market_interval_us` (default 3,000,000); each instance
 selects its source and installed reference policy. The supported local envelope is
-at most four accounts, eight source processes and sixteen policy instances, with
-bounded 1–120 second invocations. These resource ceilings are not MR15 throughput
-qualification. `fixed_clip` and `liquidity_clip` are different engineering formulas,
-not profitability recommendations. Both price on the tick grid of the instrument limits
-in the instance's installed account: the opening clip bids 200 bps through the ask,
-rounded up to a tick, so it stays marketable against the scenario's modeled adverse
-cost at any price level; later interests rest one tick below the best bid, or at a bid
-of a single tick.
+at most four accounts, eight source processes and sixteen policy instances. Invocations
+are bounded by each account configuration's signed service life (120 seconds unless
+declared). These resource ceilings are not MR15 throughput qualification.
+`fixed_clip`, `liquidity_clip` and `target_clip` are different engineering formulas,
+not profitability recommendations. The two clip formulas price on the tick grid of the
+instrument limits in the instance's installed account: the opening clip bids 200 bps
+through the ask, rounded up to a tick, so it stays marketable against the scenario's
+modeled adverse cost at any price level; later interests rest one tick below the best
+bid, or at a bid of a single tick.
+
+`target_clip` requests the same absolute target at every eligible book. The account
+lowers an unmet target to one immediate-or-cancel buy at the ask, so the target is
+reachable only in a scenario whose modeled adverse cost is zero. Once the target is
+held, a checkpoint commits as `target_matched` without an order. A held position still
+needs the account reconciled within its state-age budget.
 
 The interval is positive and no larger than source freshness or capture idle time.
 It is part of the signed input identity. All native books are retained and validated;

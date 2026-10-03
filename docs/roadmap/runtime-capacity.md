@@ -2614,3 +2614,70 @@ Two existing tests changed:
   configuration, as the approved design intends.
 - `test_release_installation.py`'s four `_run` test fakes accept the new `timeout`
   keyword.
+
+#### S4: stage-2 workload and order mix (2026-10-03)
+
+The owner decided on 2026-10-03:
+- the order mix comes from a target-holding policy, with the stage-2 paper adverse cost
+  at 0;
+- the cadence stays at 3 s, so checkpoint percentiles stay deferred to 2b;
+- held positions are kept fresh by periodic reconciliation, not a larger state-age
+  budget.
+
+**Why the stage-1 workload cannot supply order-free commits.**
+- The reference clip policies emit an order at every checkpoint. A policy declares one
+  output contract, so it cannot open with an order and then hold with targets.
+- A target policy commits without an order only once its target is held
+  (`target_matched`). The account lowers an unmet target to one immediate-or-cancel buy
+  at the ask.
+- The paper model fills at the touch plus the scenario's adverse cost. With the stage-1
+  cost of 0.50, that order can never fill, so the target would place an order every 3
+  s.
+
+**What S4 adds.**
+- **`target_clip` policy** (`strategies.reference.TargetClipPolicy`). It requests a
+  constant target at every eligible book. All three formulas are now built by one named
+  factory, `reference_policy`. The existing clip policies keep their identities.
+- **`SustainedNativeFixture`.** The declared schedule: 25 Hz, with a 10-second 100 Hz
+  burst ending each 300-second period. Ten periods give 82,500 messages in 3,000 s. It
+  is a distinct input identity, and the stage-1 fixture is unchanged.
+- **`SustainedWorkload`.** The four-source, four-owner topology:
+  - **Segments:** 30-minute, 75,000-message, 256 MiB segments, with a 2,048-record queue
+    and one retry.
+  - **Chain:** 100,000 messages, 1 GiB and 4 segments.
+  - **Paper cost:** adverse cost 0.
+  - **Lifetimes:** 3,000 s owner service life and a 2,880 s supervisor.
+  - **Instances:** two `target_clip` instances of one unit per account.
+  - **Freshness:** a declared 60 s reconciliation cadence.
+- **Preparation.** It writes the selection, the owner configurations and an offline
+  projection. The projection replays the authored frames through the installed
+  reconstruction, the shared paper observer, the account journal and the selected
+  policies.
+
+**Measured projection.** Six authored minutes were replayed per account, then scaled
+to a 45-minute measured window.
+
+| Measure | Per source or account |
+| --- | --- |
+| Native messages | 74,250 per source in 45 minutes, in 2 segments. The first segment holds 49,500 messages, under the 75,000 cap |
+| Authored frame sizes | OKX mean 169.5 B, p99 171 B and maximum 18,544 B. Bitfinex mean 25.8 B and maximum 795 B |
+| Checkpoints | 120 in 6 minutes: 1 `reserved`, then 119 `target_matched`, with no rejection. That projects to 900 in 45 minutes, under 1,000, so percentiles stay deferred to 2b |
+| Orders | 2 opening orders per account, both filled to one unit per instance, and 0 after that. Projected 2 per account per run, against the 80-order grant and the 40-per-day target |
+| Reconciliations | 5 in 6 minutes (one every 60 s) |
+
+Two failure modes found while measuring are kept as tests and constraints:
+- **Partial fills.** One account's targets are netted into one parent order. If the
+  touch cannot fill the parent completely (2 + 1 units against 2 offered), the fill is
+  split pro rata and the unfilled children stay open. Every later checkpoint is then
+  rejected as `pending_target`. No further orders are placed, so the grant is safe, but
+  nothing commits order-free. Each account's total target is therefore declared at 2
+  units, which is half the fixture's 4-unit touch and fills in one step.
+- **State age.** Without reconciliation, a held position makes every checkpoint after
+  the unchanged 120 s state age a `stale_firm_account` rejection. S5 must therefore
+  reconcile each account from its own paper facts (settled ledger and open orders)
+  every 60 s, through the existing `reconcile` request, as the recovery path does.
+
+The full lane ran 2,358 passed, 2 skipped and 1 failed. The failure was the engineering-standards check, which rejected an unannotated type suppression in the new policy test. After the fix, that check and the policy test suite passed (46 tests). Strict mypy is clean.
+
+Nothing is signed. The capacity harness's stage-1 selection, fixture and policies are
+unchanged.

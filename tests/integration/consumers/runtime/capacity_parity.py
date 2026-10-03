@@ -44,7 +44,7 @@ from runtime import (
     SharedStrategyBinding,
 )
 from serialization import DomainCodec
-from strategies import LiquidityClipPolicy, ReferenceClipPolicy
+from strategies import reference_policy
 
 
 class _TrialSummary(msgspec.Struct):
@@ -159,8 +159,8 @@ class CapacityEconomicParity:
         instance: PaperServiceInstance,
     ) -> SharedStrategyBinding:
         """Use the service's exact policy constructor arguments without a worker."""
-        factory = ReferenceClipPolicy if instance.policy == "fixed_clip" else LiquidityClipPolicy
-        policy = factory(
+        policy = reference_policy(
+            instance.policy,
             instance.quantity,
             source.scenario.adverse.currency,
             instance.lot,

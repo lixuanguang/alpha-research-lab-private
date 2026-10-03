@@ -116,7 +116,7 @@ class PaperServiceInstance(WireRecord, frozen=True):
     instance_id: str
     account_id: str
     source: str
-    policy: Literal["fixed_clip", "liquidity_clip"]
+    policy: Literal["fixed_clip", "liquidity_clip", "target_clip"]
     quantity: Quantity
     lot: Quantity
     maximum_fee: Money
@@ -137,7 +137,7 @@ class PaperServiceInstance(WireRecord, frozen=True):
                 not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", name)
                 for name in (self.instance_id, self.account_id, self.source)
             )
-            or self.policy not in ("fixed_clip", "liquidity_clip")
+            or self.policy not in ("fixed_clip", "liquidity_clip", "target_clip")
             or self.quantity.dimension != self.lot.dimension
             or self.quantity.value <= 0
             or self.lot.value <= 0
