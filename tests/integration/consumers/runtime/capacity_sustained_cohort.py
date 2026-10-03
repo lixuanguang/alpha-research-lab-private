@@ -30,18 +30,24 @@ from capacity_trial import TrialTimings
 
 _MS = 1_000_000
 
-# Interactive processes a quiet host must not run (browsers, editors and the Codex app).
+# Interactive processes a quiet host must not run: browsers, editors, desktop
+# assistants, the Docker VM and document tools seen on the declared host.
 INTERACTIVE_PROCESSES = frozenset(
     {
         "Safari",
+        "Brave Browser",
         "Google Chrome",
         "Firefox",
         "Arc",
         "Code",
         "Cursor",
         "Codex",
+        "ChatGPT",
         "Xcode",
         "Preview",
+        "Texifier",
+        "GitHub Desktop",
+        "com.docker.backend",
     }
 )
 

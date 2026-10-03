@@ -2828,3 +2828,67 @@ gained class-level stage-1 defaults, that file passed (17 tests). Strict mypy is
 - the realistic host-gate thresholds on this host.
 
 The S6 declaration must fix all of these before any counted attempt.
+
+#### Stage 2a declaration (approved 2026-10-03)
+
+The owner approved the following on 2026-10-03. It is uncounted until a rehearsal has
+run and the owner separately approves a counted attempt. A counted attempt runs once and
+stops at its first failure.
+
+**Candidate.**
+- Freeze one clean commit and build, verify and install four signed `paper` owners from
+  `SustainedWorkload`. Each owner declares `service_life_seconds` 3,000 and
+  `target_clip` instances; the stage-1 risk, budget and fee settings are unchanged.
+- Issue ordinary one-hour grants: 80 orders and 100 units per instrument, unchanged.
+- No 26-hour grant is issued.
+
+**Host.**
+- The `quiet-host` step runs after the build and before the grants. It refuses to
+  start while any of these processes runs: Safari, Brave Browser, Google Chrome,
+  Firefox, Arc, Code, Cursor, Codex, ChatGPT, Xcode, Preview, Texifier, GitHub Desktop
+  and `com.docker.backend`.
+- The operator attests that iCloud Drive syncing is paused (`--icloud-paused`).
+- `caffeinate -dimsu` is held for the cohort's life.
+- A 5-minute idle check must show non-trial load averaging at most 1 core.
+- From the grant to the end of phase B, non-trial load above 2 cores for longer than 60
+  continuous seconds fails the attempt, with the busiest non-trial processes as
+  attribution.
+
+**Phases.**
+
+| Phase | Interval / supervisor / owners | Shape |
+| --- | --- | --- |
+| A | 1,800 / 1,860 / 1,920 s | Sustained fixture with 30-minute segment chains, readers, samplers and feature processes throughout, and reconciliation every 60 s. It ends with an injected death of the `bitfinex-isolated` owner |
+| B | 600 / 660 / 720 s | Four-owner recovery after that death, then the same shape |
+
+Each phase is followed by the stage-1 cleanup audit.
+
+**Gates, each phase.**
+- **Run:** the trial passed.
+- **Inputs:** every recording completed with chained replay parity, and every
+  fixture slot was retained exactly and on time.
+- **Parity:** the complete native delivery parity held for every account.
+- **Latency:** every 300-second window met the unchanged targets. That covers receipt
+  to durable (per source), durable to BBO (per account), depth/BBO and dashboard
+  queries, feature retrieval and feature availability. A window has at least 1,000
+  samples.
+- **Reads:** no read failed or was missed.
+- **Checkpoints:**
+  - Every acknowledged checkpoint is `committed`, with reason `reserved` or
+    `target_matched`.
+  - At least 95% of the 3 s selections committed per account.
+  - At most 2 `reserved` per account in phase A, and none in phase B.
+- **Reconciliation:** all matched, at least one per minute.
+- **Orders:** post-shutdown child orders stay within the grant.
+- **Phase A:** at least 2 segments per source, and the injected owner death fenced
+  within 2 s.
+- **Phase B:** all eight instances progress within 40 s of the first claim.
+
+**Not graded.** Selected-book-to-checkpoint latency is reported per window. Its
+percentiles stay deferred to 2b.
+
+**Evidence and execution.** The rehearsal runs from a git worktree at the declared
+commit, with its own `--no-editable` environment. Evidence goes to
+`~/AlphaResearchEvidence.noindex/runtime-capacity/stage2a-rehearsal-<n>`, linked under
+`logs/runtime-capacity/`. Passing it is not 2a acceptance, MR15 acceptance or 24-hour
+operation.
