@@ -1835,9 +1835,9 @@ lock, as the cutoff rule requires, not interpreter contention. Publication passe
 somewhat slower in their own process; they remain far inside the one-second cadence
 and the materialization budget. One interval still does not qualify.
 
-#### Integrated feature cohort declaration (draft 2026-10-02)
+#### Integrated feature cohort declaration (approved 2026-10-03)
 
-Draft, not yet approved. This cohort qualifies integrated feature serving for the
+Approved by the owner on 2026-10-03 after rehearsal 5. This cohort qualifies integrated feature serving for the
 stage-1 envelope on the approved process topology. Earlier feature attempts (v1–v5) and
 the three diagnostics stay as they are and are not pooled.
 
@@ -2055,6 +2055,46 @@ The cost grows with history, not with time. Stage 2 would make it much larger: a
 No journal schema, budget, authority or risk rule changes. The default and operator
 inspections stay complete.
 
+**Confirmation (`a1055b6`, chain 4, `logs/runtime-capacity/recovery-chain-4/`, uncounted).**
+With bounded monitoring reads, the no-feature chain passed every gate. Bitfinex and OKX
+durable-to-BBO p95 stayed at 2–7 ms from the steady interval through recovery-04, and
+`inspect` p95 stayed at 15–25 ms. Inside each measured interval the slowest inspection
+was 30–32 ms in recoveries 03 and 04. The only inspections still growing (up to 162 ms)
+lie outside the interval: the supervisor's startup preflight and the trial's final
+account-facts read, which take complete snapshots by design. They do not delay steady
+trading. At stage-2 history lengths the startup preflight would still grow, so it
+remains a stage-2 item.
+
+4. `features-cohort-rehearsal-4` (`a1055b6`, bounded monitoring reads) passed the
+   initial steady interval and recoveries 01–14, every one on all its gates. Recovery-15
+   then failed before its interval: the supervisor's startup preflight requested a full
+   inspection, and after 15 chained intervals the full trace history passed the account
+   socket's 1 MiB response limit (`socket paper response exceeds one MiB`). Cleanup was
+   audited.
+   - **Same root cause.** This is the full-history read again, in the startup
+     preflight. The preflight uses only activations, account phases and stopped
+     instances, so it now requests the bounded `monitoring` projection. A new test shows
+     the monitoring response stays one size (within identifier lengths) while 190 more
+     traces grow the full response more than fivefold.
+   - **Left as is.** The account service's own in-process startup owner check also
+     reads in full. It is not subject to the socket limit and runs once per start, so it
+     stays a stage-2 item.
+
+5. `features-cohort-rehearsal-5` (`2b66fe0`) passed every step in 39 minutes, inside
+   the one-hour grants. The steady interval and all 17 recoveries passed every trial
+   gate, every cleanup audit passed, and the cohort aggregate passed:
+
+   | Source | Materializations | Durable-to-available p50/p95/p99 |
+   | --- | --- | --- |
+   | Bitfinex BTC | 1,020 | 23/47/77 ms |
+   | Bitfinex ETH | 1,020 | 23/65/78 ms |
+   | OKX BTC | 1,020 | 89/187/214 ms |
+   | OKX ETH | 1,020 | 31/57/71 ms |
+
+   All against a 2 s p99 budget. Across the 17 recoveries, the worst interval's lookup
+   response p99 was 13.0 ms and the worst service p95 1.4 ms (budget 20/75/200 ms).
+   Durable-to-BBO p95 stayed at or below 7 ms in all 18 intervals.
+
 **Host attribution and evidence location (2026-10-02).** Two changes before rehearsal 3:
 - **Host sampler.** The cohort driver now runs
   [`capacity_host.py`](../../tests/integration/consumers/runtime/capacity_host.py) around
@@ -2071,6 +2111,50 @@ inspections stay complete.
   `logs/runtime-capacity/<name>`. Earlier evidence stays where it is.
 
 Neither change touches runtime code, budgets or gates.
+
+#### Counted feature cohort result (2026-10-03)
+
+**Passed.** The single counted attempt under the approved declaration froze `2b66fe0`
+(installed implementation `ea92d755…`; releases `d195daec…` OKX shared, `fc9e15aa…` OKX
+isolated, `b872acc5…` Bitfinex shared, `31ec532f…` Bitfinex isolated) and ran every step
+once, into `logs/runtime-capacity/features-cohort/` (evidence outside iCloud). It took 40
+minutes from freeze to aggregate, inside the one-hour grants.
+
+| Step | Result |
+| --- | --- |
+| Freeze, signed candidate, grants | Pass |
+| Initial steady interval (reported separately) | Every trial gate passed. 1,920 ready lookups with exact parity; scheduled response p50/p95/p99 5.4/6.8/9.4 ms, service 0.6/1.6/2.4 ms |
+| Recoveries 01–17 | Every trial gate passed in all 17, each with 1,920 ready lookups and matched-cutoff parity. Scheduled response p95 6.5–11.6 ms and p99 7.8–15.5 ms in recoveries 01–16, and 11.4/77.3 ms in recovery-17; service p95 at most 1.7 ms. Budget 20/75/200 ms for both |
+| Cleanup audits (18) | Pass: every observed process absent, including the five feature processes, and all four accounts stopped |
+| Cohort aggregate | Pass, 17 runs × 60 distinct native inputs per source, table below |
+| `make check` on the frozen source | Passed (2,329 passed, 2 skipped); HEAD and tree unchanged |
+
+| Source | Materializations | Durable-to-available p50/p95/p99 (max) |
+| --- | --- | --- |
+| Bitfinex BTC | 1,020 | 26/44/75 (144) ms |
+| Bitfinex ETH | 1,020 | 29/43/67 (126) ms |
+| OKX BTC | 1,020 | 93/190/221 (339) ms |
+| OKX ETH | 1,020 | 33/59/72 (164) ms |
+
+All are against the 2 s p99 budget.
+
+**Recovery-17 tail.** Durable-to-BBO p95 stayed at 1.6–14.1 ms across the steady
+interval and recoveries 01–16 on all four accounts. In recovery-17 it rose to 83.4 ms
+(`bitfinex-shared`), 51.3 ms (`bitfinex-isolated`), 29.0 and 27.5 ms (OKX), all inside the
+100 ms p95 budget. The same interval had the only lookup tail (response max 295.7 ms,
+service max 171.7 ms). The host sampler shows desktop load arriving at the same time.
+Host busy cores peaked at 9.2 of 10, against 5.0–7.3 in every earlier interval. The
+busiest processes outside the trial were Preview at 1.3 cores and the Codex renderer at up
+to 2.1 cores, and their peaks fell inside the authored burst (seconds 38–48). It is
+recorded as a coincidence in time, not a proven cause. No gate failed, and nothing is
+relabeled. Stage 2's quiet-host gate exists for exactly this condition.
+
+This qualifies integrated feature serving for the bounded stage-1 envelope on the
+approved process topology: one materializer process, one reader process per account,
+and 17 chained recoveries on one signed candidate. It is not MR15 acceptance. Checkpoint
+percentiles (deferred to stage 2), stage 2 and 24-hour operation remain open, as do the
+stage-2 items found here: the account service's in-process startup owner check still
+reads full history.
 
 ## Stage-2 design (2026-10-02)
 
@@ -2089,8 +2173,8 @@ never a mutation of an existing one.
 | Authority | Ordinary one-hour grants; recovery refuses under 120 s of headroom. No 26-hour grant has been issued, and denial at expiry or revocation over a long life is unqualified. | Stage-1 cohorts |
 | Account journal growth | Resolved for stage 2: history moved to indexed tables. | [Account journal history](account-journal-history.md) |
 | Checkpoint percentiles | The current fixture commits 21 of 21 checkpoints per account per minute, every one order-bearing (42 physical orders per account per minute). That would exhaust the unchanged 80-order grant within minutes. | [Checkpoint yield](#checkpoint-yield-on-the-current-runtime-2026-10-02) |
-| Feature serving | Process topology approved; rehearsal 3 of the 17-recovery cohort in progress. | [Feature cohort declaration](#integrated-feature-cohort-declaration-draft-2026-10-02) |
-| Host conditions | The declared host also runs iCloud sync, a browser and an editor, measured at 4–6 busy cores when idle. A 24-hour trial needs a declared quiet-host condition and host-wide sampling throughout. | [Host attribution](#integrated-feature-cohort-declaration-draft-2026-10-02) |
+| Feature serving | Qualified for the stage-1 envelope on the approved process topology (one materializer, one reader per account, 17 chained recoveries). | [Counted feature cohort](#counted-feature-cohort-result-2026-10-03) |
+| Host conditions | The declared host also runs iCloud sync, a browser and an editor, measured at 4–6 busy cores when idle. A 24-hour trial needs a declared quiet-host condition and host-wide sampling throughout. | [Host attribution](#integrated-feature-cohort-declaration-approved-2026-10-03) |
 
 **Decision 1 — longer bounded service life, not handoff (recommended).** A handoff keeps
 120 s services but needs about 720 owner handoffs per service per day. Each one needs
