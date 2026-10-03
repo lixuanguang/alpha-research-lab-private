@@ -18,6 +18,7 @@ DEFAULT_SOURCE_ROOTS = (
     "tests",
     "tools/governance/src",
     "tools/typing/stubs",
+    "examples",
 )
 
 

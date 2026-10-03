@@ -31,7 +31,7 @@ from execution.account_records import (
     TaggedOrder,
 )
 from execution.account_state import (
-    _AccountTransaction,
+    AccountTransaction,
     _InstanceControl,
     _PhysicalReconciliation,
     _Reconciliation,
@@ -162,7 +162,7 @@ class AccountAdmission:
 
     def admit(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         request: AccountDecision,
         *,
         context: PortfolioContext | None = None,
@@ -332,7 +332,7 @@ class AccountAdmission:
 
     def _require_protective_sell(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         request: AccountDecision,
         context: PortfolioContext | None,
         crossing_ids: set[str] | None,
@@ -383,7 +383,7 @@ class AccountAdmission:
             raise ValueError("reduction_exceeds_uncommitted_owned_inventory")
 
     def apply_event(
-        self, transaction: _AccountTransaction, event: OrderEvent
+        self, transaction: AccountTransaction, event: OrderEvent
     ) -> tuple[OrderState | None, str | None]:
         """Apply a direct fact while retaining contradictory receipts for commit."""
         failure: str | None = None
@@ -428,7 +428,7 @@ class AccountAdmission:
         return result, failure
 
     def post(
-        self, transaction: _AccountTransaction, posting: AccountPosting
+        self, transaction: AccountTransaction, posting: AccountPosting
     ) -> tuple[AccountSnapshot, str | None]:
         """Apply an identified transfer, cost, or correction within staged state."""
         failure: str | None = None
@@ -493,7 +493,7 @@ class AccountAdmission:
 
     def reconcile(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         observation: AccountObservation,
         allocation: PhysicalAllocation,
     ) -> bool:
@@ -570,7 +570,7 @@ class AccountAdmission:
 
     def reconcile_physical(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         observation: PhysicalAccountObservation,
         allocation: PhysicalAllocation,
     ) -> bool:
@@ -703,9 +703,7 @@ class AccountAdmission:
         )
         return matched
 
-    def _native_attribution_matches(
-        self, transaction: _AccountTransaction, account_id: str
-    ) -> bool:
+    def _native_attribution_matches(self, transaction: AccountTransaction, account_id: str) -> bool:
         """Check every venue trade's native cost against effective owned postings."""
         effective = {
             posting.identity: posting
@@ -795,7 +793,7 @@ class AccountAdmission:
         return True
 
     def commitments(
-        self, transaction: _AccountTransaction, at: datetime
+        self, transaction: AccountTransaction, at: datetime
     ) -> tuple[ExposureCommitment, ...]:
         """Count held positions and unresolved buys and fees without offsetting sells."""
         result: list[ExposureCommitment] = []
@@ -863,7 +861,7 @@ class AccountAdmission:
             )
         return tuple(result)
 
-    def require_funded(self, transaction: _AccountTransaction, account_id: str) -> None:
+    def require_funded(self, transaction: AccountTransaction, account_id: str) -> None:
         """Require physical cash and owned and account inventory for pending legs."""
         ledger = AccountLedger(transaction.account(account_id).ledger)
         snapshot = ledger.snapshot()
@@ -922,7 +920,7 @@ class AccountAdmission:
                 raise ValueError("holding_limit")
 
     def require_reissue_safe(
-        self, transaction: _AccountTransaction, account_id: str, at: datetime
+        self, transaction: AccountTransaction, account_id: str, at: datetime
     ) -> None:
         """Recheck gross capital, funding, and fresh prices before a physical send."""
         self.require_funded(transaction, account_id)
@@ -984,7 +982,7 @@ class AccountAdmission:
 
     def apply_order_event(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         tagged: TaggedOrder,
         event: OrderEvent,
     ) -> OrderState:
@@ -1075,7 +1073,7 @@ class AccountAdmission:
         status = "filled" if filled == order.intent.quantity else "unknown"
         return replace(order, filled=filled, paid_fee=fees, status=status)
 
-    def observe_quote(self, transaction: _AccountTransaction, quote: AccountQuote) -> None:
+    def observe_quote(self, transaction: AccountTransaction, quote: AccountQuote) -> None:
         """Keep valuation time monotonic and reject conflicting equal clocks."""
         self.limits(quote.price)
         prior = next(
@@ -1090,7 +1088,7 @@ class AccountAdmission:
         )
         transaction.state = replace(transaction.state, quotes=quotes)
 
-    def account_time(self, transaction: _AccountTransaction, account: AccountView) -> datetime:
+    def account_time(self, transaction: AccountTransaction, account: AccountView) -> datetime:
         """Return the latest knowledge clock whose state admission would consume."""
         clocks = [
             self.config.opening_at,
@@ -1111,7 +1109,7 @@ class AccountAdmission:
         return ((self._owner(orders, saved.event.order_id, "unknown child order"), saved.event.at),)
 
     def _failed_event_pairs(
-        self, transaction: _AccountTransaction, event: OrderEvent
+        self, transaction: AccountTransaction, event: OrderEvent
     ) -> Iterator[tuple[str, datetime]]:
         """Attribute one failed child-order event to every account it concerns."""
         return (
@@ -1128,7 +1126,7 @@ class AccountAdmission:
         )
 
     def _failed_net_event_pairs(
-        self, transaction: _AccountTransaction, event: OrderEvent
+        self, transaction: AccountTransaction, event: OrderEvent
     ) -> Iterator[tuple[str, datetime]]:
         """Attribute one failed physical-order event to every account it concerns."""
         return (
@@ -1162,7 +1160,7 @@ class AccountAdmission:
             else ()
         )
 
-    def _history_times(self, transaction: _AccountTransaction) -> dict[str, datetime]:
+    def _history_times(self, transaction: AccountTransaction) -> dict[str, datetime]:
         """Return every account's latest firm-history clock for the transaction's state.
 
         Admission asks for account time many times per transaction, and once per
@@ -1221,7 +1219,7 @@ class AccountAdmission:
             raise ValueError(missing)
         return owner
 
-    def record_failed_event(self, transaction: _AccountTransaction, event: OrderEvent) -> None:
+    def record_failed_event(self, transaction: AccountTransaction, event: OrderEvent) -> None:
         """Retain one rejected direct fact and durably fence its accounts."""
         failed_events = transaction.state.failed_events
         if event not in failed_events:
@@ -1233,7 +1231,7 @@ class AccountAdmission:
         transaction.state = replace(transaction.state, failed_events=failed_events)
 
     def failed_event_account_ids(
-        self, transaction: _AccountTransaction, event: OrderEvent
+        self, transaction: AccountTransaction, event: OrderEvent
     ) -> tuple[str, ...]:
         """Resolve every account named by a rejected direct source fact."""
         account_ids: list[str] = []
@@ -1256,7 +1254,7 @@ class AccountAdmission:
         return tuple(unique_account_ids)
 
     def failed_event_conflicts_with_accepted_fact(
-        self, transaction: _AccountTransaction, event: OrderEvent
+        self, transaction: AccountTransaction, event: OrderEvent
     ) -> bool:
         """Identify a rejected fact that contradicts accepted source bytes."""
         return any(
@@ -1280,7 +1278,7 @@ class AccountAdmission:
         )
 
     def failed_net_event_matches_accepted_fact(
-        self, transaction: _AccountTransaction, event: OrderEvent
+        self, transaction: AccountTransaction, event: OrderEvent
     ) -> bool:
         """Identify a rejected physical fact later accepted without contradiction."""
         if any(
@@ -1307,7 +1305,7 @@ class AccountAdmission:
         )
 
     def failed_net_event_account_ids(
-        self, transaction: _AccountTransaction, event: OrderEvent
+        self, transaction: AccountTransaction, event: OrderEvent
     ) -> tuple[str, ...]:
         """Resolve every account named by a rejected physical source fact."""
         account_ids: list[str] = []

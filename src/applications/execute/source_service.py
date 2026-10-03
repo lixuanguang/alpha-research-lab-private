@@ -35,7 +35,7 @@ class SourceDelivery(WireRecord, frozen=True):
         BookObservation.__post_init__(self.book)
 
 
-class _DecodedBookObservation(BookObservation, frozen=True):
+class DecodedBookObservation(BookObservation, frozen=True):
     """Receive native depth whose typed decoder has validated every Level and Order.
 
     This private pipe schema is constructed only by strict typed decoding. Public
@@ -61,7 +61,7 @@ class ReceivedSourceDelivery(WireRecord, frozen=True):
     """
 
     record: CaptureRecord
-    book: _DecodedBookObservation
+    book: DecodedBookObservation
 
 
 class SourceForwarder:

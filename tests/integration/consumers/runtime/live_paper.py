@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
-import sys
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -342,10 +341,7 @@ class _LiveCandidateConsumer:
     async def run(self) -> dict[str, object]:
         """Evaluate a historical synthetic study, load its bundle, then capture live books."""
         # The standalone installed consumer is copied beside its explicit support
-        # package. Isolated Python cannot see test files through the checkout.
-        consumer_root = str(Path(__file__).resolve().parent)
-        if consumer_root not in sys.path:
-            sys.path.insert(0, consumer_root)
+        # package; ``python -E -s`` puts that copied directory first on the path.
         # third party library imports
         from research_workflows.candidate_bundle import _CandidateAcceptance
         from research_workflows.scenario import (

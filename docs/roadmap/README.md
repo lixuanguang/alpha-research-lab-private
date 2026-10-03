@@ -20,7 +20,8 @@ service envelope, with separately signed account owners and retained failure and
 recovery evidence. MR12 retains bounded monitoring, and MR13 retains signed local
 activation and latest-journal recovery. Native authenticated test-venue
 qualification remains unavailable and KIV; its software evidence is separate.
-MR15–MR17 remain open, including capacity, ownership enforcement and QR handoff.
+MR16 ownership enforcement is complete (2026-10-04); MR15 capacity and MR17 QR handoff
+remain open.
 P1 stays deferred and unaccepted.
 
 This revision replaces live-capable delivery with paper-trading delivery.
@@ -337,7 +338,7 @@ production key provisioning, live orders and capital activation remain unqualifi
 | MR13 | **[Paper activation and recovery machinery](../governance/workflow.md#activate-and-operate) — complete for the [bounded signed local scope](#mr13-delivery-and-acceptance).** Disabled paper manifests and separate finite grants bind installed release, workload, account and state identities. Durable generations fence economic effects; stop, cancellation and attributable IOC reduction remain distinct. Reconcile before restart and retain current facts on compatible signed release rollback; historical snapshots cannot reactivate managed execution. Reject missing/expired/revoked or mismatched authority and production submission. Live activation and external-fill recovery are KIV. | MR06, MR10 paper drills and MR11–MR12; results incorporated into the bounded MR10/MR14 operating evidence |
 | MR14 | **[Multiple-instance integration](../architecture/portfolio-and-execution-design.md#multi-strategy-netting-and-isolated-risk) — complete for the [bounded trusted local scope](#mr14-delivery-and-acceptance).** Run distinct reference policies and instruments over isolated/shared signed account services with supervised native sources in paper and shadow. Activate a provisioned inactive instance through a versioned controlled restart; selective stop/restart retains attribution and other accounts' controls. The finite 1–120 second, single-user envelope does not qualify unprovisioned definition migration, cross-journal limits/FX, remote services or MR15 throughput. | MR09, MR12–MR13; live trading remains KIV |
 | MR15 | **[Research and runtime capacity qualification](../architecture/runtime-and-operations-design.md#scaling-triggers-and-technology-choices) — open; [research budgets and diagnostic evidence](research-capacity.md) retained; [bounded runtime processing, parity, four-owner recovery, receipt/BBO latency and warm queries](runtime-capacity.md#fresh-signed-latency-and-warm-query-follow-up) qualified, finite original-clock acquisition armed, [populated-history depth/BBO and dashboard queries and the public Bitfinex route qualified for stage 1](runtime-capacity.md#counted-dashboard-cohort-result-second-attempt-2026-10-02), [public OKX health renewed](runtime-capacity.md#counted-public-okx-route-result-2026-10-02), [filesystem-cold queries qualified](runtime-capacity.md#counted-filesystem-cold-query-result-2026-10-02) and [integrated feature serving qualified](runtime-capacity.md#counted-feature-cohort-result-2026-10-03) for stage 1, [stage 2a qualified](runtime-capacity.md#stage-2a-rehearsals-45-and-counted-attempt-2026-10-03); by [owner decision (2026-10-04)](runtime-capacity.md#owner-decision-stage-2b-sequencing-2026-10-04), stage 2b (24-hour trial, 26-hour grants with expiry/revocation trials, 72-hour retention, 4× replay) and 1,000-checkpoint percentiles are deferred, unchanged and not waived, to the last step before MR17; MR15 stays open until they pass.** Define numeric launch budgets early, covering multi-day data, multiple instruments, concurrent studies/trials, replay, feature-store materialization/retrieval, live ingestion, book reconstruction, quote consolidation and dashboard queries. Record volumes, retention, throughput, p50/p95/p99 latency, memory/disk, concurrency, hardware/cache conditions and recovery targets before measurement. Remove demonstration-size limits where they prevent the workload; preserve causal/numerical parity. Retain research acceptance separately from final integrated runtime acceptance and deploy the topology needed to meet both. | Budgets start with MR01/MR04; MR01–MR04 for research acceptance; MR07/MR07A/MR07B/MR12/MR14 for final runtime acceptance; no QR bottleneck required |
-| MR16 | **[Python ownership and enforcement](../coding_standards/README.md#python-scope-and-migration).** Complete the retained ownership/enforcement work with supported imports, packaging, checks and migration guidance; verify the APIs consumed by the reference workflows. [Inventory and enforcement design](python-ownership.md) approved 2026-10-04; implementation in progress. | Existing engineering rules; can proceed alongside other work |
+| MR16 | **[Python ownership and enforcement](../coding_standards/README.md#python-scope-and-migration) — complete.** Complete the retained ownership/enforcement work with supported imports, packaging, checks and migration guidance; verify the APIs consumed by the reference workflows. [Complete (2026-10-04)](python-ownership.md#acceptance-result-2026-10-04): ownership rules enforced with no waiver, supported imports published and installed-verified. | Existing engineering rules; can proceed alongside other work |
 | MR17 | **[QR onboarding acceptance](#qr-onboarding-acceptance).** Exercise the installed integrated stack from a clean environment with fresh research extensions and the published onboarding guide. Close every in-scope platform gap before declaring it ready for QR. | All planned rows above, retaining valid earlier evidence |
 
 The research path is MR01 → MR02 → MR03 → MR05. MR04's local development profile can
@@ -360,8 +361,8 @@ MR12 joins the report, operational and paper execution paths; MR13 supplies loca
 paper activation machinery; MR14 accepts bounded trusted-local multiple-instance
 service operation. Essential telemetry accompanies each earlier capability. MR15
 sets budgets at the start, accepts research capacity
-at G2 and completes against the integrated runtime before MR17. MR16 proceeds
-alongside delivery; packaging changes relevant to MR06 cannot wait until handoff.
+at G2 and completes against the integrated runtime before MR17. MR16 completed on
+2026-10-04 alongside delivery; later changes stay under its enforced ownership rules.
 The tables own exact prerequisites; bounded paper acceptance does not erase
 MR15–MR17 obligations. Deferred live requirements remain in the KIV gate.
 
@@ -562,8 +563,8 @@ order was sent. This unresolved external evidence is retained as a qualification
 limit and deferred from MR17/G5 under the paper delivery policy.
 
 MR10 and MR14 now incorporate this installed paper path through their bounded
-service records. MR15 capacity, MR16 ownership enforcement and MR17/G5 handoff
-remain open; this MR11 acceptance alone does not qualify those outcomes.
+service records. MR15 capacity and MR17/G5 handoff remain open (MR16 completed
+2026-10-04); this MR11 acceptance alone does not qualify those outcomes.
 If live work is reopened, native conformance still needs separately authorized
 OKX demo and Bitfinex paper-account access, account identities, venue specifications
 and bounded test-order envelopes, followed by actual acknowledgement-loss,
@@ -631,8 +632,8 @@ old lifecycle facts. Incomplete telemetry ingestion refuses partial dashboards
 and remains recoverable without account actions. MR10 incorporates these operating
 results into its bounded final service evidence. MR13 adds the account-isolation
 correction and signed local activation/recovery below; MR14 separately qualifies
-bounded local multiple-instance services. MR15 measured dashboard/load budgets,
-MR16 ownership enforcement and MR17/G5 remain open. Native private-stream signals
+bounded local multiple-instance services. MR15 measured dashboard/load budgets
+and MR17/G5 remain open; MR16 completed 2026-10-04. Native private-stream signals
 remain unqualified and KIV.
 
 ### MR13 delivery and acceptance
@@ -704,7 +705,7 @@ after an uncertain result.
 This scope does not qualify sustained feed rates or latency percentiles (MR15),
 remote/hostile service isolation, cross-journal atomic firm limits, implicit
 USD/USDT FX, arbitrary definition migration or private/live venue execution.
-MR16 ownership enforcement and MR17 onboarding remain open; private routing and
+MR17 onboarding remains open (MR16 completed 2026-10-04); private routing and
 real-capital operation remain KIV.
 
 ## Decisive acceptance scenarios

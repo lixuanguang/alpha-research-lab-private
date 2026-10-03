@@ -644,6 +644,12 @@ class CapacityResultsCollector:
         }
 
     @staticmethod
+    def _unix_ns(value: datetime) -> int:
+        """Convert an aware UTC read clock exactly to its microsecond resolution."""
+        delta = value.astimezone(UTC) - datetime(1970, 1, 1, tzinfo=UTC)
+        return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
+
+    @staticmethod
     def _steady_window_ns(read_root: Path | None) -> tuple[int, int] | None:
         """Use only the observer's actual UTC interval for steady arrival counts."""
         if read_root is None or not (read_root / "summary.json").is_file():
@@ -657,14 +663,7 @@ class CapacityResultsCollector:
         )
         if start.tzinfo is None or end.tzinfo is None:
             raise ValueError("capacity read interval has no UTC offset")
-        epoch = datetime(1970, 1, 1, tzinfo=UTC)
-
-        def unix_ns(value: datetime) -> int:
-            """Convert an aware UTC read clock exactly to its microsecond resolution."""
-            delta = value.astimezone(UTC) - epoch
-            return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
-
-        return unix_ns(start), unix_ns(end)
+        return CapacityResultsCollector._unix_ns(start), CapacityResultsCollector._unix_ns(end)
 
     @staticmethod
     def _steady_monotonic_window_ns(read_root: Path | None) -> tuple[int, int] | None:

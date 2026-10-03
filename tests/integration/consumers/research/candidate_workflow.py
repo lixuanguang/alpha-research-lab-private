@@ -139,9 +139,6 @@ class _PaperMonitoringAcceptance:
 def main() -> None:
     """Run retained packaging, replay/runtime parity and a fresh process continuation."""
     consumer_root = Path(__file__).resolve().parent
-    consumer_root_text = str(consumer_root)
-    if consumer_root_text not in sys.path:
-        sys.path.insert(0, consumer_root_text)
     # third party library imports
     from decision_study import _InstalledErrorMetric
     from research_workflows.candidate_bundle import _CandidateAcceptance
@@ -496,7 +493,7 @@ def main() -> None:
                 metric=_InstalledErrorMetric(),
             )
     subprocess.run(
-        [sys.executable, "-I", __file__, str(output), "unused", "resume"],
+        [sys.executable, "-E", "-s", __file__, str(output), "unused", "resume"],
         check=True,
         timeout=120,
     )

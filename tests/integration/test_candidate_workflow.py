@@ -33,7 +33,8 @@ class TestCandidateWorkflow:
         result = subprocess.run(
             [
                 sys.executable,
-                "-I",
+                "-E",
+                "-s",
                 str(tmp_path / "candidate_workflow.py"),
                 str(tmp_path / "output"),
             ],
@@ -98,7 +99,8 @@ class TestCandidateWorkflow:
         result = subprocess.run(
             [
                 sys.executable,
-                "-I",
+                "-E",
+                "-s",
                 str(tmp_path / "candidate_workflow.py"),
                 str(tmp_path / "output"),
                 "feast",

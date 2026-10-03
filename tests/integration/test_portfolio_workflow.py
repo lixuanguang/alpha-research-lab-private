@@ -32,7 +32,7 @@ class TestPortfolioWorkflow:
         shutil.copyfile(facts_source, tmp_path / "portfolio_account_facts.py")
         output = tmp_path / "output"
         result = subprocess.run(
-            [sys.executable, "-I", str(consumer), "--output", str(output), "--venue", venue],
+            [sys.executable, "-E", "-s", str(consumer), "--output", str(output), "--venue", venue],
             cwd=tmp_path,
             capture_output=True,
             text=True,

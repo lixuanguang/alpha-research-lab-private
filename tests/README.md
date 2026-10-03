@@ -39,8 +39,10 @@ source, macOS and merged-result gates remain unchanged. On macOS use
 ## Installed boundaries and domain regressions
 
 Consumers run as copied scripts with `python -I`, copied inputs and a working
-directory outside the checkout. They must not import repository test helpers or
-add the checkout to `sys.path`. Deliberate `os._exit` support programs run only in
+directory outside the checkout. A consumer copied with sibling support modules
+runs with `python -E -s` instead: the environment and user site are still ignored,
+and Python puts the copied directory first on the path. Consumers must not import
+repository test helpers or mutate `sys.path`. Deliberate `os._exit` support programs run only in
 children. Real orchestration belongs to `src/applications/`.
 
 | Maintained caller | Behavior retained |
@@ -284,7 +286,7 @@ installed core interpreter and a bounded copy of
 `configs/live/okx-btc-usdt.json` or `configs/live/bitfinex-btc-usd.json`:
 
 ```sh
-/absolute/core/bin/python -I /absolute/consumer/live_paper.py \
+/absolute/core/bin/python -E -s /absolute/consumer/live_paper.py \
   --config /absolute/okx-paper-capture.json --output /absolute/fresh-okx-paper
 ```
 

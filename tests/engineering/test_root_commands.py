@@ -87,7 +87,8 @@ class TestRootCommands:
         assert commands.count("uv lock --check") == 1
         assert (
             commands.count(
-                "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs"
+                "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs "
+                "examples"
             )
             == 1
         )
@@ -164,7 +165,7 @@ class TestRootCommands:
             "lock --check --project packages/execution",
             "lock --check --project configs/development/research-worker",
             "lock --check --project configs/development/clearml/worker",
-            "run --frozen ruff check src tests tools/governance/src tools/typing/stubs",
+            "run --frozen ruff check src tests tools/governance/src tools/typing/stubs examples",
         ]
         assert not any("format" in invocation or "mypy" in invocation for invocation in invocations)
 

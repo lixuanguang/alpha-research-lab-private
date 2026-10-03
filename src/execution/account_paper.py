@@ -22,7 +22,7 @@ from execution.account_records import (
     AccountPaperFill,
     AccountPaperTrace,
 )
-from execution.account_state import AccountStateStore, _AccountSnapshot, _AccountTransaction
+from execution.account_state import AccountStateStore, AccountTransaction, _AccountSnapshot
 from execution.paper import PaperMarket, PaperMatchEvaluator
 from execution.paper_authority import PaperAuthority, PaperOwner
 from execution.records import OrderEvent, OrderState
@@ -71,7 +71,7 @@ class AccountPaperMatching:
 
     def bind_transaction(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         account_id: str,
         scenario: PaperExecutionScenario,
     ) -> None:
@@ -132,7 +132,7 @@ class AccountPaperMatching:
         if snapshot is None:
             with self.store.snapshot() as fresh:
                 return self.market_seen(account_id, market_identity, snapshot=fresh)
-        transaction = _AccountTransaction(snapshot.state, snapshot.tables)
+        transaction = AccountTransaction(snapshot.state, snapshot.tables)
         transaction.account(account_id)
         if self.owner is not None:
             self.owner.__post_init__()
@@ -308,7 +308,7 @@ class AccountPaperMatching:
 
     def _match_new(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         account_id: str,
         binding: AccountPaperBinding,
         market: PaperMarket,
@@ -454,7 +454,7 @@ class AccountPaperMatching:
 
     def _binding(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         account_id: str,
         scenario: PaperExecutionScenario,
     ) -> AccountPaperBinding | None:

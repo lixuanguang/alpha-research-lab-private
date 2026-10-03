@@ -16,7 +16,7 @@ from execution.account_records import (
     AccountPhase,
     AccountView,
 )
-from execution.account_state import _AccountTransaction, _SavedEvent, _SavedNetEvent
+from execution.account_state import AccountTransaction, _SavedEvent, _SavedNetEvent
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import OrderEvent, OrderState
 
@@ -29,7 +29,7 @@ class AccountOperations:
         self.admission = admission
 
     def apply(
-        self, transaction: _AccountTransaction, request: AccountControl
+        self, transaction: AccountTransaction, request: AccountControl
     ) -> AccountControlResult:
         """Persist an exact idempotent request and its original outcome."""
         request.__post_init__()
@@ -59,7 +59,7 @@ class AccountOperations:
         return result
 
     def _apply(
-        self, transaction: _AccountTransaction, request: AccountControl, account: AccountView
+        self, transaction: AccountTransaction, request: AccountControl, account: AccountView
     ) -> AccountControlResult:
         """Check account-local clock and commit one permitted phase transition."""
         if request.at < self.admission.account_time(transaction, account):
@@ -108,7 +108,7 @@ class AccountOperations:
         )
 
     def _require_recovery_ready(
-        self, transaction: _AccountTransaction, request: AccountControl, account: AccountView
+        self, transaction: AccountTransaction, request: AccountControl, account: AccountView
     ) -> None:
         """Require a new complete observation and fresh independent safety inputs."""
         if request.kind == "startup":
@@ -172,7 +172,7 @@ class AccountOperations:
         self.admission.require_reissue_safe(transaction, request.account_id, request.at)
 
     @classmethod
-    def has_unresolved_orders(cls, transaction: _AccountTransaction, account_id: str) -> bool:
+    def has_unresolved_orders(cls, transaction: AccountTransaction, account_id: str) -> bool:
         """Identify physical outcomes that must settle before replacing their owner."""
         return any(
             cls._unresolved_order(tagged.order, physical=tagged.context is None)
@@ -194,7 +194,7 @@ class AccountOperations:
         )
 
     def _request_cancellation(
-        self, transaction: _AccountTransaction, request: AccountControl
+        self, transaction: AccountTransaction, request: AccountControl
     ) -> tuple[str, ...]:
         """Record requests for outstanding physical orders without terminal claims."""
         targets: list[str] = []

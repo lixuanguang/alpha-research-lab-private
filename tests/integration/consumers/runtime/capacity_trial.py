@@ -49,6 +49,22 @@ from runtime import InstalledIdentity
 from serialization import DomainCodec
 
 
+class TrialWorkloads:
+    """Build the declared capacity-trial workload."""
+
+    @staticmethod
+    def trial_workload(
+        name: TrialWorkload,
+        *,
+        opening_at: datetime,
+        socket_root: Path,
+        public_venue: Literal["okx", "bitfinex"] | None,
+    ) -> CapacityWorkload:
+        """Select the stage-1 or the sustained workload by its explicit declared name."""
+        factory = SustainedWorkload if name == "sustained" else CapacityWorkload
+        return factory(opening_at=opening_at, socket_root=socket_root, public_venue=public_venue)
+
+
 class _Health(msgspec.Struct, frozen=True):
     """Read the signed service process identity without weakening account responses."""
 
@@ -167,18 +183,6 @@ class TrialTimings:
             raise ValueError("trial interval, supervisor and services must nest")
 
 
-def trial_workload(
-    name: TrialWorkload,
-    *,
-    opening_at: datetime,
-    socket_root: Path,
-    public_venue: Literal["okx", "bitfinex"] | None,
-) -> CapacityWorkload:
-    """Select the stage-1 or the sustained workload by its explicit declared name."""
-    factory = SustainedWorkload if name == "sustained" else CapacityWorkload
-    return factory(opening_at=opening_at, socket_root=socket_root, public_venue=public_venue)
-
-
 class CapacityTrial:
     """Own signed startup, a measured finite interval and unconditional shutdown."""
 
@@ -225,7 +229,7 @@ class CapacityTrial:
         )
         self.socket_root = Path(self.config.accounts[0].socket_path).parent
         self.control_socket = self.socket_root / "supervisor.sock"
-        self.workload = trial_workload(
+        self.workload = TrialWorkloads.trial_workload(
             workload,
             opening_at=self.config.accounts[0].configuration.opening_at,
             socket_root=self.socket_root,
@@ -770,6 +774,10 @@ class CapacityTrial:
             {"attempts": reconciler.attempts, "failures": reconciler.failures},
         )
 
+    def _record_feature_processes(self, pids: dict[str, int]) -> None:
+        """Retain the feature-serving process identities of this trial."""
+        self.record("feature_processes", {"feature_pids": pids})
+
     def _finish_healthy_interval(self) -> None:
         """Close the continuous health witness before requesting finite shutdown."""
         self._stop_health_monitor()
@@ -837,9 +845,7 @@ class CapacityTrial:
                 feature_cohort="recovery_steady" if self.recover else "initial_steady",
             ).run(
                 on_interval_complete=self._finish_healthy_interval,
-                on_feature_processes=lambda pids: self.record(
-                    "feature_processes", {"feature_pids": pids}
-                ),
+                on_feature_processes=self._record_feature_processes,
             )
             result["measurement_and_postprocess_seconds"] = time.monotonic() - start
         except Exception as error:
@@ -1019,7 +1025,7 @@ def main() -> None:
             (args.output / "configuration.json").read_bytes(), PaperServiceConfiguration
         )
         owners = codec.decode_json((args.output / "owners.json").read_bytes(), PaperServiceOwners)
-        workload = trial_workload(
+        workload = TrialWorkloads.trial_workload(
             args.workload,
             opening_at=config.accounts[0].configuration.opening_at,
             socket_root=Path(config.accounts[0].socket_path).parent,

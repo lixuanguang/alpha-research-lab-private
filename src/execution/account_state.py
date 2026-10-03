@@ -46,7 +46,7 @@ from reference_data.instruments import InstrumentId
 from serialization import DomainCodec, SqliteLayout, WireRecord
 
 
-class _SavedDecision(WireRecord, frozen=True):
+class SavedDecision(WireRecord, frozen=True):
     """Retain original request and outcome for restart-safe idempotent admission."""
 
     request: AccountDecision
@@ -67,7 +67,7 @@ class _Reconciliation(WireRecord, frozen=True):
     matched: bool
 
 
-class _SavedPortfolioBatch(WireRecord, frozen=True):
+class SavedPortfolioBatch(WireRecord, frozen=True):
     """Retain exact coordination input and outcome for transport retry."""
 
     batch: PortfolioBatch
@@ -123,12 +123,12 @@ class FirmState(WireRecord, frozen=True):
     accounts: tuple[AccountView, ...]
     orders: tuple[TaggedOrder, ...] = ()
     quotes: tuple[AccountQuote, ...] = ()
-    decisions: tuple[_SavedDecision, ...] = ()
+    decisions: tuple[SavedDecision, ...] = ()
     events: tuple[_SavedEvent, ...] = ()
     reconciliations: tuple[_Reconciliation, ...] = ()
     failed_events: tuple[OrderEvent, ...] = ()
     failed_postings: tuple[AccountPosting, ...] = ()
-    portfolio_batches: tuple[_SavedPortfolioBatch, ...] = ()
+    portfolio_batches: tuple[SavedPortfolioBatch, ...] = ()
     net_orders: tuple[NetOrder, ...] = ()
     net_events: tuple[_SavedNetEvent, ...] = ()
     failed_net_events: tuple[OrderEvent, ...] = ()
@@ -616,13 +616,13 @@ class _HistoryTables:
         self.summary = summary
         self._checkpoints: dict[str, bytes] | None = None
 
-    def find_decision(self, instance_id: str, decision_identity: str) -> _SavedDecision | None:
+    def find_decision(self, instance_id: str, decision_identity: str) -> SavedDecision | None:
         """Resolve one committed decision by its unique key."""
         payload = self._payload(
             "SELECT payload FROM decisions WHERE instance_id=? AND decision_identity=?",
             (instance_id, decision_identity),
         )
-        return None if payload is None else self.codec.decode_json(payload, _SavedDecision)
+        return None if payload is None else self.codec.decode_json(payload, SavedDecision)
 
     def latest_checkpoint(self, instance_id: str) -> bytes | None:
         """Read the instance's latest committed continuation from the head."""
@@ -632,12 +632,12 @@ class _HistoryTables:
             }
         return self._checkpoints.get(instance_id)
 
-    def find_batch(self, identity: str) -> _SavedPortfolioBatch | None:
+    def find_batch(self, identity: str) -> SavedPortfolioBatch | None:
         """Resolve one committed portfolio batch by its unique identity."""
         payload = self._payload(
             "SELECT payload FROM portfolio_batches WHERE batch_identity=?", (identity,)
         )
-        return None if payload is None else self.codec.decode_json(payload, _SavedPortfolioBatch)
+        return None if payload is None else self.codec.decode_json(payload, SavedPortfolioBatch)
 
     def find_trace(
         self,
@@ -706,8 +706,8 @@ class _HistoryTables:
 
     def verify(self) -> None:
         """Check every row, its key columns and the head's counts, digests and checkpoints."""
-        decisions = self._verify_table("decisions", _SavedDecision, _HistoryTables._decision_key)
-        self._verify_table("portfolio_batches", _SavedPortfolioBatch, _HistoryTables._batch_key)
+        decisions = self._verify_table("decisions", SavedDecision, _HistoryTables._decision_key)
+        self._verify_table("portfolio_batches", SavedPortfolioBatch, _HistoryTables._batch_key)
         self._verify_table("paper_traces", AccountPaperTrace, _HistoryTables._trace_key)
         checkpoints: dict[str, bytes] = {}
         for saved in decisions:
@@ -773,12 +773,12 @@ class _HistoryTables:
         return value
 
     @staticmethod
-    def _decision_key(saved: _SavedDecision) -> tuple[str, ...]:
+    def _decision_key(saved: SavedDecision) -> tuple[str, ...]:
         """Return the decisions table lookup columns."""
         return saved.request.instance_id, saved.request.decision.identity
 
     @staticmethod
-    def _batch_key(saved: _SavedPortfolioBatch) -> tuple[str, ...]:
+    def _batch_key(saved: SavedPortfolioBatch) -> tuple[str, ...]:
         """Return the portfolio batches table lookup column."""
         return (saved.batch.identity,)
 
@@ -810,7 +810,7 @@ class _AccountSnapshot:
         """Yield one account's committed traces after a sequence; staged items are excluded."""
         return self.tables.iter_traces_after(account_id, after_seq)
 
-    def find_decision(self, instance_id: str, decision_identity: str) -> _SavedDecision | None:
+    def find_decision(self, instance_id: str, decision_identity: str) -> SavedDecision | None:
         """Resolve one saved decision by instance and decision identity."""
         committed = self.tables.find_decision(instance_id, decision_identity)
         if committed is not None:
@@ -830,7 +830,7 @@ class _AccountSnapshot:
                 return saved.request.checkpoint
         return self.tables.latest_checkpoint(instance_id)
 
-    def find_batch(self, identity: str) -> _SavedPortfolioBatch | None:
+    def find_batch(self, identity: str) -> SavedPortfolioBatch | None:
         """Resolve one saved portfolio batch by its stable identity."""
         committed = self.tables.find_batch(identity)
         if committed is not None:
@@ -889,21 +889,21 @@ class _AccountSnapshot:
             yield from staged
 
 
-class _AccountTransaction(_AccountSnapshot):
+class AccountTransaction(_AccountSnapshot):
     """Own the staged state of a single serialized firm transaction."""
 
     # Identity lookups of the current order tuples; see find_order and find_net_order.
     _order_index: tuple[tuple[TaggedOrder, ...], dict[str, TaggedOrder]] | None = None
     _net_order_index: tuple[tuple[NetOrder, ...], dict[str, NetOrder]] | None = None
 
-    def append_decisions(self, *saved: _SavedDecision) -> None:
+    def append_decisions(self, *saved: SavedDecision) -> None:
         """Append saved decisions after all existing history."""
-        decisions: tuple[_SavedDecision, ...] = (*self.state.decisions, *saved)
+        decisions: tuple[SavedDecision, ...] = (*self.state.decisions, *saved)
         self.state = replace(self.state, decisions=decisions)
 
-    def append_batch(self, saved: _SavedPortfolioBatch) -> None:
+    def append_batch(self, saved: SavedPortfolioBatch) -> None:
         """Append one saved portfolio batch after all existing history."""
-        batches: tuple[_SavedPortfolioBatch, ...] = (*self.state.portfolio_batches, saved)
+        batches: tuple[SavedPortfolioBatch, ...] = (*self.state.portfolio_batches, saved)
         self.state = replace(self.state, portfolio_batches=batches)
 
     def append_trace(self, trace: AccountPaperTrace) -> None:
@@ -1181,14 +1181,14 @@ class AccountStateStore:
                 raise ValueError("account snapshot has SQLite sidecars")
 
     @contextmanager
-    def write(self) -> Iterator[_AccountTransaction]:
+    def write(self) -> Iterator[AccountTransaction]:
         """Serialize read/check/write so concurrent clients cannot over-admit capacity."""
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 head = self._load(connection)
                 tables = self._tables(connection, head.history)
-                transaction = _AccountTransaction(head.state, tables)
+                transaction = AccountTransaction(head.state, tables)
                 yield transaction
                 staged = transaction.state
                 if staged is head.state:

@@ -23,6 +23,17 @@ from capacity_sustained import SustainedNativeFixture
 from market_data.storage import CaptureRecording
 
 
+class SustainedValues:
+    """Narrow retained sustained-result values."""
+
+    @staticmethod
+    def cast_int(value: object) -> int:
+        """Narrow one retained integer clock or duration."""
+        if type(value) is not int:
+            raise ValueError("retained latency is not an integer")
+        return value
+
+
 @dataclass(frozen=True, slots=True)
 class WindowBudget:
     """Declare one latency class's per-window percentile budget and minimum population."""
@@ -86,9 +97,9 @@ class RollingPercentiles:
                 window["status"] = "unmeasured"
             else:
                 passed = (
-                    cast_int(window["p50_ns"]) <= budget.p50_ns
-                    and cast_int(window["p95_ns"]) <= budget.p95_ns
-                    and cast_int(window["p99_ns"]) <= budget.p99_ns
+                    SustainedValues.cast_int(window["p50_ns"]) <= budget.p50_ns
+                    and SustainedValues.cast_int(window["p95_ns"]) <= budget.p95_ns
+                    and SustainedValues.cast_int(window["p99_ns"]) <= budget.p99_ns
                 )
                 window["status"] = "pass" if passed else "fail"
             windows.append(window)
@@ -112,13 +123,6 @@ class RollingPercentiles:
             if "unmeasured" in statuses
             else "pass",
         }
-
-
-def cast_int(value: object) -> int:
-    """Narrow one retained integer clock or duration."""
-    if type(value) is not int:
-        raise ValueError("retained latency is not an integer")
-    return value
 
 
 class _Row(msgspec.Struct, frozen=True):
@@ -348,8 +352,10 @@ class SustainedResults:
             values = row.values
             account = str(values.get("account"))
             entry = result.setdefault(account, {"attempts": 0, "matched": 0, "max_seconds": 0.0})
-            entry["attempts"] = cast_int(entry["attempts"]) + 1
-            entry["matched"] = cast_int(entry["matched"]) + (values.get("matched") is True)
+            entry["attempts"] = SustainedValues.cast_int(entry["attempts"]) + 1
+            entry["matched"] = SustainedValues.cast_int(entry["matched"]) + (
+                values.get("matched") is True
+            )
             seconds = values.get("seconds")
             if isinstance(seconds, float) and seconds > float(str(entry["max_seconds"])):
                 entry["max_seconds"] = seconds

@@ -85,6 +85,7 @@ _APPROVED_LICENSES = {
     "ISC",
     "MIT",
     "MIT-0",
+    "LicenseRef-Debugpy-Bundled",
     "LicenseRef-Lxml-Bundled",
     "LicenseRef-Docutils-Bundled",
     "MIT AND PSF-2.0",

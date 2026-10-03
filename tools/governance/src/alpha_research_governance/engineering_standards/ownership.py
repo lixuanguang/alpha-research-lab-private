@@ -4,17 +4,12 @@ from __future__ import annotations
 
 # standard library imports
 import ast
-from collections import Counter, defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
 # project library imports
-from alpha_research_governance.engineering_standards.ownership_ledger import (
-    LedgerHistory,
-    OwnershipLedger,
-)
 from alpha_research_governance.engineering_standards.source_layout import SourceLayoutChecker
 
 
@@ -29,7 +24,7 @@ class OwnershipFinding:
 
     @property
     def key(self) -> tuple[str, str, str]:
-        """Return the line-independent identity recorded by the ownership ledger.
+        """Return the line-independent identity of this finding.
 
         Returns:
             The repository-relative path, rule and qualified symbol.
@@ -305,7 +300,7 @@ class _ModuleVisit:
 
 
 class OwnershipChecker:
-    """Check class ownership over maintained Python against the shrink-only debt ledger."""
+    """Check class ownership over maintained Python; every finding fails."""
 
     ROOTS: ClassVar[tuple[str, ...]] = (
         "src",
@@ -314,7 +309,6 @@ class OwnershipChecker:
         "tools/typing/stubs",
         "examples",
     )
-    LEDGER: ClassVar[str] = "tools/governance/ownership-ledger.toml"
     GUIDANCE: ClassVar[dict[str, str]] = {
         "module-function": (
             "only application orchestrators, command main functions, pytest hooks, lazy "
@@ -388,55 +382,20 @@ class OwnershipChecker:
 
     @classmethod
     def findings(cls, repository_root: Path) -> tuple[str, ...]:
-        """Report ownership findings beyond the recorded debt and any ledger violation.
-
-        A finding fails unless the ledger records its path, rule and symbol with at
-        least as many occurrences. A ledger entry above the current count is stale,
-        and a ledger that grew after it was first committed fails, so recorded debt
-        can only shrink.
+        """Report every ownership finding with its location and guidance.
 
         Args:
             repository_root: Repository or fixture containing the governed roots.
 
         Returns:
-            Stable diagnostics; scanner, ledger and Git failures fail closed.
+            Stable diagnostics; a missing root or unreadable source fails closed.
         """
         try:
             observed = cls.scan(repository_root)
         except (OSError, UnicodeError, SyntaxError) as error:
             return (f"ownership scanner: {error}",)
-        ledger_path = repository_root / cls.LEDGER
-        try:
-            ledger = OwnershipLedger.read(ledger_path)
-        except (OSError, UnicodeError, ValueError) as error:
-            return (f"ownership ledger: {error}",)
-        diagnostics: list[str] = []
-        if ledger is not None:
-            diagnostics.extend(LedgerHistory(repository_root, cls.LEDGER).growth(ledger))
-        recorded = ledger.counts if ledger is not None else {}
-        by_key: defaultdict[tuple[str, str, str], list[OwnershipFinding]] = defaultdict(list)
-        for finding in observed:
-            by_key[finding.key].append(finding)
-        for key, occurrences in sorted(by_key.items()):
-            path, rule, symbol = key
-            allowed = recorded.get(key, 0)
-            if allowed == 0:
-                diagnostics.extend(
-                    f"{finding.path}:{finding.line}: {rule} {symbol}: {cls.GUIDANCE[rule]}"
-                    for finding in occurrences
-                )
-            elif len(occurrences) > allowed:
-                lines = ", ".join(str(finding.line) for finding in occurrences)
-                diagnostics.append(
-                    f"{path}: {rule} {symbol}: {len(occurrences)} findings (lines {lines}) "
-                    f"exceed the {allowed} recorded; {cls.GUIDANCE[rule]}"
-                )
-        current = Counter({key: len(occurrences) for key, occurrences in by_key.items()})
-        for key, allowed in sorted(recorded.items()):
-            if current[key] < allowed:
-                path, rule, symbol = key
-                diagnostics.append(
-                    f"ownership ledger: {path} {rule} {symbol} records {allowed} but "
-                    f"{current[key]} remain; lower or remove the entry"
-                )
-        return tuple(diagnostics)
+        return tuple(
+            f"{finding.path}:{finding.line}: {finding.rule} {finding.symbol}: "
+            f"{cls.GUIDANCE[finding.rule]}"
+            for finding in observed
+        )

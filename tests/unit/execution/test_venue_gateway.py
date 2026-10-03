@@ -42,7 +42,7 @@ from execution import (
     OrderState,
     VenueGateway,
 )
-from execution.account_state import _AccountTransaction
+from execution.account_state import AccountTransaction
 from execution.venue_state import VenueReceipt, VenueState, VenueStateStore
 from execution.venues import (
     BitfinexSpotAdapter,
@@ -816,18 +816,18 @@ class _LockedReleaseOnce:
     Installed on the transaction class, it binds to the transaction like a method.
     """
 
-    def __init__(self, release: Callable[[_AccountTransaction, str, str], None]) -> None:
+    def __init__(self, release: Callable[[AccountTransaction, str, str], None]) -> None:
         """Bind the original release before any call."""
         self._release = release
         self._calls = itertools.count()
 
     def __get__(
-        self, instance: _AccountTransaction, owner: type[_AccountTransaction]
+        self, instance: AccountTransaction, owner: type[AccountTransaction]
     ) -> partial[None]:
         """Bind the release to the transaction it is called on."""
         return partial(self, instance)
 
-    def __call__(self, transaction: _AccountTransaction, order_id: str, holder: str) -> None:
+    def __call__(self, transaction: AccountTransaction, order_id: str, holder: str) -> None:
         """Fail the first release as a lock timeout; release every later one."""
         if not next(self._calls):
             raise sqlite3.OperationalError("database is locked")
@@ -1741,9 +1741,9 @@ class TestVenueGateway:
     def _locked_release(monkeypatch: pytest.MonkeyPatch) -> None:
         """Make the guard's lease release time out as if another writer held the lock."""
         monkeypatch.setattr(
-            _AccountTransaction,
+            AccountTransaction,
             "release_lease",
-            _LockedReleaseOnce(_AccountTransaction.release_lease),
+            _LockedReleaseOnce(AccountTransaction.release_lease),
         )
 
     def test_failed_lease_release_keeps_the_venue_rejection(

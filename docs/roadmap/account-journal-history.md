@@ -90,8 +90,9 @@ hashes every table.
 
 Declared before any measurement. One run; a missed target is recorded as a failure
 and is not retried with a changed workload, method or target. The run uses the
-[history capacity consumer](../../tests/integration/consumers/runtime/account_history_capacity.py)
-at the commit that adds this declaration, and retains raw results under ignored
+[history capacity consumer](../../tests/unit/execution/account_history_capacity.py)
+(then at `tests/integration/consumers/runtime/account_history_capacity.py`) at the commit
+that adds this declaration, and retains raw results under ignored
 `logs/account-history/qualification-1/`; the compact record was
 `docs/roadmap/account-journal-history-evidence.json` (removed 2026-09-29; kept in
 git history).

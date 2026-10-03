@@ -16,7 +16,6 @@ from uuid import uuid4
 
 # third party library imports
 import msgspec
-from lakefs_sdk import ApiClient, Configuration
 
 # project library imports
 from market_data.adapters.sources import SourceAdapters
@@ -186,11 +185,8 @@ def main() -> None:
         os.environ.get("ALPHA_LAKEFS_ENDPOINT", "http://127.0.0.1:18000/api/v1"),
         Path(os.environ["ALPHA_LAKEFS_CREDENTIALS"]),
     )
-    client = ApiClient(
-        Configuration(host=service.endpoint, username=service.access, password=service.secret)
-    )
+    storage = LakeFSStorage.connect(service.endpoint, Path(os.environ["ALPHA_LAKEFS_CREDENTIALS"]))
     try:
-        storage = LakeFSStorage(client)
         if len(sys.argv) > 3 and sys.argv[3] in ("feature-workspace", "feature-reopen"):
             _FeatureWorkspaceVersion.run(
                 source, output, service, storage, reopen=sys.argv[3] == "feature-reopen"
@@ -336,7 +332,7 @@ def main() -> None:
         assert AttemptStore(source / "configured-attempts").histories()
         print("Verified lakeFS dataset/feature pin and correction isolation:", commit)
     finally:
-        client.close()
+        storage.close()
 
 
 if __name__ == "__main__":

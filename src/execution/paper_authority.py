@@ -18,7 +18,7 @@ from serialization import WireRecord
 if TYPE_CHECKING:
     # project library imports
     from execution.account_operations import AccountOperations
-    from execution.account_state import _AccountTransaction
+    from execution.account_state import AccountTransaction
 
 
 class PaperOwner(WireRecord, frozen=True):
@@ -104,7 +104,7 @@ class PaperAuthority:
     """Check generation and authorization within the same lock as economic effects."""
 
     @staticmethod
-    def find(transaction: _AccountTransaction, account_id: str) -> PaperActivation | None:
+    def find(transaction: AccountTransaction, account_id: str) -> PaperActivation | None:
         """Resolve the account's sole immutable deployment."""
         return next(
             (
@@ -116,7 +116,7 @@ class PaperAuthority:
         )
 
     @staticmethod
-    def save(transaction: _AccountTransaction, value: PaperActivation) -> None:
+    def save(transaction: AccountTransaction, value: PaperActivation) -> None:
         """Replace only one account's activation; its presence records activation."""
         value.__post_init__()
         values = tuple(
@@ -130,7 +130,7 @@ class PaperAuthority:
     @classmethod
     def require_owner(
         cls,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         account_id: str,
         owner: PaperOwner | None,
         *,
@@ -156,7 +156,7 @@ class PaperAuthority:
     @classmethod
     def require_decision(
         cls,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         request: AccountDecision,
         owner: PaperOwner | None,
         *,
@@ -184,7 +184,7 @@ class PaperAuthority:
             raise ValueError("paper_authorization_scope_differs")
 
     @classmethod
-    def require_limits(cls, transaction: _AccountTransaction, account_id: str) -> None:
+    def require_limits(cls, transaction: AccountTransaction, account_id: str) -> None:
         """Bound lifetime admitted children, counting pending/uncertain buys conservatively."""
         activation = cls.find(transaction, account_id)
         if activation is None or activation.authorization is None:
@@ -229,7 +229,7 @@ class PaperAuthority:
     @classmethod
     def claim(
         cls,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         *,
         account_id: str,
         owner_id: str,

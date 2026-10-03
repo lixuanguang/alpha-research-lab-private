@@ -24,12 +24,12 @@ from execution.account_records import (
     TaggedOrder,
 )
 from execution.account_state import (
-    _AccountTransaction,
+    AccountTransaction,
+    SavedDecision,
+    SavedPortfolioBatch,
     _InstanceControl,
-    _SavedDecision,
     _SavedEvent,
     _SavedNetEvent,
-    _SavedPortfolioBatch,
 )
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import OrderEvent, OrderState, StepCommit
@@ -52,9 +52,7 @@ class PortfolioCoordinator:
         self.codec = codec
         self.admission = admission
 
-    def coordinate(
-        self, transaction: _AccountTransaction, batch: PortfolioBatch
-    ) -> PortfolioCommit:
+    def coordinate(self, transaction: AccountTransaction, batch: PortfolioBatch) -> PortfolioCommit:
         """Admit risk, cross by policy, and create physical orders atomically."""
         saved = transaction.find_batch(batch.identity)
         if saved is not None:
@@ -131,8 +129,8 @@ class PortfolioCoordinator:
                 internal_fill_ids=crossed,
                 residuals=residuals,
             )
-            saved_decisions: tuple[_SavedDecision, ...] = tuple(
-                _SavedDecision(
+            saved_decisions: tuple[SavedDecision, ...] = tuple(
+                SavedDecision(
                     request=item.request,
                     result=StepCommit(
                         status="committed",
@@ -164,8 +162,8 @@ class PortfolioCoordinator:
                 internal_fill_ids=(),
             )
             if persist_rejection:
-                rejected_decisions: tuple[_SavedDecision, ...] = tuple(
-                    _SavedDecision(
+                rejected_decisions: tuple[SavedDecision, ...] = tuple(
+                    SavedDecision(
                         request=item.request,
                         result=StepCommit(
                             status="rejected",
@@ -176,11 +174,11 @@ class PortfolioCoordinator:
                     for item in batch.decisions
                 )
                 transaction.append_decisions(*rejected_decisions)
-        transaction.append_batch(_SavedPortfolioBatch(batch=batch, result=portfolio_result))
+        transaction.append_batch(SavedPortfolioBatch(batch=batch, result=portfolio_result))
         return portfolio_result
 
     def stop_instance(
-        self, transaction: _AccountTransaction, instance_id: str, at: datetime
+        self, transaction: AccountTransaction, instance_id: str, at: datetime
     ) -> tuple[NetOrder, ...]:
         """Fence one strategy and request cancellation of shared physical parents."""
         owner = self.admission.instance_account(instance_id)
@@ -270,7 +268,7 @@ class PortfolioCoordinator:
         return tuple(affected)
 
     def restart_instance(
-        self, transaction: _AccountTransaction, instance_id: str, at: datetime
+        self, transaction: AccountTransaction, instance_id: str, at: datetime
     ) -> None:
         """Re-enable a stopped instance after physical release and reconciliation."""
         if instance_id not in transaction.state.stopped_instances:
@@ -303,7 +301,7 @@ class PortfolioCoordinator:
         )
 
     def reissue_pending(
-        self, transaction: _AccountTransaction, account_id: str, at: datetime
+        self, transaction: AccountTransaction, account_id: str, at: datetime
     ) -> tuple[NetOrder, ...]:
         """Create physical orders for unaffected residuals after observation."""
         account = transaction.account(account_id)
@@ -328,7 +326,7 @@ class PortfolioCoordinator:
 
     def _cross_internal(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         batch: PortfolioBatch,
         children: tuple[TaggedOrder, ...],
     ) -> tuple[str, ...]:
@@ -428,7 +426,7 @@ class PortfolioCoordinator:
         return tuple(fill_ids)
 
     def _net_pending(
-        self, transaction: _AccountTransaction, account_id: str, at: datetime
+        self, transaction: AccountTransaction, account_id: str, at: datetime
     ) -> tuple[NetOrder, ...]:
         """Group only unassigned compatible residual children into physical orders."""
         assigned = {

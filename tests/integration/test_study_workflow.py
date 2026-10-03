@@ -21,7 +21,7 @@ class TestStudyWorkflow:
         shutil.copyfile(source, script)
         shutil.copytree(source.parent / "research_workflows", tmp_path / "research_workflows")
         process = subprocess.run(
-            [sys.executable, "-I", str(script), str(tmp_path / "retained")],
+            [sys.executable, "-E", "-s", str(script), str(tmp_path / "retained")],
             cwd=tmp_path,
             capture_output=True,
             text=True,

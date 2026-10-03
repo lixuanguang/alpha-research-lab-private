@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import ast
 import subprocess
 import sys
 from datetime import date
@@ -26,6 +27,29 @@ from runtime import ImplementationIdentity, InstalledIdentity, RuntimeFiles
 from serialization import DomainCodec
 
 
+class _SupportedImports:
+    """Read an installed owner API's declared supported names."""
+
+    @staticmethod
+    def declared(initializer: Path) -> tuple[str, ...]:
+        """Return the literal ``__all__`` names of an installed package initializer."""
+        for node in ast.parse(initializer.read_text(encoding="utf-8")).body:
+            if (
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id == "__all__"
+                    for target in node.targets
+                )
+                and isinstance(node.value, (ast.List, ast.Tuple))
+            ):
+                return tuple(
+                    item.value
+                    for item in node.value.elts
+                    if isinstance(item, ast.Constant) and isinstance(item.value, str)
+                )
+        return ()
+
+
 def main() -> None:
     """Verify the artifact without governance, user-site imports or checkout source access."""
     inputs = Path(sys.argv[1]).resolve()
@@ -45,6 +69,9 @@ def main() -> None:
             module = import_module(name.removesuffix("/__init__.py").replace("/", "."))
             assert module.__file__ is not None
             assert Path(module.__file__).resolve() == path.resolve()
+            # Every supported name resolves, including lazily exported ones.
+            for exported in _SupportedImports.declared(path):
+                assert hasattr(module, exported), f"{module.__name__}.{exported} does not resolve"
     domain_codec = DomainCodec()
     amount = Money(value=Decimal("1.25"), currency=Currency.from_code("USD"))
     assert domain_codec.decode_json(domain_codec.encode_json(amount), Money) == amount

@@ -1,6 +1,6 @@
 # MR16 Python ownership and enforcement
 
-Owner: quant development. Status: **design approved by the owner (2026-10-04); implementation in progress.** The [roadmap](README.md#runtime-operations-and-handoff)
+Owner: quant development. Status: **complete (2026-10-04)**; see [acceptance](#acceptance-result-2026-10-04). The [roadmap](README.md#runtime-operations-and-handoff)
 owns MR16 delivery status. The [engineering guide](../coding_standards/README.md#python-scope-and-migration)
 owns the rules. This page covers three things: how far the maintained Python diverges
 from those rules today, what the checker already enforces, and the proposed enforcement,
@@ -404,3 +404,51 @@ The owner approved this design on 2026-10-04, with these decisions:
     module names that are not exported.
   - `tests/unit` keeps only the three private imports held for the capacity-harness
     decision. The ledger shrank from 245 to 113 findings.
+- **Milestone 8 (2026-10-04): integration consumers, harness and notebook runner.**
+  - Owner decisions (2026-10-04):
+    - **Account-journal history benchmark.** It moved to `tests/unit/execution` as a
+      component benchmark, and its command became `HistoryCapacityCommand.run`. The
+      journal types it and the unit tests use (`AccountTransaction`, `SavedDecision`,
+      `SavedPortfolioBatch`) are public module names, but not exported.
+      `DecodedBookObservation` is lazily exported from `applications.execute`, because
+      the capacity deliveries consumer, a reference workflow, decodes with it. The
+      account-journal-history record keeps its original path. Nothing it measures
+      changed.
+    - **Consumers with sibling support modules.** They run with `python -E -s`
+      instead of `-I` and no longer mutate `sys.path`; the tests guide states the
+      convention.
+    - **debugpy.** `LicenseRef-Debugpy-Bundled` was approved for its bundled
+      EPL-1.0, PSF and Apache-2.0 notices.
+  - The `notebooks` group is locked and admitted (188 packages).
+  - `examples/run_notebook.py` reads and writes notebooks through `NotebookDocument`,
+    runs kernels through `NotebookExecution`/`NotebookAttempt`, and uses owned
+    `nbformat` and `nbclient` stubs.
+  - Ruff, mypy, Bandit and the clarity checks cover `examples/`.
+  - The ledger reached zero, and it and its Git growth check were removed. Every
+    ownership finding now fails.
+  - The installed wheel smoke resolves every exported name, including lazy exports.
+
+## Acceptance result (2026-10-04)
+
+1. **Rules enforced.** The ownership rules are enforced over `src`, `tests`,
+   governance, stubs and `examples`. Behavioral tests in
+   `tests/engineering/test_ownership.py` cover every rule and exemption boundary,
+   and the fail-closed paths.
+2. **Ledger removed.** The ledger is empty and removed. The engineering guide states
+   the enforced rules and has no pending-migration text.
+3. **Remaining module-level functions** are all one of: stub functions, overloads,
+   lazy exports, the 42 reviewed application orchestrators, command `main`s, or
+   pytest hooks.
+4. **Supported imports.** The contract is published in the
+   [platform design](../architecture/platform-design.md#functional-apis-and-application-entrypoints).
+   Reference workflows import only owner APIs, and the installed runtime wheel
+   resolves every exported name.
+   - The partial distributions ship subsets of some owners by design, so not every
+     lazy export can resolve there. Their package initializers and commands are
+     exercised by the release-installation command probes.
+   - This narrows the earlier wording of this criterion.
+5. **Notebook runner.** The runner's direct dependencies are declared and locked.
+6. **Checks.** Commit `MR16: complete ownership enforcement` lists the checks, run
+   exactly as reported there.
+7. **Documentation.** The engineering guide, tests guide, platform design, QR guide,
+   notebook operations and dependency admission records describe the result.

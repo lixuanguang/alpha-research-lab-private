@@ -20,7 +20,7 @@ from strategies import OrderIntent
 if TYPE_CHECKING:
     # project library imports
     from execution.account_admission import AccountAdmission
-    from execution.account_state import _AccountTransaction
+    from execution.account_state import AccountTransaction
 
 
 class PaperReductionRequest(WireRecord, frozen=True):
@@ -113,7 +113,7 @@ class AccountReduction:
 
     def apply(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         request: PaperReductionRequest,
         *,
         admission_at: datetime | None = None,
@@ -153,7 +153,7 @@ class AccountReduction:
 
     def _reserve(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         request: PaperReductionRequest,
         *,
         admission_at: datetime,
@@ -252,7 +252,7 @@ class AccountReduction:
         return commitment.orders[0]
 
     @staticmethod
-    def _has_uncertain_outcome(transaction: _AccountTransaction, account_id: str) -> bool:
+    def _has_uncertain_outcome(transaction: AccountTransaction, account_id: str) -> bool:
         """Refuse unknown sends and unfinished cancellation on any physical order."""
         orders = (
             *(

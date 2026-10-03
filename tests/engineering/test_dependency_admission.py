@@ -108,7 +108,7 @@ class TestDependencyAdmission:
                 REPOSITORY_ROOT, validation_date=date(2026, 10, 20)
             )
         verify.assert_called_once_with(policy.source_archives[0])
-        assert len(policy.packages) == 178
+        assert len(policy.packages) == 188
         assert any(
             package.name == "websockets" and package.version == "16.0"
             for package in policy.packages

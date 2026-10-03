@@ -19,9 +19,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal
 
-if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 # third party library imports
 from msgspec.structs import replace
 from portfolio_account_facts import (

@@ -29,7 +29,8 @@ class TestOperationalWorkflow:
         result = subprocess.run(
             [
                 sys.executable,
-                "-I",
+                "-E",
+                "-s",
                 str(tmp_path / "account_operations.py"),
                 "--output",
                 str(tmp_path / "output"),

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         PaperServiceOwners,
         run_paper_services,
     )
+    from applications.execute.source_service import DecodedBookObservation
 
 
 def __getattr__(name: str) -> object:
@@ -44,6 +45,12 @@ def __getattr__(name: str) -> object:
             "run_paper_services": services.run_paper_services,
         }
         return exports[name]
+    if name in {"DecodedBookObservation"}:
+        # project library imports
+        from applications.execute import source_service
+
+        exports = {"DecodedBookObservation": source_service.DecodedBookObservation}
+        return exports[name]
     if name in {"ServiceBookInputs"}:
         # project library imports
         from applications.execute import service_inputs
@@ -57,6 +64,7 @@ __all__ = [
     "AccountExecutionApplication",
     "AccountExecutionRequest",
     "AccountExecutionResult",
+    "DecodedBookObservation",
     "MonitoringApplication",
     "MonitoringConfiguration",
     "PaperExecutionApplication",

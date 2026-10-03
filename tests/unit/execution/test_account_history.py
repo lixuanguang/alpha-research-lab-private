@@ -16,7 +16,7 @@ from test_account_paper_matching import TestAccountPaperMatching as _Matching
 
 # project library imports
 from execution import AccountJournal, AccountQuote, StepCommit
-from execution.account_state import AccountStateStore, FirmHead, FirmState, _SavedDecision
+from execution.account_state import AccountStateStore, FirmHead, FirmState, SavedDecision
 from serialization import DomainCodec
 
 
@@ -132,7 +132,7 @@ class TestAccountHistory:
         store = AccountStateStore(path, config, codec)
         before = AccountHistoryFixture.payload(path)
         at = _Matching.opening_at + timedelta(seconds=1)
-        saved = _SavedDecision(
+        saved = SavedDecision(
             request=_Matching._decision("alpha", "staged", at),
             result=StepCommit(status="rejected", reason="staged", orders=()),
         )

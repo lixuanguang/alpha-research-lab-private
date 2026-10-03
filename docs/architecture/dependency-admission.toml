@@ -10,6 +10,7 @@ native_python_packages = [
   "contourpy",
   "coverage",
   "curl-cffi",
+  "debugpy",
   "duckdb",
   "fonttools",
   "greenlet",
@@ -43,11 +44,12 @@ native_python_packages = [
   "sqlalchemy",
   "statsmodels",
   "tomli",
+  "tornado",
   "websockets",
 ]
 
 [lock_digests]
-"uv.lock" = "0151724bd82cc31821b60ae357bb5130717c0f56efcc6684277ba9badcb3ee84"
+"uv.lock" = "189c8656fd6b0ee818e9a7a2f825e6a7db7727c2de69ba56d8674d64d64a5526"
 "packages/collector/uv.lock" = "2636bdee502e7408ad8bd5719fb48c9fac327dfae91488795d234ccdcc5cbaea"
 "packages/execution/uv.lock" = "865c844852de7c53dc8badacb51367e82a28bc10aa0ea7b84ca9cf048edf1d6c"
 [pip_audit]
@@ -82,6 +84,7 @@ packages = [
   "requests==2.34.2",
   "sortedcontainers==2.4.0",
   "stevedore==5.9.1",
+  "tornado==6.5.10",
   "trove-classifiers==2026.6.1.19",
   "tzdata==2026.3",
   "yfinance==1.7.0",
@@ -119,9 +122,11 @@ packages = [
 license_expression = "BSD-2-Clause"
 disposition = "approved"
 packages = [
+  "appnope==1.0.0",
   "boolean-py==5.0",
   "bottleneck==1.6.0",
   "imageio==2.37.4",
+  "nest-asyncio2==1.7.3",
   "patsy==1.0.3",
   "pygments==2.21.0",
   "wrapt==2.4.1",
@@ -154,18 +159,24 @@ packages = [
   "cycler==0.12.1",
   "dateparser==1.4.3",
   "dill==0.4.1",
+  "fastjsonschema==2.22.2",
   "idna==3.19",
+  "ipykernel==7.4.0",
   "ipython-pygments-lexers==1.1.1",
   "ipython==9.17.1",
   "ipywidgets==8.1.9",
   "itsdangerous==2.2.0",
   "joblib==1.6.0",
+  "jupyter-client==8.10.0",
+  "jupyter-core==5.9.1",
   "jupyterlab-widgets==3.0.17",
   "kiwisolver==1.5.1",
   "markdown==3.10.3",
   "markupsafe==3.0.3",
   "matplotlib-inline==0.2.2",
   "msgspec==0.21.1",
+  "nbclient==0.11.0",
+  "nbformat==5.11.1",
   "nodeenv==1.10.0",
   "pandas-datareader==0.11.1",
   "pandas==3.0.5",
@@ -226,6 +237,13 @@ license_expression = "LicenseRef-Docutils-Bundled"
 disposition = "approved"
 packages = [
   "docutils==0.23",
+]
+
+[[license_groups]]
+license_expression = "LicenseRef-Debugpy-Bundled"
+disposition = "approved"
+packages = [
+  "debugpy==1.8.22",
 ]
 
 [[license_groups]]

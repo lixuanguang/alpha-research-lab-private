@@ -1,10 +1,8 @@
-"""Test class-ownership enforcement and the shrink-only ownership ledger."""
+"""Test class-ownership enforcement over maintained Python."""
 
 from __future__ import annotations
 
 # standard library imports
-import os
-import subprocess
 from pathlib import Path
 
 # third party library imports
@@ -15,7 +13,6 @@ from alpha_research_governance.engineering_standards.ownership import (
     OwnershipChecker,
     SourceArea,
 )
-from alpha_research_governance.engineering_standards.ownership_ledger import OwnershipLedger
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 DOC = '"""Fixture module."""\n\n'
@@ -42,30 +39,6 @@ class OwnershipFixture:
     def keys(self) -> list[tuple[str, str, str]]:
         """Return the scanned finding keys in order."""
         return [finding.key for finding in OwnershipChecker.scan(self.root)]
-
-    def ledger(self, entries: dict[tuple[str, str, str], int]) -> None:
-        """Write a canonical ledger with the given counts."""
-        self.write(OwnershipChecker.LEDGER, OwnershipLedger(entries).render())
-
-    def git(self, *arguments: str) -> None:
-        """Run one Git command in the fixture with a fixed identity."""
-        environment = {
-            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
-        }
-        environment |= {
-            "GIT_AUTHOR_NAME": "fixture",
-            "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
-            "GIT_COMMITTER_NAME": "fixture",
-            "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
-        }
-        subprocess.run(
-            ["git", *arguments], cwd=self.root, check=True, capture_output=True, env=environment
-        )
-
-    def commit(self, message: str) -> None:
-        """Stage everything and commit."""
-        self.git("add", "-A")
-        self.git("commit", "-q", "--no-gpg-sign", "-m", message)
 
 
 class TestModuleFunctions:
@@ -276,121 +249,22 @@ class TestExternalImports:
         ]
 
 
-class TestOwnershipLedger:
-    """Record existing debt explicitly and let it only shrink."""
+class TestOwnershipFindings:
+    """Report every finding with its location, and fail closed on unreadable input."""
 
-    LAMBDAS = DOC + "FIRST = lambda: 1\nSECOND = lambda: 2\n"
-    KEY = ("src/owner/inner.py", "lambda", "<module>")
-
-    def test_unrecorded_findings_fail_with_location(self, tmp_path: Path) -> None:
-        """Report each new finding with its line and guidance."""
+    def test_findings_name_location_rule_and_guidance(self, tmp_path: Path) -> None:
+        """Report each finding with its line, rule, symbol and guidance."""
         fixture = OwnershipFixture(tmp_path)
-        fixture.write("src/owner/inner.py", self.LAMBDAS)
+        fixture.write("src/owner/inner.py", DOC + "FIRST = lambda: 1\nSECOND = lambda: 2\n")
         findings = OwnershipChecker.findings(fixture.root)
-        assert findings[0].startswith("src/owner/inner.py:3: lambda <module>:")
-        assert len(findings) == 2
-
-    def test_recorded_debt_passes_and_raised_debt_fails(self, tmp_path: Path) -> None:
-        """Accept recorded counts and refuse occurrences beyond them."""
-        fixture = OwnershipFixture(tmp_path)
-        fixture.git("init", "-q", "-b", "main")
-        fixture.write("src/owner/inner.py", self.LAMBDAS)
-        fixture.ledger({self.KEY: 2})
-        fixture.commit("seed")
-        assert OwnershipChecker.findings(fixture.root) == ()
-        fixture.write("src/owner/inner.py", self.LAMBDAS + "THIRD = lambda: 3\n")
-        [finding] = OwnershipChecker.findings(fixture.root)
-        assert "3 findings (lines 3, 4, 5) exceed the 2 recorded" in finding
-
-    def test_stale_entries_fail(self, tmp_path: Path) -> None:
-        """Require a fixed finding to remove or lower its ledger entry."""
-        fixture = OwnershipFixture(tmp_path)
-        fixture.git("init", "-q", "-b", "main")
-        fixture.write("src/owner/inner.py", DOC + "FIRST = lambda: 1\n")
-        fixture.ledger({self.KEY: 2})
-        fixture.commit("seed")
-        assert OwnershipChecker.findings(fixture.root) == (
-            "ownership ledger: src/owner/inner.py lambda <module> records 2 but 1 remain; "
-            "lower or remove the entry",
+        assert findings == (
+            f"src/owner/inner.py:3: lambda <module>: {OwnershipChecker.GUIDANCE['lambda']}",
+            f"src/owner/inner.py:4: lambda <module>: {OwnershipChecker.GUIDANCE['lambda']}",
         )
 
-    def test_ledger_may_shrink_but_not_grow_after_it_is_committed(self, tmp_path: Path) -> None:
-        """Compare the working ledger with every committed version since the merge-base."""
-        fixture = OwnershipFixture(tmp_path)
-        fixture.git("init", "-q", "-b", "main")
-        fixture.commit("base without a ledger")
-        fixture.git("switch", "-q", "-c", "work")
-        fixture.write("src/owner/inner.py", self.LAMBDAS)
-        fixture.ledger({self.KEY: 2})
-        fixture.commit("seed")
-        fixture.write("src/owner/inner.py", DOC + "FIRST = lambda: 1\n")
-        fixture.ledger({self.KEY: 1})
-        fixture.commit("shrink")
-        assert OwnershipChecker.findings(fixture.root) == ()
-        fixture.write("src/owner/inner.py", self.LAMBDAS)
-        fixture.ledger({self.KEY: 2})
-        assert OwnershipChecker.findings(fixture.root) == (
-            "ownership ledger: src/owner/inner.py lambda <module> grew from 1 to 2 in the "
-            "working tree; recorded debt can only shrink",
-        )
-
-    def test_committed_growth_and_readding_fail(self, tmp_path: Path) -> None:
-        """Refuse growth hidden in an intermediate commit and a ledger re-added after removal."""
-        fixture = OwnershipFixture(tmp_path)
-        fixture.git("init", "-q", "-b", "main")
-        fixture.write("src/owner/inner.py", self.LAMBDAS)
-        fixture.ledger({self.KEY: 1})
-        fixture.commit("seed on main")
-        fixture.git("switch", "-q", "-c", "work")
-        (fixture.root / OwnershipChecker.LEDGER).unlink()
-        fixture.commit("remove")
-        fixture.ledger({self.KEY: 2})
-        fixture.commit("re-add")
-        findings = OwnershipChecker.findings(fixture.root)
-        assert len(findings) == 1
-        assert "grew from 0 to 2 in commit" in findings[0]
-
-    def test_ledger_without_git_history_fails_closed(self, tmp_path: Path) -> None:
-        """Refuse a ledger whose growth cannot be verified."""
-        fixture = OwnershipFixture(tmp_path)
-        fixture.write("src/owner/inner.py", self.LAMBDAS)
-        fixture.ledger({self.KEY: 2})
-        [finding] = OwnershipChecker.findings(fixture.root)
-        assert finding.startswith("ownership ledger: cannot verify that recorded debt only shrinks")
-
-    def test_absent_ledger_needs_no_history(self, tmp_path: Path) -> None:
-        """Treat a missing ledger as empty without consulting Git."""
-        fixture = OwnershipFixture(tmp_path)
-        assert OwnershipChecker.findings(fixture.root) == ()
-
-    @pytest.mark.parametrize(
-        ("text", "message"),
-        [
-            ("debt = [", "malformed"),
-            ("other = []\n", "exactly one debt array"),
-            (
-                'debt = [{ path = "b", rule = "lambda", symbol = "s", count = 1 },'
-                ' { path = "a", rule = "lambda", symbol = "s", count = 1 }]\n',
-                "unique and sorted",
-            ),
-            ('debt = [{ path = "a", rule = "magic", symbol = "s", count = 1 }]\n', "unknown"),
-            ('debt = [{ path = "a", rule = "lambda", symbol = "s", count = 0 }]\n', "malformed"),
-            ('debt = [{ path = "a", rule = "lambda", symbol = "s", count = "1" }]\n', "malformed"),
-        ],
-    )
-    def test_malformed_ledgers_fail_closed(self, tmp_path: Path, text: str, message: str) -> None:
-        """Refuse malformed, unsorted or unknown ledger content."""
-        fixture = OwnershipFixture(tmp_path)
-        fixture.write(OwnershipChecker.LEDGER, text)
-        [finding] = OwnershipChecker.findings(fixture.root)
-        assert finding.startswith("ownership ledger:")
-        assert message in finding
-
-    def test_render_round_trips(self) -> None:
-        """Render a canonical document that parses back to the same counts."""
-        ledger = OwnershipLedger({("b.py", "lambda", "x"): 2, ("a.py", "deep-import", "m.n"): 1})
-        assert OwnershipLedger.parse(ledger.render(), source="ledger").counts == ledger.counts
-        assert OwnershipLedger.parse(OwnershipLedger({}).render(), source="ledger").counts == {}
+    def test_clean_fixture_passes(self, tmp_path: Path) -> None:
+        """Report nothing for a repository without findings."""
+        assert OwnershipChecker.findings(OwnershipFixture(tmp_path).root) == ()
 
     def test_missing_root_fails_closed(self, tmp_path: Path) -> None:
         """Refuse a repository without every governed root."""
@@ -398,17 +272,34 @@ class TestOwnershipLedger:
         [finding] = OwnershipChecker.findings(tmp_path)
         assert finding.startswith("ownership scanner: missing ownership source root")
 
+    def test_unparseable_source_fails_closed(self, tmp_path: Path) -> None:
+        """Refuse a governed file that is not valid Python."""
+        fixture = OwnershipFixture(tmp_path)
+        fixture.write("src/owner/inner.py", "def broken(:\n")
+        [finding] = OwnershipChecker.findings(fixture.root)
+        assert finding.startswith("ownership scanner:")
+
 
 class TestRepositoryOwnership:
-    """Hold the repository to its recorded ownership debt."""
+    """Hold the repository to the ownership rules with no recorded exceptions."""
 
     def test_every_rule_has_guidance(self) -> None:
-        """Keep the ledger's rule vocabulary aligned with the checker's diagnostics."""
+        """Cover every rule the scanner emits with guidance, over every governed root."""
         assert "examples" in OwnershipChecker.ROOTS
-        assert set(OwnershipLedger.RULES) == set(OwnershipChecker.GUIDANCE)
+        assert set(OwnershipChecker.GUIDANCE) == {
+            "module-function",
+            "nested-function",
+            "lambda",
+            "native-call",
+            "native-import",
+            "private-import",
+            "deep-import",
+            "unexported-import",
+            "path-mutation",
+        }
 
-    def test_repository_matches_its_ledger(self) -> None:
-        """Pass the repository against the committed ledger and its history."""
+    def test_repository_has_no_ownership_findings(self) -> None:
+        """Pass the repository with no ledger or waiver."""
         assert OwnershipChecker.findings(REPOSITORY_ROOT) == ()
 
     def test_source_area_roles(self) -> None:
