@@ -25,6 +25,7 @@ from configuration import (
     BookRegistryConfiguration,
     BookSelection,
     CaptureConfig,
+    CaptureRunConfig,
     OpeningAccount,
     PaperAuthorization,
     PaperDeployment,
@@ -46,7 +47,17 @@ from execution import (
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookAsOfIndex, BookProjection, BookRegistry, CaptureReplay
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level
+from market_data.collection.segments import CaptureSegmentWriter
+from market_data.contracts import (
+    BookObservation,
+    CaptureRecord,
+    CaptureRequest,
+    CaptureRunRequest,
+    Level,
+    RecordingRequest,
+)
+from market_data.replay import SavedCaptureRun
+from market_data.storage import CaptureRecording, CaptureRunJournal
 from reference_data.instruments import InstrumentId
 from research.features import FeatureVector
 from research.observations import (
@@ -306,9 +317,10 @@ class TestSharedPublicPaper:
         inputs: _SignalInputs | None = None,
         measurements: RuntimeMeasurementJournal | None = None,
         index: BookAsOfIndex | None = None,
+        request: RecordingRequest | None = None,
     ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
         """Construct the actual source, registry, account and decision owners."""
-        request = cls._request()
+        request = cls._request() if request is None else request
         requirement = cls._requirement()
         source = LiveBookDecisionSource(request, requirement, history_capacity=20)
         books = BookRegistry(
@@ -460,6 +472,103 @@ class TestSharedPublicPaper:
             target.observe(record, row)
             costs.append(time.perf_counter() - started)
         return path.with_suffix(".jsonl").read_bytes(), costs
+
+    def _chain(
+        self, root: Path, records: tuple[CaptureRecord, ...], *, segment_messages: int
+    ) -> CaptureRecording:
+        """Retain authored records through the collector's qualified rollover writer."""
+        request = CaptureRunRequest(
+            config=replace(self._capture(), max_messages=segment_messages),
+            window=CaptureRunConfig(
+                start_at=self.at - timedelta(seconds=1),
+                ready_by=self.at,
+                stop_at=self.at + timedelta(hours=1),
+                max_messages=len(records),
+                max_bytes=64 * 1024**2,
+                max_segments=16,
+                max_reconnects=0,
+            ),
+            run_id="22222222-2222-4222-8222-222222222222",
+            implementation_identity="a" * 64,
+        )
+        run = CaptureRunJournal(root / request.run_id, request)
+        run.open(resume=False)
+        try:
+            writer = CaptureSegmentWriter(
+                run, run.start_segment(None), previous_bytes=0, previous_records=0
+            )
+            replay = CaptureReplay(request.config, book_factory=BookAdapters.create)
+            for record in records:
+                asyncio.run(writer.append(record))
+                replay.apply(record)
+            run.sealed(writer.current, writer.first_received_ns or 1)
+            run.finish(
+                {
+                    **replay.summary(),
+                    "run_identity": request.identity,
+                    "saved_bytes": writer.total_bytes,
+                    "saved_records": writer.total_records,
+                }
+            )
+        finally:
+            run.close()
+        SavedCaptureRun.read(
+            root / request.run_id, book_factory=BookAdapters.create, max_seconds=30
+        )
+        return CaptureRecording(root / request.run_id, request)
+
+    def test_chain_is_one_delivery_log_and_index_across_rollover(self, tmp_path: Path) -> None:
+        """Deliveries, index positions and source identity run on unchanged across segments."""
+        authored = self._okx_records(4, 12)
+        end = CaptureRecord(
+            kind="end", epoch=0, received_ns=authored[-1].received_ns, reason="duration_limit"
+        )
+        recording = self._chain(tmp_path / "capture", (*authored, end), segment_messages=5)
+        records = tuple(recording.records(completed=True))
+        cursor = recording.cursor()
+        assert recording.completed and len(cursor.segments) == 3
+        assert records == (*authored, end) and cursor.records == len(records)
+
+        path = tmp_path / "paper.sqlite3"
+        index = BookAsOfIndex.create(path.with_suffix(".index.sqlite3"))
+        clock = _SequenceClock(
+            tuple(self.at + timedelta(seconds=1, milliseconds=i) for i in range(len(records)))
+        )
+        observer, journal = self._observer(
+            path, retain=True, clock=clock, index=index, request=recording.request
+        )
+        assert journal.reconcile(self._opening())
+        replay = CaptureReplay(recording.request.config, book_factory=BookAdapters.create)
+        for position, record in enumerate(records):
+            observer.observe(
+                record, BookProjection.capture(position, record, replay.apply(record), replay)
+            )
+        index.close()
+        codec = DomainCodec()
+        lines = path.with_suffix(".jsonl").read_bytes().splitlines()
+        deliveries = [codec.decode_json(line, SharedBookDelivery) for line in lines]
+        assert [item.source.record for item in deliveries] == list(records)
+        assert [item.source.book.position for item in deliveries] == list(range(len(records)))
+        assert index.covered_bytes() == path.with_suffix(".jsonl").stat().st_size
+
+        # The first record of each later segment is still one contiguous, indexed boundary.
+        selection = observer.books.lookup(observer._key, cutoff_ns=0).selection
+        assert selection.source_id == recording.identity
+        first = 0
+        for ordinal, segment in enumerate(cursor.segments):
+            located = recording.locate(first)
+            assert (located.ordinal, located.position) == (ordinal, 0)
+            available = deliveries[first].source.available_at
+            elapsed = available - datetime(1970, 1, 1, tzinfo=UTC)
+            cutoff_ns = (
+                elapsed.days * 86_400 + elapsed.seconds
+            ) * 1_000_000_000 + elapsed.microseconds * 1000
+            lookup, _ = index.lookup(selection, cutoff_ns=cutoff_ns)
+            assert lookup.boundary is not None and lookup.boundary.position == first
+            assert lookup.boundary.source_id == recording.identity
+            first += segment.records
+        with pytest.raises(IndexError):
+            recording.locate(first)
 
     def test_retained_deliveries_are_the_full_canonical_encoding(self, tmp_path: Path) -> None:
         """Reused row bytes and trusted runner rows retain exactly the public-path bytes."""

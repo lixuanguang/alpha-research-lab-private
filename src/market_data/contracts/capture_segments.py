@@ -86,6 +86,16 @@ class CaptureRunRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknow
             self.universes.require(self.config.instrument_id, "collection")
 
     @property
+    def recording_key(self) -> str:
+        """Return the key that names the whole chain's directory and consumer files."""
+        return self.run_id
+
+    @property
+    def recording_max_bytes(self) -> int:
+        """Return the byte bound of the whole chain, across every segment."""
+        return self.window.max_bytes
+
+    @property
     def identity(self) -> str:
         """Return the immutable whole-run request identity."""
         self.__post_init__()

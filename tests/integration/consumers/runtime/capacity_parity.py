@@ -32,7 +32,8 @@ from configuration import (
 from execution import AccountExecutionRequest, AccountExecutionResult, AccountJournal, AccountQuote
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
-from market_data.contracts import CaptureRequest
+from market_data.contracts import RecordingRequest
+from market_data.storage import CaptureRecording
 from portfolio import PortfolioContext
 from research.observations import LiveBookDecisionSource
 from runtime import (
@@ -188,19 +189,19 @@ class CapacityEconomicParity:
 
     def _streams(
         self, account_id: str, source: PaperServiceSource
-    ) -> tuple[tuple[CaptureRequest, tuple[SharedBookDelivery, ...]], ...]:
+    ) -> tuple[tuple[RecordingRequest, tuple[SharedBookDelivery, ...]], ...]:
         """Verify complete canonical logs and exact request/source identities."""
         source_directory = self.run_directory / source.name
         paths = tuple(source_directory.glob(f"*-{account_id}.jsonl"))
         if not paths:
             raise ValueError(f"capacity account has no retained delivery stream: {account_id}")
-        streams: list[tuple[CaptureRequest, tuple[SharedBookDelivery, ...]]] = []
+        streams: list[tuple[RecordingRequest, tuple[SharedBookDelivery, ...]]] = []
         for path in paths:
-            recording_id = path.name.removesuffix(f"-{account_id}.jsonl")
-            request_path = source_directory / recording_id / recording_id / "request.json"
-            request = self.codec.decode_json(request_path.read_bytes(), CaptureRequest)
+            # A single recording or a whole segment chain, named by its recording key.
+            key = path.name.removesuffix(f"-{account_id}.jsonl")
+            request = CaptureRecording.read(source_directory / key / key).request
             if (
-                request.recording_id != recording_id
+                request.recording_key != key
                 or request.config != source.capture
                 or request.implementation_identity != self.implementation
             ):
@@ -222,7 +223,7 @@ class CapacityEconomicParity:
 
     @staticmethod
     def _stream_start(
-        item: tuple[CaptureRequest, tuple[SharedBookDelivery, ...]],
+        item: tuple[RecordingRequest, tuple[SharedBookDelivery, ...]],
     ) -> datetime:
         """Order each reconnect stream by its retained first availability."""
         return item[1][0].source.available_at
@@ -350,7 +351,7 @@ class CapacityEconomicParity:
                     selections.append(
                         {
                             "request_identity": request.identity,
-                            "recording_id": request.recording_id,
+                            "recording_id": request.recording_key,
                             "position": delivery.source.book.position,
                             "received_ns": delivery.source.record.received_ns,
                             "available_at": delivery.source.available_at,

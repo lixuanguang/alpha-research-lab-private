@@ -8,6 +8,7 @@ from market_data.storage.capture_run import CaptureRunJournal
 from market_data.storage.journal import CaptureJournal
 from market_data.storage.objects import RawFiles
 from market_data.storage.raw import RawStore
+from market_data.storage.recording import CaptureRecording, RecordingCursor, SegmentPosition
 
 if TYPE_CHECKING:
     # project library imports
@@ -31,10 +32,13 @@ def __getattr__(name: str) -> object:
 
 __all__ = [
     "CaptureJournal",
+    "CaptureRecording",
     "CaptureRunJournal",
     "DatasetVersion",
     "LakeFSStorage",
     "RawFiles",
     "RawStore",
+    "RecordingCursor",
+    "SegmentPosition",
     "VersionedObject",
 ]

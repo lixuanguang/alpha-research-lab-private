@@ -2371,3 +2371,143 @@ one retry. Two smaller points are kept as recorded behaviour, for S3 to declare:
   use the window's `max_reconnects`.
 - The run's `progress.json` is written when the run is opened, at each seal and at finish.
   It is not refreshed every second during collection, as the collector refreshes it.
+
+#### S2 design note: consumers of segment chains (2026-10-03)
+
+S1 can write a run as a chain of segments. S2 makes every reader accept that chain as
+**one recording**, so S3 only has to switch the supervisor over. Today every consumer
+assumes one `CaptureJournal` at `runs/<run>/<source>/<recording_id>/<recording_id>/`. It
+finds the journal by globbing `*/*/request.json` and keys its delivery, index and
+measurement files by `recording_id`.
+
+**Recording key and source identity.**
+- A chain is one recording, keyed by its `run_id`. Its source identity is the
+  `CaptureRunRequest` identity: the BBO and depth `source_id`, the live-book lineage and
+  the delivery-accounting identity.
+- Segment request identities are storage lineage only. They never reach a consumer, so
+  the source identity cannot change at a rollover.
+- The live decision source's own identity hashes config, implementation, universes and
+  requirement. It is therefore equal for a chain and a single recording of the same
+  source.
+- Both request types expose `recording_key` (`recording_id` or `run_id`) and
+  `recording_max_bytes` (the segment's `max_bytes` or the window's `max_bytes`).
+  Consumers accept either type through one alias.
+
+**Layout.** The existing naming holds with the key in place of `recording_id`:
+
+| Path | Holds |
+| --- | --- |
+| `<key>/<key>/` | A single recording: `request.json`, journal, cursor and manifest. A chain: `run-request.json`, `segments/`, `progress.json` and `run-summary.json` |
+| `<key>/source-result.json` | The source child's summary |
+| `<key>-<account>.jsonl` and `.index.sqlite3` | The delivery log and as-of index |
+| `<key>.capture.jsonl` and `<key>.<account>.paper.jsonl` | Measurements |
+
+**Run-wide positions.**
+- Rollover adds no record, so capture positions, observer rows, delivery positions,
+  as-of index positions and measurement cursors are one contiguous run-wide sequence
+  from 0. They are identical to today's for one segment.
+- A position `p` lies in segment `k` when `C_k <= p < C_(k+1)`, where `C_k` is the sum of
+  the committed record counts of segments before `k`. Its local position is `p - C_k`.
+  Sealed counts are fixed by their manifests. The last segment's count is its durable
+  cursor.
+- Measurement cursors stay `p + 1`. A `capture_rollover` row's cursor is the run-wide
+  count after the first record of the new segment.
+
+**Paper delivery and the as-of index.**
+- There is one delivery log and one as-of index per account per recording, not one per
+  segment. The index's contiguity check holds across a rollover, and a lookup never
+  crosses files.
+- The delivery retention bound becomes four times `recording_max_bytes`. For a single
+  recording that is unchanged. For a chain it is the whole-run byte limit. 2b must size
+  that bound in its declaration.
+
+**Reading a recording.** A new read-only view, `CaptureRecording` (in
+`market_data.storage`), owns discovery, completion, the cursor, records and position
+mapping:
+- **Discovery.** `discover(source_root)` returns every recording under a source
+  directory, single or chain. The directory names must equal the key.
+- **Single recordings** delegate exactly to `CaptureJournal`, so every existing reader
+  gets byte-identical records, cursor and completion.
+- **Chain completion.** A chain is complete only when `run-summary.json` exists and every
+  segment is sealed.
+- **Chain cursor.** Its run-wide record and byte counts are the sums of the segments'
+  committed cursors. Its digest is the last segment's, and the per-segment cursors are
+  kept.
+- **Interrupted chains.**
+  - Only the last segment may be unsealed. An unsealed earlier segment, a fork or a
+    missing predecessor is refused, using `CaptureRunJournal.segments()`.
+  - The view yields the sealed segments, then the last segment's durable prefix, then
+    exactly one `interrupted_persistence_unknown_tail` gap.
+  - That gap carries the last real record's epoch and receipt time, even when the last
+    segment is empty or sealed without a successor.
+- **Position mapping.** `locate(position)` returns the segment ordinal, its recording ID
+  and the local position, by the rule above.
+
+**Supervisor (no wiring).**
+- The source child's request may be either type. Paths use `recording_key`. Observers
+  are bound to the recording's source identity.
+- Delivery accounting reads through `CaptureRecording`. It reports the run-wide durable
+  count and the last segment's digest, and adds a `capture_segments` field for chains
+  only. A single recording's accounting is byte-identical.
+- The request is built in one method, `_capture_request`, which still returns a
+  single-recording `CaptureRequest`. Tests override it to prove that the real supervisor
+  consumes a chain. S3 replaces it with signed configuration.
+
+**Recovery and suffix replay.**
+- A source failure, including a failed rollover, ends that recording as it does today.
+  The replacement is a fresh recording (a new key, session and snapshot), so the change
+  is a declared gap. Chains are never resumed.
+- Parity reads each recording's delivery stream by key and orders streams by their first
+  availability. The suffix replay rebuilds the live source from the retained request of
+  either type, so `source_id` and lineage match the live run.
+
+**Capacity consumers.**
+- `capacity_reads`, `capacity_results`, `capacity_parity`, `capacity_features` and
+  `capacity_history_queries` find recordings through `CaptureRecording.discover`, or by
+  the key. They read records and cursors through the view.
+- `capacity_results` adds segment facts: the count and each segment's records, bytes and
+  digest. From the probe it adds rollover facts: the count and the maximum
+  `rollover_append_ns`. These are recorded facts without a budget. The pause budget is
+  declared with 2a (S6).
+- `capacity_cohort`'s one-recording gate is unchanged, because a chain is one recording.
+- `capacity_source_cases` makes its own single captures and is out of scope.
+
+**Out of S2.** The supervisor producing chains, the signed `PaperServiceSource` and
+window configuration (S3), and any budget for the rollover pause.
+
+**Tests (behavioural):**
+- `CaptureRecording` gives exactly `CaptureJournal`'s records, cursor and completion for
+  a single recording.
+- For a chain it gives run-wide records, cursor and `locate`, an interrupted chain ending
+  in one tail gap with the right clocks, and refusal of an unsealed earlier segment.
+- The real supervisor, with `_capture_request` returning a chain of at least two
+  segments, writes one key-named delivery log and index per account. Their positions are
+  contiguous across the rollover, an as-of lookup on each side of the boundary equals the
+  registry's, and the delivery accounting is complete.
+- `capacity_results` and `capacity_parity` read that chain with complete delivery parity.
+- Every existing stage-1 and consumer test passes unchanged.
+
+**S2 implementation (2026-10-03).** Implemented as designed. Nothing produces a chain
+yet: `_capture_request` still returns a single-recording request, and no signed
+configuration changed.
+
+The full lane passed: 2,346 passed and 2 skipped. Strict mypy is clean over every Python
+path. New behavioural tests:
+- `tests/unit/data/test_capture_recording.py`: single-recording parity, chain reads and
+  positions, interrupted tails, and refusals.
+- `test_chain_is_one_delivery_log_and_index_across_rollover` (public paper).
+- `test_source_start_retains_a_chain_under_its_run_key`: the real source child and
+  delivery accounting.
+- `test_segment_chain_is_read_as_one_recording` (reads and results).
+- `test_unmanaged_replay_reads_a_segment_chain_by_its_run_key` (parity).
+- `test_chain_rollover_rows_are_recorded_facts_beside_their_cursors` (results probe).
+
+Existing tests keep their behaviour. Two assertion lines changed from
+`request.recording_id` to `request.recording_key`, which has the same value for a
+single recording, because strict typing rejects the widened request type: one in
+`test_capacity_reads.py` and one in `test_capacity_features.py`.
+
+`capacity_reads` gained a per-source discovery helper, used unchanged by `_discover`.
+
+For single recordings, consumer outputs add no key. The segment, rollover and
+`capture_segments` facts appear only for chains.

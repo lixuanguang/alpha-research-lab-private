@@ -48,7 +48,8 @@ from execution import (
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookAsOfIndex, BookRegistry
 from market_data.collection import CaptureTransport
-from market_data.contracts import CaptureCursor, CaptureRequest
+from market_data.contracts import CaptureRequest, CaptureRunRequest, RecordingRequest
+from market_data.storage import CaptureRecording
 from research.observations import LiveBookDecisionSource
 from runtime import (
     InstalledIdentity,
@@ -128,7 +129,7 @@ class _SourceChild:
     """Retain the sole process, pipe and freshness owner for one native input."""
 
     definition: PaperServiceSource
-    request: CaptureRequest
+    request: RecordingRequest
     process: BaseProcess
     receiver: Connection[bytes, bytes]
     health: HealthMetrics
@@ -623,11 +624,7 @@ class PaperServices:
     def _start_source(self, source: PaperServiceSource) -> None:
         """Create a fresh unsynchronized native recording and its independently watched child."""
         self._join_observations()
-        request = CaptureRequest(
-            config=source.capture,
-            recording_id=str(uuid4()),
-            implementation_identity=self.implementation,
-        )
+        request = self._capture_request(source)
         context = multiprocessing.get_context("spawn")
         receiver, sender = cast(
             "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
@@ -635,7 +632,7 @@ class PaperServices:
         )
         health = HealthMetrics()
         stop = context.Event()
-        root = self.root / "runs" / self.run_id / source.name / request.recording_id
+        root = self.root / "runs" / self.run_id / source.name / request.recording_key
         process = context.Process(
             target=run_source_service,
             args=(
@@ -650,7 +647,7 @@ class PaperServices:
                     else self.measurement_root
                     / self.run_id
                     / source.name
-                    / f"{request.recording_id}.capture.jsonl"
+                    / f"{request.recording_key}.capture.jsonl"
                 ),
                 stop,
             ),
@@ -660,6 +657,14 @@ class PaperServices:
         self._refresh_observers(source.name)
         process.start()
         sender.close()
+
+    def _capture_request(self, source: PaperServiceSource) -> RecordingRequest:
+        """Bind a fresh recording identity; every recording is one finite journal."""
+        return CaptureRequest(
+            config=source.capture,
+            recording_id=str(uuid4()),
+            implementation_identity=self.implementation,
+        )
 
     def _refresh_observers(self, source_name: str) -> None:
         """Replace only a cohort selection while retaining each native book and last mark."""
@@ -715,7 +720,7 @@ class PaperServices:
                 / "runs"
                 / self.run_id
                 / source.name
-                / f"{child.request.recording_id}-{account_id}.jsonl"
+                / f"{child.request.recording_key}-{account_id}.jsonl"
             )
             path.parent.mkdir(parents=True, exist_ok=True)
             measurements = (
@@ -725,7 +730,7 @@ class PaperServices:
                     self.measurement_root
                     / self.run_id
                     / source.name
-                    / f"{child.request.recording_id}.{account_id}.paper.jsonl"
+                    / f"{child.request.recording_key}.{account_id}.paper.jsonl"
                 )
             )
             child.observers[account_id] = SharedPaperCaptureObserver(
@@ -1114,27 +1119,22 @@ class PaperServices:
 
     def _account_source_delivery(self, name: str, child: _SourceChild) -> None:
         """Retain constant-cost native and account counts for exact offline parity review."""
-        capture_root = (
-            self.root
-            / "runs"
-            / self.run_id
-            / name
-            / child.request.recording_id
-            / child.request.recording_id
+        key = child.request.recording_key
+        recording = CaptureRecording(
+            self.root / "runs" / self.run_id / name / key / key, child.request
         )
-        completed = (capture_root / "manifest.json").is_file()
-        result_retained = (capture_root.parent / "source-result.json").is_file()
+        result_retained = (recording.root.parent / "source-result.json").is_file()
+        completed = False
         durable_records: int | None = None
         cursor_sha256: str | None = None
+        segments: int | None = None
         error_name: str | None = None
         try:
-            cursor = self.codec.decode_json(
-                (capture_root / "cursor.json").read_bytes(), CaptureCursor
-            )
-            cursor.__post_init__()
-            if cursor.request_identity != child.request.identity:
-                raise ValueError("source cursor differs from its launched request")
+            # A chain counts run-wide across its segments; its digest is the last segment's.
+            completed = recording.completed
+            cursor = recording.cursor()
             durable_records, cursor_sha256 = cursor.records, cursor.sha256
+            segments = len(cursor.segments)
         except (OSError, ValueError, OverflowError) as error:
             error_name = type(error).__name__
         accounts: dict[str, object] = {}
@@ -1166,7 +1166,7 @@ class PaperServices:
                 isinstance(value, dict) and value["complete"] is True for value in accounts.values()
             )
         )
-        self.delivery_accounting[name] = {
+        accounting: dict[str, object] = {
             "status": "complete" if is_complete else "incomplete",
             "capture_finalization": "completed" if completed else "interrupted_prefix",
             "result_retained": result_retained,
@@ -1178,6 +1178,9 @@ class PaperServices:
             "accounts": accounts,
             "error": error_name,
         }
+        if isinstance(child.request, CaptureRunRequest):
+            accounting["capture_segments"] = segments
+        self.delivery_accounting[name] = accounting
         if not is_complete:
             self._record(
                 "source_delivery_incomplete",

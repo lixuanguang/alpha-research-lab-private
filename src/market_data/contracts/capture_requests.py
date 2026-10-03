@@ -11,7 +11,7 @@ import msgspec
 
 # project library imports
 from configuration import CaptureConfig, UniverseSelection
-from market_data.contracts.capture_segments import CaptureSegment
+from market_data.contracts.capture_segments import CaptureRunRequest, CaptureSegment
 from market_data.contracts.raw import RequestBinding
 from serialization import DomainCodec
 
@@ -42,6 +42,16 @@ class CaptureRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_f
             raise ValueError("implementation identity must be SHA-256")
 
     @property
+    def recording_key(self) -> str:
+        """Return the key that names this recording's directory and consumer files."""
+        return self.recording_id
+
+    @property
+    def recording_max_bytes(self) -> int:
+        """Return the byte bound of this whole recording, which is its only journal."""
+        return self.config.max_bytes
+
+    @property
     def binding(self) -> RequestBinding:
         """Revalidate the complete source request before admitting its storage identity.
 
@@ -59,3 +69,7 @@ class CaptureRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_f
         """
         self.__post_init__()
         return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()
+
+
+# A recording that consumers read is either one journal or one segment chain.
+type RecordingRequest = CaptureRequest | CaptureRunRequest

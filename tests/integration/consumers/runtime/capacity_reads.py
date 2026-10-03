@@ -36,6 +36,7 @@ from configuration import (
     BookRegistryConfiguration,
     BookSelection,
     PaperServiceConfiguration,
+    PaperServiceSource,
 )
 from market_data.adapters.sources import BookAdapters
 from market_data.books import (
@@ -45,8 +46,8 @@ from market_data.books import (
     BookRegistry,
     CaptureReplay,
 )
-from market_data.contracts import BookObservation, BookQuote, CaptureRequest
-from market_data.storage import CaptureJournal
+from market_data.contracts import BookObservation, BookQuote, RecordingRequest
+from market_data.storage import CaptureRecording
 from runtime import LiveBookDelivery, SharedBookDelivery
 from serialization import DomainCodec
 from telemetry import (
@@ -135,7 +136,7 @@ class _SourceIndex:
     def __init__(
         self,
         name: str,
-        request: CaptureRequest,
+        request: RecordingRequest,
         capture_root: Path,
         delivery_path: Path,
         history_capacity: int,
@@ -323,7 +324,7 @@ class _RetainedBookIndex:
             if len(delivered) != source.deliveries:
                 raise ValueError(f"{source.name} delivery changed after final index poll")
             raw_records = tuple(
-                CaptureJournal(source.capture_root, source.request).records(completed=False)
+                CaptureRecording(source.capture_root, source.request).records(completed=False)
             )
             if raw_records and raw_records[-1].reason == "interrupted_persistence_unknown_tail":
                 raw_records = raw_records[:-1]
@@ -767,35 +768,29 @@ class CapacityReadObserver:
         if type(run_id) is not str or not run_id:
             raise ValueError("service status has no current run identity")
         run_root = self.service_root / "runs" / run_id
-        sources: list[_SourceIndex] = []
-        for definition in config.sources:
-            source_root = run_root / definition.name
-            request_paths = tuple(source_root.glob("*/*/request.json"))
-            if len(request_paths) != 1:
-                raise ValueError(f"{definition.name} requires one current capture request")
-            request_path = request_paths[0]
-            request = self.codec.decode_json(request_path.read_bytes(), CaptureRequest)
-            if (
-                request.config != definition.capture
-                or request_path.parent.name != request.recording_id
-                or request_path.parent.parent.name != request.recording_id
-            ):
-                raise ValueError(f"{definition.name} capture differs from service selection")
-            deliveries = tuple(sorted(source_root.glob(f"{request.recording_id}-*.jsonl")))
-            if not deliveries:
-                raise ValueError(f"{definition.name} has no retained delivery stream")
-            sources.append(
-                _SourceIndex(
-                    definition.name,
-                    request,
-                    request_path.parent,
-                    deliveries[0],
-                    10_000,
-                )
-            )
+        sources = [
+            self._discover_source(definition, run_root / definition.name)
+            for definition in config.sources
+        ]
         if len(sources) != 4 or len(config.accounts) != 4:
             raise ValueError("declared steady read workload requires four sources and accounts")
         return config, _RetainedBookIndex(config, tuple(sources))
+
+    @staticmethod
+    def _discover_source(definition: PaperServiceSource, source_root: Path) -> _SourceIndex:
+        """Resolve a source's one current recording, single or chain, and its first delivery."""
+        recordings = CaptureRecording.discover(source_root)
+        if len(recordings) != 1:
+            raise ValueError(f"{definition.name} requires one current capture request")
+        recording = recordings[0]
+        if recording.request.config != definition.capture:
+            raise ValueError(f"{definition.name} capture differs from service selection")
+        deliveries = tuple(sorted(source_root.glob(f"{recording.key}-*.jsonl")))
+        if not deliveries:
+            raise ValueError(f"{definition.name} has no retained delivery stream")
+        return _SourceIndex(
+            definition.name, recording.request, recording.root, deliveries[0], 10_000
+        )
 
     def _record(self, sample: dict[str, object]) -> None:
         """Append one individual duration and result identity without reducing evidence."""

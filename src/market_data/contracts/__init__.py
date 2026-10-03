@@ -7,7 +7,7 @@ from market_data.contracts.archive_trades import ArchiveTrade
 from market_data.contracts.binance import BinanceMarketEvent, DepthSnapshot, DepthUpdate, Trade
 from market_data.contracts.book_observations import BookObservation
 from market_data.contracts.capture_records import CaptureCursor, CaptureRecord
-from market_data.contracts.capture_requests import CaptureRequest
+from market_data.contracts.capture_requests import CaptureRequest, RecordingRequest
 from market_data.contracts.capture_segments import CaptureRunRequest, CaptureSegment
 from market_data.contracts.consolidated_quotes import (
     BookLookup,
@@ -94,6 +94,7 @@ __all__ = [
     "PublicTrade",
     "PublicTransport",
     "RawObject",
+    "RecordingRequest",
     "RequestBinding",
     "SavedPartitionReader",
     "SnapshotTransport",

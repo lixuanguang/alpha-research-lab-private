@@ -39,7 +39,7 @@ from msgspec.structs import replace
 from configuration import PaperServiceConfiguration
 from financial_units import ExactRatio
 from market_data.books import BookDepth
-from market_data.contracts import BookLookup, CaptureRequest
+from market_data.contracts import BookLookup, RecordingRequest
 from research.features import (
     FeatureSchema,
     FeatureSession,
@@ -371,7 +371,7 @@ class CapacityFeatureObserver:
             return None
         paths = tuple(
             self.measurement_root.glob(
-                f"*/{source.source.name}/{source.source.request.recording_id}.capture.jsonl"
+                f"*/{source.source.name}/{source.source.request.recording_key}.capture.jsonl"
             )
         )
         if len(paths) > 1:
@@ -391,13 +391,13 @@ class CapacityFeatureObserver:
         feature = StoredFeature(
             definition_identity=source.definition.identity,
             vector=vector,
-            source_version=source.source.request.recording_id,
+            source_version=source.source.request.recording_key,
             source_sha256=source.source.request.identity,
-            dataset_version=f"native-book-projection-{source.source.request.recording_id}",
+            dataset_version=f"native-book-projection-{source.source.request.recording_key}",
             dataset_sha256=inputs.identity,
             revision_identity=inputs.identity,
         )
-        version = f"{source.source.request.recording_id}-{slot}"
+        version = f"{source.source.request.recording_key}-{slot}"
         with source.publication_lock:
             previous = source.store.active_version(source.definition)
             source.store.append(source.definition, feature)
@@ -830,7 +830,7 @@ def _feature_child(
     instances: tuple[str, ...],
     output: str,
     config: PaperServiceConfiguration,
-    sources: tuple[tuple[str, CaptureRequest, str, str], ...],
+    sources: tuple[tuple[str, RecordingRequest, str, str], ...],
     measurement_root: str | None,
     control: Connection[object, object],
 ) -> None:

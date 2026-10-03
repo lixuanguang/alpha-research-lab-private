@@ -12,7 +12,7 @@ from fractions import Fraction
 # project library imports
 from financial_units import ExactRatio
 from market_data.books import BookDepth, VisibleBook
-from market_data.contracts import BookObservation, BookQuote, CaptureRecord, CaptureRequest
+from market_data.contracts import BookObservation, BookQuote, CaptureRecord, RecordingRequest
 from research.observations.inputs import DecisionInputs, InputRequirement, NamedObservation
 from serialization import DomainCodec
 
@@ -43,7 +43,7 @@ class LiveBookDecisionSource:
 
     def __init__(
         self,
-        request: CaptureRequest,
+        request: RecordingRequest,
         requirement: InputRequirement,
         *,
         history_capacity: int,
@@ -51,7 +51,8 @@ class LiveBookDecisionSource:
         """Bind a stable subscription, named imbalance and finite causal read window.
 
         Args:
-            request: Immutable source, instrument and recording identity.
+            request: Immutable source, instrument and recording identity; a segment
+                chain is one recording whose identity is its whole-run request.
             requirement: One exact book imbalance with a supported source clock.
             history_capacity: Maximum retained receipt boundaries, from 1 to 10000.
         """
@@ -104,7 +105,7 @@ class LiveBookDecisionSource:
         self._last_decision_book_payload: bytes | None = None
 
     @property
-    def request(self) -> CaptureRequest:
+    def request(self) -> RecordingRequest:
         """Expose the immutable admitted recording for connected per-venue consumers."""
         return self._request
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+import asyncio
 import hashlib
 import os
 import sqlite3
@@ -31,7 +32,7 @@ from msgspec.structs import replace
 from paper_services import PaperServiceWorkload
 
 # project library imports
-from configuration import BookRegistryConfiguration
+from configuration import BookRegistryConfiguration, CaptureRunConfig, PaperServiceSource
 from financial_units import ExactRatio
 from market_data.adapters.sources import BookAdapters
 from market_data.books import (
@@ -41,8 +42,9 @@ from market_data.books import (
     BookRegistry,
     CaptureReplay,
 )
-from market_data.contracts import CaptureRecord, CaptureRequest
-from market_data.storage import CaptureJournal
+from market_data.collection.segments import CaptureSegmentWriter
+from market_data.contracts import CaptureRecord, CaptureRequest, CaptureRunRequest
+from market_data.storage import CaptureJournal, CaptureRecording, CaptureRunJournal
 from runtime import LiveBookDelivery, SharedBookDelivery
 from serialization import DomainCodec
 from telemetry import MonitoringEvent, MonitoringIdentity, TelemetryStore
@@ -191,6 +193,130 @@ class TestCapacityReads:
         with pytest.raises(ValueError):
             index.poll()
 
+    def test_segment_chain_is_read_as_one_recording(self, tmp_path: Path) -> None:
+        """Index, depth, replay parity, capture and delivery facts span every segment."""
+        config = PaperServiceWorkload(
+            "okx",
+            opening_at=datetime(2026, 9, 27, 12, tzinfo=UTC),
+            socket_root=Path("/private/tmp/capacity-chain-test"),
+        ).service_configuration()
+        # The signed source selection carries the segment limits, as S3 will declare.
+        source = replace(
+            config.sources[0], capture=replace(config.sources[0].capture, max_messages=1)
+        )
+        sources: tuple[PaperServiceSource, ...] = (source, *config.sources[1:])
+        config = replace(config, sources=sources)
+        base = datetime(2026, 9, 27, 12, tzinfo=UTC)
+        base_ns = int((base - datetime(1970, 1, 1, tzinfo=UTC)).total_seconds()) * 1_000_000_000
+        request = CaptureRunRequest(
+            config=source.capture,
+            window=CaptureRunConfig(
+                start_at=base - timedelta(seconds=1),
+                ready_by=base,
+                stop_at=base + timedelta(minutes=1),
+                max_messages=10,
+                max_bytes=64 * 1024**2,
+                max_segments=8,
+                max_reconnects=0,
+            ),
+            run_id=str(uuid4()),
+            implementation_identity="a" * 64,
+        )
+        service_root = tmp_path / "service"
+        source_root = service_root / "runs" / "active" / source.name
+        capture_root = source_root / request.run_id / request.run_id
+        update = (
+            b'{"arg":{"channel":"books","instId":"BTC-USDT"},"action":"update","data":[{'
+            b'"prevSeqId":10,"seqId":11,"ts":"1790510400003","bids":[["99","5","0","1"]],'
+            b'"asks":[]}]}'
+        )
+        records = (
+            CaptureRecord(kind="session", epoch=0, received_ns=base_ns),
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=base_ns + 1_000_000,
+                raw=b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}',
+            ),
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=base_ns + 2_000_000,
+                raw=(
+                    b'{"arg":{"channel":"books","instId":"BTC-USDT"},'
+                    b'"action":"snapshot","data":[{"prevSeqId":-1,"seqId":10,'
+                    b'"ts":"1790510400002","bids":[["99","4","0","1"]],'
+                    b'"asks":[["100","4","0","1"]]}]}'
+                ),
+            ),
+            CaptureRecord(kind="frame", epoch=0, received_ns=base_ns + 3_000_000, raw=update),
+            CaptureRecord(
+                kind="end", epoch=0, received_ns=base_ns + 4_000_000, reason="duration_limit"
+            ),
+        )
+        run = CaptureRunJournal(capture_root, request)
+        run.open(resume=False)
+        try:
+            chain = CaptureSegmentWriter(
+                run, run.start_segment(None), previous_bytes=0, previous_records=0
+            )
+            for record in records:
+                asyncio.run(chain.append(record))
+            run.sealed(chain.current, chain.first_received_ns or 1)
+            run.finish({"run_identity": request.identity})
+        finally:
+            run.close()
+        recording = CaptureRecording.read(capture_root)
+        assert recording.completed and len(recording.cursor().segments) == 3
+
+        delivery_path = source_root / f"{request.run_id}-{config.accounts[0].account_id}.jsonl"
+        selected = _SourceIndex(source.name, request, capture_root, delivery_path, 10_000)
+        reader = _RetainedBookIndex(config, (selected,))
+        writer = _DeliveryWriter(reader, selected)
+        self.writers.append(writer)
+        replay = CaptureReplay(request.config, book_factory=BookAdapters.create)
+        for position, record in enumerate(records):
+            row = BookProjection.capture(position, record, replay.apply(record), replay)
+            writer.append(
+                SharedBookDelivery(
+                    source=LiveBookDelivery(
+                        record=record,
+                        book=row,
+                        available_at=base + timedelta(milliseconds=position + 1),
+                    ),
+                    inputs=(),
+                    coordinated_at=None,
+                )
+            )
+        assert reader.poll() == len(records)
+        # Position 3 opens the third segment and moves the touch to the update.
+        depth = reader.depth(
+            source.name, cutoff_ns=reader._unix_ns(base + timedelta(milliseconds=4))
+        )
+        assert depth["eligible"] is True and depth["quote_position"] == 3
+        assert recording.locate(3).ordinal == 2
+        parity = reader.replay_parity()[source.name]
+        assert parity["matched_deliveries"] == len(records)
+
+        collector = CapacityResultsCollector(tmp_path, tmp_path)
+        facts = collector._capture_facts(capture_root, request)
+        assert facts["recording_id"] == request.run_id
+        assert facts["completed_manifest"] is True and facts["stop_reason"] == "duration_limit"
+        assert facts["durable_cursor_records"] == len(records)
+        assert facts["native_messages"] == 3
+        segments = cast(tuple[dict[str, object], ...], facts["capture_segments"])
+        assert [segment["durable_cursor_records"] for segment in segments] == [2, 1, 2]
+        delivered = collector._delivery_facts(delivery_path, capture_root, request)
+        assert delivered["status"] == "pass_complete_native_stream"
+        assert delivered["matched_deliveries"] == len(records)
+
+        found = CapacityReadObserver._discover_source(source, source_root)
+        assert (found.request, found.capture_root, found.delivery_path) == (
+            request,
+            capture_root,
+            delivery_path,
+        )
+
     def test_service_discovery_resolves_nested_capture_root(self, tmp_path: Path) -> None:
         """Find source/recording/recording/request and sibling account deliveries."""
         config = CapacityWorkload(
@@ -220,7 +346,7 @@ class TestCapacityReads:
         assert discovered == config
         assert len(index.sources) == 4
         assert all(
-            source.capture_root.parent.name == source.request.recording_id
+            source.capture_root.parent.name == source.request.recording_key
             for source in index.sources.values()
         )
 

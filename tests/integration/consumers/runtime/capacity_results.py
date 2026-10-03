@@ -17,8 +17,8 @@ import msgspec
 from configuration import PaperServiceConfiguration
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookProjection, CaptureReplay
-from market_data.contracts import CaptureCursor, CaptureRequest
-from market_data.storage import CaptureJournal
+from market_data.contracts import CaptureRunRequest, RecordingRequest
+from market_data.storage import CaptureRecording
 from runtime import SharedBookDelivery
 from serialization import DomainCodec
 
@@ -63,6 +63,16 @@ class _MeasurementKind(msgspec.Struct, frozen=True):
 
     schema_version: str
     kind: str
+
+
+class _CaptureRollover(msgspec.Struct, frozen=True):
+    """Describe one sealed segment and the append that waited for its successor."""
+
+    segment: int
+    sealed_records: int
+    sealed_bytes: int
+    cursor: int
+    rollover_append_ns: int
 
 
 class _CaptureBoundary(msgspec.Struct, frozen=True):
@@ -315,6 +325,7 @@ class CapacityResultsCollector:
         queue_peak = 0
         queue_bytes_peak = 0
         queue_age_peak_ns = 0
+        rollovers: list[_CaptureRollover] = []
         for line in self._read_lines(path):
             kind = msgspec.json.decode(line, type=_MeasurementKind)
             if kind.schema_version != "runtime-measurement":
@@ -366,8 +377,29 @@ class CapacityResultsCollector:
                 )
                 queue_bytes_peak = max(queue_bytes_peak, queue_row.queued_bytes)
                 queue_age_peak_ns = max(queue_age_peak_ns, queue_row.oldest_age_ns)
+            elif kind.kind == "capture_rollover":
+                rollover = msgspec.json.decode(line, type=_CaptureRollover)
+                if (
+                    rollover.segment != len(rollovers) + 1
+                    or rollover.cursor <= rollover.sealed_records
+                    or min(rollover.sealed_bytes, rollover.rollover_append_ns) < 0
+                ):
+                    raise ValueError(f"invalid capture rollover observation: {path}")
+                rollovers.append(rollover)
             else:
                 raise ValueError(f"unknown capture measurement kind: {kind.kind}")
+        # A chain's boundary pauses are facts only; their budget is declared with 2a.
+        rollover_facts: dict[str, object] = (
+            {
+                "rollover": {
+                    "count": len(rollovers),
+                    "max_append_ns": max(item.rollover_append_ns for item in rollovers),
+                    "cursors": tuple(item.cursor for item in rollovers),
+                }
+            }
+            if rollovers
+            else {}
+        )
         queue_status = (
             "unmeasured"
             if queue_count == 0
@@ -397,6 +429,7 @@ class CapacityResultsCollector:
                     "peak_queued_bytes": queue_bytes_peak if queue_count else None,
                     "oldest_age_peak_ns": queue_age_peak_ns if queue_count else None,
                 },
+                **rollover_facts,
             },
             cursors,
         )
@@ -665,16 +698,18 @@ class CapacityResultsCollector:
     def _capture_facts(
         self,
         root: Path,
-        request: CaptureRequest,
+        request: RecordingRequest,
         steady_window_ns: tuple[int, int] | None = None,
         origin: Literal["base_fixture", "live_public", "other_fixture"] = "base_fixture",
     ) -> dict[str, object]:
-        """Verify the acknowledged raw journal before counting messages and encoded bytes."""
-        completed = (root / "manifest.json").is_file()
-        cursor = self.codec.decode_json((root / "cursor.json").read_bytes(), CaptureCursor)
-        if cursor.request_identity != request.identity:
-            raise ValueError(f"capture cursor differs from request: {root}")
-        records = tuple(CaptureJournal(root, request).records(completed=completed))
+        """Verify the acknowledged raw journal or chain before counting messages and bytes."""
+        recording = CaptureRecording(root, request)
+        completed = recording.completed
+        try:
+            cursor = recording.cursor()
+        except ValueError as error:
+            raise ValueError(f"capture cursor differs from request: {root}") from error
+        records = tuple(recording.records(completed=completed))
         if (
             not completed
             and records
@@ -711,9 +746,25 @@ class CapacityResultsCollector:
         end_reason = next(
             (record.reason for record in reversed(records) if record.kind == "end"), None
         )
+        segments: dict[str, object] = (
+            {
+                "capture_segments": tuple(
+                    {
+                        "request_identity": segment.request_identity,
+                        "durable_cursor_records": segment.records,
+                        "durable_cursor_bytes": segment.offset,
+                        "durable_cursor_sha256": segment.sha256,
+                    }
+                    for segment in cursor.segments
+                )
+            }
+            if isinstance(request, CaptureRunRequest)
+            else {}
+        )
         return {
+            **segments,
             "request_identity": request.identity,
-            "recording_id": request.recording_id,
+            "recording_id": request.recording_key,
             "capture_root": str(root),
             "completed_manifest": completed,
             "durable_cursor_records": cursor.records,
@@ -746,11 +797,12 @@ class CapacityResultsCollector:
         }
 
     def _delivery_facts(
-        self, path: Path, capture_root: Path, request: CaptureRequest
+        self, path: Path, capture_root: Path, request: RecordingRequest
     ) -> dict[str, object]:
         """Prove every available retained delivery against its raw native cursor."""
-        completed = (capture_root / "manifest.json").is_file()
-        raw = tuple(CaptureJournal(capture_root, request).records(completed=completed))
+        recording = CaptureRecording(capture_root, request)
+        completed = recording.completed
+        raw = tuple(recording.records(completed=completed))
         if raw and raw[-1].reason == "interrupted_persistence_unknown_tail":
             raw = raw[:-1]
         replay = CaptureReplay(request.config, book_factory=BookAdapters.create)
@@ -790,7 +842,7 @@ class CapacityResultsCollector:
         }
 
     def _fixture_schedule(
-        self, source_name: str, capture_root: Path, request: CaptureRequest
+        self, source_name: str, capture_root: Path, request: RecordingRequest
     ) -> dict[str, object]:
         """Compare every emitted byte and required steady slot with the finalized capture."""
         trace_path = (
@@ -807,7 +859,7 @@ class CapacityResultsCollector:
             raise ValueError("invalid finite fixture schedule clocks")
         frames = tuple(
             record
-            for record in CaptureJournal(capture_root, request).records(completed=True)
+            for record in CaptureRecording(capture_root, request).records(completed=True)
             if record.kind in ("frame", "snapshot")
         )
         indices = tuple(row[0] for row in trace.emitted)
@@ -1021,31 +1073,27 @@ class CapacityResultsCollector:
                 else "other_fixture"
             )
             recordings: dict[str, object] = {}
-            for request_path in sorted((run_root / definition.name).glob("*/*/request.json")):
-                request = self.codec.decode_json(request_path.read_bytes(), CaptureRequest)
-                if (
-                    request.config != definition.capture
-                    or request_path.parent.name != request.recording_id
-                    or request_path.parent.parent.name != request.recording_id
-                ):
-                    raise ValueError(f"capture differs from selected source: {request_path}")
-                capture = self._capture_facts(request_path.parent, request, steady_window, origin)
+            for recording in CaptureRecording.discover(run_root / definition.name):
+                request, capture_root, key = recording.request, recording.root, recording.key
+                if request.config != definition.capture:
+                    raise ValueError(f"capture differs from selected source: {capture_root}")
+                capture = self._capture_facts(capture_root, request, steady_window, origin)
                 if origin == "base_fixture" and capture["completed_manifest"] is True:
                     capture["fixture_schedule_proof"] = self._fixture_schedule(
-                        definition.name, request_path.parent, request
+                        definition.name, capture_root, request
                     )
                 measurement_directory = probe_root / definition.name
                 source_probe, cursors = self._capture_probe(
-                    measurement_directory / f"{request.recording_id}.capture.jsonl",
+                    measurement_directory / f"{key}.capture.jsonl",
                     steady_monotonic_window,
                 )
                 captured_native_messages = capture["native_messages"]
                 if type(captured_native_messages) is not int:
-                    raise ValueError(f"capture has no native message count: {request_path}")
+                    raise ValueError(f"capture has no native message count: {capture_root}")
                 actual_frame_cursors = {
                     position
                     for position, record in enumerate(
-                        CaptureJournal(request_path.parent, request).records(completed=False),
+                        recording.records(completed=False),
                         start=1,
                     )
                     if record.kind in ("frame", "snapshot")
@@ -1073,20 +1121,16 @@ class CapacityResultsCollector:
                     item.account_id for item in config.instances if item.source == definition.name
                 }
                 paper: dict[str, object] = {}
-                for path in sorted(
-                    measurement_directory.glob(f"{request.recording_id}.*.paper.jsonl")
-                ):
-                    account_id = path.name.removeprefix(f"{request.recording_id}.").removesuffix(
-                        ".paper.jsonl"
-                    )
+                for path in sorted(measurement_directory.glob(f"{key}.*.paper.jsonl")):
+                    account_id = path.name.removeprefix(f"{key}.").removesuffix(".paper.jsonl")
                     if account_id not in expected_accounts:
                         raise ValueError(f"paper probe has unknown account: {path}")
                     paper[account_id] = self._paper_probe(path, cursors, steady_monotonic_window)
                 delivery_parity: dict[str, object] = {}
                 for account_id in sorted(expected_accounts):
-                    path = run_root / definition.name / f"{request.recording_id}-{account_id}.jsonl"
+                    path = run_root / definition.name / f"{key}-{account_id}.jsonl"
                     delivery_parity[account_id] = (
-                        self._delivery_facts(path, request_path.parent, request)
+                        self._delivery_facts(path, capture_root, request)
                         if path.is_file()
                         else {"status": "unmeasured_missing_delivery", "delivery_path": str(path)}
                     )
@@ -1095,8 +1139,7 @@ class CapacityResultsCollector:
                         paper[account_id] = {
                             "status": "unmeasured_missing_probe",
                             "measurement_path": str(
-                                measurement_directory
-                                / f"{request.recording_id}.{account_id}.paper.jsonl"
+                                measurement_directory / f"{key}.{account_id}.paper.jsonl"
                             ),
                         }
                         continue
@@ -1123,7 +1166,7 @@ class CapacityResultsCollector:
                             if latency.get("status") == "pass":
                                 latency["status"] = "unmeasured"
                                 latency["reason"] = "probe_does_not_cover_every_retained_delivery"
-                recordings[request.recording_id] = {
+                recordings[key] = {
                     "capture": capture,
                     "source_probe": source_probe,
                     "account_probes": paper,

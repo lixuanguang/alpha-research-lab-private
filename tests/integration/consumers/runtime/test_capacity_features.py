@@ -341,7 +341,7 @@ class TestCapacityFeatures:
             assert feature.expires_at - feature.available_at == timedelta(seconds=5)
             assert online.feature is not None
             assert online.feature.source_sha256 == source.source.request.identity
-            assert online.feature.source_version == source.source.request.recording_id
+            assert online.feature.source_version == source.source.request.recording_key
         assert all(row["phase"] == "initialization" for row in rows)
         assert all(row["durable_to_available_ns"] is not None for row in rows)
 

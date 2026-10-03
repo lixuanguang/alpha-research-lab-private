@@ -249,7 +249,7 @@ class CapacityHistoryQueries:
                 {
                     "source": name,
                     "request_identity": source.request.identity,
-                    "recording_id": source.request.recording_id,
+                    "recording_id": source.request.recording_key,
                     "delivery_path": str(source.delivery_path),
                     "delivery_sha256": hashlib.sha256(
                         source.delivery_path.read_bytes()

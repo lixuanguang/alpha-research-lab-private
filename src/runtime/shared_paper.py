@@ -200,7 +200,7 @@ class SharedPaperCaptureObserver:
         self._last_effect_at: datetime | None = None
         self._codec = DomainCodec()
         self._retained_bytes = 0
-        self._maximum_bytes = request.config.max_bytes * 4
+        self._maximum_bytes = request.recording_max_bytes * 4
         self.decisions: list[PortfolioCommit] = []
         self.processing_ns: int | None = None
         # Opt-in phase clocks for the delivery being measured; None when unmeasured.

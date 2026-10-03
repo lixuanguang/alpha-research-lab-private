@@ -48,6 +48,7 @@ from applications.execute.source_service import SourceDelivery, _ReceivedSourceD
 from configuration import (
     AccountConfiguration,
     CaptureConfig,
+    CaptureRunConfig,
     OpeningAccount,
     PaperExecutionScenario,
     PaperServiceAccount,
@@ -75,10 +76,13 @@ from market_data.contracts import (
     BookObservation,
     CaptureRecord,
     CaptureRequest,
+    CaptureRunRequest,
     FeedSocket,
     Level,
     Order,
+    RecordingRequest,
 )
+from market_data.storage import CaptureRecording
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
@@ -130,6 +134,20 @@ class _ReconnectingBookTransport(VenueTransport):
     async def open(self, timeout: float) -> FeedSocket:
         """Serve the same synchronized session on every connection."""
         return _ScriptedBookSocket((self._ack, self._snapshot))
+
+
+class _SpawnedBookTransport:
+    """Serve the reconnecting script from a spawned source child, which must pickle it."""
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Serve the same synchronized session on every connection."""
+        return _ScriptedBookSocket(
+            (_ReconnectingBookTransport._ack, _ReconnectingBookTransport._snapshot)
+        )
+
+    def snapshot(self) -> bytes:
+        """The OKX book feed carries its own snapshot."""
+        raise AssertionError("OKX capture does not fetch a REST snapshot")
 
 
 class _IndexedObserver(SharedPaperCaptureObserver):
@@ -414,6 +432,28 @@ class _SupervisorHarness(PaperServices):
     def _refresh_observers(self, source_name: str) -> None:
         """Record cohort refresh after process selection."""
         self.events.append(f"refresh:{source_name}")
+
+
+class _ChainServices(_SupervisorHarness):
+    """Ask the real source start for a segment chain, as S3's configuration will."""
+
+    def _capture_request(self, source: PaperServiceSource) -> RecordingRequest:
+        """Bind one finite run whose one-message segments roll over at every frame."""
+        now = datetime.now(UTC)
+        return CaptureRunRequest(
+            config=replace(source.capture, max_messages=1),
+            window=CaptureRunConfig(
+                start_at=now - timedelta(seconds=1),
+                ready_by=now,
+                stop_at=now + timedelta(seconds=30),
+                max_messages=4,
+                max_bytes=64 * 1024**2,
+                max_segments=8,
+                max_reconnects=1,
+            ),
+            run_id=str(uuid4()),
+            implementation_identity=self.implementation,
+        )
 
 
 class _DrainingServices(_SupervisorHarness):
@@ -1076,6 +1116,63 @@ class TestPaperServices:
             health_path.unlink(missing_ok=True)
             receiver.close()
             sender.close()
+
+    def test_source_start_retains_a_chain_under_its_run_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A chain is one key-named recording, and its accounting counts every segment."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        definition = config.sources[0]
+        assert definition.capture.retries >= 1
+        services = _ChainServices(config, self._owner(), tmp_path, self._socket_path())
+        services.transports[definition.name] = _SpawnedBookTransport()
+        services.measurement_root = tmp_path / "measurements"
+        services._start_source(definition)
+        child = services.sources[definition.name]
+        assert isinstance(child.request, CaptureRunRequest)
+        key = child.request.run_id
+        deliveries: list[_ReceivedSourceDelivery] = []
+        try:
+            while True:
+                try:
+                    payload = child.receiver.recv_bytes()
+                except EOFError:
+                    break
+                deliveries.append(services.codec.decode_json(payload, _ReceivedSourceDelivery))
+            child.process.join(30)
+        finally:
+            if child.process.is_alive():
+                child.process.kill()
+                child.process.join()
+        assert child.process.exitcode == 0
+        child.pipe_drained, child.received_count = True, len(deliveries)
+
+        source_root = tmp_path / "runs" / services.run_id / definition.name
+        (recording,) = CaptureRecording.discover(source_root)
+        assert recording.root == source_root / key / key and recording.request == child.request
+        assert recording.completed and len(recording.cursor().segments) >= 3
+        records = tuple(recording.records())
+        assert tuple(item.record for item in deliveries) == records
+        assert [item.book.position for item in deliveries] == list(range(len(records)))
+        summary = msgspec.json.decode(
+            (source_root / key / "source-result.json").read_bytes(), type=dict[str, object]
+        )
+        assert summary["replay_parity"] is True
+        assert summary["segments"] == len(recording.cursor().segments)
+        measured = services.measurement_root / services.run_id / definition.name
+        assert (measured / f"{key}.capture.jsonl").is_file()
+
+        services._account_source_delivery(definition.name, child)
+        accounting = cast(dict[str, object], services.delivery_accounting[definition.name])
+        assert accounting["status"] == "complete" and accounting["error"] is None
+        assert accounting["capture_finalization"] == "completed"
+        assert accounting["durable_records"] == len(records)
+        assert accounting["cursor_sha256"] == recording.cursor().sha256
+        assert accounting["capture_segments"] == len(recording.cursor().segments)
+        child.receiver.close()
 
     def test_closing_a_source_releases_each_book_index_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
