@@ -63,6 +63,63 @@ if TYPE_CHECKING:
     from capacity_reads import _RetainedBookIndex, _SourceIndex
 
 
+class FeatureChild:
+    """Run the spawned feature-serving child process."""
+
+    @staticmethod
+    def feature_child(
+        role: str,
+        instances: tuple[str, ...],
+        output: str,
+        config: PaperServiceConfiguration,
+        sources: tuple[tuple[str, RecordingRequest, str, str], ...],
+        measurement_root: str | None,
+        control: Connection[object, object],
+    ) -> None:
+        """Serve one feature role in its own interpreter and report its failures."""
+        # third party library imports
+        from capacity_reads import _RetainedBookIndex, _SourceIndex
+
+        index = _RetainedBookIndex(
+            config,
+            tuple(
+                _SourceIndex(name, request, Path(capture_root), Path(delivery_path), 10_000)
+                for name, request, capture_root, delivery_path in sources
+            ),
+        )
+        observer = CapacityFeatureObserver(
+            Path(output),
+            config,
+            index,
+            measurement_root=None if measurement_root is None else Path(measurement_root),
+        )
+        observer.retrieval_file = f"retrieval-samples.{role}.jsonl"
+        freshness = {source.name: source.freshness_us for source in config.sources}
+        try:
+            for name, source in index.sources.items():
+                observer.sources[name] = _FeatureSource(
+                    source, freshness[name], observer.output, register=False
+                )
+            if not instances:
+                # The index hands each delivery it decodes straight to the causal source,
+                # so the materializer decodes every delivery once; this catches up first.
+                for name, feature_source in observer.sources.items():
+                    index.sources[name].delivered = feature_source.accept_delivery
+                index.poll()
+                for feature_source in observer.sources.values():
+                    feature_source.lookup(index, datetime.now(UTC))
+            control.send("ready")
+            if not control.poll(300):
+                raise TimeoutError("feature process received no interval")
+            observer.started_ns, observer.stop_ns = cast(tuple[int, int], control.recv())
+            observer._serve(instances)
+        except (OSError, ValueError, RuntimeError, AssertionError, sqlite3.Error) as error:
+            observer.failures.append(f"{type(error).__name__}: {error}")
+        finally:
+            control.send(observer.failures)
+            control.close()
+
+
 class _ProbeKind(msgspec.Struct, frozen=True):
     """Select capture timing rows without treating queue rows as observations."""
 
@@ -475,7 +532,7 @@ class CapacityFeatureObserver:
                 "tuple[Connection[object, object], Connection[object, object]]", context.Pipe()
             )
             process = context.Process(
-                target=_feature_child,
+                target=FeatureChild.feature_child,
                 args=(
                     role,
                     instances,
@@ -823,56 +880,3 @@ class CapacityFeatureObserver:
         if type(value) is not int or value < 0:
             raise ValueError(f"invalid feature measurement: {name}")
         return value
-
-
-def _feature_child(
-    role: str,
-    instances: tuple[str, ...],
-    output: str,
-    config: PaperServiceConfiguration,
-    sources: tuple[tuple[str, RecordingRequest, str, str], ...],
-    measurement_root: str | None,
-    control: Connection[object, object],
-) -> None:
-    """Serve one feature role in its own interpreter and report its failures."""
-    # third party library imports
-    from capacity_reads import _RetainedBookIndex, _SourceIndex
-
-    index = _RetainedBookIndex(
-        config,
-        tuple(
-            _SourceIndex(name, request, Path(capture_root), Path(delivery_path), 10_000)
-            for name, request, capture_root, delivery_path in sources
-        ),
-    )
-    observer = CapacityFeatureObserver(
-        Path(output),
-        config,
-        index,
-        measurement_root=None if measurement_root is None else Path(measurement_root),
-    )
-    observer.retrieval_file = f"retrieval-samples.{role}.jsonl"
-    freshness = {source.name: source.freshness_us for source in config.sources}
-    try:
-        for name, source in index.sources.items():
-            observer.sources[name] = _FeatureSource(
-                source, freshness[name], observer.output, register=False
-            )
-        if not instances:
-            # The index hands each delivery it decodes straight to the causal source,
-            # so the materializer decodes every delivery once; this catches up first.
-            for name, feature_source in observer.sources.items():
-                index.sources[name].delivered = feature_source.accept_delivery
-            index.poll()
-            for feature_source in observer.sources.values():
-                feature_source.lookup(index, datetime.now(UTC))
-        control.send("ready")
-        if not control.poll(300):
-            raise TimeoutError("feature process received no interval")
-        observer.started_ns, observer.stop_ns = cast(tuple[int, int], control.recv())
-        observer._serve(instances)
-    except (OSError, ValueError, RuntimeError, AssertionError, sqlite3.Error) as error:
-        observer.failures.append(f"{type(error).__name__}: {error}")
-    finally:
-        control.send(observer.failures)
-        control.close()

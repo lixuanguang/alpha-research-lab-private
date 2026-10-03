@@ -16,7 +16,7 @@ from typing import BinaryIO
 from market_data.contracts import CaptureCursor, CaptureRecord, CaptureRequest, RawObject
 from market_data.storage.objects import RawFiles
 from market_data.storage.raw import RawStore
-from serialization import DomainCodec, sync_directory
+from serialization import DomainCodec, DurableDirectory
 
 
 class CaptureJournal:
@@ -277,7 +277,7 @@ class CaptureJournal:
             )
 
     # Tests substitute this seam to inject directory synchronization failures.
-    _sync_directory = staticmethod(sync_directory)
+    _sync_directory = staticmethod(DurableDirectory.sync)
 
     def _write_new(self, path: Path, payload: bytes) -> None:
         """Create and sync owned metadata without overwriting a prior attempt."""

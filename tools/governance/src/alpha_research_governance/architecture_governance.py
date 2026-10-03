@@ -19,25 +19,6 @@ class ArchitectureGovernanceError(ValueError):
     """Report local-link findings in input order."""
 
 
-def _heading_anchors(text: str) -> set[str]:
-    """Derive approximate anchors from Markdown heading text.
-
-    Case-fold and strip markup/punctuation. Preserve GitHub's one hyphen per
-    space and existing hyphens; repeated headings receive ``-1``, ``-2`` suffixes.
-    """
-    anchors: set[str] = set()
-    counts: dict[str, int] = {}
-    for match in _HEADING_PATTERN.finditer(text):
-        heading = match.group("heading")
-        without_markup = re.sub(r"[`*_~]", "", heading)
-        base = re.sub(r"[^\w -]", "", without_markup.casefold())
-        base = base.replace(" ", "-")
-        count = counts.get(base, 0)
-        anchors.add(base if count == 0 else f"{base}-{count}")
-        counts[base] = count + 1
-    return anchors
-
-
 class ArchitectureGovernanceService:
     """Validate local links for one repository context."""
 
@@ -48,6 +29,25 @@ class ArchitectureGovernanceService:
             repository_root: Root bounding local link targets.
         """
         self._repository_root = repository_root
+
+    @staticmethod
+    def _heading_anchors(text: str) -> set[str]:
+        """Derive approximate anchors from Markdown heading text.
+
+        Case-fold and strip markup/punctuation. Preserve GitHub's one hyphen per
+        space and existing hyphens; repeated headings receive ``-1``, ``-2`` suffixes.
+        """
+        anchors: set[str] = set()
+        counts: dict[str, int] = {}
+        for match in _HEADING_PATTERN.finditer(text):
+            heading = match.group("heading")
+            without_markup = re.sub(r"[`*_~]", "", heading)
+            base = re.sub(r"[^\w -]", "", without_markup.casefold())
+            base = base.replace(" ", "-")
+            count = counts.get(base, 0)
+            anchors.add(base if count == 0 else f"{base}-{count}")
+            counts[base] = count + 1
+        return anchors
 
     def validate_local_links(self, documents: Iterable[Path]) -> None:
         """Validate Markdown links in ``documents``.
@@ -89,7 +89,9 @@ class ArchitectureGovernanceService:
                     continue
                 if fragment and target.suffix.casefold() == ".md":
                     if target not in anchor_cache:
-                        anchor_cache[target] = _heading_anchors(target.read_text(encoding="utf-8"))
+                        anchor_cache[target] = self._heading_anchors(
+                            target.read_text(encoding="utf-8")
+                        )
                     anchors = anchor_cache[target]
                     if unquote(fragment).casefold() not in anchors:
                         findings.append(

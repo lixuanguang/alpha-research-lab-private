@@ -408,25 +408,25 @@ class TestPartitionQuality:
                 eligibility=replace(full, catalog=changed_catalog),
             )
 
+    @staticmethod
+    def _interrupted(item: Occurrence) -> Iterator[Occurrence]:
+        """Fail after one valid source occurrence.
+
+        Yields:
+            The valid prefix that must never become a publishable partial result.
+
+        Raises:
+            OSError: The next original object is unavailable.
+        """
+        yield item
+        raise OSError("missing raw object: synthetic interruption")
+
     def test_terminal_reader_failure_rejects_prefix(self, selection: SourceRequest) -> None:
         """Retain the first iterator failure without claiming to count unread records."""
         item = self._item(selection)
-
-        def interrupted() -> Iterator[Occurrence]:
-            """Fail after one valid source occurrence.
-
-            Yields:
-                The valid prefix that must never become a publishable partial result.
-
-            Raises:
-                OSError: The next original object is unavailable.
-            """
-            yield item
-            raise OSError("missing raw object: synthetic interruption")
-
         report = self._policy().validate(
             selection,
-            interrupted(),
+            self._interrupted(item),
             verifier=SourceAdapters.verifier(selection),
             eligibility=self._history(selection),
         )

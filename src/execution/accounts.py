@@ -65,10 +65,10 @@ from execution.account_reduction import (
 )
 from execution.account_state import (
     AccountStateStore,
+    AccountTransaction,
     DispatchLease,
+    SavedDecision,
     _AccountSnapshot,
-    _AccountTransaction,
-    _SavedDecision,
     _SavedNativeFill,
 )
 from execution.paper import PaperMarket
@@ -151,7 +151,7 @@ class AccountJournal:
         return at
 
     def _require_current_input(
-        self, transaction: _AccountTransaction, request: AccountDecision
+        self, transaction: AccountTransaction, request: AccountDecision
     ) -> None:
         """Reject stale/future operational data even when historical event clocks agree."""
         if PaperAuthority.find(transaction, request.account_id) is None:
@@ -705,7 +705,7 @@ class AccountJournal:
                 result = StepCommit(status="rejected", reason=str(error), orders=())
             if result.status == "rejected":
                 transaction.state = before
-            transaction.append_decisions(_SavedDecision(request=request, result=result))
+            transaction.append_decisions(SavedDecision(request=request, result=result))
             return result
 
     def coordinate(self, batch: PortfolioBatch) -> PortfolioCommit:
@@ -770,7 +770,7 @@ class AccountJournal:
 
     def _allow_shadow_unsent_rejection(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         parent: NetOrder,
         event: OrderEvent,
         activation: PaperActivation,
@@ -978,7 +978,7 @@ class AccountJournal:
         return result
 
     def _apply_native(
-        self, transaction: _AccountTransaction, request: NativeFill
+        self, transaction: AccountTransaction, request: NativeFill
     ) -> tuple[OrderState | NetOrder, tuple[NativeFeeAllocation, ...]]:
         """Stage existing physical lifecycle and separate native asset economics."""
         for prior in transaction.state.native_fills:
@@ -1041,7 +1041,7 @@ class AccountJournal:
         return final, allocations
 
     def _post_native_cost(
-        self, transaction: _AccountTransaction, request: NativeFill, is_net: bool
+        self, transaction: AccountTransaction, request: NativeFill, is_net: bool
     ) -> tuple[NativeFeeAllocation, ...]:
         """Post base inventory fees or rebates and quote rebates to owned children."""
         if request.fee.value == 0 or (
@@ -1145,7 +1145,7 @@ class AccountJournal:
         return tuple(allocations)
 
     @staticmethod
-    def _prior_native_cost(transaction: _AccountTransaction, child_id: str) -> Fraction:
+    def _prior_native_cost(transaction: AccountTransaction, child_id: str) -> Fraction:
         """Return the quote value of base-currency native fees an order already bore."""
         return sum(
             (
@@ -1159,7 +1159,7 @@ class AccountJournal:
         )
 
     def _cover_native_fee(
-        self, transaction: _AccountTransaction, request: NativeFill, physical: OrderState | NetOrder
+        self, transaction: AccountTransaction, request: NativeFill, physical: OrderState | NetOrder
     ) -> bool:
         """Raise fee reserves to cover a native fee the venue has already charged.
 
@@ -1260,7 +1260,7 @@ class AccountJournal:
         return tuple(DecimalGrid.exact_decimal(Fraction(value, 10**18)) for value in atoms)
 
     @staticmethod
-    def _physical_order(transaction: _AccountTransaction, order_id: str) -> OrderState | NetOrder:
+    def _physical_order(transaction: AccountTransaction, order_id: str) -> OrderState | NetOrder:
         """Resolve only a physical direct order or portfolio parent."""
         parent = transaction.find_net_order(order_id)
         if parent is not None:
@@ -1272,7 +1272,7 @@ class AccountJournal:
 
     def _record_failed_native(
         self,
-        transaction: _AccountTransaction,
+        transaction: AccountTransaction,
         request: NativeFill,
         prior_order_id: str | None = None,
     ) -> None:
@@ -1347,7 +1347,7 @@ class AccountJournal:
             os.close(descriptor)
         return False
 
-    def _drop_ended_leases(self, transaction: _AccountTransaction) -> None:
+    def _drop_ended_leases(self, transaction: AccountTransaction) -> None:
         """Delete leases whose holder released or died; their sends have ended."""
         for lease in transaction.leases():
             if not self._lease_live(lease.holder):
@@ -1357,7 +1357,7 @@ class AccountJournal:
     @contextmanager
     def _stop_write(
         self, *, account_id: str | None = None, instance_id: str | None = None
-    ) -> Iterator[_AccountTransaction]:
+    ) -> Iterator[AccountTransaction]:
         """Open a stop-type write once no live dispatch lease covers its scope.
 
         A live lease means a send whose final checks preceded this stop may still

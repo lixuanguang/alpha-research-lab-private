@@ -25,10 +25,7 @@ from alpha_research_governance.dependency_admission.models import (
     DependencyAdmission,
     DependencyAdmissionError,
 )
-from alpha_research_governance.dependency_admission.policy import (
-    _locked_python_packages,
-    validate_repository,
-)
+from alpha_research_governance.dependency_admission.policy import DependencyRepository
 from alpha_research_governance.dependency_admission.selected_closure import (
     SelectedClosureAdmission,
 )
@@ -72,15 +69,15 @@ class SelectedWheelhouse:
         selected_lock = project / "uv.lock"
         relative_lock = selected_lock.relative_to(root).as_posix()
         environment = SelectedClosureAdmission._target_environment("darwin_arm64_cp314")
-        policy = validate_repository(root)
+        policy = DependencyRepository.validate(root)
         digests = dict(policy.lock_digests)
         if (
             relative_lock not in digests
             or hashlib.sha256(selected_lock.read_bytes()).hexdigest() != digests[relative_lock]
         ):
             raise DependencyAdmissionError(["operating lock is not admitted at exact bytes"])
-        selected = _locked_python_packages(selected_lock)
-        full = _locked_python_packages(root / "uv.lock")
+        selected = DependencyRepository.locked_packages(selected_lock)
+        full = DependencyRepository.locked_packages(root / "uv.lock")
         exported = cls._export(project, uv_executable, environment)
         if not exported:
             raise DependencyAdmissionError(["selected uv export has no external dependencies"])

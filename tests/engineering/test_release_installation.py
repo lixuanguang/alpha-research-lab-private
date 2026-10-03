@@ -40,14 +40,19 @@ from alpha_research_governance.artifact_supply_chain.records import (
     StateEnvelope,
     TrustedBuilder,
 )
-from applications.execute.accounts import (
+from applications.execute import (
     AccountExecutionApplication,
     AccountExecutionRequest,
     AccountExecutionResult,
 )
-from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
-from configuration.accounts import InstrumentFeeRate
-from configuration.paper_activation import PaperDeployment, PaperStrategyIdentity
+from configuration import (
+    AccountConfiguration,
+    InstrumentFeeRate,
+    OpeningAccount,
+    PaperDeployment,
+    PaperExecutionScenario,
+    PaperStrategyIdentity,
+)
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits

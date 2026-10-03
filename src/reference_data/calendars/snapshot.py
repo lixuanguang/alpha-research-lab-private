@@ -15,8 +15,8 @@ from reference_data.calendars.core import (
     CalendarSourceVersion,
     UnknownSessionError,
     Venue,
+    VenueCalendarModel,
     VenueCalendarValidationError,
-    _VenueCalendarModel,
 )
 from reference_data.calendars.market_state import (
     MarketInterruption,
@@ -31,7 +31,7 @@ from reference_data.calendars.sessions import CalendarClosure, TradingSession
 from reference_data.calendars.settlement import SettlementCalendar
 
 
-class VenueCalendarSnapshot(_VenueCalendarModel):
+class VenueCalendarSnapshot(VenueCalendarModel):
     """Hold one immutable, bounded projection of venue and settlement state.
 
     Coverage bounds are inclusive session-label dates, not instant boundaries.
@@ -160,10 +160,10 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
             raise VenueCalendarValidationError("venue must be a Venue")
         if not isinstance(self.version, CalendarSourceVersion):
             raise VenueCalendarValidationError("version must be a CalendarSourceVersion")
-        covered_from = _VenueCalendarModel._require_date(
+        covered_from = VenueCalendarModel._require_date(
             self.covered_from, field_name="covered_from"
         )
-        covered_through = _VenueCalendarModel._require_date(
+        covered_through = VenueCalendarModel._require_date(
             self.covered_through, field_name="covered_through"
         )
         if covered_through < covered_from:
@@ -319,7 +319,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
             UnknownSessionError: No session has the label, whether inside or outside snapshot
                 coverage.
         """
-        checked = _VenueCalendarModel._require_date(session_label, field_name="session_label")
+        checked = VenueCalendarModel._require_date(session_label, field_name="session_label")
         for session in self.sessions:
             if session.session_label == checked:
                 return session
@@ -339,7 +339,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
             VenueCalendarValidationError: The candidate is not a date or is a datetime.
             CalendarCoverageError: The date lies outside snapshot coverage.
         """
-        checked = _VenueCalendarModel._require_date(calendar_date, field_name="calendar_date")
+        checked = VenueCalendarModel._require_date(calendar_date, field_name="calendar_date")
         if not self.covered_from <= checked <= self.covered_through:
             raise CalendarCoverageError(
                 f"calendar date {checked.isoformat()} is outside snapshot coverage"
@@ -372,7 +372,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
             CalendarCoverageError: The instant is neither inside a retained session nor in a
                 gap between retained sessions.
         """
-        checked = _VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
+        checked = VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
         session_index = bisect_right(self.sessions, checked, key=self._session_opening_time) - 1
         session = self.sessions[session_index] if session_index >= 0 else None
         if session is None or not session.contains(checked):

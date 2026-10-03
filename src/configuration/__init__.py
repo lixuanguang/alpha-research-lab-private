@@ -62,10 +62,10 @@ from configuration.venue_execution import (
 )
 from configuration.venue_secrets import (
     VENUE_SECRET_FILES,
+    SecretFile,
     SecretValue,
     VenueSecrets,
     VenueSecretsError,
-    read_secret_fields,
 )
 
 __all__ = [
@@ -115,6 +115,7 @@ __all__ = [
     "PaperStrategyIdentity",
     "PublicDataJob",
     "ResolvedManifest",
+    "SecretFile",
     "SecretValue",
     "Universe",
     "UniverseSelection",
@@ -124,5 +125,4 @@ __all__ = [
     "VenueInstrument",
     "VenueSecrets",
     "VenueSecretsError",
-    "read_secret_fields",
 ]

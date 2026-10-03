@@ -16,7 +16,7 @@ import pytest
 from paper_services import NativeBookFixture, PaperServiceWorkload
 
 # project library imports
-from applications.execute.service_inputs import ServiceBookInputs
+from applications.execute import ServiceBookInputs
 from configuration import (
     PaperAuthorization,
     PaperDeployment,

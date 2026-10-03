@@ -11,8 +11,8 @@ from pydantic import field_validator
 
 # project library imports
 from reference_data.calendars.core import (
+    VenueCalendarModel,
     VenueCalendarValidationError,
-    _VenueCalendarModel,
 )
 from reference_data.calendars.sessions import AuctionKind, TradingSession
 
@@ -23,7 +23,7 @@ class InterruptionKind(StrEnum):
     HALT = "halt"
 
 
-class MarketInterruption(_VenueCalendarModel):
+class MarketInterruption(VenueCalendarModel):
     """Represent one source-attributed half-open halt interval.
 
     The snapshot checks that the halt lies in exactly one session and does not
@@ -54,24 +54,22 @@ class MarketInterruption(_VenueCalendarModel):
             VenueCalendarValidationError: An ID, kind, bounded reason, attribution token or
                 increasing UTC interval is invalid.
         """
-        _VenueCalendarModel._require_stable_token(
-            self.interruption_id, field_name="interruption_id"
-        )
+        VenueCalendarModel._require_stable_token(self.interruption_id, field_name="interruption_id")
         if not isinstance(self.kind, InterruptionKind):
             raise VenueCalendarValidationError("interruption kind must be an InterruptionKind")
-        start = _VenueCalendarModel._require_utc_datetime(
+        start = VenueCalendarModel._require_utc_datetime(
             self.starts_at, field_name="interruption starts_at"
         )
-        end = _VenueCalendarModel._require_utc_datetime(
+        end = VenueCalendarModel._require_utc_datetime(
             self.ends_at, field_name="interruption ends_at"
         )
         if end <= start:
             raise VenueCalendarValidationError("interruption ends_at must be after starts_at")
-        _VenueCalendarModel._require_bounded_text(
+        VenueCalendarModel._require_bounded_text(
             self.reason, field_name="interruption reason", maximum_length=256
         )
-        _VenueCalendarModel._require_stable_token(self.source, field_name="interruption source")
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(self.source, field_name="interruption source")
+        VenueCalendarModel._require_stable_token(
             self.source_revision, field_name="interruption source_revision"
         )
 
@@ -89,7 +87,7 @@ class MarketInterruption(_VenueCalendarModel):
             VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
                 offset.
         """
-        checked = _VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
+        checked = VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
         return self.starts_at <= checked < self.ends_at
 
 
@@ -102,7 +100,7 @@ class PriceLimitState(StrEnum):
     LOCKED = "locked"
 
 
-class PriceLimitWindow(_VenueCalendarModel):
+class PriceLimitWindow(VenueCalendarModel):
     """Represent one source-attributed half-open non-normal limit interval.
 
     The snapshot checks single-session containment and non-overlap with other
@@ -131,21 +129,21 @@ class PriceLimitWindow(_VenueCalendarModel):
             VenueCalendarValidationError: An ID or attribution token is invalid, state is
                 untyped or NONE, or UTC bounds are invalid.
         """
-        _VenueCalendarModel._require_stable_token(self.limit_id, field_name="limit_id")
+        VenueCalendarModel._require_stable_token(self.limit_id, field_name="limit_id")
         if not isinstance(self.state, PriceLimitState) or self.state is PriceLimitState.NONE:
             raise VenueCalendarValidationError(
                 "price-limit window state must be a non-NONE PriceLimitState"
             )
-        start = _VenueCalendarModel._require_utc_datetime(
+        start = VenueCalendarModel._require_utc_datetime(
             self.starts_at, field_name="price-limit starts_at"
         )
-        end = _VenueCalendarModel._require_utc_datetime(
+        end = VenueCalendarModel._require_utc_datetime(
             self.ends_at, field_name="price-limit ends_at"
         )
         if end <= start:
             raise VenueCalendarValidationError("price-limit ends_at must be after starts_at")
-        _VenueCalendarModel._require_stable_token(self.source, field_name="price-limit source")
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(self.source, field_name="price-limit source")
+        VenueCalendarModel._require_stable_token(
             self.source_revision, field_name="price-limit source_revision"
         )
 
@@ -163,7 +161,7 @@ class PriceLimitWindow(_VenueCalendarModel):
             VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
                 offset.
         """
-        checked = _VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
+        checked = VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
         return self.starts_at <= checked < self.ends_at
 
 
@@ -177,7 +175,7 @@ class MarketStatus(StrEnum):
     HALTED = "halted"
 
 
-class MarketState(_VenueCalendarModel):
+class MarketState(VenueCalendarModel):
     """Return schedule, auction, halt, and independent price-limit state together.
 
     Attributes:
@@ -209,7 +207,7 @@ class MarketState(_VenueCalendarModel):
                 "market state price_limit_state must be a PriceLimitState"
             )
         if self.session_label is not None:
-            _VenueCalendarModel._require_date(
+            VenueCalendarModel._require_date(
                 self.session_label, field_name="market state session_label"
             )
         if self.status is MarketStatus.CLOSED:
@@ -236,7 +234,7 @@ class MarketState(_VenueCalendarModel):
                 "interruption_id must be present exactly for HALTED market state"
             )
         if self.interruption_id is not None:
-            _VenueCalendarModel._require_stable_token(
+            VenueCalendarModel._require_stable_token(
                 self.interruption_id, field_name="interruption_id"
             )
 
@@ -249,7 +247,7 @@ class SessionOverrideAction(StrEnum):
     REMOVE = "remove"
 
 
-class SessionOverride(_VenueCalendarModel):
+class SessionOverride(VenueCalendarModel):
     """Describe one source-attributed, versioned change to a base session.
 
     Construction validates the instruction; the adapter applies it to the base
@@ -299,17 +297,17 @@ class SessionOverride(_VenueCalendarModel):
             VenueCalendarValidationError: An ID, date, reason, action or attribution is invalid;
                 or replacement presence or label disagrees with the action.
         """
-        _VenueCalendarModel._require_stable_token(self.override_id, field_name="override_id")
+        VenueCalendarModel._require_stable_token(self.override_id, field_name="override_id")
         if not isinstance(self.action, SessionOverrideAction):
             raise VenueCalendarValidationError(
                 "session override action must be a SessionOverrideAction"
             )
-        _VenueCalendarModel._require_date(self.session_label, field_name="override session_label")
-        _VenueCalendarModel._require_bounded_text(
+        VenueCalendarModel._require_date(self.session_label, field_name="override session_label")
+        VenueCalendarModel._require_bounded_text(
             self.reason, field_name="override reason", maximum_length=256
         )
-        _VenueCalendarModel._require_stable_token(self.source, field_name="override source")
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(self.source, field_name="override source")
+        VenueCalendarModel._require_stable_token(
             self.source_revision, field_name="override source_revision"
         )
         if self.action is SessionOverrideAction.REMOVE:

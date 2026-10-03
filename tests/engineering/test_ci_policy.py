@@ -12,257 +12,216 @@ import pytest
 
 # project library imports
 from alpha_research_governance import ci_policy
-from alpha_research_governance.ci_policy import secrets
+from alpha_research_governance.ci_policy import SecretScanCommand
+from alpha_research_governance.ci_policy.secrets import CIPolicyError, SecretScanner
 
 
-def test_secret_patterns_report_identifiers_without_secret_contents() -> None:
-    """Detect supported high-confidence tokens while keeping payloads out of findings."""
-    payload = b"api_key=" + b"A" * 24
+class ProcessDouble:
+    """Stand in for ``subprocess.run`` and record each invocation."""
 
-    assert secrets.scan_secret_bytes(payload) == ("assigned_credential",)
-    assert secrets.scan_secret_bytes(b"-----BEGIN " + b"PRIVATE KEY-----") == ("private_key",)
-    assert secrets.scan_secret_bytes(b"API_KEY_ENV=") == ()
-    assert "A" * 24 not in str(secrets.scan_secret_bytes(payload))
+    def __init__(self, *, returncode: int = 0, error: OSError | None = None) -> None:
+        """Bind the synthetic exit status or startup failure."""
+        self.returncode = returncode
+        self.error = error
+        self.calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
-
-def test_python_credential_references_do_not_hide_literal_secrets() -> None:
-    """Exclude valid attribute expressions only, retaining literal/config detection."""
-    key = b'"apiKey": '
-    attribute = b"self.credentials.api_key"
-    dynamic = b"request = {" + key + attribute + b"}\n"
-    assert secrets.scan_secret_bytes(dynamic, python_source=True) == ()
-    assert secrets.scan_secret_bytes(dynamic) == ("assigned_credential",)
-    for literal in (attribute, b"A" * 24):
-        quoted = b"request = {" + key + b'"' + literal + b'"}\n'
-        assert secrets.scan_secret_bytes(quoted, python_source=True) == ("assigned_credential",)
-    invalid = dynamic + b"\nthis is not valid python!"
-    assert secrets.scan_secret_bytes(invalid, python_source=True) == ("assigned_credential",)
-    mixed = dynamic + b"password = '" + b"B" * 24 + b"'\n"
-    assert secrets.scan_secret_bytes(mixed, python_source=True) == ("assigned_credential",)
-    unicode_prefix = "label = '价格'; ".encode() + dynamic
-    assert secrets.scan_secret_bytes(unicode_prefix, python_source=True) == ()
+    def __call__(self, *args: object, **kwargs: object) -> SimpleNamespace:
+        """Record the call, then fail to start or return the synthetic status."""
+        self.calls.append((args, kwargs))
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(returncode=self.returncode)
 
 
-@pytest.mark.parametrize(
-    ("filename", "prefix", "suffix"),
-    [
-        ("config.json", b'{"api_key": "', b'"}'),
-        ("config.py", b"{'password': '", b"'}"),
-        ("config.yaml", b'"client-secret": ', b"\n"),
-        ("config.toml", b"'token' = '", b"'\n"),
-    ],
-)
-def test_repository_scan_rejects_quoted_credentials(
-    tmp_path: Path, filename: str, prefix: bytes, suffix: bytes
-) -> None:
-    """Reject quoted credential assignments without disclosing their values."""
-    credential = b"A" * 24
-    payload = prefix + credential + suffix
-    assert secrets.scan_secret_bytes(payload) == ("assigned_credential",)
-    (tmp_path / filename).write_bytes(payload)
+class ScanRecorder:
+    """Stand in for a repository scan and record the selected scope."""
 
-    with pytest.raises(secrets.CIPolicyError, match="assigned_credential") as caught:
-        secrets.scan_repository_paths(tmp_path, (filename,))
+    def __init__(self, error: CIPolicyError | None = None) -> None:
+        """Bind an optional blocking error to raise after recording."""
+        self.error = error
+        self.calls: list[tuple[Path, tuple[str, ...]]] = []
 
-    assert filename in str(caught.value)
-    assert credential.decode() not in str(caught.value)
+    def __call__(self, root: Path, paths: tuple[str, ...]) -> None:
+        """Record one scan and raise the configured error, if any."""
+        self.calls.append((root, paths))
+        if self.error is not None:
+            raise self.error
 
 
-def test_secret_scan_rejects_unsafe_and_oversized_paths(tmp_path: Path) -> None:
-    """Reject paths that escape the root, resolve through links, or exceed the bound."""
-    secret = tmp_path / "secret.txt"
-    secret.write_bytes(b"api_key=" + b"A" * 24)
-    with pytest.raises(secrets.CIPolicyError, match="secret pattern"):
-        secrets.scan_repository_paths(tmp_path, ("secret.txt",), maximum_file_bytes=100)
+class TestSecretPatterns:
+    """Detect high-confidence secret patterns without disclosing their contents."""
 
-    oversized = tmp_path / "oversized.txt"
-    oversized.write_bytes(b"x" * 101)
-    with pytest.raises(secrets.CIPolicyError, match="exceeds 100 bytes"):
-        secrets.scan_repository_paths(tmp_path, ("oversized.txt",), maximum_file_bytes=100)
+    def test_secret_patterns_report_identifiers_without_secret_contents(self) -> None:
+        """Detect supported high-confidence tokens while keeping payloads out of findings."""
+        payload = b"api_key=" + b"A" * 24
 
-    link = tmp_path / "linked.txt"
-    link.symlink_to(secret)
-    with pytest.raises(secrets.CIPolicyError, match="non-regular path"):
-        secrets.scan_repository_paths(tmp_path, ("linked.txt",), maximum_file_bytes=100)
-    broken_link = tmp_path / "broken.txt"
-    broken_link.symlink_to(tmp_path / "missing.txt")
-    with pytest.raises(secrets.CIPolicyError, match="non-regular path"):
-        secrets.scan_repository_paths(tmp_path, ("broken.txt",), maximum_file_bytes=100)
-    with pytest.raises(secrets.CIPolicyError, match="repository-relative"):
-        secrets.scan_repository_paths(tmp_path, ("../outside.txt",), maximum_file_bytes=100)
+        assert SecretScanner.scan_bytes(payload) == ("assigned_credential",)
+        assert SecretScanner.scan_bytes(b"-----BEGIN " + b"PRIVATE KEY-----") == ("private_key",)
+        assert SecretScanner.scan_bytes(b"API_KEY_ENV=") == ()
+        assert "A" * 24 not in str(SecretScanner.scan_bytes(payload))
 
-
-def test_external_scanner_failure_is_propagated(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Treat a nonzero detect-private-key result as a blocking CI failure."""
-
-    def failed_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
-        """Return a synthetic failed scanner process.
-
-        Args:
-            _args: Positional scanner arguments, unused by the fixture.
-            _kwargs: Keyword scanner arguments, unused by the fixture.
-
-        Returns:
-            A process-like result with a failing exit code.
-
-        Raises:
-            RuntimeError: Never raised; this documents the fixture contract.
-        """
-        return SimpleNamespace(returncode=2)
-
-    monkeypatch.setattr(subprocess, "run", failed_run)
-    with pytest.raises(secrets.CIPolicyError, match="failed with exit 2"):
-        secrets.run_external_secret_scanner(tmp_path, ("tracked.txt",))
+    def test_python_credential_references_do_not_hide_literal_secrets(self) -> None:
+        """Exclude valid attribute expressions only, retaining literal/config detection."""
+        key = b'"apiKey": '
+        attribute = b"self.credentials.api_key"
+        dynamic = b"request = {" + key + attribute + b"}\n"
+        assert SecretScanner.scan_bytes(dynamic, python_source=True) == ()
+        assert SecretScanner.scan_bytes(dynamic) == ("assigned_credential",)
+        for literal in (attribute, b"A" * 24):
+            quoted = b"request = {" + key + b'"' + literal + b'"}\n'
+            assert SecretScanner.scan_bytes(quoted, python_source=True) == ("assigned_credential",)
+        invalid = dynamic + b"\nthis is not valid python!"
+        assert SecretScanner.scan_bytes(invalid, python_source=True) == ("assigned_credential",)
+        mixed = dynamic + b"password = '" + b"B" * 24 + b"'\n"
+        assert SecretScanner.scan_bytes(mixed, python_source=True) == ("assigned_credential",)
+        unicode_prefix = "label = '价格'; ".encode() + dynamic
+        assert SecretScanner.scan_bytes(unicode_prefix, python_source=True) == ()
 
 
-def test_external_scanner_start_failure_is_propagated(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Treat an unavailable detect-private-key executable as a blocking CI failure."""
+class TestRepositoryScan:
+    """Validate bounded repository paths before running the external scanner."""
 
-    def unavailable_run(*_args: object, **_kwargs: object) -> SimpleNamespace:
-        """Raise the operating-system startup error expected from subprocess.
+    @pytest.mark.parametrize(
+        ("filename", "prefix", "suffix"),
+        [
+            ("config.json", b'{"api_key": "', b'"}'),
+            ("config.py", b"{'password': '", b"'}"),
+            ("config.yaml", b'"client-secret": ', b"\n"),
+            ("config.toml", b"'token' = '", b"'\n"),
+        ],
+    )
+    def test_repository_scan_rejects_quoted_credentials(
+        self, tmp_path: Path, filename: str, prefix: bytes, suffix: bytes
+    ) -> None:
+        """Reject quoted credential assignments without disclosing their values."""
+        credential = b"A" * 24
+        payload = prefix + credential + suffix
+        assert SecretScanner.scan_bytes(payload) == ("assigned_credential",)
+        (tmp_path / filename).write_bytes(payload)
 
-        Args:
-            _args: Positional scanner arguments, unused by the fixture.
-            _kwargs: Keyword scanner arguments, unused by the fixture.
+        with pytest.raises(CIPolicyError, match="assigned_credential") as caught:
+            SecretScanner.scan_paths(tmp_path, (filename,))
 
-        Returns:
-            This fixture never returns.
+        assert filename in str(caught.value)
+        assert credential.decode() not in str(caught.value)
 
-        Raises:
-            FileNotFoundError: The scanner executable is unavailable.
-        """
-        raise FileNotFoundError("detect-private-key")
+    def test_secret_scan_rejects_unsafe_and_oversized_paths(self, tmp_path: Path) -> None:
+        """Reject paths that escape the root, resolve through links, or exceed the bound."""
+        secret = tmp_path / "secret.txt"
+        secret.write_bytes(b"api_key=" + b"A" * 24)
+        with pytest.raises(CIPolicyError, match="secret pattern"):
+            SecretScanner.scan_paths(tmp_path, ("secret.txt",), maximum_file_bytes=100)
 
-    monkeypatch.setattr(subprocess, "run", unavailable_run)
-    with pytest.raises(secrets.CIPolicyError, match="could not start"):
-        secrets.run_external_secret_scanner(tmp_path, ("tracked.txt",))
+        oversized = tmp_path / "oversized.txt"
+        oversized.write_bytes(b"x" * 101)
+        with pytest.raises(CIPolicyError, match="exceeds 100 bytes"):
+            SecretScanner.scan_paths(tmp_path, ("oversized.txt",), maximum_file_bytes=100)
+
+        link = tmp_path / "linked.txt"
+        link.symlink_to(secret)
+        with pytest.raises(CIPolicyError, match="non-regular path"):
+            SecretScanner.scan_paths(tmp_path, ("linked.txt",), maximum_file_bytes=100)
+        broken_link = tmp_path / "broken.txt"
+        broken_link.symlink_to(tmp_path / "missing.txt")
+        with pytest.raises(CIPolicyError, match="non-regular path"):
+            SecretScanner.scan_paths(tmp_path, ("broken.txt",), maximum_file_bytes=100)
+        with pytest.raises(CIPolicyError, match="repository-relative"):
+            SecretScanner.scan_paths(tmp_path, ("../outside.txt",), maximum_file_bytes=100)
+
+    def test_repository_scan_passes_only_existing_normalized_files_to_external_scanner(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Scan each surviving file once and skip deletions before invoking the tool."""
+        (tmp_path / "tracked.txt").write_text("safe content\n", encoding="utf-8")
+        recorder = ScanRecorder()
+
+        monkeypatch.setattr(SecretScanner, "run_external", recorder)
+        SecretScanner.scan_paths(tmp_path, ("tracked.txt", "deleted.txt", "tracked.txt"))
+
+        assert recorder.calls == [(tmp_path.resolve(), ("tracked.txt",))]
 
 
-def test_cli_rejects_empty_scan_mode(capsys: pytest.CaptureFixture[str]) -> None:
-    """Return a nonzero status when the secret-scan CLI has no scope."""
-    assert ci_policy.main(["scan-secrets"]) == 1
-    assert "scan-secrets accepts" in capsys.readouterr().err
+class TestExternalScanner:
+    """Propagate every external scanner failure and use shell-free argv."""
+
+    def test_external_scanner_failure_is_propagated(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Treat a nonzero detect-private-key result as a blocking CI failure."""
+        monkeypatch.setattr(subprocess, "run", ProcessDouble(returncode=2))
+        with pytest.raises(CIPolicyError, match="failed with exit 2"):
+            SecretScanner.run_external(tmp_path, ("tracked.txt",))
+
+    def test_external_scanner_start_failure_is_propagated(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Treat an unavailable detect-private-key executable as a blocking CI failure."""
+        monkeypatch.setattr(
+            subprocess, "run", ProcessDouble(error=FileNotFoundError("detect-private-key"))
+        )
+        with pytest.raises(CIPolicyError, match="could not start"):
+            SecretScanner.run_external(tmp_path, ("tracked.txt",))
+
+    def test_external_scanner_uses_shell_free_argv(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Pass validated paths to detect-private-key as separate argv tokens."""
+        process = ProcessDouble()
+        monkeypatch.setattr(subprocess, "run", process)
+        SecretScanner.run_external(tmp_path, ("a.txt", "b.txt"))
+
+        assert process.calls == [
+            (
+                (["detect-private-key", "--", "a.txt", "b.txt"],),
+                {"cwd": tmp_path, "check": False},
+            )
+        ]
 
 
-def test_cli_accepts_the_make_all_scan_invocation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Accept the exact ``alpha-governance-ci scan-secrets --all`` command used by Make."""
-    observed: list[tuple[str, ...]] = []
+class TestSecretScanCommand:
+    """Map command scopes and failures to exit statuses."""
 
+    @staticmethod
     def tracked_paths(_root: Path) -> tuple[str, ...]:
-        """Supply one tracked path without invoking Git in this CLI contract test.
-
-        Args:
-            _root: Temporary repository root, unused by the fixture.
-
-        Returns:
-            One synthetic tracked path.
-        """
+        """Supply one tracked path without invoking Git in this CLI contract test."""
         return ("tracked.txt",)
 
-    def successful_scan(_root: Path, paths: tuple[str, ...]) -> None:
-        """Record the selected full-tracked scope and return success.
+    def test_cli_rejects_empty_scan_mode(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Return a nonzero status when the secret-scan CLI has no scope."""
+        assert ci_policy.main(["scan-secrets"]) == 1
+        assert "scan-secrets accepts" in capsys.readouterr().err
 
-        Args:
-            _root: Temporary repository root, unused by the fixture.
-            paths: Paths selected for scanning.
-        """
-        observed.append(paths)
+    def test_cli_accepts_the_make_all_scan_invocation(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Accept the exact ``alpha-governance-ci scan-secrets --all`` command used by Make."""
+        recorder = ScanRecorder()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(SecretScanCommand, "tracked_paths", self.tracked_paths)
+        monkeypatch.setattr(SecretScanner, "scan_paths", recorder)
 
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(ci_policy, "_git_tracked_paths", tracked_paths)
-    monkeypatch.setattr(ci_policy, "scan_repository_paths", successful_scan)
+        assert ci_policy.main(["scan-secrets", "--all"]) == 0
+        assert [paths for _, paths in recorder.calls] == [("tracked.txt",)]
+        assert "passed for 1 governed paths" in capsys.readouterr().out
 
-    assert ci_policy.main(["scan-secrets", "--all"]) == 0
-    assert observed == [("tracked.txt",)]
-    assert "passed for 1 governed paths" in capsys.readouterr().out
-
-
-def test_cli_propagates_external_scanner_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Return a nonzero CLI status when the external scanner fails."""
-
-    def failed_scan(_root: Path, _paths: tuple[str, ...]) -> None:
-        """Raise the same blocking error the scanner boundary reports.
-
-        Args:
-            _root: Temporary repository root, unused by the fixture.
-            _paths: Selected paths, unused by the fixture.
-
-        Raises:
-            secrets.CIPolicyError: The synthetic scanner failed.
-        """
-        raise secrets.CIPolicyError(["private-key scanner failed with exit 2"])
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(ci_policy, "scan_repository_paths", failed_scan)
-    assert ci_policy.main(["scan-secrets", "tracked.txt"]) == 1
-    assert "failed with exit 2" in capsys.readouterr().err
-
-
-def test_external_scanner_uses_shell_free_argv(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Pass validated paths to detect-private-key as separate argv tokens."""
-    calls: list[tuple[object, ...]] = []
-
-    def successful_run(*args: object, **kwargs: object) -> SimpleNamespace:
-        """Record the scanner invocation and return success.
-
-        Args:
-            args: Positional scanner arguments.
-            kwargs: Keyword scanner arguments.
-
-        Returns:
-            A process-like result with a successful exit code.
-        """
-        calls.append((args, kwargs))
-        return SimpleNamespace(returncode=0)
-
-    monkeypatch.setattr(subprocess, "run", successful_run)
-    secrets.run_external_secret_scanner(tmp_path, ("a.txt", "b.txt"))
-
-    assert calls == [
-        (
-            (["detect-private-key", "--", "a.txt", "b.txt"],),
-            {"cwd": tmp_path, "check": False},
+    def test_cli_propagates_external_scanner_failure(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Return a nonzero CLI status when the external scanner fails."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            SecretScanner,
+            "scan_paths",
+            ScanRecorder(CIPolicyError(["private-key scanner failed with exit 2"])),
         )
-    ]
+        assert ci_policy.main(["scan-secrets", "tracked.txt"]) == 1
+        assert "failed with exit 2" in capsys.readouterr().err
 
+    def test_cli_reports_git_failure_from_one_error_boundary(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Fail closed when tracked paths cannot be obtained from Git."""
+        monkeypatch.chdir(tmp_path)
 
-def test_repository_scan_passes_only_existing_normalized_files_to_external_scanner(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Scan each surviving file once and skip deletions before invoking the tool."""
-    (tmp_path / "tracked.txt").write_text("safe content\n", encoding="utf-8")
-    calls: list[tuple[Path, tuple[str, ...]]] = []
-
-    def record_scan(root: Path, paths: tuple[str, ...]) -> None:
-        """Record the external scan's validated scope.
-
-        Args:
-            root: Resolved repository bounding the files.
-            paths: Sorted existing paths selected for scanning.
-        """
-        calls.append((root, paths))
-
-    monkeypatch.setattr(secrets, "run_external_secret_scanner", record_scan)
-    secrets.scan_repository_paths(tmp_path, ("tracked.txt", "deleted.txt", "tracked.txt"))
-
-    assert calls == [(tmp_path.resolve(), ("tracked.txt",))]
-
-
-def test_cli_reports_git_failure_from_one_error_boundary(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Fail closed when tracked paths cannot be obtained from Git."""
-    monkeypatch.chdir(tmp_path)
-
-    assert ci_policy.main(["scan-secrets", "--all"]) == 1
-    assert "CI secret scan failed" in capsys.readouterr().err
+        assert ci_policy.main(["scan-secrets", "--all"]) == 1
+        assert "CI secret scan failed" in capsys.readouterr().err

@@ -222,6 +222,21 @@ class TestCapacityInputs:
             assert fees.value == fee == Decimal("0.20")
             assert positions[0].value == first_fill
 
+    @staticmethod
+    async def _read_oversize(fixture: CapacityNativeFixture) -> bytes:
+        """Jump the authored clock to the adverse slot without a wall-clock trial."""
+        await fixture.open(1)
+        fixture.index = fixture.adverse_slot
+        fixture.started_at = asyncio.get_running_loop().time() - 30
+        return await fixture.recv()
+
+    @staticmethod
+    async def _read_overdue(overdue: CapacityNativeFixture) -> bytes:
+        """Retain authored backlog across a new source process without waiting 20 seconds."""
+        await overdue.open(1)
+        overdue.index = 500
+        return await asyncio.wait_for(overdue.recv(), timeout=0.1)
+
     def test_fault_variants_are_bounded_and_identified(self) -> None:
         """Keep adverse frames and reconnect input distinct from the base corpus."""
         workload = CapacityWorkload(
@@ -247,15 +262,7 @@ class TestCapacityInputs:
         }
         assert len(identities) == 5
         fixture = CapacityNativeFixture(source, variant="oversize")
-
-        async def read_oversize() -> bytes:
-            """Jump the authored clock to the adverse slot without a wall-clock trial."""
-            await fixture.open(1)
-            fixture.index = fixture.adverse_slot
-            fixture.started_at = asyncio.get_running_loop().time() - 30
-            return await fixture.recv()
-
-        assert len(asyncio.run(read_oversize())) == source.capture.max_frame_bytes + 1
+        assert len(asyncio.run(self._read_oversize(fixture))) == source.capture.max_frame_bytes + 1
         assert CapacityNativeFixture.elapsed_seconds(1000) == 40
         assert CapacityNativeFixture.elapsed_seconds(2000) == 50
         assert CapacityNativeFixture.elapsed_seconds(500) == 20
@@ -320,14 +327,7 @@ class TestCapacityInputs:
         assert book.ready and min(book.asks) == Decimal("104")
         marker.write_text(f"{identity}\n{int(anchor) - 21_000_000_000}\n")
         overdue = CapacityNativeFixture(source, epoch_path=marker)
-
-        async def read_overdue() -> bytes:
-            """Retain authored backlog across a new source process without waiting 20 seconds."""
-            await overdue.open(1)
-            overdue.index = 500
-            return await asyncio.wait_for(overdue.recv(), timeout=0.1)
-
-        assert asyncio.run(read_overdue())
+        assert asyncio.run(self._read_overdue(overdue))
         assert overdue.started_at is not None and overdue.started_at < initial.started_at
         marker.write_text("corrupt epoch identity\n")
         with pytest.raises(ValueError, match="marker differs"):

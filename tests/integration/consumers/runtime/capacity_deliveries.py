@@ -8,14 +8,14 @@ recursively when handed these rows.
 from __future__ import annotations
 
 # project library imports
-from applications.execute.source_service import _DecodedBookObservation
+from applications.execute import DecodedBookObservation
 from runtime import LiveBookDelivery, SharedBookDelivery
 
 
 class _IndexedSourceDelivery(LiveBookDelivery, frozen=True):
     """Decode complete typed native records before checking their separate delivery clock."""
 
-    book: _DecodedBookObservation
+    book: DecodedBookObservation
 
     def __post_init__(self) -> None:
         """Avoid recursively validating native fields already checked by the typed decoder."""

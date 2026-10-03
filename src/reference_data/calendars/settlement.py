@@ -8,12 +8,12 @@ from datetime import date, datetime
 # project library imports
 from reference_data.calendars.core import (
     UnknownSettlementDateError,
+    VenueCalendarModel,
     VenueCalendarValidationError,
-    _VenueCalendarModel,
 )
 
 
-class SettlementCalendar(_VenueCalendarModel):
+class SettlementCalendar(VenueCalendarModel):
     """Hold a bounded versioned set of eligible settlement dates.
 
     Dates and coverage are independent of trading-session eligibility. An empty
@@ -47,19 +47,19 @@ class SettlementCalendar(_VenueCalendarModel):
             VenueCalendarValidationError: Metadata or coverage is invalid, or eligible dates are
                 not an immutable, unique, strictly increasing tuple within coverage.
         """
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(
             self.calendar_id, field_name="settlement calendar_id"
         )
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(
             self.calendar_version, field_name="settlement calendar_version"
         )
-        _VenueCalendarModel._require_timezone_name(
+        VenueCalendarModel._require_timezone_name(
             self.timezone_name, field_name="settlement timezone_name"
         )
-        covered_from = _VenueCalendarModel._require_date(
+        covered_from = VenueCalendarModel._require_date(
             self.covered_from, field_name="settlement covered_from"
         )
-        covered_through = _VenueCalendarModel._require_date(
+        covered_through = VenueCalendarModel._require_date(
             self.covered_through, field_name="settlement covered_through"
         )
         if covered_through < covered_from:
@@ -79,8 +79,8 @@ class SettlementCalendar(_VenueCalendarModel):
             )
         if any(not covered_from <= item <= covered_through for item in self.settlement_dates):
             raise VenueCalendarValidationError("settlement date lies outside the calendar coverage")
-        _VenueCalendarModel._require_stable_token(self.source, field_name="settlement source")
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(self.source, field_name="settlement source")
+        VenueCalendarModel._require_stable_token(
             self.source_revision, field_name="settlement source_revision"
         )
 
@@ -97,7 +97,7 @@ class SettlementCalendar(_VenueCalendarModel):
             VenueCalendarValidationError: The candidate is not a date or is a datetime.
             UnknownSettlementDateError: The candidate lies outside settlement coverage.
         """
-        checked = _VenueCalendarModel._require_date(
+        checked = VenueCalendarModel._require_date(
             candidate, field_name="candidate settlement date"
         )
         if not self.covered_from <= checked <= self.covered_through:
@@ -120,7 +120,7 @@ class SettlementCalendar(_VenueCalendarModel):
             UnknownSettlementDateError: The candidate is outside coverage, or no eligible date
                 remains.
         """
-        checked = _VenueCalendarModel._require_date(
+        checked = VenueCalendarModel._require_date(
             candidate, field_name="candidate settlement date"
         )
         if not self.covered_from <= checked <= self.covered_through:

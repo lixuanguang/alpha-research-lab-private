@@ -121,6 +121,10 @@ and onboarding status. The researcher owns the hypothesis and economic decision.
 The [generalized study API](../src/research/studies/README.md#generalized-decision-studies)
 accepts typed or serialized configuration and explicitly supplied compatible
 features, transforms, estimators, policies, execution/cost models and reports.
+Import only the supported API: the names each package lists in its
+`__init__.py` `__all__`, as the
+[platform design](../docs/architecture/platform-design.md#functional-apis-and-application-entrypoints)
+defines. Deep modules and private names can change without notice.
 Quant development maintains the [installed reference consumer](../tests/integration/consumers/research/decision_study.py)
 and [captured-source consumer](../tests/integration/consumers/research/captured_study.py)
 as executable engineering acceptance. Their losing/no-trade and queue-sensitivity

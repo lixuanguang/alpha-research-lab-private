@@ -82,7 +82,7 @@ class SharedBookDelivery(WireRecord, frozen=True):
                 raise ValueError("shared input cutoff differs from actual delivery")
 
 
-class _ObservedLiveBookDelivery(LiveBookDelivery, frozen=True):
+class ObservedLiveBookDelivery(LiveBookDelivery, frozen=True):
     """Wrap validated source records while checking the new actual availability clock."""
 
     def __post_init__(self) -> None:
@@ -90,7 +90,7 @@ class _ObservedLiveBookDelivery(LiveBookDelivery, frozen=True):
         self._require_availability()
 
 
-class _ObservedSharedBookDelivery(SharedBookDelivery, frozen=True):
+class ObservedSharedBookDelivery(SharedBookDelivery, frozen=True):
     """Coordinate validated native inputs without changing the retained wire schema."""
 
     def __post_init__(self) -> None:
@@ -99,7 +99,7 @@ class _ObservedSharedBookDelivery(SharedBookDelivery, frozen=True):
         self._require_coordination()
 
 
-class _RetainedLiveBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
+class RetainedLiveBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
     """Encode ``LiveBookDelivery`` around row bytes the live source already encoded."""
 
     record: CaptureRecord
@@ -107,10 +107,10 @@ class _RetainedLiveBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
     available_at: datetime
 
 
-class _RetainedSharedBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
+class RetainedSharedBookDelivery(msgspec.Struct, frozen=True, kw_only=True):
     """Encode ``SharedBookDelivery`` with the same fields; the sorted encoder fixes order."""
 
-    source: _RetainedLiveBookDelivery
+    source: RetainedLiveBookDelivery
     inputs: tuple[SharedStrategyInput, ...]
     coordinated_at: datetime | None
     schema_version: str
@@ -236,7 +236,7 @@ class SharedPaperCaptureObserver:
         """
         book_started_ns = time.monotonic_ns() if self.measurements is not None else 0
         self._phases = {} if self.measurements is not None else None
-        source = _ObservedLiveBookDelivery(record=record, book=row, available_at=self._now())
+        source = ObservedLiveBookDelivery(record=record, book=row, available_at=self._now())
         market = self._market(source)
         bbo_observed_ns = time.monotonic_ns() if self.measurements is not None else 0
         market_effects = market is not None and self._select_market(market.at)
@@ -244,7 +244,7 @@ class SharedPaperCaptureObserver:
         if market_effects and market is not None:
             causal = self.source.read(str(self.scenario.instrument_id), source.available_at)
             selected = self.inputs.build(causal, market)
-        delivery = _ObservedSharedBookDelivery(
+        delivery = ObservedSharedBookDelivery(
             source=source,
             inputs=selected,
             coordinated_at=self._coordination_time(source.available_at) if selected else None,
@@ -466,8 +466,8 @@ class SharedPaperCaptureObserver:
         if self.delivery_path is None:
             raise ValueError("live shared paper requires a retained delivery path")
         source = delivery.source
-        envelope = _RetainedSharedBookDelivery(
-            source=_RetainedLiveBookDelivery(
+        envelope = RetainedSharedBookDelivery(
+            source=RetainedLiveBookDelivery(
                 record=source.record,
                 book=msgspec.Raw(row_payload),
                 available_at=source.available_at,

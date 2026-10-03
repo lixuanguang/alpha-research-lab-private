@@ -29,6 +29,146 @@ _CODEC = DomainCodec()
 _LIMIT = 600_000_000
 
 
+class ParityInspection:
+    """Inspect saved capture parity evidence."""
+
+    @staticmethod
+    def inspect(source: Path, output: Path) -> dict[str, object]:
+        """Compose verified saved input, published history, the shared consumer and fresh restart.
+
+        Args:
+            source: Completed capture or archive directory.
+            output: Fresh isolated evidence directory.
+
+        Returns:
+            Small identities, causal limits, exact consumer observations and checkpoint evidence.
+        """
+        output.mkdir()
+        raw, snapshots = output / "raw", output / "snapshots"
+        raw.mkdir()
+        snapshots.mkdir()
+        selected = BookInput.read(source, max_records=32)
+        identity = DatasetPublication(
+            SourceAdapters(), ImplementationIdentity.sha256()
+        ).publish_books((source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT)
+        payload = selected.admit(
+            RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT
+        ).require_canonical()
+        history = _CODEC.decode_json(payload, BookHistory)
+        assert all(row.position == index for index, row in enumerate(history.observations))
+        snapshot = BookSnapshot.read(
+            snapshots,
+            RawStore(raw),
+            readers=SourceAdapters(),
+            identity=identity,
+            max_bytes=_LIMIT,
+        )
+        assert tuple(snapshot.observations(selected.request.identity)) == history.observations
+        terminal = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
+            microseconds=(max(row.received_ns or 0 for row in history.observations) + 999) // 1000
+            + 1
+        )
+        engine = BookReplay.read(
+            snapshots,
+            RawStore(raw),
+            readers=SourceAdapters(),
+            identity=identity,
+            request_identity=selected.request.identity,
+            batch_size=1,
+            terminal=terminal,
+            config_identity=selected.request.identity,
+            max_bytes=_LIMIT,
+        )
+        assert tuple(row for batch in engine.batches() for row in batch) == history.observations
+        expected, actual = BookView(), BookView()
+        capture_path = source / "book-prefix.json"
+        if capture_path.exists():
+            captured = _CODEC.decode_json(capture_path.read_bytes(), BookHistory)
+            assert captured == history
+        for row in history.observations:
+            if row.received_ns is not None:
+                expected.observe(row)
+        checkpoints: list[Checkpoint] = []
+        while (cursor := engine.step(terminal, actual.consume)) is not None:
+            checkpoints.append(Checkpoint(identity, terminal, cursor, actual.state))
+        assert actual.rows == expected.rows
+        assert actual.state == expected.state
+        assert all(row.received_ns is None for row in history.observations) == (
+            len(actual.rows) == 0
+        )
+        # Check every completed step with a different query batch size and serialized state.
+        for checkpoint in checkpoints:
+            restored = _CODEC.decode_json(_CODEC.encode_json(checkpoint), Checkpoint)
+            view = BookView(restored.state)
+            replay = BookReplay(
+                snapshot,
+                request_identity=selected.request.identity,
+                batch_size=7,
+                cursor=restored.cursor,
+                terminal=terminal,
+                config_identity=selected.request.identity,
+            )
+            while replay.step(terminal, view.consume):
+                pass
+            assert view.state == actual.state and replay.cursor == engine.cursor
+        chosen = next(
+            (item for item in checkpoints if item.state.snapshot is not None), checkpoints[0]
+        )
+        (output / "canonical.json").write_bytes(payload)
+        (output / "checkpoint.json").write_bytes(_CODEC.encode_json(chosen))
+        process = subprocess.run(
+            [sys.executable, "-I", str(Path(__file__).resolve()), "resume", str(output)],
+            cwd=output,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        assert process.returncode == 0, (process.stdout, process.stderr)
+        resumed = _CODEC.decode_json((output / "resumed.json").read_bytes(), ViewState)
+        assert resumed == actual.state
+        failures: list[str] = []
+        try:
+            BookReplay(
+                snapshot,
+                request_identity=selected.request.identity,
+                batch_size=7,
+                cursor=chosen.cursor,
+                terminal=terminal,
+                config_identity="f" * 64,
+            )
+        except ValueError as error:
+            failures.append(str(error))
+        assert len(failures) == 1
+        summary: dict[str, object] = {
+            "source": str(source),
+            "raw_identity": selected.raw.sha256,
+            "snapshot_identity": identity,
+            "replay_identity": checkpoints[-1].cursor.identity,
+            "canonical_sha256": hashlib.sha256(payload).hexdigest(),
+            "query_records": len(history.observations),
+            "scheduled_records": len(actual.rows),
+            "completed_checkpoints": len(checkpoints),
+            "fresh_process_resume": True,
+            "live_prefix_compared": capture_path.exists(),
+            "scope": history.scope,
+            "depth": selected.capture.config.depth if selected.capture is not None else 400,
+            "refusals": failures,
+            "consumer_sample": actual.rows[:8],
+            "checkpoint_epoch": None
+            if chosen.state.boundary is None
+            else chosen.state.boundary.epoch,
+            "accepted_snapshot_position": None
+            if chosen.state.snapshot is None
+            else chosen.state.snapshot.position,
+            "native_quotes": None
+            if selected.capture is None
+            else NativeQuoteParity.verify(source, selected.capture),
+        }
+        (output / "result.json").write_bytes(_CODEC.encode_json(summary))
+        return summary
+
+
 class ViewState(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     """Checkpoint the accepted snapshot, current exact state and last quality/session boundary."""
 
@@ -158,135 +298,6 @@ class NativeQuoteParity:
         }
 
 
-def inspect(source: Path, output: Path) -> dict[str, object]:
-    """Compose verified saved input, published history, the shared consumer and fresh restart.
-
-    Args:
-        source: Completed capture or archive directory.
-        output: Fresh isolated evidence directory.
-
-    Returns:
-        Small identities, causal limits, exact consumer observations and checkpoint evidence.
-    """
-    output.mkdir()
-    raw, snapshots = output / "raw", output / "snapshots"
-    raw.mkdir()
-    snapshots.mkdir()
-    selected = BookInput.read(source, max_records=32)
-    identity = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
-        (source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT
-    )
-    payload = selected.admit(
-        RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT
-    ).require_canonical()
-    history = _CODEC.decode_json(payload, BookHistory)
-    assert all(row.position == index for index, row in enumerate(history.observations))
-    snapshot = BookSnapshot.read(
-        snapshots,
-        RawStore(raw),
-        readers=SourceAdapters(),
-        identity=identity,
-        max_bytes=_LIMIT,
-    )
-    assert tuple(snapshot.observations(selected.request.identity)) == history.observations
-    terminal = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
-        microseconds=(max(row.received_ns or 0 for row in history.observations) + 999) // 1000 + 1
-    )
-    engine = BookReplay.read(
-        snapshots,
-        RawStore(raw),
-        readers=SourceAdapters(),
-        identity=identity,
-        request_identity=selected.request.identity,
-        batch_size=1,
-        terminal=terminal,
-        config_identity=selected.request.identity,
-        max_bytes=_LIMIT,
-    )
-    assert tuple(row for batch in engine.batches() for row in batch) == history.observations
-    expected, actual = BookView(), BookView()
-    capture_path = source / "book-prefix.json"
-    if capture_path.exists():
-        captured = _CODEC.decode_json(capture_path.read_bytes(), BookHistory)
-        assert captured == history
-    for row in history.observations:
-        if row.received_ns is not None:
-            expected.observe(row)
-    checkpoints: list[Checkpoint] = []
-    while (cursor := engine.step(terminal, actual.consume)) is not None:
-        checkpoints.append(Checkpoint(identity, terminal, cursor, actual.state))
-    assert actual.rows == expected.rows
-    assert actual.state == expected.state
-    assert all(row.received_ns is None for row in history.observations) == (len(actual.rows) == 0)
-    # Check every completed step with a different query batch size and serialized state.
-    for checkpoint in checkpoints:
-        restored = _CODEC.decode_json(_CODEC.encode_json(checkpoint), Checkpoint)
-        view = BookView(restored.state)
-        replay = BookReplay(
-            snapshot,
-            request_identity=selected.request.identity,
-            batch_size=7,
-            cursor=restored.cursor,
-            terminal=terminal,
-            config_identity=selected.request.identity,
-        )
-        while replay.step(terminal, view.consume):
-            pass
-        assert view.state == actual.state and replay.cursor == engine.cursor
-    chosen = next((item for item in checkpoints if item.state.snapshot is not None), checkpoints[0])
-    (output / "canonical.json").write_bytes(payload)
-    (output / "checkpoint.json").write_bytes(_CODEC.encode_json(chosen))
-    process = subprocess.run(
-        [sys.executable, "-I", str(Path(__file__).resolve()), "resume", str(output)],
-        cwd=output,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
-    assert process.returncode == 0, (process.stdout, process.stderr)
-    resumed = _CODEC.decode_json((output / "resumed.json").read_bytes(), ViewState)
-    assert resumed == actual.state
-    failures: list[str] = []
-    try:
-        BookReplay(
-            snapshot,
-            request_identity=selected.request.identity,
-            batch_size=7,
-            cursor=chosen.cursor,
-            terminal=terminal,
-            config_identity="f" * 64,
-        )
-    except ValueError as error:
-        failures.append(str(error))
-    assert len(failures) == 1
-    summary: dict[str, object] = {
-        "source": str(source),
-        "raw_identity": selected.raw.sha256,
-        "snapshot_identity": identity,
-        "replay_identity": checkpoints[-1].cursor.identity,
-        "canonical_sha256": hashlib.sha256(payload).hexdigest(),
-        "query_records": len(history.observations),
-        "scheduled_records": len(actual.rows),
-        "completed_checkpoints": len(checkpoints),
-        "fresh_process_resume": True,
-        "live_prefix_compared": capture_path.exists(),
-        "scope": history.scope,
-        "depth": selected.capture.config.depth if selected.capture is not None else 400,
-        "refusals": failures,
-        "consumer_sample": actual.rows[:8],
-        "checkpoint_epoch": None if chosen.state.boundary is None else chosen.state.boundary.epoch,
-        "accepted_snapshot_position": None
-        if chosen.state.snapshot is None
-        else chosen.state.snapshot.position,
-        "native_quotes": None
-        if selected.capture is None
-        else NativeQuoteParity.verify(source, selected.capture),
-    }
-    (output / "result.json").write_bytes(_CODEC.encode_json(summary))
-    return summary
-
-
 def main() -> None:
     """Run saved-input verification or resume only from explicitly retained fixture files."""
     if sys.argv[1] == "resume":
@@ -317,7 +328,8 @@ def main() -> None:
         output = Path(sys.argv[1])
         output.mkdir()
         results = [
-            inspect(Path(source), output / str(index)) for index, source in enumerate(sys.argv[2:])
+            ParityInspection.inspect(Path(source), output / str(index))
+            for index, source in enumerate(sys.argv[2:])
         ]
         report = {
             "installed_package": str(Path(market_data.__file__).resolve()),

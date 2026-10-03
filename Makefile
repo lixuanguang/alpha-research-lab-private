@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := check
 
 UV := uv
-PYTHON_PATHS := src tests tools/governance/src tools/typing/stubs
+PYTHON_PATHS := src tests tools/governance/src tools/typing/stubs examples
 LOCAL_SERVICES_ENV ?= secrets/local-services.env
 
 .PHONY: sync lock-check format format-check lint typecheck governance-check \
@@ -66,7 +66,7 @@ ci-secrets-check:
 	$(UV) run --frozen alpha-governance-ci scan-secrets --all
 
 security:
-	$(UV) run --frozen bandit -q -c pyproject.toml -r src tools/governance/src
+	$(UV) run --frozen bandit -q -c pyproject.toml -r src tools/governance/src examples
 
 test:
 	$(UV) run --frozen --no-editable pytest -q -m 'not performance'

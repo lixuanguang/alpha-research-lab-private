@@ -14,10 +14,11 @@ from typing import ClassVar, Literal
 
 # project library imports
 from accounting import AccountSnapshot
-from applications.execute.service_inputs import ServiceBookInputs
+from applications.execute import ServiceBookInputs
 from configuration import (
     AccountConfiguration,
     CaptureConfig,
+    InstrumentFeeRate,
     OpeningAccount,
     PaperAuthorization,
     PaperDeployment,
@@ -29,7 +30,6 @@ from configuration import (
     PaperSourceBinding,
     PaperStrategyIdentity,
 )
-from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountExecutionRequest,
@@ -45,7 +45,7 @@ from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import InstalledIdentity
 from serialization import DomainCodec
-from strategies import reference_policy
+from strategies import ReferencePolicies
 
 
 class NativeBookFixture:
@@ -372,7 +372,7 @@ class PaperServiceWorkload:
         """Match the installed service's selected policy constructor exactly."""
         if self.implementation is None:
             raise ValueError("policy identity requires the installed release")
-        return reference_policy(
+        return ReferencePolicies.create(
             instance.policy,
             instance.quantity,
             source.scenario.adverse.currency,

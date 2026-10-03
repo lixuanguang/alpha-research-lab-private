@@ -64,6 +64,15 @@ STAGE_BUDGETS: dict[str, WindowBudget] = {
 }
 
 
+class SustainedArithmetic:
+    """Exact integer arithmetic for sustained-cohort declarations."""
+
+    @staticmethod
+    def math_floor(value: float) -> int:
+        """Floor a nonnegative declared ratio."""
+        return int(value)
+
+
 @dataclass(frozen=True, slots=True)
 class SustainedDeclaration:
     """Fix every 2a number before an attempt; S6 declares and the owner approves these.
@@ -72,8 +81,8 @@ class SustainedDeclaration:
     interval is a whole number of 300-second windows so no window is partial.
     """
 
-    phase_a: TrialTimings = field(default_factory=lambda: TrialTimings(1800, 1860, 1920))
-    phase_b: TrialTimings = field(default_factory=lambda: TrialTimings(600, 660, 720))
+    phase_a: TrialTimings = field(default_factory=partial(TrialTimings, 1800, 1860, 1920))
+    phase_b: TrialTimings = field(default_factory=partial(TrialTimings, 600, 660, 720))
     inject_owner_death: str = "bitfinex-isolated"
     reconcile_seconds: int = 60
     window_seconds: int = 300
@@ -87,7 +96,7 @@ class SustainedDeclaration:
     idle_ceiling_cores: float = 1.0
     idle_seconds: float = 300
     interactive: frozenset[str] = INTERACTIVE_PROCESSES
-    budgets: dict[str, WindowBudget] = field(default_factory=lambda: dict(STAGE_BUDGETS))
+    budgets: dict[str, WindowBudget] = field(default_factory=partial(dict, STAGE_BUDGETS))
 
     def __post_init__(self) -> None:
         """Require whole windows, a reconciliation inside the state-age budget and a fault."""
@@ -192,7 +201,7 @@ class SustainedGates:
                 latencies.get("failed_or_missed_reads"),
             )
         )
-        minimum = math_floor(
+        minimum = SustainedArithmetic.math_floor(
             timings.interval_seconds / declaration.selection_seconds * declaration.selected_share
         )
         opening = declaration.opening_orders_per_account if phase == "a" else 0
@@ -328,11 +337,6 @@ class SustainedGates:
         )
 
 
-def math_floor(value: float) -> int:
-    """Floor a nonnegative declared ratio."""
-    return int(value)
-
-
 class SustainedCohort(Cohort):
     """Run the declared 2a sequence once, stopping at the first failed step."""
 
@@ -451,7 +455,7 @@ class SustainedCohort(Cohort):
             self.step("freeze", self.freeze)
             self.step("candidate", self.candidate)
             self.step("quiet-host", self.quiet_host)
-            self.step("grant", lambda: self.grant(self.root, None))
+            self.step("grant", partial(self.grant, self.root, None))
             rows = self.output / "host-resources.jsonl"
             sampler = HostSampler(rows, trial_root=os.getpid())
             sampler.start()

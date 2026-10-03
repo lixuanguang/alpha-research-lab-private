@@ -8,11 +8,8 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
 
 # third party library imports
-import msgspec
-from lakefs_sdk import ApiClient, Configuration
 from msgspec.structs import replace
 
 # project library imports
@@ -28,6 +25,7 @@ from research.studies import (
     ClearMLPublication,
     ComparisonStudy,
     PipelineRun,
+    PipelineStepTask,
     QuantStatsReport,
     ResearchInputs,
     ResultManifest,
@@ -37,32 +35,6 @@ from runtime import ImplementationIdentity
 from serialization import DomainCodec
 from simulation import EconomicCheckpoint
 from strategies import RuleRegistry
-
-
-class _StorageAccess:
-    """Compose an explicitly selected private lakeFS connection for an application action."""
-
-    @staticmethod
-    def open(endpoint: str, credentials: Path) -> ApiClient:
-        """Read the selected private credentials without copying them into research records."""
-        parsed = urlsplit(endpoint)
-        if (
-            parsed.scheme not in ("http", "https")
-            or not parsed.hostname
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("lakeFS requires an explicit non-secret HTTP(S) API endpoint")
-        fields = msgspec.json.decode(credentials.read_bytes(), type=dict[str, msgspec.Raw])
-        return ApiClient(
-            Configuration(
-                host=endpoint,
-                username=msgspec.json.decode(fields["access_key_id"], type=str),
-                password=msgspec.json.decode(fields["secret_access_key"], type=str),
-            )
-        )
 
 
 def run_configured(
@@ -265,11 +237,8 @@ def run_worker() -> None:
         ValueError: The installed environment, resolved configuration or stage is unsupported.
         Exception: The selected stage fails; the agent records its original failed task.
     """
-    # third party library imports
-    from clearml import Task
-
-    task = Task.get_task(task_id=os.environ["CLEARML_TASK_ID"])
-    parameters = task.get_parameters()
+    task = PipelineStepTask.get(os.environ["CLEARML_TASK_ID"])
+    parameters = task.parameters()
     codec = DomainCodec()
     plan = codec.decode_json(parameters["Run/plan"].encode(), PipelineRun)
     if (
@@ -289,18 +258,18 @@ def run_worker() -> None:
     ):
         raise ValueError("pipeline output differs from the resolved plan")
     config = output / (
-        f"configuration-{stage}-{task.id}.json"
+        f"configuration-{stage}-{task.identity}.json"
         if stage == "comparison"
-        else f"{stage}-{task.id}.json"
+        else f"{stage}-{task.identity}.json"
     )
     ResultManifest.export(config, codec.encode_json(selected))
     inputs = Path(plan.inputs_root)
     attempts = Path(plan.attempts)
-    association = (parameters["Run/controller"], task.id)
+    association = (parameters["Run/controller"], task.identity)
     comparison_attempt_ids: tuple[str, ...] = ()
-    client = None
+    storage = None
     if plan.dataset_version is not None and plan.lakefs_endpoint is not None:
-        client = _StorageAccess.open(
+        storage = LakeFSStorage.connect(
             plan.lakefs_endpoint, Path(os.environ["ALPHA_LAKEFS_CREDENTIALS"])
         )
     try:
@@ -314,7 +283,7 @@ def run_worker() -> None:
             expected_journal = Path(plan.output_root) / "comparison-journal.jsonl"
             if journal != expected_journal:
                 raise ValueError("comparison pipeline journal differs from the resolved output")
-            comparison_config = output / f"comparison-{task.id}.json"
+            comparison_config = output / f"comparison-{task.identity}.json"
             ResultManifest.export(comparison_config, codec.encode_json(comparison))
             comparison_attempt_ids = compare_parameters(
                 comparison_config,
@@ -338,11 +307,11 @@ def run_worker() -> None:
                 upstream=parameters["Run/upstream"] or None,
                 step=association,
                 version=plan.dataset_version,
-                storage=None if client is None else LakeFSStorage(client),
+                storage=storage,
             )
     finally:
-        if client is not None:
-            client.close()
+        if storage is not None:
+            storage.close()
         store = AttemptStore(attempts)
         matched: list[AttemptHistory] = []
         for history in store.histories():
@@ -401,9 +370,9 @@ def run_worker() -> None:
                 )
                 task.set_parameters(parameters)
                 ResultManifest.export(
-                    output / f"{stage}-{task.id}-attempts.json", codec.encode_json(histories)
+                    output / f"{stage}-{task.identity}-attempts.json", codec.encode_json(histories)
                 )
         elif matched:
             ResultManifest.export(
-                output / f"{stage}-{task.id}-attempt.json", codec.encode_json(matched[-1])
+                output / f"{stage}-{task.identity}-attempt.json", codec.encode_json(matched[-1])
             )

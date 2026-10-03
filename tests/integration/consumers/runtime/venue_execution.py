@@ -19,13 +19,13 @@ from accounting import AccountLedger
 from applications.execute import VenueApplicationResult
 from configuration import (
     AccountConfiguration,
+    InstrumentFeeRate,
     OpeningAccount,
     VenueAuthorization,
     VenueCredentialReferences,
     VenueExecutionConfiguration,
     VenueInstrument,
 )
-from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
     AccountJournal,

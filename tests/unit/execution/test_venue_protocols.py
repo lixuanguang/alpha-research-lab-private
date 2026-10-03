@@ -31,6 +31,18 @@ from execution.venues import (
 SEND_DEADLINE = float("inf")
 
 
+class _SharedClockReading:
+    """Read the current value of a clock shared as a one-element list."""
+
+    def __init__(self, clock: list[float]) -> None:
+        """Bind the shared clock."""
+        self._clock = clock
+
+    def __call__(self) -> float:
+        """Return the clock's current value."""
+        return self._clock[0]
+
+
 class ScriptedVenueTransport:
     """Return exact native bytes while recording signed requests."""
 
@@ -769,7 +781,8 @@ class TestPrivateVenueSession:
         """Returns None within the bound, then treats five waiting seconds as loss."""
         clock = [100.0]
         monkeypatch.setattr(
-            "execution.venues.transport.time", SimpleNamespace(monotonic=lambda: clock[0])
+            "execution.venues.transport.time",
+            SimpleNamespace(monotonic=_SharedClockReading(clock)),
         )
         session = PrivateVenueSession("bitfinex", timeout_seconds=5.0)
         connection = QuietConnection(clock)

@@ -50,7 +50,7 @@ from serialization import DomainCodec, WireRecord
 from telemetry import TelemetryStore
 
 
-class _ReadOnlyPaperAccount(SocketPaperAccount):
+class ReadOnlyPaperAccount(SocketPaperAccount):
     """Restrict the diagnostics process to installed account inspection."""
 
     def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
@@ -88,7 +88,7 @@ class _DiagnosticBatch(WireRecord, frozen=True):
             raise ValueError("invalid bounded diagnostic batch")
 
 
-class _DiagnosticReceipt(WireRecord, frozen=True):
+class DiagnosticReceipt(WireRecord, frozen=True):
     """Preserve report wire fields without repeating domain reconstruction in the supervisor."""
 
     account_id: str
@@ -115,7 +115,7 @@ class _DiagnosticState(WireRecord, frozen=True):
     completed_batches: int
     coalesced_batches: int
     failures: int
-    receipts: tuple[_DiagnosticReceipt, ...]
+    receipts: tuple[DiagnosticReceipt, ...]
 
 
 class PaperServiceDiagnostics:
@@ -209,7 +209,7 @@ class PaperServiceDiagnostics:
             self.failures += 1
             self.last_error = f"diagnostic_request:{type(error).__name__}"
 
-    def poll(self) -> tuple[_DiagnosticReceipt, ...]:
+    def poll(self) -> tuple[DiagnosticReceipt, ...]:
         """Read completed compact receipts and expose a lost child without retrying it."""
         self._refresh_state()
         latest = self._state
@@ -323,7 +323,7 @@ class PaperServiceDiagnostics:
         """Consume the latest batch with read-only clients and retain actual report receipts."""
         codec, monitor = DomainCodec(), PaperServiceMonitor(root)
         accounts = {
-            definition.account_id: _ReadOnlyPaperAccount(
+            definition.account_id: ReadOnlyPaperAccount(
                 config=definition.configuration,
                 socket_path=Path(definition.socket_path),
                 requests=root / "requests" / definition.account_id,
@@ -347,7 +347,7 @@ class PaperServiceDiagnostics:
         }
         started = datetime.now(UTC)
         completed = completed_batches = coalesced = 0
-        receipts: tuple[_DiagnosticReceipt, ...] = ()
+        receipts: tuple[DiagnosticReceipt, ...] = ()
         while not stopped.is_set() and time.monotonic() < deadline:
             try:
                 batch = codec.decode_json(
@@ -378,11 +378,11 @@ class PaperServiceDiagnostics:
                     )
                 ),
             )
-            outcomes: list[_DiagnosticReceipt] = []
+            outcomes: list[DiagnosticReceipt] = []
             for sample in batch.accounts:
                 if stopped.is_set() or time.monotonic() >= deadline:
                     outcomes.append(
-                        _DiagnosticReceipt(
+                        DiagnosticReceipt(
                             account_id=sample.account_id,
                             requested_at=batch.requested_at,
                             observed_at=datetime.now(UTC),
@@ -398,7 +398,7 @@ class PaperServiceDiagnostics:
                 if not isinstance(observed_at, datetime):
                     raise ValueError("diagnostic result lacks its actual receipt clock")
                 outcomes.append(
-                    _DiagnosticReceipt(
+                    DiagnosticReceipt(
                         account_id=sample.account_id,
                         requested_at=batch.requested_at,
                         observed_at=observed_at,

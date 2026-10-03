@@ -3,95 +3,25 @@
 from __future__ import annotations
 
 # standard library imports
-import importlib.metadata
-import subprocess  # nosec B404  # [owner=platform; rationale=exact pip-audit argv execution; expires=2027-03-01]
 import sys
-import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
 # project library imports
-from alpha_research_governance.dependency_admission.models import (
-    DependencyAdmission,
-    DependencyAdmissionError,
-)
+from alpha_research_governance.dependency_admission.models import DependencyAdmissionError
 from alpha_research_governance.dependency_admission.policy import (
-    assess_pip_audit_report,
-    load_policy,
-    require_release_admission,
-    validate_repository,
+    DependencyPolicy,
+    DependencyRepository,
+    PipAuditReport,
 )
 
 __all__ = [
     "DependencyAdmissionError",
-    "assess_pip_audit_report",
-    "load_policy",
+    "DependencyPolicy",
+    "DependencyRepository",
+    "PipAuditReport",
     "main",
-    "require_release_admission",
-    "validate_repository",
 ]
-
-
-def _run_pip_audit(repository_root: Path, policy: DependencyAdmission) -> None:
-    """Run the pinned scanner and assess its complete temporary JSON report."""
-    try:
-        version = importlib.metadata.version("pip-audit")
-    except importlib.metadata.PackageNotFoundError as error:
-        raise DependencyAdmissionError(["admitted pip-audit is not installed"]) from error
-    if version != "2.10.1":
-        raise DependencyAdmissionError(
-            [f"pip-audit version {version!r} is not admitted; expected 2.10.1"]
-        )
-    with tempfile.TemporaryDirectory(prefix="dependency-admission-pip-audit-") as temporary:
-        directory = Path(temporary)
-        report = directory / "report.json"
-        requirements = directory / "requirements.txt"
-        requirements.write_text(
-            "\n".join(f"{item.name}=={item.version}" for item in policy.packages) + "\n",
-            encoding="utf-8",
-        )
-        command = [
-            "pip-audit",
-            "--requirement",
-            str(requirements),
-            "--no-deps",
-            "--disable-pip",
-            "--strict",
-            "--vulnerability-service",
-            "pypi",
-            "--timeout",
-            "15",
-            "--format",
-            "json",
-            "--progress-spinner",
-            "off",
-            "--desc",
-            "off",
-            "--aliases",
-            "on",
-            "--output",
-            str(report),
-        ]
-        try:
-            completed = subprocess.run(  # nosec B603  # [owner=platform; rationale=constant scanner argv and temp output; expires=2027-03-01]
-                command, cwd=repository_root, check=False, capture_output=True, text=True
-            )
-        except OSError as error:
-            raise DependencyAdmissionError([f"pip-audit could not start: {error}"]) from error
-        if not report.is_file():
-            detail = (completed.stdout + completed.stderr).strip()
-            raise DependencyAdmissionError([f"pip-audit produced no JSON report: {detail}"])
-        try:
-            assess_pip_audit_report(report, policy)
-        except DependencyAdmissionError as error:
-            detail = (completed.stdout + completed.stderr).strip()
-            suffix = f"\nscanner output: {detail}" if detail else ""
-            raise DependencyAdmissionError([f"{error}{suffix}"]) from error
-        if completed.returncode not in {0, 1}:
-            detail = (completed.stdout + completed.stderr).strip()
-            raise DependencyAdmissionError(
-                [f"pip-audit failed with exit {completed.returncode}: {detail}"]
-            )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -109,7 +39,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     root = Path.cwd()
     try:
         if not tokens:
-            policy = validate_repository(root)
+            policy = DependencyRepository.validate(root)
             print(f"Dependency admission passed for {len(policy.packages)} locked Python packages.")
             for record in policy.wheel_only_allowances:
                 print(
@@ -120,7 +50,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return 0
         command = tokens[0]
         if command == "audit" and len(tokens) == 1:
-            _run_pip_audit(root, validate_repository(root))
+            PipAuditReport.run(root, DependencyRepository.validate(root))
             print("pip-audit found no unresolved vulnerabilities or coverage gaps.")
             return 0
     except (DependencyAdmissionError, OSError, ValueError) as error:

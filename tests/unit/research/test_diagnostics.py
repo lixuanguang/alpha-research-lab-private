@@ -50,125 +50,133 @@ _ASSETS = (
 _SELECTION = "a" * 64
 
 
-def _definitions() -> tuple[TrailingReturn, ForwardReturn]:
-    """Build the retained feature and explicit forward-label definitions."""
-    policy = WindowPolicy(
-        lookback_us=1_000_000,
-        min_trades=2,
-        max_staleness_us=1_000_000,
-    )
-    return (
-        TrailingReturn(policy=policy, cadence_us=10_000_000, processing_delay_us=0),
-        ForwardReturn(policy=policy, horizon_us=10_000_000, availability_delay_us=1_000_000),
-    )
+class DiagnosticsFixture:
+    """Build diagnostic definitions, payloads and studies."""
 
+    @staticmethod
+    def definitions() -> tuple[TrailingReturn, ForwardReturn]:
+        """Build the retained feature and explicit forward-label definitions."""
+        policy = WindowPolicy(
+            lookback_us=1_000_000,
+            min_trades=2,
+            max_staleness_us=1_000_000,
+        )
+        return (
+            TrailingReturn(policy=policy, cadence_us=10_000_000, processing_delay_us=0),
+            ForwardReturn(policy=policy, horizon_us=10_000_000, availability_delay_us=1_000_000),
+        )
 
-def _payload(
-    factors: tuple[tuple[int, ...], ...] = ((1, 2), (2, 1)),
-    returns: tuple[tuple[int, ...], ...] = ((1, 2), (2, 1)),
-    pending: tuple[tuple[int, int], ...] = (),
-    assets: tuple[InstrumentId, ...] = _ASSETS,
-    decision_step: timedelta = timedelta(seconds=10),
-) -> FeatureStudyResult:
-    """Create a tiny retained result whose expected ranks are hand-computable."""
-    feature_definition, label_definition = _definitions()
-    feature_rows: list[tuple[str, FeatureValue]] = []
-    label_rows: list[tuple[str, LabelValue]] = []
-    samples: list[SampleInterval] = []
-    pending_set = set(pending)
-    for date_index, (date_factors, date_returns) in enumerate(zip(factors, returns, strict=True)):
-        decision = _START + date_index * decision_step
-        outcome = decision + timedelta(seconds=10)
-        available = outcome + timedelta(seconds=1)
-        for asset_index, (asset, factor, outcome_value) in enumerate(
-            zip(assets, date_factors, date_returns, strict=True)
+    @staticmethod
+    def payload(
+        factors: tuple[tuple[int, ...], ...] = ((1, 2), (2, 1)),
+        returns: tuple[tuple[int, ...], ...] = ((1, 2), (2, 1)),
+        pending: tuple[tuple[int, int], ...] = (),
+        assets: tuple[InstrumentId, ...] = _ASSETS,
+        decision_step: timedelta = timedelta(seconds=10),
+    ) -> FeatureStudyResult:
+        """Create a tiny retained result whose expected ranks are hand-computable."""
+        feature_definition, label_definition = DiagnosticsFixture.definitions()
+        feature_rows: list[tuple[str, FeatureValue]] = []
+        label_rows: list[tuple[str, LabelValue]] = []
+        samples: list[SampleInterval] = []
+        pending_set = set(pending)
+        for date_index, (date_factors, date_returns) in enumerate(
+            zip(factors, returns, strict=True)
         ):
-            row_id = f"{date_index}:{asset_index}"
-            binding = ("fixture-source", "trade", asset)
-            window = PriceWindow(
-                query_identity="b" * 64,
-                binding=binding,
-                start=decision - timedelta(seconds=1),
-                end=decision,
-                known_at=decision,
-                points=(),
-                missing=None,
-                evidence=(),
-                controls=(),
-            )
-            feature = FeatureValue(
-                definition_identity=feature_definition.identity,
-                decision_at=decision,
-                available_at=decision,
-                window=window,
-                value=ExactRatio(numerator=str(factor), denominator="1"),
-            )
-            is_pending = (date_index, asset_index) in pending_set
-            label = LabelValue(
-                definition_identity=label_definition.identity,
-                decision_at=decision,
-                outcome_at=outcome,
-                information_start=decision - timedelta(seconds=1),
-                information_end=outcome,
-                available_at=None if is_pending else available,
-                window=None,
-                missing="outcome not yet available" if is_pending else None,
-                value=(
-                    None if is_pending else ExactRatio.from_fraction(Fraction(outcome_value, 10))
-                ),
-            )
-            feature_rows.append((row_id, feature))
-            label_rows.append((row_id, label))
-            samples.append(
-                SampleInterval(
-                    row_id=row_id,
-                    input_sha256="c" * 64,
+            decision = _START + date_index * decision_step
+            outcome = decision + timedelta(seconds=10)
+            available = outcome + timedelta(seconds=1)
+            for asset_index, (asset, factor, outcome_value) in enumerate(
+                zip(assets, date_factors, date_returns, strict=True)
+            ):
+                row_id = f"{date_index}:{asset_index}"
+                binding = ("fixture-source", "trade", asset)
+                window = PriceWindow(
+                    query_identity="b" * 64,
+                    binding=binding,
+                    start=decision - timedelta(seconds=1),
+                    end=decision,
+                    known_at=decision,
+                    points=(),
+                    missing=None,
+                    evidence=(),
+                    controls=(),
+                )
+                feature = FeatureValue(
+                    definition_identity=feature_definition.identity,
                     decision_at=decision,
+                    available_at=decision,
+                    window=window,
+                    value=ExactRatio(numerator=str(factor), denominator="1"),
+                )
+                is_pending = (date_index, asset_index) in pending_set
+                label = LabelValue(
+                    definition_identity=label_definition.identity,
+                    decision_at=decision,
+                    outcome_at=outcome,
                     information_start=decision - timedelta(seconds=1),
                     information_end=outcome,
-                    features_available_at=decision,
-                    label_available_at=None if is_pending else available,
+                    available_at=None if is_pending else available,
+                    window=None,
+                    missing="outcome not yet available" if is_pending else None,
+                    value=(
+                        None
+                        if is_pending
+                        else ExactRatio.from_fraction(Fraction(outcome_value, 10))
+                    ),
                 )
-            )
-    return FeatureStudyResult(
-        schema_version="feature-study-result",
-        selection_identity=_SELECTION,
-        feature_definition=feature_definition,
-        label_definition=label_definition,
-        features=tuple(feature_rows),
-        labels=tuple(label_rows),
-        samples=tuple(samples),
-        split_identity="d" * 64,
-        fitting="not applicable: fixed diagnostic",
-        scope="exploratory_degraded",
-    )
+                feature_rows.append((row_id, feature))
+                label_rows.append((row_id, label))
+                samples.append(
+                    SampleInterval(
+                        row_id=row_id,
+                        input_sha256="c" * 64,
+                        decision_at=decision,
+                        information_start=decision - timedelta(seconds=1),
+                        information_end=outcome,
+                        features_available_at=decision,
+                        label_available_at=None if is_pending else available,
+                    )
+                )
+        return FeatureStudyResult(
+            schema_version="feature-study-result",
+            selection_identity=_SELECTION,
+            feature_definition=feature_definition,
+            label_definition=label_definition,
+            features=tuple(feature_rows),
+            labels=tuple(label_rows),
+            samples=tuple(samples),
+            split_identity="d" * 64,
+            fitting="not applicable: fixed diagnostic",
+            scope="exploratory_degraded",
+        )
 
-
-def _study(
-    *,
-    direction: str = "ascending",
-    known_at: datetime | None = _START + timedelta(seconds=31),
-    assets: tuple[InstrumentId, ...] = _ASSETS,
-    quantile_rule: str = "equal-frequency-qcut",
-    price_convention: str = "forward-last-over-frozen-base",
-    demeaned: bool = True,
-    group_adjust: bool = False,
-) -> AlphalensStudy:
-    """Build an explicit validation-only study over the fixture universe."""
-    names = tuple(str(asset) for asset in assets)
-    return AlphalensStudy(
-        selection_identity=_SELECTION,
-        universe=names,
-        factor_direction=cast(FactorDirection, direction),
-        horizon_us=10_000_000,
-        price_convention=cast(PriceConvention, price_convention),
-        groups=tuple((name, "core") for name in names),
-        quantiles=2,
-        known_at=known_at,
-        quantile_rule=cast(QuantileRule, quantile_rule),
-        demeaned=demeaned,
-        group_adjust=group_adjust,
-    )
+    @staticmethod
+    def study(
+        *,
+        direction: str = "ascending",
+        known_at: datetime | None = _START + timedelta(seconds=31),
+        assets: tuple[InstrumentId, ...] = _ASSETS,
+        quantile_rule: str = "equal-frequency-qcut",
+        price_convention: str = "forward-last-over-frozen-base",
+        demeaned: bool = True,
+        group_adjust: bool = False,
+    ) -> AlphalensStudy:
+        """Build an explicit validation-only study over the fixture universe."""
+        names = tuple(str(asset) for asset in assets)
+        return AlphalensStudy(
+            selection_identity=_SELECTION,
+            universe=names,
+            factor_direction=cast(FactorDirection, direction),
+            horizon_us=10_000_000,
+            price_convention=cast(PriceConvention, price_convention),
+            groups=tuple((name, "core") for name in names),
+            quantiles=2,
+            known_at=known_at,
+            quantile_rule=cast(QuantileRule, quantile_rule),
+            demeaned=demeaned,
+            group_adjust=group_adjust,
+        )
 
 
 class TestAlphalensDiagnostics:
@@ -176,9 +184,10 @@ class TestAlphalensDiagnostics:
 
     def test_real_metrics_and_retention_bytes(self) -> None:
         """Aligned ranks produce IC one and retain the selected evaluation metadata."""
-        payload = _payload()
+        payload = DiagnosticsFixture.payload()
         report = AlphalensDiagnostics().evaluate(
-            _study(group_adjust=True, demeaned=True), DomainCodec().encode_json(payload)
+            DiagnosticsFixture.study(group_adjust=True, demeaned=True),
+            DomainCodec().encode_json(payload),
         )
 
         assert report.inapplicable_reason is None
@@ -195,7 +204,9 @@ class TestAlphalensDiagnostics:
 
     def test_factor_direction_reverses_rank_ic(self) -> None:
         """Descending factors invert the independently aligned rank relationship."""
-        report = AlphalensDiagnostics().evaluate(_study(direction="descending"), _payload())
+        report = AlphalensDiagnostics().evaluate(
+            DiagnosticsFixture.study(direction="descending"), DiagnosticsFixture.payload()
+        )
 
         assert report.information_coefficients
         assert all(
@@ -204,8 +215,8 @@ class TestAlphalensDiagnostics:
 
     def test_pending_label_is_late_and_never_enters_metrics(self) -> None:
         """A label unavailable at the cutoff is retained as late with its expected clock."""
-        payload = _payload(pending=((1, 1),))
-        report = AlphalensDiagnostics().evaluate(_study(), payload)
+        payload = DiagnosticsFixture.payload(pending=((1, 1),))
+        report = AlphalensDiagnostics().evaluate(DiagnosticsFixture.study(), payload)
 
         assert tuple(drop.row_id for drop in report.late_labels) == ("1:1",)
         assert report.late_labels[0].available_at == _START + timedelta(seconds=21)
@@ -213,20 +224,22 @@ class TestAlphalensDiagnostics:
 
     def test_qcut_ties_are_bounded_and_invalid_policy_is_rejected(self) -> None:
         """Alphalens qcut drops tied buckets explicitly and rejects unimplemented rules."""
-        report = AlphalensDiagnostics().evaluate(_study(), _payload(factors=((1, 1), (1, 1))))
+        report = AlphalensDiagnostics().evaluate(
+            DiagnosticsFixture.study(), DiagnosticsFixture.payload(factors=((1, 1), (1, 1)))
+        )
 
         assert report.inapplicable_reason == "the selected quantile rule produced no eligible rows"
         assert {drop.reason for drop in report.dropped_rows} == {"quantile unavailable"}
         with pytest.raises(ValueError, match="invalid Alphalens"):
-            _study(quantile_rule="rank-first")
+            DiagnosticsFixture.study(quantile_rule="rank-first")
         with pytest.raises(ValueError, match="invalid Alphalens"):
-            _study(price_convention="spot-close")
+            DiagnosticsFixture.study(price_convention="spot-close")
 
     def test_daily_membership_swap_has_native_turnover(self) -> None:
         """A daily quantile membership swap produces concrete native turnover values."""
-        payload = _payload(decision_step=timedelta(days=1))
+        payload = DiagnosticsFixture.payload(decision_step=timedelta(days=1))
         report = AlphalensDiagnostics().evaluate(
-            _study(
+            DiagnosticsFixture.study(
                 known_at=_START + timedelta(days=1, seconds=31),
                 group_adjust=True,
                 demeaned=True,
@@ -240,12 +253,12 @@ class TestAlphalensDiagnostics:
     def test_one_asset_is_inapplicable_without_calling_cross_section_stats(self) -> None:
         """A bounded one-asset payload returns an honest inapplicable report."""
         asset = (_ASSETS[0],)
-        payload = _payload(
+        payload = DiagnosticsFixture.payload(
             factors=((1,), (2,)),
             returns=((1,), (2,)),
             assets=asset,
         )
-        report = AlphalensDiagnostics().evaluate(_study(assets=asset), payload)
+        report = AlphalensDiagnostics().evaluate(DiagnosticsFixture.study(assets=asset), payload)
 
         assert report.inapplicable_reason == (
             "cross-sectional statistics require at least two assets at one decision"
@@ -256,7 +269,7 @@ class TestAlphalensDiagnostics:
         self, tmp_path: Path
     ) -> None:
         """Retain a completed factor report when its publication transport is unavailable."""
-        payload = _payload()
+        payload = DiagnosticsFixture.payload()
         split = TemporalSplit(
             training=None,
             fit_cutoff=None,
@@ -309,7 +322,7 @@ class TestAlphalensDiagnostics:
             with patch("runtime.identity.ImplementationIdentity.sha256", return_value="d" * 64):
                 with pytest.raises(ConnectionError, match="offline factor fixture"):
                     compare_factors(
-                        _study(group_adjust=True, demeaned=False),
+                        DiagnosticsFixture.study(group_adjust=True, demeaned=False),
                         family="factor-application",
                         source_attempt=source.attempt_id,
                         source_sha256=hashlib.sha256(payload_bytes).hexdigest(),

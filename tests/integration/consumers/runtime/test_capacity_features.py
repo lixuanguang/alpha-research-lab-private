@@ -34,6 +34,31 @@ from runtime import LiveBookDelivery, SharedBookDelivery
 from serialization import DomainCodec
 
 
+class FeatureLockFixture:
+    """Publish features while another process holds the publication lock."""
+
+    @staticmethod
+    def publish_while_holding(
+        lock_path: str,
+        store_path: str,
+        definition: FeatureStoreDefinition,
+        entity: str,
+        control: Connection[object, object],
+    ) -> None:
+        """Hold a source's lock in another process, activate a version on request, release."""
+        store = VersionedFeatureStore.open(Path(store_path))
+        with _PublicationLock(Path(lock_path)):
+            control.send("held")
+            if control.recv() != "publish":
+                return
+            published_at = datetime.now(UTC)
+            previous = store.active_version(definition)
+            store.materialize(definition, "cross-process", published_at, (entity,))
+            store.activate_if_current(definition, "cross-process", expected_version=previous)
+        control.send(published_at)
+        control.close()
+
+
 class _SignalledLock:
     """Expose an attempted reader acquisition while retaining an actual mutex."""
 
@@ -69,27 +94,6 @@ class _SignalledPublicationLock(_PublicationLock):
         """Signal, then wait for the publisher in the other process."""
         self.waiting.set()
         super().__enter__()
-
-
-def _publish_while_holding(
-    lock_path: str,
-    store_path: str,
-    definition: FeatureStoreDefinition,
-    entity: str,
-    control: Connection[object, object],
-) -> None:
-    """Hold a source's lock in another process, activate a version on request, release."""
-    store = VersionedFeatureStore.open(Path(store_path))
-    with _PublicationLock(Path(lock_path)):
-        control.send("held")
-        if control.recv() != "publish":
-            return
-        published_at = datetime.now(UTC)
-        previous = store.active_version(definition)
-        store.materialize(definition, "cross-process", published_at, (entity,))
-        store.activate_if_current(definition, "cross-process", expected_version=previous)
-    control.send(published_at)
-    control.close()
 
 
 class TestCapacityFeatures:
@@ -385,23 +389,24 @@ class TestCapacityFeatures:
                     codec.decode_json(encoded, SharedBookDelivery)
                 )
 
+    @staticmethod
+    def _bids(delivery: dict[str, object]) -> list[list[object]]:
+        """Reach the encoded book's bid levels."""
+        book = cast(dict[str, object], cast(dict[str, object], delivery["source"])["book"])
+        return cast(list[list[object]], book["bids"])
+
     @pytest.mark.parametrize("field", ("size", "order_count"))
     def test_corrupted_retained_depth_is_still_refused(self, tmp_path: Path, field: str) -> None:
         """Decoding still validates each native level once, so a bad level stops publication."""
         observer = self._observer(tmp_path)
         source = observer.index.sources["okx-btc-book"]
 
-        def bids(delivery: dict[str, object]) -> list[list[object]]:
-            """Reach the encoded book's bid levels."""
-            book = cast(dict[str, object], cast(dict[str, object], delivery["source"])["book"])
-            return cast(list[list[object]], book["bids"])
-
         decoded = [
             msgspec.json.decode(encoded, type=dict[str, object]) for _, encoded, _ in source.history
         ]
-        position = next(index for index, delivery in enumerate(decoded) if bids(delivery))
+        position = next(index for index, delivery in enumerate(decoded) if self._bids(delivery))
         quote, _, length = source.history[position]
-        level = cast(dict[str, object], bids(decoded[position])[0][1])
+        level = cast(dict[str, object], self._bids(decoded[position])[0][1])
         level[field] = "0" if field == "size" else 0
         source.history[position] = (quote, msgspec.json.encode(decoded[position]), length)
         with pytest.raises(ValueError, match="aggregate levels"):
@@ -519,7 +524,7 @@ class TestCapacityFeatures:
             "tuple[Connection[object, object], Connection[object, object]]", context.Pipe()
         )
         publisher = context.Process(
-            target=_publish_while_holding,
+            target=FeatureLockFixture.publish_while_holding,
             args=(
                 str(lock_path),
                 str(tmp_path / "features" / f"{source.source.name}.sqlite3"),

@@ -15,19 +15,23 @@ import msgspec
 from capacity_host import HostGate, HostSampler, QuietHostPrecheck
 
 
-def _rows(*loads: float, top: str = "Preview") -> list[bytes]:
-    """Author one-second host rows with the given non-trial loads."""
-    rows: list[bytes] = []
-    for index, load in enumerate(loads):
-        attribution: dict[str, object] = {"pid": 7, "name": top, "cores": load}
-        row: dict[str, object] = {
-            "monotonic_ns": index * 1_000_000_000,
-            "elapsed_seconds": 1.0,
-            "non_trial_cores": load,
-            "top_non_trial": [attribution],
-        }
-        rows.append(msgspec.json.encode(row))
-    return rows
+class HostRows:
+    """Author sampled host rows."""
+
+    @staticmethod
+    def rows(*loads: float, top: str = "Preview") -> list[bytes]:
+        """Author one-second host rows with the given non-trial loads."""
+        rows: list[bytes] = []
+        for index, load in enumerate(loads):
+            attribution: dict[str, object] = {"pid": 7, "name": top, "cores": load}
+            row: dict[str, object] = {
+                "monotonic_ns": index * 1_000_000_000,
+                "elapsed_seconds": 1.0,
+                "non_trial_cores": load,
+                "top_non_trial": [attribution],
+            }
+            rows.append(msgspec.json.encode(row))
+        return rows
 
 
 class TestHostSampler:
@@ -89,12 +93,14 @@ class TestHostGate:
     def test_short_or_interrupted_excess_passes(self) -> None:
         """Excess shorter than the window, or broken by a quiet second, does not fail."""
         gate = HostGate(ceiling_cores=1.5, window_seconds=3)
-        result = gate.assess(_rows(2, 2, 2, 0.5, 2, 2, 2))
+        result = gate.assess(HostRows.rows(2, 2, 2, 0.5, 2, 2, 2))
         assert result["status"] == "pass" and result["longest_excess_seconds"] == 3
 
     def test_sustained_excess_fails_with_attribution(self) -> None:
         """A longer continuous excess fails and names the busiest non-trial process."""
-        result = HostGate(ceiling_cores=1.5, window_seconds=3).assess(_rows(0.2, 2, 3, 2, 2))
+        result = HostGate(ceiling_cores=1.5, window_seconds=3).assess(
+            HostRows.rows(0.2, 2, 3, 2, 2)
+        )
         assert result["status"] == "fail" and result["longest_excess_seconds"] == 4
         assert result["attribution_core_seconds"] == {"Preview": 9.0}
         assert HostGate(1.5, 3).assess([])["status"] == "unmeasured"
@@ -106,11 +112,11 @@ class TestQuietHostPrecheck:
     def test_idle_mean_and_interactive_processes_decide(self) -> None:
         """Only an idle sample at or below the ceiling and no interactive process passes."""
         check = QuietHostPrecheck(frozenset({"Safari"}), idle_seconds=4, ceiling_cores=1.0)
-        assert check.assess((), _rows(0.5, 1.5, 0.5, 1.0))["status"] == "pass"
-        assert check.assess((), _rows(1.5, 1.5, 0.5, 1.0))["status"] == "fail"
-        assert check.assess(((9, "Safari"),), _rows(0, 0, 0, 0))["status"] == "fail"
+        assert check.assess((), HostRows.rows(0.5, 1.5, 0.5, 1.0))["status"] == "pass"
+        assert check.assess((), HostRows.rows(1.5, 1.5, 0.5, 1.0))["status"] == "fail"
+        assert check.assess(((9, "Safari"),), HostRows.rows(0, 0, 0, 0))["status"] == "fail"
         # A truncated idle sample cannot stand in for the declared duration.
-        assert check.assess((), _rows(0.1, 0.1))["status"] == "fail"
+        assert check.assess((), HostRows.rows(0.1, 0.1))["status"] == "fail"
 
     def test_icloud_waiver_is_retained_as_waived_not_paused(self, tmp_path: Path) -> None:
         """Without an attestation the precheck fails unless the owner waived the criterion."""

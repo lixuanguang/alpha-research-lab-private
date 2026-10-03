@@ -6,9 +6,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
+from typing import Protocol
 from unittest.mock import patch
 
 # third party library imports
@@ -37,6 +40,75 @@ _FRAMES: tuple[bytes, ...] = (
     b'[7,"hb",4]',
     b"[7,[2,101,-2],5]",
 )
+
+
+class _ProgressWriter(Protocol):
+    """The ``CaptureRunJournal.progress`` call shape, called with the run explicitly."""
+
+    def __call__(_writer, self: CaptureRunJournal, **values: object) -> None:
+        """Write the run's progress values."""
+        ...
+
+
+class _SealedProgress:
+    """Check that sealing exposes segment counts without changing whole-run counts.
+
+    Installed as ``CaptureRunJournal.progress`` it binds the run like a method.
+    """
+
+    def __init__(self, progress: _ProgressWriter) -> None:
+        """Bind the original progress writer with no sealed segments seen."""
+        self._progress = progress
+        self.sealed_records: list[int] = []
+
+    def __get__(self, instance: CaptureRunJournal, owner: type[CaptureRunJournal]) -> partial[None]:
+        """Bind the observer to the run it is called on."""
+        return partial(self, instance)
+
+    def __call__(self, run: CaptureRunJournal, **values: object) -> None:
+        """Write progress as before and check counts around each seal."""
+        before = (
+            msgspec.json.decode(
+                (run.root / "progress.json").read_bytes(), type=dict[str, msgspec.Raw]
+            )
+            if "sealed_sha256" in values
+            else {}
+        )
+        self._progress(run, **values)
+        if "sealed_sha256" in values:
+            after = msgspec.json.decode(
+                (run.root / "progress.json").read_bytes(), type=dict[str, msgspec.Raw]
+            )
+            assert bytes(after["committed_bytes"]) == bytes(before["committed_bytes"])
+            assert bytes(after["committed_records"]) == bytes(before["committed_records"])
+            self.sealed_records.append(
+                msgspec.json.decode(after["segment_committed_records"], type=int)
+            )
+            assert msgspec.json.decode(after["segment_committed_bytes"], type=int) > 0
+
+
+class _CrashBeforeSegments:
+    """Fail creating the segments directory, as a crash at that point would.
+
+    Installed as ``Path.mkdir`` it binds the path like a method.
+    """
+
+    def __init__(self, segments: Path, mkdir: Callable[[Path, int, bool, bool], None]) -> None:
+        """Bind the directory that fails and the original ``mkdir``."""
+        self._segments = segments
+        self._mkdir = mkdir
+
+    def __get__(self, instance: Path, owner: type[Path]) -> partial[None]:
+        """Bind the replacement to the path it is called on."""
+        return partial(self, instance)
+
+    def __call__(
+        self, path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+    ) -> None:
+        """Refuse the segments directory and create any other directory as before."""
+        if path == self._segments:
+            raise OSError("process died before provisioning segments")
+        self._mkdir(path, mode, parents, exist_ok)
 
 
 class RolloverSocket:
@@ -139,30 +211,8 @@ class TestCaptureRollover:
         request = self._request()
         transport = RolloverTransport(request.config)
         root = tmp_path / "run"
-        sealed_records: list[int] = []
-        original_progress = CaptureRunJournal.progress
-
-        def observe_progress(run: CaptureRunJournal, **values: object) -> None:
-            """Sealing exposes segment counts without changing whole-run count meaning."""
-            before = (
-                msgspec.json.decode(
-                    (run.root / "progress.json").read_bytes(), type=dict[str, msgspec.Raw]
-                )
-                if "sealed_sha256" in values
-                else {}
-            )
-            original_progress(run, **values)
-            if "sealed_sha256" in values:
-                after = msgspec.json.decode(
-                    (run.root / "progress.json").read_bytes(), type=dict[str, msgspec.Raw]
-                )
-                assert bytes(after["committed_bytes"]) == bytes(before["committed_bytes"])
-                assert bytes(after["committed_records"]) == bytes(before["committed_records"])
-                sealed_records.append(
-                    msgspec.json.decode(after["segment_committed_records"], type=int)
-                )
-                assert msgspec.json.decode(after["segment_committed_bytes"], type=int) > 0
-
+        observe_progress = _SealedProgress(CaptureRunJournal.progress)
+        sealed_records = observe_progress.sealed_records
         with patch.object(CaptureRunJournal, "progress", observe_progress):
             summary = asyncio.run(collect_run(request, root, transport=transport))
         assert len(transport.sockets) == 1 and transport.sockets[0].closed
@@ -337,18 +387,9 @@ class TestCaptureRollover:
         """A crash after the run request but before segments/ leaves a resumable run."""
         request = self._request()
         root = tmp_path / "run"
-        mkdir = Path.mkdir
-
-        def crash_before_segments(
-            path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
-        ) -> None:
-            """Fail creating the segments directory, as a crash at that point would."""
-            if path == root / "segments":
-                raise OSError("process died before provisioning segments")
-            mkdir(path, mode, parents, exist_ok)
-
         run = CaptureRunJournal(root, request)
-        with patch.object(Path, "mkdir", crash_before_segments), pytest.raises(OSError):
+        crash = _CrashBeforeSegments(root / "segments", Path.mkdir)
+        with patch.object(Path, "mkdir", crash), pytest.raises(OSError):
             run.open(resume=False)
         assert sorted(path.name for path in root.iterdir()) == ["owner.lock", "run-request.json"]
         with pytest.raises(FileExistsError):

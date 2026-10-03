@@ -21,17 +21,19 @@ The cells document units and row meanings. Preserve the underlying event/order
 trace; an aggregated table cannot establish source quality or execution fidelity.
 
 Use the pinned environment from the [development guide](../docs/README.md#development-environment).
-The new worksheets use pandas and the standard library. The kernel needs
-`ipykernel`; execution tooling uses the existing runner with `nbclient` and
-`nbformat`. Keep notebook tooling separate from runtime dependencies and do not
-change the project lock for these examples.
+The new worksheets use pandas and the standard library. The kernel (`ipykernel`)
+and the runner's `nbclient`, `nbformat` and `jupyter-client` are pinned in the
+locked `notebooks` dependency group, which is installed by default with the
+development environment and never ships in a runtime or partial distribution.
 
 From the repository root:
 
 ```sh
-uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
-  python examples/run_notebook.py examples/opportunity-map.ipynb --kernel-python .venv/bin/python
+uv run --frozen --no-editable python examples/run_notebook.py examples/opportunity-map.ipynb
 ```
+
+The kernel defaults to the interpreter running the command; pass
+`--kernel-python <path>` to select another environment that has `ipykernel`.
 
 Replace the notebook argument with `examples/liquidity-taking.ipynb`,
 `examples/liquidity-shocks.ipynb` or `examples/liquidity-provision.ipynb`.

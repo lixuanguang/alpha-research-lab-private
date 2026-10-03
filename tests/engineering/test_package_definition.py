@@ -15,42 +15,46 @@ from pydantic import TypeAdapter
 REPOSITORY_ROOT = Path(__file__).parents[2]
 
 
-def _load_pyproject(relative_path: str = "pyproject.toml") -> dict[str, object]:
-    """Load a repository-relative TOML project file for metadata assertions.
+class PyprojectTables:
+    """Read validated tables from project metadata."""
 
-    Args:
-        relative_path: Path from the repository root, defaulting to the runtime project file.
+    @staticmethod
+    def load(relative_path: str = "pyproject.toml") -> dict[str, object]:
+        """Load a repository-relative TOML project file for metadata assertions.
 
-    Returns:
-        The parsed top-level TOML table.
+        Args:
+            relative_path: Path from the repository root, defaulting to the runtime project file.
 
-    Raises:
-        OSError: The project file cannot be read.
-        tomllib.TOMLDecodeError: The file is not valid TOML.
-        AssertionError: The parsed document is not a top-level table.
-    """
-    parsed_document: object = tomllib.loads(
-        (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
-    )
-    return TypeAdapter(dict[str, object]).validate_python(parsed_document)
+        Returns:
+            The parsed top-level TOML table.
 
+        Raises:
+            OSError: The project file cannot be read.
+            tomllib.TOMLDecodeError: The file is not valid TOML.
+            AssertionError: The parsed document is not a top-level table.
+        """
+        parsed_document: object = tomllib.loads(
+            (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
+        )
+        return TypeAdapter(dict[str, object]).validate_python(parsed_document)
 
-def _require_table(container: dict[str, object], key: str) -> dict[str, object]:
-    """Return one required TOML table from a parsed mapping.
+    @staticmethod
+    def require_table(container: dict[str, object], key: str) -> dict[str, object]:
+        """Return one required TOML table from a parsed mapping.
 
-    Args:
-        container: Parsed TOML mapping containing the requested value.
-        key: Table key that must resolve to a mapping.
+        Args:
+            container: Parsed TOML mapping containing the requested value.
+            key: Table key that must resolve to a mapping.
 
-    Returns:
-        The nested TOML table associated with ``key``.
+        Returns:
+            The nested TOML table associated with ``key``.
 
-    Raises:
-        AssertionError: The key is absent or its value is not a TOML table.
-    """
-    value = container.get(key)
-    assert isinstance(value, dict), f"{key} must be a TOML table"
-    return TypeAdapter(dict[str, object]).validate_python(value)
+        Raises:
+            AssertionError: The key is absent or its value is not a TOML table.
+        """
+        value = container.get(key)
+        assert isinstance(value, dict), f"{key} must be a TOML table"
+        return TypeAdapter(dict[str, object]).validate_python(value)
 
 
 class TestPackageDefinitionContracts:
@@ -58,8 +62,10 @@ class TestPackageDefinitionContracts:
 
     def test_installed_distribution_exposes_expected_metadata(self) -> None:
         """Verify installed metadata matches each distribution's current project definition."""
-        runtime_project = _require_table(_load_pyproject(), "project")
-        tool_project = _require_table(_load_pyproject("tools/governance/pyproject.toml"), "project")
+        runtime_project = PyprojectTables.require_table(PyprojectTables.load(), "project")
+        tool_project = PyprojectTables.require_table(
+            PyprojectTables.load("tools/governance/pyproject.toml"), "project"
+        )
         distribution = importlib.metadata.distribution("alpha-research-lab")
         tool_distribution = importlib.metadata.distribution("alpha-research-governance")
 
@@ -82,20 +88,24 @@ class TestPackageDefinitionContracts:
 
     def test_governance_is_available_only_to_development_tools(self) -> None:
         """Keep governance outside runtime while exposing the maintained data commands."""
-        configuration = _load_pyproject()
-        tool_configuration = _load_pyproject("tools/governance/pyproject.toml")
-        uv = _require_table(_require_table(configuration, "tool"), "uv")
-        sources = _require_table(uv, "sources")
-        scripts = _require_table(_require_table(tool_configuration, "project"), "scripts")
-        runtime_project = _require_table(configuration, "project")
+        configuration = PyprojectTables.load()
+        tool_configuration = PyprojectTables.load("tools/governance/pyproject.toml")
+        uv = PyprojectTables.require_table(
+            PyprojectTables.require_table(configuration, "tool"), "uv"
+        )
+        sources = PyprojectTables.require_table(uv, "sources")
+        scripts = PyprojectTables.require_table(
+            PyprojectTables.require_table(tool_configuration, "project"), "scripts"
+        )
+        runtime_project = PyprojectTables.require_table(configuration, "project")
         runtime_dependencies = TypeAdapter(list[str]).validate_python(
             runtime_project["dependencies"]
         )
         development_dependencies = TypeAdapter(list[str]).validate_python(
-            _require_table(configuration, "dependency-groups")["dev"]
+            PyprojectTables.require_table(configuration, "dependency-groups")["dev"]
         )
 
-        governance_source = _require_table(sources, "alpha-research-governance")
+        governance_source = PyprojectTables.require_table(sources, "alpha-research-governance")
         assert governance_source["path"] == "tools/governance"
         assert governance_source["editable"] is False
         constraints = TypeAdapter(list[str]).validate_python(uv["constraint-dependencies"])
@@ -103,7 +113,7 @@ class TestPackageDefinitionContracts:
         assert scripts["alpha-governance-ci"] == "alpha_research_governance.ci_policy:main"
         assert not any("governance" in requirement for requirement in runtime_dependencies)
         assert "alpha-research-governance==0.1.0" in development_dependencies
-        runtime_scripts = _require_table(runtime_project, "scripts")
+        runtime_scripts = PyprojectTables.require_table(runtime_project, "scripts")
         assert runtime_scripts == {
             "alpha-explore": "applications.explore:main",
             "alpha-backtest": "applications.backtest:main",

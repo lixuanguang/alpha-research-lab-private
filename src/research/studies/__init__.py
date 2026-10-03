@@ -40,7 +40,7 @@ from research.studies.monitoring import (
     ReportMonitoringBridge,
     StudyMonitoringExporter,
 )
-from research.studies.pipelines import PipelineRun, ResearchPipeline
+from research.studies.pipelines import PipelineRun, PipelineStepTask, ResearchPipeline
 from research.studies.publication import PublicationPolicy
 from research.studies.reports import BenchmarkPeriod, EconomicReport, QuantStatsReport, ReportPolicy
 from research.studies.results import ResultManifest, RunCheckpoint
@@ -94,6 +94,7 @@ __all__ = [
     "NetReturnMetric",
     "ParameterComparison",
     "PipelineRun",
+    "PipelineStepTask",
     "PredictiveDiagnostic",
     "PriceConvention",
     "PublicationPolicy",

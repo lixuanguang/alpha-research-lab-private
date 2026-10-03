@@ -9,21 +9,11 @@ from pathlib import Path
 
 # project library imports
 from alpha_research_governance.engineering_standards.checker import (
+    EngineeringStandards,
     EngineeringStandardsError,
-    source_tree_findings,
-    tooling_configuration_findings,
-    validate_repository,
-    validate_suppression_line,
 )
 
-__all__ = [
-    "EngineeringStandardsError",
-    "main",
-    "source_tree_findings",
-    "tooling_configuration_findings",
-    "validate_repository",
-    "validate_suppression_line",
-]
+__all__ = ["EngineeringStandards", "EngineeringStandardsError", "main"]
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -51,9 +41,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return 2
     repository_root = Path(cli_arguments[0]) if cli_arguments else Path.cwd()
     try:
-        validate_repository(repository_root)
+        EngineeringStandards.validate_repository(repository_root)
     except (EngineeringStandardsError, OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
-    print("Python clarity standards passed for src, tests, governance, and native stubs")
+    print("Python clarity standards passed for src, tests, governance, native stubs and examples")
     return 0

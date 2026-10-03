@@ -13,102 +13,110 @@ from capacity_sustained_cohort import SustainedDeclaration, SustainedGates, _Obs
 from capacity_trial import TrialTimings
 
 
-def _windows(status: str = "pass") -> dict[str, object]:
-    """Author one rolling-window class summary."""
-    return {"status": status, "windows": []}
+class SustainedCohortFixture:
+    """Author sustained-cohort evidence, failures and windows."""
 
+    @staticmethod
+    def windows(status: str = "pass") -> dict[str, object]:
+        """Author one rolling-window class summary."""
+        return {"status": status, "windows": []}
 
-def _evidence(
-    phase: Literal["a", "b"],
-) -> tuple[dict[str, object], dict[str, object], dict[str, object], list[_Observation]]:
-    """Author a passing phase: summary, stage-1 results, sustained facts and observations."""
-    sources = ("okx-btc-book", "okx-eth-book", "bitfinex-btc-book", "bitfinex-eth-book")
-    accounts = ("okx-shared", "okx-isolated", "bitfinex-shared", "bitfinex-isolated")
-    interval = 1800 if phase == "a" else 600
-    checkpoints = interval // 3
-    results: dict[str, object] = {
-        "sources": {
-            source: {
-                "recordings": {
-                    "run": {
-                        "delivery_parity": {
-                            account: {"status": "pass_complete_native_stream"}
-                            for account in accounts
+    @staticmethod
+    def evidence(
+        phase: Literal["a", "b"],
+    ) -> tuple[dict[str, object], dict[str, object], dict[str, object], list[_Observation]]:
+        """Author a passing phase: summary, stage-1 results, sustained facts and observations."""
+        sources = ("okx-btc-book", "okx-eth-book", "bitfinex-btc-book", "bitfinex-eth-book")
+        accounts = ("okx-shared", "okx-isolated", "bitfinex-shared", "bitfinex-isolated")
+        interval = 1800 if phase == "a" else 600
+        checkpoints = interval // 3
+        results: dict[str, object] = {
+            "sources": {
+                source: {
+                    "recordings": {
+                        "run": {
+                            "delivery_parity": {
+                                account: {"status": "pass_complete_native_stream"}
+                                for account in accounts
+                            }
                         }
                     }
                 }
+                for source in sources
             }
-            for source in sources
         }
-    }
-    opening = 2 if phase == "a" else 0
-    sustained: dict[str, object] = {
-        "recordings": {
-            source: [
-                {
-                    "completed": True,
-                    "replay_parity": True,
-                    "segments": 2 if phase == "a" else 1,
+        opening = 2 if phase == "a" else 0
+        sustained: dict[str, object] = {
+            "recordings": {
+                source: [
+                    {
+                        "completed": True,
+                        "replay_parity": True,
+                        "segments": 2 if phase == "a" else 1,
+                    }
+                ]
+                for source in sources
+            },
+            "fixture_proofs": {source: {"status": "pass"} for source in sources},
+            "latencies": {
+                "receipt_to_durable": {
+                    source: SustainedCohortFixture.windows() for source in sources
+                },
+                "durable_to_bbo": {
+                    account: SustainedCohortFixture.windows() for account in accounts
+                },
+                "read_depth_bbo": SustainedCohortFixture.windows(),
+                "read_dashboard": SustainedCohortFixture.windows(),
+                "feature_retrieval": SustainedCohortFixture.windows(),
+                "feature_durable_to_available": SustainedCohortFixture.windows(),
+                "failed_or_missed_reads": {},
+            },
+            "commits": {
+                account: {
+                    **({"committed:reserved": opening} if opening else {}),
+                    "committed:target_matched": checkpoints - opening,
                 }
-            ]
-            for source in sources
-        },
-        "fixture_proofs": {source: {"status": "pass"} for source in sources},
-        "latencies": {
-            "receipt_to_durable": {source: _windows() for source in sources},
-            "durable_to_bbo": {account: _windows() for account in accounts},
-            "read_depth_bbo": _windows(),
-            "read_dashboard": _windows(),
-            "feature_retrieval": _windows(),
-            "feature_durable_to_available": _windows(),
-            "failed_or_missed_reads": {},
-        },
-        "commits": {
-            account: {
-                **({"committed:reserved": opening} if opening else {}),
-                "committed:target_matched": checkpoints - opening,
-            }
+                for account in accounts
+            },
+            "reconciliations": {
+                account: {"attempts": interval // 60, "matched": interval // 60, "max_seconds": 0.1}
+                for account in accounts
+            },
+        }
+        observations = [
+            _Observation(
+                kind="account_facts",
+                values={"label": "post_shutdown", "account": account, "child_orders": 2},
+            )
             for account in accounts
-        },
-        "reconciliations": {
-            account: {"attempts": interval // 60, "matched": interval // 60, "max_seconds": 0.1}
-            for account in accounts
-        },
-    }
-    observations = [
-        _Observation(
-            kind="account_facts",
-            values={"label": "post_shutdown", "account": account, "child_orders": 2},
+        ]
+        observations.append(
+            _Observation(
+                kind="injected_owner_death",
+                values={"account": "bitfinex-isolated", "fence_seconds": 0.4},
+            )
+            if phase == "a"
+            else _Observation(
+                kind="all_replacement_instances_progressed",
+                values={"first_claim_to_progress_seconds": 31.2, "within_40_seconds": True},
+            )
         )
-        for account in accounts
-    ]
-    observations.append(
-        _Observation(
-            kind="injected_owner_death",
-            values={"account": "bitfinex-isolated", "fence_seconds": 0.4},
-        )
-        if phase == "a"
-        else _Observation(
-            kind="all_replacement_instances_progressed",
-            values={"first_claim_to_progress_seconds": 31.2, "within_40_seconds": True},
-        )
-    )
-    summary: dict[str, object] = {"passed": True, "failures": []}
-    return summary, results, sustained, observations
+        summary: dict[str, object] = {"passed": True, "failures": []}
+        return summary, results, sustained, observations
 
-
-def _failed(
-    phase: Literal["a", "b"],
-    summary: dict[str, object],
-    results: dict[str, object],
-    sustained: dict[str, object],
-    observations: list[_Observation],
-) -> list[str]:
-    """Return the names of every failed gate."""
-    gates = SustainedGates.phase(
-        phase, summary, results, sustained, tuple(observations), SustainedDeclaration()
-    )
-    return [gate.name for gate in gates if not gate.passed]
+    @staticmethod
+    def failed(
+        phase: Literal["a", "b"],
+        summary: dict[str, object],
+        results: dict[str, object],
+        sustained: dict[str, object],
+        observations: list[_Observation],
+    ) -> list[str]:
+        """Return the names of every failed gate."""
+        gates = SustainedGates.phase(
+            phase, summary, results, sustained, tuple(observations), SustainedDeclaration()
+        )
+        return [gate.name for gate in gates if not gate.passed]
 
 
 class TestSustainedDeclaration:
@@ -143,62 +151,68 @@ class TestSustainedGates:
     @pytest.mark.parametrize("phase", ["a", "b"])
     def test_complete_phase_passes_every_gate(self, phase: Literal["a", "b"]) -> None:
         """Authored complete evidence passes every declared gate."""
-        assert _failed(phase, *_evidence(phase)) == []
+        assert SustainedCohortFixture.failed(phase, *SustainedCohortFixture.evidence(phase)) == []
+
+    @staticmethod
+    def _mutated(
+        base: tuple[dict[str, object], dict[str, object], dict[str, object], list[_Observation]],
+        change: str,
+    ) -> list[str]:
+        """Apply one authored defect to a deep copy of the passing evidence."""
+        summary, results, sustained, observations = copy.deepcopy(base)
+        commits = sustained["commits"]
+        reconciliations = sustained["reconciliations"]
+        assert isinstance(commits, dict) and isinstance(reconciliations, dict)
+        if change == "rejected":
+            commits["okx-shared"]["committed:rejected"] = 1
+        elif change == "orders":
+            commits["okx-shared"]["committed:reserved"] = 3
+        elif change == "mismatch":
+            reconciliations["okx-shared"]["matched"] = 29
+        elif change == "fence":
+            observations[-1] = _Observation(
+                kind="injected_owner_death",
+                values={"account": "bitfinex-isolated", "fence_seconds": 2.5},
+            )
+        elif change == "segments":
+            recordings = cast(dict[str, list[dict[str, object]]], sustained["recordings"])
+            recordings["okx-btc-book"][0]["segments"] = 1
+        return SustainedCohortFixture.failed("a", summary, results, sustained, observations)
 
     def test_each_declared_failure_is_named(self) -> None:
         """A rejected checkpoint, extra order, mismatch or slow fence each fails its gate."""
-        base = _evidence("a")
+        base = SustainedCohortFixture.evidence("a")
 
-        def mutated(change: str) -> list[str]:
-            """Apply one authored defect to a deep copy of the passing evidence."""
-            summary, results, sustained, observations = copy.deepcopy(base)
-            commits = sustained["commits"]
-            reconciliations = sustained["reconciliations"]
-            assert isinstance(commits, dict) and isinstance(reconciliations, dict)
-            if change == "rejected":
-                commits["okx-shared"]["committed:rejected"] = 1
-            elif change == "orders":
-                commits["okx-shared"]["committed:reserved"] = 3
-            elif change == "mismatch":
-                reconciliations["okx-shared"]["matched"] = 29
-            elif change == "fence":
-                observations[-1] = _Observation(
-                    kind="injected_owner_death",
-                    values={"account": "bitfinex-isolated", "fence_seconds": 2.5},
-                )
-            elif change == "segments":
-                recordings = cast(dict[str, list[dict[str, object]]], sustained["recordings"])
-                recordings["okx-btc-book"][0]["segments"] = 1
-            return _failed("a", summary, results, sustained, observations)
-
-        assert mutated("rejected") == ["checkpoints_commit_without_rejection"]
-        assert mutated("orders") == ["orders_only_at_opening"]
-        assert mutated("mismatch") == ["accounts_reconciled_on_cadence"]
-        assert mutated("fence") == ["injected_owner_death_fenced"]
-        assert mutated("segments") == ["segments_rolled_over"]
+        assert self._mutated(base, "rejected") == ["checkpoints_commit_without_rejection"]
+        assert self._mutated(base, "orders") == ["orders_only_at_opening"]
+        assert self._mutated(base, "mismatch") == ["accounts_reconciled_on_cadence"]
+        assert self._mutated(base, "fence") == ["injected_owner_death_fenced"]
+        assert self._mutated(base, "segments") == ["segments_rolled_over"]
 
     def test_only_the_fenced_owner_may_end_with_an_undelivered_tail(self) -> None:
         """The injected owner's log stops at its fence; any other account's tail fails."""
-        summary, results, sustained, observations = _evidence("a")
+        summary, results, sustained, observations = SustainedCohortFixture.evidence("a")
         sources = cast(dict[str, dict[str, dict[str, dict[str, object]]]], results["sources"])
         parity = cast(
             dict[str, dict[str, object]],
             sources["bitfinex-eth-book"]["recordings"]["run"]["delivery_parity"],
         )
         parity["bitfinex-isolated"]["status"] = "unmeasured_unattributed_delivery_tail"
-        assert _failed("a", summary, results, sustained, observations) == []
+        assert SustainedCohortFixture.failed("a", summary, results, sustained, observations) == []
         parity["bitfinex-shared"]["status"] = "unmeasured_unattributed_delivery_tail"
-        assert _failed("a", summary, results, sustained, observations) == [
+        assert SustainedCohortFixture.failed("a", summary, results, sustained, observations) == [
             "native_delivery_parity_complete"
         ]
 
     def test_recovered_phase_places_no_further_orders(self) -> None:
         """After recovery the held target needs no order; any reserved commit fails."""
-        summary, results, sustained, observations = _evidence("b")
+        summary, results, sustained, observations = SustainedCohortFixture.evidence("b")
         commits = sustained["commits"]
         assert isinstance(commits, dict)
         commits["bitfinex-shared"]["committed:reserved"] = 1
-        assert _failed("b", summary, results, sustained, observations) == ["orders_only_at_opening"]
+        assert SustainedCohortFixture.failed("b", summary, results, sustained, observations) == [
+            "orders_only_at_opening"
+        ]
 
     def test_observations_decode_retained_driver_rows(self) -> None:
         """The gate reads exactly the rows the driver retains."""

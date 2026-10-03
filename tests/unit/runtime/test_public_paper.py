@@ -76,10 +76,10 @@ from runtime import (
 )
 from runtime.live_paper import LiveBookDelivery
 from runtime.shared_paper import (
-    _ObservedLiveBookDelivery,
-    _ObservedSharedBookDelivery,
-    _RetainedLiveBookDelivery,
-    _RetainedSharedBookDelivery,
+    ObservedLiveBookDelivery,
+    ObservedSharedBookDelivery,
+    RetainedLiveBookDelivery,
+    RetainedSharedBookDelivery,
 )
 from serialization import DomainCodec
 from strategies import ConfirmedSignal, DecisionContext, OrderIntent
@@ -150,6 +150,38 @@ class _SequenceClock:
         result = self.times[min(self.index, len(self.times) - 1)]
         self.index += 1
         return result
+
+
+class _UnknownOutcome:
+    """Model account outcomes whose commit result is unknown, counting each attempt."""
+
+    def __init__(self) -> None:
+        """Start with no attempts."""
+        self.calls = 0
+
+    def __call__(self, account_id: str, reason: str) -> None:
+        """Count the attempt and raise the unknown-outcome timeout."""
+        self.calls += 1
+        raise TimeoutError("unknown account outcome")
+
+
+class _RejectedControl:
+    """Return typed refusals without changing account state, counting each request."""
+
+    def __init__(self) -> None:
+        """Start with no requests."""
+        self.calls = 0
+
+    def __call__(self, request: AccountControl) -> AccountControlResult:
+        """Count the request and refuse it."""
+        self.calls += 1
+        return AccountControlResult(
+            request=request,
+            status="rejected",
+            phase="running",
+            recovery_generation=0,
+            reason="test refusal",
+        )
 
 
 class TestSharedPublicPaper:
@@ -400,31 +432,30 @@ class TestSharedPublicPaper:
         )
 
     @classmethod
+    def _okx_frame(
+        cls, action: str, sequence: int, bids: list[list[str]], asks: list[list[str]]
+    ) -> bytes:
+        """Encode one native OKX books message."""
+        return DomainCodec().encode_json(
+            {
+                "arg": {"channel": "books", "instId": "BTC-USDT"},
+                "action": action,
+                "data": [
+                    {
+                        "seqId": sequence,
+                        "prevSeqId": sequence - 1 if action == "update" else -1,
+                        "ts": str(int(cls.at.timestamp()) * 1000 + sequence),
+                        "bids": bids,
+                        "asks": asks,
+                        "checksum": 0,
+                    }
+                ],
+            }
+        )
+
+    @classmethod
     def _okx_records(cls, levels: int, updates: int) -> tuple[CaptureRecord, ...]:
         """Author a session, acknowledgement, deep snapshot and single-level updates."""
-        codec = DomainCodec()
-
-        def frame(
-            action: str, sequence: int, bids: list[list[str]], asks: list[list[str]]
-        ) -> bytes:
-            """Encode one native OKX books message."""
-            return codec.encode_json(
-                {
-                    "arg": {"channel": "books", "instId": "BTC-USDT"},
-                    "action": action,
-                    "data": [
-                        {
-                            "seqId": sequence,
-                            "prevSeqId": sequence - 1 if action == "update" else -1,
-                            "ts": str(int(cls.at.timestamp()) * 1000 + sequence),
-                            "bids": bids,
-                            "asks": asks,
-                            "checksum": 0,
-                        }
-                    ],
-                }
-            )
-
         base = int(cls.at.timestamp()) * 1_000_000_000
         bids = [[f"{60000 - i}.5", f"{1 + i % 7}.{i % 10}", "0", "1"] for i in range(levels)]
         asks = [[f"{60001 + i}.5", f"{1 + i % 5}.{i % 10}", "0", "1"] for i in range(levels)]
@@ -437,7 +468,10 @@ class TestSharedPublicPaper:
                 raw=b'{"event":"subscribe","arg":{"channel":"books","instId":"BTC-USDT"}}',
             ),
             CaptureRecord(
-                kind="frame", epoch=0, received_ns=base + 2, raw=frame("snapshot", 1, bids, asks)
+                kind="frame",
+                epoch=0,
+                received_ns=base + 2,
+                raw=cls._okx_frame("snapshot", 1, bids, asks),
             ),
         ]
         for index in range(updates):
@@ -447,7 +481,7 @@ class TestSharedPublicPaper:
                     kind="frame",
                     epoch=0,
                     received_ns=base + 1_000_000 * (index + 3),
-                    raw=frame(
+                    raw=cls._okx_frame(
                         "update", index + 2, level if index % 2 else [], [] if index % 2 else level
                     ),
                 )
@@ -583,10 +617,10 @@ class TestSharedPublicPaper:
         assert any(item.source.book.bids for item in decoded)
         assert [codec.encode_json(item) for item in decoded] == lines
         # The retention envelopes must keep exactly the retained schemas' fields.
-        assert {field.name for field in msgspec.structs.fields(_RetainedSharedBookDelivery)} == {
+        assert {field.name for field in msgspec.structs.fields(RetainedSharedBookDelivery)} == {
             field.name for field in msgspec.structs.fields(SharedBookDelivery)
         }
-        assert {field.name for field in msgspec.structs.fields(_RetainedLiveBookDelivery)} == {
+        assert {field.name for field in msgspec.structs.fields(RetainedLiveBookDelivery)} == {
             field.name for field in msgspec.structs.fields(LiveBookDelivery)
         }
 
@@ -743,12 +777,12 @@ class TestSharedPublicPaper:
         retained = tuple(codec.decode_json(line, SharedBookDelivery) for line in retained_bytes)
         assert len(retained) == len(deliveries)
         for payload, delivery in zip(retained_bytes, retained, strict=True):
-            observed_source = _ObservedLiveBookDelivery(
+            observed_source = ObservedLiveBookDelivery(
                 record=delivery.source.record,
                 book=delivery.source.book,
                 available_at=delivery.source.available_at,
             )
-            observed = _ObservedSharedBookDelivery(
+            observed = ObservedSharedBookDelivery(
                 source=observed_source,
                 inputs=delivery.inputs,
                 coordinated_at=delivery.coordinated_at,
@@ -975,14 +1009,7 @@ class TestSharedPublicPaper:
                 market=True,
             )
         )
-        calls = 0
-
-        def uncertain(account_id: str, reason: str) -> None:
-            """Model one account outcome whose commit result is unknown."""
-            nonlocal calls
-            calls += 1
-            raise TimeoutError("unknown account outcome")
-
+        uncertain = _UnknownOutcome()
         monkeypatch.setattr(journal, "block", uncertain)
         with pytest.raises(TimeoutError, match="unknown account outcome"):
             observer.deliver(
@@ -995,7 +1022,7 @@ class TestSharedPublicPaper:
                     reason="disconnect_unknown_loss",
                 )
             )
-        assert calls == 1
+        assert uncertain.calls == 1
         assert journal.accounts()[0].operator_block is None
 
     def test_rejected_public_fault_is_not_confirmed(
@@ -1021,20 +1048,7 @@ class TestSharedPublicPaper:
             )
         )
         monkeypatch.setattr(journal, "paper_owner", object())
-        calls = 0
-
-        def reject(request: AccountControl) -> AccountControlResult:
-            """Return a typed refusal without changing the account state."""
-            nonlocal calls
-            calls += 1
-            return AccountControlResult(
-                request=request,
-                status="rejected",
-                phase="running",
-                recovery_generation=0,
-                reason="test refusal",
-            )
-
+        reject = _RejectedControl()
         monkeypatch.setattr(journal, "control", reject)
         with pytest.raises(ValueError, match="fault was not applied"):
             observer.deliver(
@@ -1047,7 +1061,7 @@ class TestSharedPublicPaper:
                     reason="disconnect_unknown_loss",
                 )
             )
-        assert calls == 1
+        assert reject.calls == 1
         assert observer._public_faulted is False
 
     @pytest.mark.parametrize("is_private_wire", (False, True))
@@ -1062,8 +1076,8 @@ class TestSharedPublicPaper:
             0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
         )
         if is_private_wire:
-            delivery = _ObservedSharedBookDelivery(
-                source=_ObservedLiveBookDelivery(
+            delivery = ObservedSharedBookDelivery(
+                source=ObservedLiveBookDelivery(
                     record=delivery.source.record,
                     book=delivery.source.book,
                     available_at=delivery.source.available_at,

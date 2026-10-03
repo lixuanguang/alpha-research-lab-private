@@ -26,9 +26,9 @@ from strategies import (
     LiquidityClipPolicy,
     OrderIntent,
     ReferenceClipPolicy,
+    ReferencePolicies,
     TargetClipPolicy,
     TargetIntent,
-    reference_policy,
 )
 from telemetry import HealthMetric
 
@@ -122,7 +122,7 @@ class TestPolicyWorker:
 
     def test_target_clip_holds_one_constant_target_through_a_session(self) -> None:
         """Every eligible book requests the same absolute target, under its own identity."""
-        policy = reference_policy(
+        policy = ReferencePolicies.create(
             "target_clip",
             self._quantity("1"),
             self.currency,
@@ -147,7 +147,7 @@ class TestPolicyWorker:
             assert record.intent == TargetIntent(quantity=self._quantity("1"))
         assert policy.decide(self._context(), b"7").state == b"8"
         with pytest.raises(ValueError, match="unknown reference policy"):
-            reference_policy(
+            ReferencePolicies.create(
                 cast(Literal["target_clip"], "maker_clip"),
                 self._quantity("1"),
                 self.currency,

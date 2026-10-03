@@ -9,11 +9,12 @@ import os
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 from uuid import uuid4
 
 # third party library imports
@@ -42,12 +43,24 @@ from market_data.books import (
     BookRegistry,
     CaptureReplay,
 )
-from market_data.collection.segments import CaptureSegmentWriter
+from market_data.collection import CaptureSegmentWriter
 from market_data.contracts import CaptureRecord, CaptureRequest, CaptureRunRequest
 from market_data.storage import CaptureJournal, CaptureRecording, CaptureRunJournal
 from runtime import LiveBookDelivery, SharedBookDelivery
 from serialization import DomainCodec
 from telemetry import MonitoringEvent, MonitoringIdentity, TelemetryStore
+
+
+class _Constant[T]:
+    """Return one fixed value on every call, standing in for a zero-argument callable."""
+
+    def __init__(self, value: T) -> None:
+        """Bind the value to return."""
+        self.value = value
+
+    def __call__(self) -> T:
+        """Return the bound value."""
+        return self.value
 
 
 class _DeliveryWriter:
@@ -94,8 +107,115 @@ class _DeliveryWriter:
         self.index.append(*latest, offset=offset, length=length)
 
 
+class _HeldUntilCommit:
+    """Hold the readiness loop after its actual initial schema observation."""
+
+    def __init__(self) -> None:
+        """Start before the first attempt and before the commit."""
+        self.first_attempt = threading.Event()
+        self.committed = threading.Event()
+
+    def __call__(self, _seconds: float) -> None:
+        """Signal the first attempt, then wait for the schema commit."""
+        self.first_attempt.set()
+        assert self.committed.wait(2)
+
+
+class _SchemaWait:
+    """Capture the bounded actual reader result without losing thread errors."""
+
+    def __init__(self, reader: _DashboardReader, output: Path) -> None:
+        """Bind the reader and its readiness output with no outcome yet."""
+        self._reader = reader
+        self._output = output
+        self.outcomes: list[dict[str, object]] = []
+        self.failures: list[Exception] = []
+
+    def __call__(self) -> None:
+        """Wait for the schema and keep the result or failure."""
+        try:
+            self.outcomes.append(self._reader.wait_for_schema(self._output, time.monotonic() + 2))
+        except Exception as error:
+            self.failures.append(error)
+
+
+class _CountedDiscovery:
+    """Record each whole-host discovery."""
+
+    def __init__(self, discover: Callable[[], object]) -> None:
+        """Bind the original discovery with none recorded."""
+        self._discover = discover
+        self.discoveries: list[float] = []
+
+    def __call__(self) -> dict[int, object]:
+        """Record the discovery time and discover as before."""
+        self.discoveries.append(time.monotonic())
+        return cast(dict[int, object], self._discover())
+
+
+class _NativeRead(Protocol):
+    """The retained index's native read call shape."""
+
+    def __call__(self, source_name: str, *, cutoff_ns: int) -> dict[str, object]:
+        """Read one source's facts at the cutoff."""
+        ...
+
+
+class _DelayedFirstRead:
+    """Drive a synthetic monotonic clock and delay only the first native read."""
+
+    def __init__(self, read: _NativeRead, first_service_ns: int) -> None:
+        """Start the synthetic clock at ten seconds with no reads."""
+        self._read = read
+        self._first_service_ns = first_service_ns
+        self.now_ns = 10_000_000_000
+        self.polls = 0
+
+    def monotonic_ns(self) -> int:
+        """Return the synthetic monotonic clock."""
+        return self.now_ns
+
+    def advance(self, seconds: float) -> None:
+        """Advance the synthetic monotonic clock to the next arrival."""
+        self.now_ns += round(seconds * 1_000_000_000)
+
+    def read(self, source_name: str, *, cutoff_ns: int) -> dict[str, object]:
+        """Delay only the first native read without changing its retained facts."""
+        if self.polls == 0:
+            self.now_ns += self._first_service_ns
+        self.polls += 1
+        return self._read(source_name, cutoff_ns=cutoff_ns)
+
+
 class TestCapacityReads:
     """Keep reported boundaries attached to retained service facts."""
+
+    @staticmethod
+    def _skip_dashboard(
+        _account_id: str, _mode: Literal["paper", "shadow"], _started: float, _stop: float
+    ) -> None:
+        """Keep a reader test independent of monitoring work."""
+
+    @staticmethod
+    def _fail_after_interval() -> None:
+        """Exercise the callback failure after the measured boundary."""
+        raise RuntimeError("postprocess diagnostic failure")
+
+    @staticmethod
+    def _blocked_depth(
+        released: threading.Event,
+        _index: _RetainedBookIndex,
+        _name: str,
+        _started: float,
+        _stop: float,
+    ) -> None:
+        """Stand in for a query that never completes before the shared deadline."""
+        released.wait(20)
+
+    @staticmethod
+    def _record_now(times: list[float]) -> None:
+        """Record when the interval callback ran."""
+        times.append(time.monotonic())
 
     @pytest.fixture(autouse=True)
     def _close_writers(self) -> Iterator[None]:
@@ -544,22 +664,10 @@ class TestCapacityReads:
         output = tmp_path / "readiness"
         output.mkdir()
         reader = _DashboardReader.open(tmp_path, "shared", "paper")
-        first_attempt, committed = threading.Event(), threading.Event()
-        outcomes: list[dict[str, object]] = []
-        failures: list[Exception] = []
-
-        def await_commit(_seconds: float) -> None:
-            """Hold the readiness loop after its actual initial schema observation."""
-            first_attempt.set()
-            assert committed.wait(2)
-
-        def wait_for_schema() -> None:
-            """Capture the bounded actual reader result without losing thread errors."""
-            try:
-                outcomes.append(reader.wait_for_schema(output, time.monotonic() + 2))
-            except Exception as error:
-                failures.append(error)
-
+        await_commit = _HeldUntilCommit()
+        first_attempt, committed = await_commit.first_attempt, await_commit.committed
+        wait_for_schema = _SchemaWait(reader, output)
+        outcomes, failures = wait_for_schema.outcomes, wait_for_schema.failures
         monkeypatch.setattr(time, "sleep", await_commit)
         with closing(sqlite3.connect(journal)) as writer:
             writer.execute("BEGIN IMMEDIATE")
@@ -620,14 +728,8 @@ class TestCapacityReads:
             tmp_path / "resources.jsonl",
             tmp_path / "phases.jsonl",
         )
-        discoveries: list[float] = []
-        discover = sampler._discover
-
-        def counted() -> dict[int, object]:
-            """Record each whole-host discovery."""
-            discoveries.append(time.monotonic())
-            return cast(dict[int, object], discover())
-
+        counted = _CountedDiscovery(sampler._discover)
+        discoveries = counted.discoveries
         monkeypatch.setattr(sampler, "_discover", counted)
         sampler.sample(steady_started=time.monotonic())
         sampler.sample(steady_started=time.monotonic())
@@ -676,25 +778,10 @@ class TestCapacityReads:
         output = tmp_path / "reads"
         output.mkdir()
         observer = CapacityReadObserver(output, tmp_path, process_pids=(1,), duration_seconds=1)
-        clocks = [10_000_000_000]
-        polls = [0]
-
-        def advance(seconds: float) -> None:
-            """Advance the synthetic monotonic clock to the next arrival."""
-            clocks[0] += round(seconds * 1_000_000_000)
-
-        original_read = index.read
-
-        def delayed_read(source_name: str, *, cutoff_ns: int) -> dict[str, object]:
-            """Delay only the first native read without changing its retained facts."""
-            if polls[0] == 0:
-                clocks[0] += first_service_ns
-            polls[0] += 1
-            return original_read(source_name, cutoff_ns=cutoff_ns)
-
-        monkeypatch.setattr(time, "monotonic_ns", lambda: clocks[0])
-        monkeypatch.setattr(time, "sleep", advance)
-        monkeypatch.setattr(index, "read", delayed_read)
+        clock = _DelayedFirstRead(index.read, first_service_ns)
+        monkeypatch.setattr(time, "monotonic_ns", clock.monotonic_ns)
+        monkeypatch.setattr(time, "sleep", clock.advance)
+        monkeypatch.setattr(index, "read", clock.read)
         observer._depth_worker(index, source.name, 10.0, 11.0)
         rows = [
             msgspec.json.decode(line, type=dict[str, object])
@@ -735,21 +822,10 @@ class TestCapacityReads:
         observer = CapacityReadObserver(
             output, tmp_path, process_pids=(os.getpid(),), duration_seconds=1
         )
-        monkeypatch.setattr(observer, "_discover", lambda: (config, index))
-
-        def skip_dashboard(
-            _account_id: str, _mode: Literal["paper", "shadow"], _started: float, _stop: float
-        ) -> None:
-            """Keep the temporal regression independent of a monitoring store."""
-
-        monkeypatch.setattr(observer, "_dashboard_worker", skip_dashboard)
-
-        def fail_after_interval() -> None:
-            """Exercise the callback failure after the measured boundary."""
-            raise RuntimeError("postprocess diagnostic failure")
-
+        monkeypatch.setattr(observer, "_discover", _Constant((config, index)))
+        monkeypatch.setattr(observer, "_dashboard_worker", self._skip_dashboard)
         with pytest.raises(RuntimeError, match="postprocess diagnostic failure"):
-            observer.run(on_interval_complete=fail_after_interval)
+            observer.run(on_interval_complete=self._fail_after_interval)
         summary = msgspec.json.decode(
             (output / "summary.json").read_bytes(), type=dict[str, object]
         )
@@ -786,27 +862,15 @@ class TestCapacityReads:
         observer = CapacityReadObserver(
             output, tmp_path, process_pids=(os.getpid(),), duration_seconds=1
         )
-        monkeypatch.setattr(observer, "_discover", lambda: (config, index))
+        monkeypatch.setattr(observer, "_discover", _Constant((config, index)))
         released = threading.Event()
         callback_at: list[float] = []
-
-        def blocked_depth(
-            _index: _RetainedBookIndex, _name: str, _started: float, _stop: float
-        ) -> None:
-            """Stand in for a query that never completes before the shared deadline."""
-            released.wait(20)
-
-        def skip_dashboard(
-            _account_id: str, _mode: Literal["paper", "shadow"], _started: float, _stop: float
-        ) -> None:
-            """Keep the bound independent of monitoring work."""
-
-        monkeypatch.setattr(observer, "_depth_worker", blocked_depth)
-        monkeypatch.setattr(observer, "_dashboard_worker", skip_dashboard)
+        monkeypatch.setattr(observer, "_depth_worker", partial(self._blocked_depth, released))
+        monkeypatch.setattr(observer, "_dashboard_worker", self._skip_dashboard)
         started = time.monotonic()
         try:
             with pytest.raises(TimeoutError, match="did not stop"):
-                observer.run(on_interval_complete=lambda: callback_at.append(time.monotonic()))
+                observer.run(on_interval_complete=partial(self._record_now, callback_at))
         finally:
             released.set()
         assert callback_at and callback_at[0] - started >= 1.0

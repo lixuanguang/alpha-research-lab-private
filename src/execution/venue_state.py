@@ -16,7 +16,7 @@ from typing import cast
 from msgspec.structs import replace
 
 # project library imports
-from serialization import DomainCodec, WireRecord, require_sqlite_layout
+from serialization import DomainCodec, SqliteLayout, WireRecord
 
 
 class VenueDispatch(WireRecord, frozen=True):
@@ -299,7 +299,7 @@ class VenueStateStore:
                     (self._binding, self._codec.encode_json(VenueState())),
                 )
                 return
-            require_sqlite_layout(connection, _LAYOUT, "unsupported venue journal schema")
+            SqliteLayout.require(connection, _LAYOUT, "unsupported venue journal schema")
             row = cast(
                 tuple[object, ...] | None,
                 connection.execute("SELECT binding FROM state WHERE id=1").fetchone(),

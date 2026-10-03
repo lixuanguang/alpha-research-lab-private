@@ -210,6 +210,20 @@ The engineering checker enforces imports, public APIs and entrypoints for the
 current source tree. New capabilities follow these rules when they gain a working
 consumer; no empty-folder or framework mandate is implied.
 
+**Supported imports.** The supported Python API is exactly the `__all__` of each
+functional owner's `__init__.py`: the top-level packages and the owner
+subpackages of the grouping namespaces `market_data`, `market_data.adapters.*`,
+`reference_data`, `research` and `applications`. Deep modules, private names,
+grouping namespaces and command implementation modules are not supported even
+when they are importable. The maintained reference workflows (integration
+consumers, integration and engineering tests, subprocess support and
+`examples/`) import only supported names, and the ownership check enforces this;
+unit tests may also import public names from the deep modules they test. An
+owner may export a name lazily through a checked `__getattr__` when an
+independently installed distribution does not ship the module behind it, as
+`applications.execute` does for its paper-service composition. The installed
+wheel smoke resolves every exported name, lazy ones included.
+
 The MR03 offline study API carries explicitly supplied compatible features,
 transforms, estimators, rules, execution/cost assumptions and metric/chart definitions
 through `applications.explore.evaluate_study` and `compare_studies`. Typed and

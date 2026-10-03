@@ -36,13 +36,6 @@ from telemetry import (
 _ROOT = Path(__file__).parents[4]
 
 
-@pytest.fixture()
-def socket_directory() -> Iterator[Path]:
-    """Hold Unix sockets under a short path: AF_UNIX paths are limited to about 104 bytes."""
-    with tempfile.TemporaryDirectory(prefix="sock-", dir="/tmp") as directory:
-        yield Path(directory)
-
-
 class AdvancingWorkload:
     """Advance real watchdog clocks long enough for a periodic observation."""
 
@@ -445,3 +438,9 @@ class TestHealth:
             "data.source_clock_drift_seconds",
             "runtime.alert_delivery_failure",
         }
+
+    @pytest.fixture()
+    def socket_directory(self) -> Iterator[Path]:
+        """Hold Unix sockets under a short path: AF_UNIX paths are limited to about 104 bytes."""
+        with tempfile.TemporaryDirectory(prefix="sock-", dir="/tmp") as directory:
+            yield Path(directory)

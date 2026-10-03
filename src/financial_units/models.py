@@ -43,7 +43,7 @@ class _AttributeReader(Protocol):
 _VALIDATION_ERROR_DETAILS = TypeAdapter(list[_ValidationErrorDetail])
 
 
-class _FinancialUnitModel(BaseModel):
+class FinancialUnitModel(BaseModel):
     """Keep strict frozen C03 construction and validated replacement in one boundary."""
 
     model_config = ConfigDict(
@@ -184,7 +184,7 @@ class DecimalGrid:
         Raises:
             UnitError: The type, finiteness, stored exponent, or magnitude is unsupported.
         """
-        _FinancialUnitModel._require_type(value, Decimal, "value")
+        FinancialUnitModel._require_type(value, Decimal, "value")
         if not isinstance(value, Decimal) or not value.is_finite():
             raise UnitError("value must be finite")
         exponent = value.as_tuple().exponent
@@ -231,7 +231,7 @@ class DecimalGrid:
                 the bounded Decimal representation.
         """
         step = DecimalGrid.require_decimal(quantum)
-        _FinancialUnitModel._require_type(mode, Rounding, "rounding")
+        FinancialUnitModel._require_type(mode, Rounding, "rounding")
         if step <= 0:
             raise UnitError("quantum must be positive")
         ratio = value / Fraction(step)
@@ -251,7 +251,7 @@ class DecimalGrid:
         return DecimalGrid.exact_decimal(Fraction(count) * Fraction(step))
 
 
-class Currency(_FinancialUnitModel):
+class Currency(FinancialUnitModel):
     """Identify one currency-like unit and its exact accounting quantum.
 
     ``Currency`` is an immutable C03 value object.  Configured currencies are resolved
@@ -320,7 +320,7 @@ class Currency(_FinancialUnitModel):
         Raises:
             UnitError: The value is not an exact Currency or contains unsafe fields.
         """
-        currency = _FinancialUnitModel._require_type(value, Currency, "currency")
+        currency = FinancialUnitModel._require_type(value, Currency, "currency")
         currency.validate_currency()
         return currency
 
@@ -373,13 +373,13 @@ class _CurrencyDefinition(msgspec.Struct, frozen=True, forbid_unknown_fields=Tru
     minor_unit: str
 
 
-class Dimension(_FinancialUnitModel):
+class Dimension(FinancialUnitModel):
     """Bind a native quantity kind to a stable C01 instrument identity."""
 
     instrument_id: Annotated[
         InstrumentId,
         BeforeValidator(
-            partial(_FinancialUnitModel._require_type, expected=InstrumentId, name="instrument_id")
+            partial(FinancialUnitModel._require_type, expected=InstrumentId, name="instrument_id")
         ),
     ]
     kind: QuantityKind
@@ -393,15 +393,15 @@ class Dimension(_FinancialUnitModel):
         Raises:
             UnitError: The identity is invalid or either field has an unexpected concrete type.
         """
-        _FinancialUnitModel._require_type(self.instrument_id, InstrumentId, "instrument_id")
+        FinancialUnitModel._require_type(self.instrument_id, InstrumentId, "instrument_id")
         try:
             InstrumentId(self.instrument_id.uuid_value)
         except ValueError as error:
             raise UnitError("invalid instrument identity") from error
-        _FinancialUnitModel._require_type(self.kind, QuantityKind, "quantity kind")
+        FinancialUnitModel._require_type(self.kind, QuantityKind, "quantity kind")
 
 
-class RateConvention(_FinancialUnitModel):
+class RateConvention(FinancialUnitModel):
     """State an annual quote's day count and compounding frequency explicitly."""
 
     day_count: DayCount
@@ -418,8 +418,8 @@ class RateConvention(_FinancialUnitModel):
             UnitError: An enum has the wrong concrete type, periodic frequency is not 1, 2,
                 4, or 12, or a nonperiodic convention supplies a frequency.
         """
-        _FinancialUnitModel._require_type(self.day_count, DayCount, "day count")
-        _FinancialUnitModel._require_type(self.compounding, Compounding, "compounding")
+        FinancialUnitModel._require_type(self.day_count, DayCount, "day count")
+        FinancialUnitModel._require_type(self.compounding, Compounding, "compounding")
         if self.compounding is Compounding.PERIODIC:
             if type(self.payments_per_year) is not int or self.payments_per_year not in (
                 1,
@@ -432,7 +432,7 @@ class RateConvention(_FinancialUnitModel):
             raise UnitError("only periodic compounding permits payments_per_year")
 
 
-class _Value(_FinancialUnitModel):
+class _Value(FinancialUnitModel):
     """Share exact same-dimension addition and subtraction across owned value types."""
 
     value: Annotated[Decimal, BeforeValidator(DecimalGrid.require_decimal)]
@@ -518,7 +518,7 @@ class Quantity(_Value):
     dimension: Annotated[
         Dimension,
         BeforeValidator(
-            partial(_FinancialUnitModel._require_type, expected=Dimension, name="dimension")
+            partial(FinancialUnitModel._require_type, expected=Dimension, name="dimension")
         ),
     ]
 
@@ -532,7 +532,7 @@ class Quantity(_Value):
             UnitError: The value violates the Decimal bounds or the dimension has the wrong type.
         """
         _Value.model_post_init(self, _context)
-        _FinancialUnitModel._require_type(self.dimension, Dimension, "dimension")
+        FinancialUnitModel._require_type(self.dimension, Dimension, "dimension")
 
     def rounded(self, lot: Lot, *, mode: Rounding) -> Quantity:
         """Round to an explicitly matching lot, without order-side inference.
@@ -549,7 +549,7 @@ class Quantity(_Value):
                 exceeds the bounded Decimal representation. A Lot receiver also
                 rejects rounding its positive value to zero.
         """
-        _FinancialUnitModel._require_type(lot, Lot, "lot")
+        FinancialUnitModel._require_type(lot, Lot, "lot")
         if lot.dimension != self.dimension:
             raise UnitError("lot dimension mismatch")
         return self.model_copy(
@@ -563,7 +563,7 @@ class Price(_Value):
     currency: Annotated[Currency, BeforeValidator(Currency._require)]
     per: Annotated[
         Dimension,
-        BeforeValidator(partial(_FinancialUnitModel._require_type, expected=Dimension, name="per")),
+        BeforeValidator(partial(FinancialUnitModel._require_type, expected=Dimension, name="per")),
     ]
 
     def model_post_init(self, _context: object, /) -> None:
@@ -578,7 +578,7 @@ class Price(_Value):
         """
         _Value.model_post_init(self, _context)
         Currency._require(self.currency)
-        _FinancialUnitModel._require_type(self.per, Dimension, "price denominator")
+        FinancialUnitModel._require_type(self.per, Dimension, "price denominator")
 
     def rounded(self, tick: Tick, *, mode: Rounding) -> Price:
         """Round to an explicitly matching price tick.
@@ -595,7 +595,7 @@ class Price(_Value):
                 exceeds the bounded Decimal representation. A Tick receiver also
                 rejects rounding its positive value to zero.
         """
-        _FinancialUnitModel._require_type(tick, Tick, "tick")
+        FinancialUnitModel._require_type(tick, Tick, "tick")
         if tick.currency != self.currency or tick.per != self.per:
             raise UnitError("tick dimension mismatch")
         return self.model_copy(
@@ -615,7 +615,7 @@ class Price(_Value):
             UnitError: Quantity type or dimension mismatches, or the exact product
                 cannot be represented within the bounded Decimal grid.
         """
-        _FinancialUnitModel._require_type(quantity, Quantity, "quantity")
+        FinancialUnitModel._require_type(quantity, Quantity, "quantity")
         if quantity.dimension != self.per:
             raise UnitError("price and quantity dimension mismatch")
         return Money(
@@ -664,13 +664,13 @@ class Multiplier(_Value):
     input_dimension: Annotated[
         Dimension,
         BeforeValidator(
-            partial(_FinancialUnitModel._require_type, expected=Dimension, name="input_dimension")
+            partial(FinancialUnitModel._require_type, expected=Dimension, name="input_dimension")
         ),
     ]
     output_dimension: Annotated[
         Dimension,
         BeforeValidator(
-            partial(_FinancialUnitModel._require_type, expected=Dimension, name="output_dimension")
+            partial(FinancialUnitModel._require_type, expected=Dimension, name="output_dimension")
         ),
     ]
 
@@ -684,8 +684,8 @@ class Multiplier(_Value):
             UnitError: The factor is invalid or nonpositive, or a dimension has the wrong type.
         """
         _Value.model_post_init(self, _context)
-        _FinancialUnitModel._require_type(self.input_dimension, Dimension, "input dimension")
-        _FinancialUnitModel._require_type(self.output_dimension, Dimension, "output dimension")
+        FinancialUnitModel._require_type(self.input_dimension, Dimension, "input dimension")
+        FinancialUnitModel._require_type(self.output_dimension, Dimension, "output dimension")
         if self.value <= 0:
             raise UnitError("multiplier must be positive")
 
@@ -703,7 +703,7 @@ class Multiplier(_Value):
             UnitError: Quantity type or dimension mismatches, or the exact product
                 cannot be represented within the bounded Decimal grid.
         """
-        _FinancialUnitModel._require_type(quantity, Quantity, "quantity")
+        FinancialUnitModel._require_type(quantity, Quantity, "quantity")
         if quantity.dimension != self.input_dimension:
             raise UnitError("multiplier input dimension mismatch")
         return Quantity(
@@ -750,7 +750,7 @@ class FXRate(_Value):
             UnitError: An argument type or pair direction is invalid, or the rounded
                 result exceeds the bounded Decimal representation.
         """
-        _FinancialUnitModel._require_type(money, Money, "money")
+        FinancialUnitModel._require_type(money, Money, "money")
         Currency._require(target)
         if money.currency == self.base and target == self.quote:
             result = Fraction(money.value) * Fraction(self.value)
@@ -770,7 +770,7 @@ class Rate(_Value):
     convention: Annotated[
         RateConvention,
         BeforeValidator(
-            partial(_FinancialUnitModel._require_type, expected=RateConvention, name="convention")
+            partial(FinancialUnitModel._require_type, expected=RateConvention, name="convention")
         ),
     ]
 
@@ -784,7 +784,7 @@ class Rate(_Value):
             UnitError: The value violates the Decimal bounds or the convention has the wrong type.
         """
         _Value.model_post_init(self, _context)
-        _FinancialUnitModel._require_type(self.convention, RateConvention, "rate convention")
+        FinancialUnitModel._require_type(self.convention, RateConvention, "rate convention")
 
 
 class Yield(Rate):
@@ -806,7 +806,7 @@ class Volatility(_Value):
             UnitError: The value is invalid or negative, or the day-count enum has the wrong type.
         """
         _Value.model_post_init(self, _context)
-        _FinancialUnitModel._require_type(self.day_count, DayCount, "volatility year basis")
+        FinancialUnitModel._require_type(self.day_count, DayCount, "volatility year basis")
         if self.value < 0:
             raise UnitError("volatility cannot be negative")
 
@@ -826,12 +826,12 @@ class Duration(_Value):
             UnitError: The value is invalid or negative, or the day-count enum has the wrong type.
         """
         _Value.model_post_init(self, _context)
-        _FinancialUnitModel._require_type(self.day_count, DayCount, "duration year basis")
+        FinancialUnitModel._require_type(self.day_count, DayCount, "duration year basis")
         if self.value < 0:
             raise UnitError("duration cannot be negative")
 
 
-class EvaluationContext(_FinancialUnitModel):
+class EvaluationContext(FinancialUnitModel):
     """Carry the caller's evaluation date and convention revision, without library Settings."""
 
     evaluation_date: date
@@ -848,7 +848,7 @@ class EvaluationContext(_FinancialUnitModel):
                 1-128 character ASCII token containing only letters, digits, dots,
                 underscores, or hyphens.
         """
-        _FinancialUnitModel._require_type(self.evaluation_date, date, "evaluation date")
+        FinancialUnitModel._require_type(self.evaluation_date, date, "evaluation date")
         revision = self.convention_revision
         if (
             type(revision) is not str

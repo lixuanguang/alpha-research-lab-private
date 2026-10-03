@@ -4,9 +4,11 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 # third party library imports
 import pytest
@@ -38,6 +40,45 @@ _BITFINEX_ACK = (
     b'{"event":"subscribed","chanId":7,"channel":"book","symbol":"tBTCUSD",'
     b'"prec":"R0","freq":"F0","len":"25"}'
 )
+
+
+class _CountedBookDecodes:
+    """Count one codec's book-history restorations without replacing strict decoding.
+
+    Installed as ``DomainCodec.decode_json`` it binds the codec like a method.
+    """
+
+    def __init__(
+        self, decode: Callable[[DomainCodec, bytes | str, type], object], codec: DomainCodec
+    ) -> None:
+        """Bind the original decoder and the codec whose book decodes are counted."""
+        self._decode = decode
+        self._codec = codec
+        self.decodes = 0
+
+    def __get__(self, instance: DomainCodec, owner: type[DomainCodec]) -> partial[object]:
+        """Bind the counter to the codec it is called on."""
+        return partial(self, instance)
+
+    def __call__[T](self, codec: DomainCodec, data: bytes | str, target: type[T]) -> T:
+        """Count a selected book restoration, then decode as before."""
+        if codec is self._codec and target is BookObservation:
+            self.decodes += 1
+        return cast(T, self._decode(codec, data, target))
+
+
+class _CountedProjections:
+    """Count exact book projections while preserving the production calculation."""
+
+    def __init__(self, project: Callable[[BookObservation], ExactRatio | None]) -> None:
+        """Bind the original projection with none counted."""
+        self._project = project
+        self.projections = 0
+
+    def __call__(self, row: BookObservation) -> ExactRatio | None:
+        """Count one projection and compute it as before."""
+        self.projections += 1
+        return self._project(row)
 
 
 class _LiveScenario:
@@ -126,16 +167,7 @@ class TestLiveBookDecisionSource:
         assert (
             scenario.source.current_book(entity, _EPOCH + timedelta(microseconds=1_003_001)) is None
         )
-        original = DomainCodec.decode_json
-        decodes = 0
-
-        def counted[T](codec: DomainCodec, data: bytes | str, target: type[T]) -> T:
-            """Count selected history restoration without replacing strict native decoding."""
-            nonlocal decodes
-            if codec is scenario.source._codec and target is BookObservation:
-                decodes += 1
-            return original(codec, data, target)
-
+        counted = _CountedBookDecodes(DomainCodec.decode_json, scenario.source._codec)
         monkeypatch.setattr(DomainCodec, "decode_json", counted)
         codec = DomainCodec()
         first_at = _EPOCH + timedelta(microseconds=1_000_001)
@@ -144,18 +176,18 @@ class TestLiveBookDecisionSource:
         assert restored_first is not None and restored_first == first
         assert codec.encode_json(restored_first) == codec.encode_json(first)
         assert scenario.source.read(entity, first_at) is first_decision
-        assert decodes == 1
+        assert counted.decodes == 1
         second_at = _EPOCH + timedelta(microseconds=1_001_001)
         scenario.source.read(entity, second_at)
         restored_second = scenario.source.book_at(entity, second_at)
         assert restored_second is not None and restored_second == second
         assert codec.encode_json(restored_second) == codec.encode_json(second)
-        assert decodes == 2
+        assert counted.decodes == 2
         carried_at = _EPOCH + timedelta(microseconds=1_002_001)
         carried = scenario.source.read(entity, carried_at).observations[0]
         assert scenario.source.book_at(entity, carried_at) is restored_second
         assert carried.event_at == second_at and carried.available_at == second_at
-        assert decodes == 2
+        assert counted.decodes == 2
         missing_at = _EPOCH + timedelta(microseconds=1_003_001)
         assert scenario.source.read(entity, missing_at).observations[0].value is None
         assert scenario.source.book_at(entity, missing_at) is None
@@ -165,15 +197,7 @@ class TestLiveBookDecisionSource:
     ) -> None:
         """Every delivered book stays causal without repeating depth arithmetic eagerly."""
         scenario = _LiveScenario("okx", "event")
-        original = LiveBookDecisionSource._book_value
-        projections = 0
-
-        def counted(row: BookObservation) -> ExactRatio | None:
-            """Count exact projections while preserving the production calculation."""
-            nonlocal projections
-            projections += 1
-            return original(row)
-
+        counted = _CountedProjections(LiveBookDecisionSource._book_value)
         monkeypatch.setattr(LiveBookDecisionSource, "_book_value", staticmethod(counted))
         entity = str(scenario.request.config.instrument_id)
         scenario.push("session", 999_000_000)
@@ -183,17 +207,17 @@ class TestLiveBookDecisionSource:
             scenario.source.current_book(entity, _EPOCH + timedelta(microseconds=1_000_001))
             == market
         )
-        assert projections == 0
+        assert counted.projections == 0
         at = _EPOCH + timedelta(microseconds=1_000_001)
         selected = scenario.source.read(entity, at)
         assert selected.observations[0].value == ExactRatio(numerator="1", denominator="3")
         assert scenario.source.read(entity, at) is selected
-        assert projections == 1
+        assert counted.projections == 1
         scenario.push("frame", 2_000_000_000, raw=b"pong")
-        assert projections == 1
+        assert counted.projections == 1
         carried = scenario.source.read(entity, _EPOCH + timedelta(seconds=2))
         assert carried.observations[0].value == selected.observations[0].value
-        assert projections == 2
+        assert counted.projections == 2
 
     def test_okx_event_clock_identity_receipt_and_frozen_cutoff(self) -> None:
         """A source is bindable before receipt and does not revise an issued cutoff."""

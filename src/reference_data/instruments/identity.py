@@ -30,7 +30,7 @@ class InstrumentIdentityValidationError(InstrumentIdentityError):
     """Report an invalid canonical identity or symbology record."""
 
 
-class _InstrumentIdentityModel(BaseModel):
+class InstrumentIdentityModel(BaseModel):
     """Preserve immutable value semantics with strict boundary validation.
 
     Normal construction validates defaults and existing nested instances, forbids
@@ -146,7 +146,7 @@ class _IdentityUuid:
         return _IdentityUuid._require_non_nil_uuid(parsed_uuid, field_name=field_name)
 
 
-class InstrumentId(_InstrumentIdentityModel):
+class InstrumentId(InstrumentIdentityModel):
     """Hold one opaque repository-issued stable instrument identifier.
 
     Construction checks UUID representation and non-nil value; it does not issue
@@ -208,7 +208,7 @@ class InstrumentId(_InstrumentIdentityModel):
         return str(self.uuid_value)
 
 
-class MappingId(_InstrumentIdentityModel):
+class MappingId(InstrumentIdentityModel):
     """Hold one opaque repository-issued stable mapping assertion identifier.
 
     Construction checks UUID representation and non-nil value; it does not issue
@@ -268,7 +268,7 @@ class MappingId(_InstrumentIdentityModel):
         return str(self.uuid_value)
 
 
-class InstrumentIdentity(_InstrumentIdentityModel):
+class InstrumentIdentity(InstrumentIdentityModel):
     """Bind a stable ID to one canonical concept and economic root.
 
     An economic instrument must identify itself as its root; every other kind

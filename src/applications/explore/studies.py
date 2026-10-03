@@ -128,6 +128,212 @@ class StudyComponents:
         for item in self.artifacts:
             item.__post_init__()
 
+    def evaluate(self, run: DecisionStudy, *, store: AttemptStore, attempt: str) -> TrialEvaluation:
+        """Sequence actual folds, retain their inputs/state and render selected report extensions.
+
+        Args:
+            run: Validated study whose folds are executed with these self.
+            store: Attempt store retaining each fold, the result and the report.
+            attempt: Attempt receiving the retained outputs.
+
+        Returns:
+            The trial's mean net return across folds.
+        """
+        codec = DomainCodec()
+        for artifact_index, artifact in enumerate(self.artifacts):
+            store.retain(attempt, f"extension-{artifact_index:04d}", artifact.payload)
+        store.retain(attempt, "feature-schema", codec.encode_json(self.feature.schema))
+        results: list[StudyFoldResult] = []
+        summaries: list[FoldSummary] = []
+        for index, fold in enumerate(run.folds):
+            result = self._evaluate_fold(run, fold, store=store, attempt=attempt, index=index)
+            results.append(result)
+            store.retain(attempt, f"fold-{index:04d}", codec.encode_json(result))
+            window = run.window(fold)
+            summaries.append(
+                FoldSummary(
+                    fold_id=fold.name,
+                    window=window,
+                    ledger=result.economics.ledger,
+                    terminal_mark=result.economics.mark,
+                    curve=(
+                        LedgerPoint(
+                            at=window.start,
+                            mark=Ledger(
+                                LedgerState(
+                                    initial_cash=run.economics.initial_cash,
+                                    dimension=run.economics.limits.lot.dimension,
+                                )
+                            ).mark(None),
+                        ),
+                        LedgerPoint(at=window.end, mark=result.economics.mark),
+                    ),
+                    diagnostics=result.prediction_errors(window),
+                )
+            )
+        report = StudyReportBuilder.build(
+            ReportContext(
+                study_identity=store.read(attempt).start.run_identity, folds=tuple(summaries)
+            ),
+            expected_metrics=run.metrics,
+            expected_charts=run.charts,
+            metrics=self.metrics,
+            charts=self.charts,
+            limitations=tuple(
+                sorted(
+                    {item for result in results for item in result.economics.limitations}
+                    | {"Folds have independent cash/state; endpoints omit intraperiod NAV."}
+                )
+            ),
+        )
+        store.retain(
+            attempt,
+            "study-result",
+            codec.encode_json(StudyResult(config=run, folds=tuple(results))),
+        )
+        store.retain(attempt, "study-report", codec.encode_json(report))
+        store.retain(attempt, "report-html", report.render())
+        returns = tuple(
+            Fraction(r.economics.mark.net.value) / Fraction(run.economics.initial_cash.value)
+            for r in results
+        )
+        return TrialEvaluation(
+            net_return=ExactRatio.from_fraction(sum(returns, Fraction()) / len(returns))
+        )
+
+    def _evaluate_fold(
+        self,
+        run: DecisionStudy,
+        fold: StudyFold,
+        *,
+        store: AttemptStore,
+        attempt: str,
+        index: int,
+    ) -> StudyFoldResult:
+        """Read causal vectors, resolve split bytes, fit or reload and execute one fresh account."""
+        codec = DomainCodec()
+        feature_session = FeatureSession(
+            self.feature, instance=run.economics.instance, entity=run.economics.entity
+        )
+        schedule = (*fold.training_decisions, *fold.decisions)
+        inputs = tuple(self.source.read(run.economics.entity, at) for at in schedule)
+        store.retain(attempt, f"inputs-{index:04d}", codec.encode_json(inputs))
+        if any(
+            (value.entity, value.decision_at) != (run.economics.entity, at)
+            for value, at in zip(inputs, schedule, strict=True)
+        ):
+            raise ValueError("source input differs from the requested entity or decision cutoff")
+        rows = tuple(feature_session.evaluate(value) for value in inputs)
+        store.retain(attempt, f"features-{index:04d}", codec.encode_json(rows))
+        outcomes = (
+            ()
+            if self.labels is None
+            else tuple(self.labels.read(row, as_of=fold.evaluated_as_of) for row in rows)
+        )
+        for outcome in outcomes:
+            outcome.__post_init__()
+            if outcome.value is not None and (
+                outcome.available_at is None or outcome.available_at > fold.evaluated_as_of
+            ):
+                raise ValueError("outcome unavailable at study evaluation cutoff")
+            if (
+                run.partition == "validation"
+                and outcome.information_end >= fold.split.holdout.start
+            ):
+                raise ValueError("validation outcome crosses the frozen holdout")
+        samples = (
+            tuple(outcome.sample(row) for row, outcome in zip(rows, outcomes, strict=True))
+            if outcomes
+            else tuple(
+                SampleInterval(
+                    row_id=row.identity,
+                    input_sha256=row.identity,
+                    decision_at=row.decision_at,
+                    information_start=row.information_start,
+                    information_end=row.decision_at,
+                    features_available_at=row.available_at,
+                    label_available_at=None,
+                )
+                for row in rows
+            )
+        )
+        split = replace(fold.split, samples=samples)
+        store.retain(attempt, f"split-{index:04d}", codec.encode_json(split))
+        store.retain(attempt, f"outcomes-{index:04d}", codec.encode_json(outcomes))
+        excluded = list(split.exclusions())
+        store.retain(attempt, f"fit-exclusions-{index:04d}", codec.encode_json(tuple(excluded)))
+        transform_version = None
+        model_version = None
+        if self.transform is not None:
+            if split.fit_cutoff is None:
+                raise ValueError("transform requires a fitting cutoff")
+            transform_version = self.transform.fit(rows, split, available_at=split.fit_cutoff)
+            store.retain(attempt, f"transform-{index:04d}", codec.encode_json(transform_version))
+        if self.model is not None:
+            if split.fit_cutoff is None:
+                raise ValueError("estimator requires a fitting cutoff")
+            model_version = self.model.fit(
+                rows,
+                outcomes,
+                split,
+                available_at=split.fit_cutoff,
+                transform=self.transform,
+                transform_version=transform_version,
+            )
+            store.retain(attempt, f"model-{index:04d}", codec.encode_json(model_version))
+        policy = DecisionSession(
+            self.policy,
+            run_identity=run.identity,
+            instance=run.economics.instance,
+            entity=run.economics.entity,
+        )
+        predictions: list[Prediction] = []
+        decisions: list[DecisionRecord] = []
+        for raw in rows[len(fold.training_decisions) :]:
+            vector: FeatureVector = raw
+            if self.transform is not None and transform_version is not None:
+                vector = self.transform.apply(transform_version, raw)
+            prediction = None
+            if self.model is not None and model_version is not None:
+                if any(value is None for value in vector.values):
+                    excluded.append((raw.identity, "missing inference feature"))
+                    continue
+                prediction = self.model.predict(model_version, vector)
+                predictions.append(prediction)
+            decisions.append(
+                policy.evaluate(DecisionContext(features=vector, prediction=prediction))
+            )
+        window = run.window(fold)
+        market_window = run.market_window(fold)
+        market = self.market.read(market_window)
+        if any(
+            row.source_at > market_window.end or row.available_at > market_window.end
+            for row in market
+        ):
+            raise ValueError("execution source exceeded its admitted evaluation cutoff")
+        store.retain(attempt, f"market-{index:04d}", codec.encode_json(market))
+        spec = replace(run.economics, start=window.start, end=window.end)
+        ledger = Ledger(
+            LedgerState(initial_cash=spec.initial_cash, dimension=spec.limits.lot.dimension)
+        )
+        economics = IntentSimulation(spec, self.execution, self.costs, ledger).run(
+            tuple(decisions), market
+        )
+        return StudyFoldResult(
+            name=fold.name,
+            split=split,
+            features=rows,
+            outcomes=outcomes,
+            transform=transform_version,
+            model=model_version,
+            predictions=tuple(predictions),
+            decisions=tuple(decisions),
+            exclusions=tuple(excluded),
+            feature_state=feature_session.checkpoint(),
+            policy_state=policy.checkpoint(),
+            economics=economics,
+        )
+
 
 def evaluate_study(
     config: DecisionStudy | Path,
@@ -206,7 +412,7 @@ def evaluate_study(
                     at=datetime.now(UTC),
                     reason="selected final decision study before any source read",
                 )
-            _evaluate_study(run, components=components, store=store, attempt=attempt)
+            components.evaluate(run, store=store, attempt=attempt)
             manifest = ResultManifest.retain(
                 store,
                 attempt,
@@ -237,201 +443,6 @@ def evaluate_study(
         return store.read(attempt)
 
 
-def _evaluate_study(
-    run: DecisionStudy, *, components: StudyComponents, store: AttemptStore, attempt: str
-) -> TrialEvaluation:
-    """Sequence actual folds, retain their inputs/state and render selected report extensions."""
-    codec = DomainCodec()
-    for artifact_index, artifact in enumerate(components.artifacts):
-        store.retain(attempt, f"extension-{artifact_index:04d}", artifact.payload)
-    store.retain(attempt, "feature-schema", codec.encode_json(components.feature.schema))
-    results: list[StudyFoldResult] = []
-    summaries: list[FoldSummary] = []
-    for index, fold in enumerate(run.folds):
-        result = _evaluate_fold(
-            run, fold, components=components, store=store, attempt=attempt, index=index
-        )
-        results.append(result)
-        store.retain(attempt, f"fold-{index:04d}", codec.encode_json(result))
-        window = run.window(fold)
-        summaries.append(
-            FoldSummary(
-                fold_id=fold.name,
-                window=window,
-                ledger=result.economics.ledger,
-                terminal_mark=result.economics.mark,
-                curve=(
-                    LedgerPoint(
-                        at=window.start,
-                        mark=Ledger(
-                            LedgerState(
-                                initial_cash=run.economics.initial_cash,
-                                dimension=run.economics.limits.lot.dimension,
-                            )
-                        ).mark(None),
-                    ),
-                    LedgerPoint(at=window.end, mark=result.economics.mark),
-                ),
-                diagnostics=result.prediction_errors(window),
-            )
-        )
-    report = StudyReportBuilder.build(
-        ReportContext(
-            study_identity=store.read(attempt).start.run_identity, folds=tuple(summaries)
-        ),
-        expected_metrics=run.metrics,
-        expected_charts=run.charts,
-        metrics=components.metrics,
-        charts=components.charts,
-        limitations=tuple(
-            sorted(
-                {item for result in results for item in result.economics.limitations}
-                | {"Folds have independent cash/state; endpoints omit intraperiod NAV."}
-            )
-        ),
-    )
-    store.retain(
-        attempt, "study-result", codec.encode_json(StudyResult(config=run, folds=tuple(results)))
-    )
-    store.retain(attempt, "study-report", codec.encode_json(report))
-    store.retain(attempt, "report-html", report.render())
-    returns = tuple(
-        Fraction(r.economics.mark.net.value) / Fraction(run.economics.initial_cash.value)
-        for r in results
-    )
-    return TrialEvaluation(
-        net_return=ExactRatio.from_fraction(sum(returns, Fraction()) / len(returns))
-    )
-
-
-def _evaluate_fold(
-    run: DecisionStudy,
-    fold: StudyFold,
-    *,
-    components: StudyComponents,
-    store: AttemptStore,
-    attempt: str,
-    index: int,
-) -> StudyFoldResult:
-    """Read causal vectors, resolve actual split bytes, fit/reload and execute one fresh account."""
-    codec = DomainCodec()
-    feature_session = FeatureSession(
-        components.feature, instance=run.economics.instance, entity=run.economics.entity
-    )
-    schedule = (*fold.training_decisions, *fold.decisions)
-    inputs = tuple(components.source.read(run.economics.entity, at) for at in schedule)
-    store.retain(attempt, f"inputs-{index:04d}", codec.encode_json(inputs))
-    if any(
-        (value.entity, value.decision_at) != (run.economics.entity, at)
-        for value, at in zip(inputs, schedule, strict=True)
-    ):
-        raise ValueError("source input differs from the requested entity or decision cutoff")
-    rows = tuple(feature_session.evaluate(value) for value in inputs)
-    store.retain(attempt, f"features-{index:04d}", codec.encode_json(rows))
-    outcomes = (
-        ()
-        if components.labels is None
-        else tuple(components.labels.read(row, as_of=fold.evaluated_as_of) for row in rows)
-    )
-    for outcome in outcomes:
-        outcome.__post_init__()
-        if outcome.value is not None and (
-            outcome.available_at is None or outcome.available_at > fold.evaluated_as_of
-        ):
-            raise ValueError("outcome unavailable at study evaluation cutoff")
-        if run.partition == "validation" and outcome.information_end >= fold.split.holdout.start:
-            raise ValueError("validation outcome crosses the frozen holdout")
-    samples = (
-        tuple(outcome.sample(row) for row, outcome in zip(rows, outcomes, strict=True))
-        if outcomes
-        else tuple(
-            SampleInterval(
-                row_id=row.identity,
-                input_sha256=row.identity,
-                decision_at=row.decision_at,
-                information_start=row.information_start,
-                information_end=row.decision_at,
-                features_available_at=row.available_at,
-                label_available_at=None,
-            )
-            for row in rows
-        )
-    )
-    split = replace(fold.split, samples=samples)
-    store.retain(attempt, f"split-{index:04d}", codec.encode_json(split))
-    store.retain(attempt, f"outcomes-{index:04d}", codec.encode_json(outcomes))
-    excluded = list(split.exclusions())
-    store.retain(attempt, f"fit-exclusions-{index:04d}", codec.encode_json(tuple(excluded)))
-    transform_version = None
-    model_version = None
-    if components.transform is not None:
-        if split.fit_cutoff is None:
-            raise ValueError("transform requires a fitting cutoff")
-        transform_version = components.transform.fit(rows, split, available_at=split.fit_cutoff)
-        store.retain(attempt, f"transform-{index:04d}", codec.encode_json(transform_version))
-    if components.model is not None:
-        if split.fit_cutoff is None:
-            raise ValueError("estimator requires a fitting cutoff")
-        model_version = components.model.fit(
-            rows,
-            outcomes,
-            split,
-            available_at=split.fit_cutoff,
-            transform=components.transform,
-            transform_version=transform_version,
-        )
-        store.retain(attempt, f"model-{index:04d}", codec.encode_json(model_version))
-    policy = DecisionSession(
-        components.policy,
-        run_identity=run.identity,
-        instance=run.economics.instance,
-        entity=run.economics.entity,
-    )
-    predictions: list[Prediction] = []
-    decisions: list[DecisionRecord] = []
-    for raw in rows[len(fold.training_decisions) :]:
-        vector: FeatureVector = raw
-        if components.transform is not None and transform_version is not None:
-            vector = components.transform.apply(transform_version, raw)
-        prediction = None
-        if components.model is not None and model_version is not None:
-            if any(value is None for value in vector.values):
-                excluded.append((raw.identity, "missing inference feature"))
-                continue
-            prediction = components.model.predict(model_version, vector)
-            predictions.append(prediction)
-        decisions.append(policy.evaluate(DecisionContext(features=vector, prediction=prediction)))
-    window = run.window(fold)
-    market_window = run.market_window(fold)
-    market = components.market.read(market_window)
-    if any(
-        row.source_at > market_window.end or row.available_at > market_window.end for row in market
-    ):
-        raise ValueError("execution source exceeded its admitted evaluation cutoff")
-    store.retain(attempt, f"market-{index:04d}", codec.encode_json(market))
-    spec = replace(run.economics, start=window.start, end=window.end)
-    ledger = Ledger(
-        LedgerState(initial_cash=spec.initial_cash, dimension=spec.limits.lot.dimension)
-    )
-    economics = IntentSimulation(spec, components.execution, components.costs, ledger).run(
-        tuple(decisions), market
-    )
-    return StudyFoldResult(
-        name=fold.name,
-        split=split,
-        features=rows,
-        outcomes=outcomes,
-        transform=transform_version,
-        model=model_version,
-        predictions=tuple(predictions),
-        decisions=tuple(decisions),
-        exclusions=tuple(excluded),
-        feature_state=feature_session.checkpoint(),
-        policy_state=policy.checkpoint(),
-        economics=economics,
-    )
-
-
 class StudyComparisonEvaluator:
     """Resolve configured variants to supplied components inside the existing search controller."""
 
@@ -450,7 +461,7 @@ class StudyComparisonEvaluator:
             raise ValueError("parameter search cannot read the final holdout")
         components = self._bindings[run.identity]
         components.admit(run)
-        result = _evaluate_study(run, components=components, store=store, attempt=attempt_id)
+        result = components.evaluate(run, store=store, attempt=attempt_id)
         trial.report(
             int(result.net_return.numerator) / int(result.net_return.denominator),
             step=len(run.folds),

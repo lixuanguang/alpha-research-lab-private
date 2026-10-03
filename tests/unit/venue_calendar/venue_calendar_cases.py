@@ -144,6 +144,18 @@ class _InvalidSnapshotPayload(TypedDict):
     sessions: list[TradingSession]
 
 
+class _FixedValue:
+    """Return one bound value on every call."""
+
+    def __init__(self, value: object) -> None:
+        """Bind the value to return."""
+        self._value = value
+
+    def __call__(self) -> object:
+        """Return the bound value."""
+        return self._value
+
+
 class _DynamicTimestamp:
     """Expose a timestamp converter only through ``__getattr__``."""
 
@@ -154,8 +166,12 @@ class _DynamicTimestamp:
     def __getattr__(self, name: str) -> Callable[[], object]:
         """Return the converter dynamically while preserving normal missing attributes."""
         if name == "to_pydatetime":
-            return lambda: self._value
+            return self._converted
         raise AttributeError(name)
+
+    def _converted(self) -> object:
+        """Return the bound datetime as the dynamic converter does."""
+        return self._value
 
 
 class _AttributeErrorTimestamp:
@@ -174,7 +190,7 @@ class _NonCallableConverter:
 
     def __init__(self, value: datetime) -> None:
         """Bind a callable instance member that should not satisfy ``callable``."""
-        self.__call__ = lambda: value
+        self.__call__ = _FixedValue(value)
 
 
 class _NonCallableTimestamp:

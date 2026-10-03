@@ -872,7 +872,7 @@ class Cohort:
             return
         self.step("candidate", self.candidate)
         if self.sequence == "recovery-chain":
-            self.step("grant-steady", lambda: self.grant(self.root, None))
+            self.step("grant-steady", partial(self.grant, self.root, None))
             chain = (
                 ("steady", False),
                 *((f"recovery-{index:02d}", True) for index in range(1, _CHAIN_RECOVERIES + 1)),
@@ -886,7 +886,7 @@ class Cohort:
                     self.step(f"cleanup-audit-{name}", partial(self.audit, self.root, name))
             return
         if self.sequence == "features":
-            self.step("grant-steady", lambda: self.grant(self.root, None))
+            self.step("grant-steady", partial(self.grant, self.root, None))
             trials = (
                 ("steady", False),
                 *((f"recovery-{index:02d}", True) for index in range(1, _FEATURE_RECOVERIES + 1)),
@@ -902,23 +902,23 @@ class Cohort:
             self.step("feature-cohort", self.feature_cohort)
             return
         if self.sequence == "features-diagnostic":
-            self.step("grant-steady", lambda: self.grant(self.root, None))
+            self.step("grant-steady", partial(self.grant, self.root, None))
             try:
                 self.step("steady-features-diagnostic", self.features_diagnostic)
             finally:
-                self.step("cleanup-audit-steady", lambda: self.audit(self.root, "steady"))
+                self.step("cleanup-audit-steady", partial(self.audit, self.root, "steady"))
             return
         if self.sequence == "dashboard":
-            self.step("grant-steady", lambda: self.grant(self.root, None))
-            self.step("steady-trial", lambda: self.trial(self.root, "steady", None))
+            self.step("grant-steady", partial(self.grant, self.root, None))
+            self.step("steady-trial", partial(self.trial, self.root, "steady", None))
             self.step("history-queries", self.history)
         venue = self.route_venue
         self.step("route-prepare", self.prepare_route)
-        self.step("grant-route", lambda: self.grant(self.route_root, venue))
-        self.step(f"public-{venue}-trial", lambda: self.trial(self.route_root, "public", venue))
+        self.step("grant-route", partial(self.grant, self.route_root, venue))
+        self.step(f"public-{venue}-trial", partial(self.trial, self.route_root, "public", venue))
         if self.sequence == "dashboard":
-            self.step("cleanup-audit-steady", lambda: self.audit(self.root, "steady"))
-        self.step("cleanup-audit-route", lambda: self.audit(self.route_root, "public"))
+            self.step("cleanup-audit-steady", partial(self.audit, self.root, "steady"))
+        self.step("cleanup-audit-route", partial(self.audit, self.route_root, "public"))
 
 
 class _Arguments(argparse.Namespace):

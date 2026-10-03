@@ -16,12 +16,16 @@ from capacity_cohort import CleanupAudit, Cohort, Gate, GateAssessment, PublicVe
 Path = tuple[str, ...]
 
 
-def _set(evidence: dict[str, object], path: Path, value: object) -> None:
-    """Replace one nested JSON value."""
-    node = evidence
-    for key in path[:-1]:
-        node = cast(dict[str, object], node[key])
-    node[path[-1]] = value
+class CohortFixture:
+    """Build cohort fixture sets."""
+
+    @staticmethod
+    def set(evidence: dict[str, object], path: Path, value: object) -> None:
+        """Replace one nested JSON value."""
+        node = evidence
+        for key in path[:-1]:
+            node = cast(dict[str, object], node[key])
+        node[path[-1]] = value
 
 
 class TestCapacityCohortGates:
@@ -257,7 +261,7 @@ class TestCapacityCohortGates:
         """Breaking one collected fact fails the gate that guards it."""
         summary, results, resources = self._evidence()
         changed = copy.deepcopy(results)
-        _set(changed, path, value)
+        CohortFixture.set(changed, path, value)
         assert gate in self._failed(
             GateAssessment.trial(summary, changed, resources, public_venue=None)
         )
@@ -331,7 +335,7 @@ class TestCapacityCohortGates:
     def test_public_route_criteria(self, path: Path, value: object, gate: str) -> None:
         """A capped or incomplete public stream, or a failing fixture source, fails a route."""
         summary, results, _ = self._evidence(public="bitfinex")
-        _set(results, path, value)
+        CohortFixture.set(results, path, value)
         assert gate in self._failed(
             GateAssessment.trial(summary, results, {}, public_venue="bitfinex")
         )
@@ -362,7 +366,7 @@ class TestCapacityCohortGates:
     def test_public_okx_route_criteria(self, path: Path, value: object, gate: str) -> None:
         """An OKX route grades its public captures and the Bitfinex fixture's unchanged gates."""
         summary, results, _ = self._evidence(public="okx")
-        _set(results, path, value)
+        CohortFixture.set(results, path, value)
         assert gate in self._failed(GateAssessment.trial(summary, results, {}, public_venue="okx"))
 
     def test_failed_trial(self) -> None:
@@ -832,7 +836,7 @@ class TestFeatureCohortGates:
     def test_each_cohort_gate_fails(self, path: Path, value: object, gate: str) -> None:
         """A failed aggregate, a short cohort or one unqualified source fails its gate."""
         result = self._result()
-        _set(result, path, value)
+        CohortFixture.set(result, path, value)
         assert {g.name for g in GateAssessment.feature_cohort(result) if not g.passed} == {gate}
 
     def test_a_missing_source_fails(self) -> None:
@@ -907,7 +911,7 @@ class TestFilesystemColdGates:
     def test_each_cold_gate_fails(self, path: Path, value: object, gate: str) -> None:
         """An unproved round, a short run, changed results or broken parity fails its gate."""
         summary, retained = self._summary()
-        _set(summary, path, value)
+        CohortFixture.set(summary, path, value)
         assert self._failed(summary, retained) == {gate}
 
     def test_a_failing_cold_latency_fails(self) -> None:

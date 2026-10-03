@@ -40,13 +40,11 @@ from configuration import (
     AccountConfiguration,
     BookRegistryConfiguration,
     CaptureConfig,
+    InstrumentFeeRate,
     OpeningAccount,
-    PaperExecutionScenario,
-)
-from configuration.accounts import InstrumentFeeRate
-from configuration.paper_activation import (
     PaperAuthorization,
     PaperDeployment,
+    PaperExecutionScenario,
     PaperStrategyIdentity,
 )
 from execution import (
@@ -1346,6 +1344,19 @@ class PublicPaperWorkload:
             )
         )
 
+    def _typed_field[T](self, manifest: dict[str, object], name: str, target: type[T]) -> T:
+        """Decode one retained manifest value through the installed domain codec."""
+        return self.codec.decode_json(self.codec.encode_json(manifest[name]), target)
+
+    def _journal_bytes(self, journal: AccountJournal) -> dict[str, bytes]:
+        """Snapshot exact durable state for comparison across delivery replay."""
+        return {
+            "accounts": self.codec.encode_json(journal.accounts()),
+            "orders": self.codec.encode_json(journal.orders()),
+            "net_orders": self.codec.encode_json(journal.net_orders()),
+            "paper_traces": self.codec.encode_json(journal.paper_traces()),
+        }
+
     def replay(self, output: Path) -> dict[str, object]:
         """Reopen retained inputs in this fresh process and prove journal idempotence."""
         manifest_bytes = (output / "run/manifest.json").read_bytes()
@@ -1369,15 +1380,11 @@ class PublicPaperWorkload:
         ):
             raise ValueError("retained public paper manifest has unexpected fields or schema")
 
-        def typed_field[T](name: str, target: type[T]) -> T:
-            """Decode one retained manifest value through the installed domain codec."""
-            return self.codec.decode_json(self.codec.encode_json(manifest[name]), target)
-
-        config = typed_field("account_configuration", AccountConfiguration)
-        request = typed_field("capture_request", CaptureRequest)
-        books = typed_field("book_registry", BookRegistryConfiguration)
-        scenario = typed_field("execution_scenario", PaperExecutionScenario)
-        requirement = typed_field("requirement", InputRequirement)
+        config = self._typed_field(manifest, "account_configuration", AccountConfiguration)
+        request = self._typed_field(manifest, "capture_request", CaptureRequest)
+        books = self._typed_field(manifest, "book_registry", BookRegistryConfiguration)
+        scenario = self._typed_field(manifest, "execution_scenario", PaperExecutionScenario)
+        requirement = self._typed_field(manifest, "requirement", InputRequirement)
         config.__post_init__()
         request.__post_init__()
         books.__post_init__()
@@ -1406,16 +1413,7 @@ class PublicPaperWorkload:
 
         journal = AccountJournal(output / "account.sqlite3", config)
 
-        def journal_bytes() -> dict[str, bytes]:
-            """Snapshot exact durable state for comparison across delivery replay."""
-            return {
-                "accounts": self.codec.encode_json(journal.accounts()),
-                "orders": self.codec.encode_json(journal.orders()),
-                "net_orders": self.codec.encode_json(journal.net_orders()),
-                "paper_traces": self.codec.encode_json(journal.paper_traces()),
-            }
-
-        before = journal_bytes()
+        before = self._journal_bytes(journal)
         observer = SharedPaperCaptureObserver(
             source=LiveBookDecisionSource(
                 request, requirement, history_capacity=books.history_capacity
@@ -1437,7 +1435,7 @@ class PublicPaperWorkload:
             if self.codec.encode_json(delivery) != line:
                 raise ValueError("retained public delivery differs from canonical event bytes")
             observer.deliver(delivery)
-        after = journal_bytes()
+        after = self._journal_bytes(journal)
         if before != after:
             raise ValueError("fresh-process public replay changed retained account state")
         digests = {name: hashlib.sha256(value).hexdigest() for name, value in before.items()}

@@ -184,7 +184,7 @@ class AccountState(WireRecord, frozen=True):
 
     def __post_init__(self) -> None:
         """Require declared currencies and one account's identified facts."""
-        if _ACCOUNT_REPLAYS.find(self) is not None:
+        if ACCOUNT_REPLAYS.find(self) is not None:
             # This frozen object was already validated and replayed.
             return
         if (
@@ -212,11 +212,6 @@ class AccountState(WireRecord, frozen=True):
             if posting.account_id != self.account_id or posting.identity in identities:
                 raise ValueError("posting account mismatch or duplicate identity")
             identities.add(posting.identity)
-
-
-def _exact_money(value: Fraction, currency: Currency) -> Money:
-    """Create a bounded exact money value without Decimal context rounding."""
-    return Money(value=DecimalGrid.exact_decimal(value), currency=currency)
 
 
 class _AccountReplay:
@@ -339,7 +334,7 @@ class _AccountReplay:
             for code, currency in self.currencies.items():
                 key = (scope, code)
                 for totals in (self.scope_cash, self.fees, self.rebates, self.transfers):
-                    _exact_money(totals.get(key, zero), currency)
+                    _AccountReplay.exact_money(totals.get(key, zero), currency)
                 if self.fees.get(key, zero) < 0 or self.rebates.get(key, zero) < 0:
                     raise ValueError("snapshot has invalid cash or cost totals")
 
@@ -392,6 +387,11 @@ class _AccountReplay:
             price=posting.price,
             asset_change=posting.asset_change,
         )
+
+    @staticmethod
+    def exact_money(value: Fraction, currency: Currency) -> Money:
+        """Create a bounded exact money value without Decimal context rounding."""
+        return Money(value=DecimalGrid.exact_decimal(value), currency=currency)
 
 
 class _AccountReplays:
@@ -468,7 +468,7 @@ class _AccountReplays:
                 entries.popitem(last=False)
 
 
-_ACCOUNT_REPLAYS = _AccountReplays(capacity=4)
+ACCOUNT_REPLAYS = _AccountReplays(capacity=4)
 
 
 class AccountSnapshot(WireRecord, frozen=True):
@@ -556,7 +556,7 @@ class AccountLedger:
         """
         if type(state) is not AccountState:
             raise TypeError("account ledger requires AccountState")
-        remembered = _ACCOUNT_REPLAYS.find(state)
+        remembered = ACCOUNT_REPLAYS.find(state)
         if remembered is None:
             state.__post_init__()
             fold = _AccountReplay(state)
@@ -564,7 +564,7 @@ class AccountLedger:
                 fold.apply(posting)
             effective = fold.effective()
             self._validate_snapshots(state, fold, effective)
-            _ACCOUNT_REPLAYS.remember(state, fold, effective)
+            ACCOUNT_REPLAYS.remember(state, fold, effective)
         else:
             fold, effective = remembered
         self._state, self._fold, self._effective = state, fold, effective
@@ -595,7 +595,7 @@ class AccountLedger:
         head.__post_init__()
         if type(postings) is not tuple:
             raise TypeError("account state requires account postings")
-        found = _ACCOUNT_REPLAYS.longest_prefix(head.account_id, head.currencies, postings)
+        found = ACCOUNT_REPLAYS.longest_prefix(head.account_id, head.currencies, postings)
         if found is None:
             state = AccountState(
                 account_id=head.account_id, currencies=head.currencies, postings=postings
@@ -620,7 +620,7 @@ class AccountLedger:
         force_setattr(state, "postings", postings)
         effective = fold.effective()
         cls._snapshot(state, fold, effective, None)
-        _ACCOUNT_REPLAYS.remember(state, fold, effective)
+        ACCOUNT_REPLAYS.remember(state, fold, effective)
         return state
 
     @property
@@ -669,7 +669,7 @@ class AccountLedger:
         postings: tuple[AccountPosting, ...] = (*self._state.postings, posting)
         force_setattr(candidate, "postings", postings)
         result = self._snapshot(candidate, fold, effective, None)
-        _ACCOUNT_REPLAYS.remember(candidate, fold, effective)
+        ACCOUNT_REPLAYS.remember(candidate, fold, effective)
         self._state, self._fold, self._effective = candidate, fold, effective
         return result
 
@@ -735,7 +735,9 @@ class AccountLedger:
             account_id=state.account_id,
             instance_id=instance_id,
             cash=tuple(
-                _exact_money(fold.scope_cash.get((instance_id, currency.code), zero), currency)
+                _AccountReplay.exact_money(
+                    fold.scope_cash.get((instance_id, currency.code), zero), currency
+                )
                 for currency in currencies
             ),
             positions=tuple(
@@ -744,15 +746,21 @@ class AccountLedger:
                 if value
             ),
             fees=tuple(
-                _exact_money(fold.fees.get((instance_id, currency.code), zero), currency)
+                _AccountReplay.exact_money(
+                    fold.fees.get((instance_id, currency.code), zero), currency
+                )
                 for currency in currencies
             ),
             rebates=tuple(
-                _exact_money(fold.rebates.get((instance_id, currency.code), zero), currency)
+                _AccountReplay.exact_money(
+                    fold.rebates.get((instance_id, currency.code), zero), currency
+                )
                 for currency in currencies
             ),
             transfers=tuple(
-                _exact_money(fold.transfers.get((instance_id, currency.code), zero), currency)
+                _AccountReplay.exact_money(
+                    fold.transfers.get((instance_id, currency.code), zero), currency
+                )
                 for currency in currencies
             ),
             fill_ids=tuple(

@@ -56,7 +56,7 @@ accepted upstream archive origin is `clearml/clearml` on GitHub, addressed by a
 package, change the locked wheel, or create an implicit wheel-only exception.
 An absent binding restores the ordinary source-distribution requirement.
 
-`validate_repository` invokes the owned `SourceArchiveVerifier` before returning
+`DependencyRepository.validate` invokes the owned `SourceArchiveVerifier` before returning
 success, so the existing dependency command, audit and `make check` all enforce
 the comparison. On a cold cache it downloads the reviewed archives over HTTPS,
 with no redirects, a 32 MiB transfer limit, 15-second socket timeouts and a
@@ -336,3 +336,15 @@ The existing source, artifact hash, platform-wheel and vulnerability checks appl
 no new native wheel-only allowance is added. Peewee is a pure-Python wheel in
 this lock. The independently locked local worker and synthetic service images are
 recorded in their development guides, outside the runtime release graph.
+
+The development-only `notebooks` group (2026-10-04) locks the research notebook
+runner and kernel: nbclient 0.11.0, nbformat 5.11.1, jupyter-client 8.10.0,
+ipykernel 7.4.0 and their new dependencies appnope, debugpy, fastjsonschema,
+jupyter-core, nest-asyncio2 and tornado. It is never part of a runtime or partial
+distribution. `LicenseRef-Debugpy-Bundled` identifies the exact notices in debugpy
+1.8.22's `debugpy/ThirdPartyNotices.txt`, SHA-256
+`5b3993f39dc19473ad904895ff1b64f7a89acd87950ca581dada8a32d726fe3a`: the MIT-licensed
+package bundles pydevd under EPL-1.0 together with PSF and Apache-2.0 notices.
+The owner approved this exact notice reference on 2026-10-04; it is not a wildcard
+for EPL. debugpy and tornado are native packages with Darwin arm64 and Linux
+x86_64 wheels and digest-bound source distributions.

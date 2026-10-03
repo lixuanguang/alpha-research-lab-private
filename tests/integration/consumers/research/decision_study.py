@@ -446,9 +446,6 @@ class _Run:
     @staticmethod
     def execute(root: Path) -> None:
         """Run typed, serialized, search, local/deferred and holdout paths."""
-        consumer_root = str(Path(__file__).resolve().parent)
-        if consumer_root not in sys.path:
-            sys.path.insert(0, consumer_root)
         # third party library imports
         from research_workflows.scenario import (
             _DecisionInputClock,

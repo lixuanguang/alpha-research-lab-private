@@ -7,9 +7,11 @@ import itertools
 import sqlite3
 import threading
 import time
+from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from typing import Literal, cast
 from urllib.parse import parse_qsl
@@ -35,14 +37,12 @@ from execution import (
     AccountDecision,
     AccountJournal,
     AccountQuote,
-    NetOrder,
     OrderDecision,
     OrderEvent,
     OrderState,
-    TaggedOrder,
     VenueGateway,
 )
-from execution.account_state import _AccountTransaction
+from execution.account_state import AccountTransaction
 from execution.venue_state import VenueReceipt, VenueState, VenueStateStore
 from execution.venues import (
     BitfinexSpotAdapter,
@@ -764,6 +764,91 @@ class NativeVenueAccount:
         }
 
 
+class _StalledAfterArming:
+    """Report monotonic time that jumps past the send window after the first reading."""
+
+    def __init__(self) -> None:
+        """Start before the first reading."""
+        self._calls = itertools.count()
+
+    def __call__(self) -> float:
+        """Return the monotonic clock, eleven seconds late after the first call."""
+        return time.monotonic() + (11.0 if next(self._calls) else 0.0)
+
+
+class _ThreadAction:
+    """Run one action on another thread and record how it ended."""
+
+    def __init__(self, action: Callable[[], object]) -> None:
+        """Bind the action with no outcome yet."""
+        self._action = action
+        self.finished = threading.Event()
+        self.errors: list[BaseException] = []
+
+    def __call__(self) -> None:
+        """Run the action, keep any failure and signal completion."""
+        try:
+            self._action()
+        except BaseException as error:
+            self.errors.append(error)
+        finally:
+            self.finished.set()
+
+
+class _CountedRead[**P, R]:
+    """Record each read under a label, then read as before."""
+
+    def __init__(self, read: Callable[P, R], label: str, reads: list[str]) -> None:
+        """Bind the original read, its label and the shared record of reads."""
+        self._read = read
+        self._label = label
+        self._reads = reads
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+        """Record one read and perform it."""
+        self._reads.append(self._label)
+        return self._read(*args, **kwargs)
+
+
+class _LockedReleaseOnce:
+    """Time out a transaction's lease release once, then release normally.
+
+    Installed on the transaction class, it binds to the transaction like a method.
+    """
+
+    def __init__(self, release: Callable[[AccountTransaction, str, str], None]) -> None:
+        """Bind the original release before any call."""
+        self._release = release
+        self._calls = itertools.count()
+
+    def __get__(
+        self, instance: AccountTransaction, owner: type[AccountTransaction]
+    ) -> partial[None]:
+        """Bind the release to the transaction it is called on."""
+        return partial(self, instance)
+
+    def __call__(self, transaction: AccountTransaction, order_id: str, holder: str) -> None:
+        """Fail the first release as a lock timeout; release every later one."""
+        if not next(self._calls):
+            raise sqlite3.OperationalError("database is locked")
+        # The next stop drops the unreleased row: its holder's lock is gone.
+        self._release(transaction, order_id, holder)
+
+
+class _LockedUnknownEvent:
+    """Time out the "unknown" event write; apply every other event."""
+
+    def __init__(self, apply_event: Callable[[OrderEvent], object]) -> None:
+        """Bind the original event writer."""
+        self._apply_event = apply_event
+
+    def __call__(self, event: OrderEvent) -> None:
+        """Refuse the unknown-outcome event as a lock timeout and apply the rest."""
+        if event.kind == "unknown":
+            raise sqlite3.OperationalError("database is locked")
+        self._apply_event(event)
+
+
 class TestVenueGateway:
     """Verify economic safety at uncertain external boundaries."""
 
@@ -1025,8 +1110,7 @@ class TestVenueGateway:
             refusal = "dispatch is blocked"
         else:
             # The sender stalls past its send window between arming and the send.
-            calls = itertools.count()
-            journal._monotonic = lambda: time.monotonic() + (11.0 if next(calls) else 0.0)
+            journal._monotonic = _StalledAfterArming()
             refusal = "send window passed"
         sent = len(account.requests)
         with pytest.raises(ValueError, match=refusal):
@@ -1047,21 +1131,10 @@ class TestVenueGateway:
         order_id = self._admit(journal, gateway.config, clock)
         sending, release = threading.Event(), threading.Event()
         account.hold = ("/v2/auth/w/order/submit", sending, release)
-        failures: list[BaseException] = []
-        stopped = threading.Event()
-
-        def submit() -> None:
-            """Send from the gateway's own thread."""
-            try:
-                gateway.submit(order_id, self._authorization(gateway.config, enabled=True))
-            except BaseException as error:
-                failures.append(error)
-
-        def stop() -> None:
-            """Issue an operator stop while the send is pending."""
-            journal.block(gateway.config.account_id, "operator-stop")
-            stopped.set()
-
+        submit = _ThreadAction(
+            partial(gateway.submit, order_id, self._authorization(gateway.config, enabled=True))
+        )
+        stop = _ThreadAction(partial(journal.block, gateway.config.account_id, "operator-stop"))
         sender = threading.Thread(target=submit)
         sender.start()
         assert sending.wait(10)
@@ -1074,10 +1147,10 @@ class TestVenueGateway:
         journal.observe(AccountQuote(price=price, at=clock.now()))
         stopper = threading.Thread(target=stop)
         stopper.start()
-        assert not stopped.wait(0.3)
+        assert not stop.finished.wait(0.3)
         release.set()
         sender.join(10)
-        assert stopped.wait(10) and not failures
+        assert stop.finished.wait(10) and not stop.errors and not submit.errors
         stopper.join(10)
         assert self._order_state(journal, order_id).request_acknowledged
         assert journal.accounts()[0].operator_block == "operator-stop"
@@ -1206,20 +1279,9 @@ class TestVenueGateway:
         """Lifetime dispatches do not each cost journal reads on every reconciliation."""
         journal, gateway, _, clock = self._native_gateway(tmp_path, "bitfinex")
         authorization = self._authorization(gateway.config, enabled=True)
-        reads = 0
-        orders, net_orders = journal.orders, journal.net_orders
-
-        def counted_orders() -> tuple[TaggedOrder, ...]:
-            """Count one read of the journal's orders."""
-            nonlocal reads
-            reads += 1
-            return orders()
-
-        def counted_net_orders() -> tuple[NetOrder, ...]:
-            """Count one read of the journal's physical orders."""
-            nonlocal reads
-            reads += 1
-            return net_orders()
+        reads: list[str] = []
+        counted_orders = _CountedRead(journal.orders, "orders", reads)
+        counted_net_orders = _CountedRead(journal.net_orders, "net_orders", reads)
 
         per_reconcile: list[int] = []
         dispatched = 0
@@ -1228,8 +1290,7 @@ class TestVenueGateway:
                 order_id = self._admit(journal, gateway.config, clock, f"refused-{dispatched}")
                 # The sender stalls past its send window, so nothing is sent and the
                 # dispatch stays as a rejected, terminal lifetime record.
-                calls = itertools.count()
-                journal._monotonic = lambda: time.monotonic() + (11.0 if next(calls) else 0.0)
+                journal._monotonic = _StalledAfterArming()
                 with pytest.raises(ValueError, match="send window passed"):
                     gateway.submit(order_id, authorization)
                 assert not gateway.reconcile().recovery_required
@@ -1237,9 +1298,9 @@ class TestVenueGateway:
             with monkeypatch.context() as patch:
                 patch.setattr(journal, "orders", counted_orders)
                 patch.setattr(journal, "net_orders", counted_net_orders)
-                reads = 0
+                reads.clear()
                 assert not gateway.reconcile().recovery_required
-            per_reconcile.append(reads)
+            per_reconcile.append(len(reads))
         # Two journal reads per lifetime dispatch grew with every order ever sent.
         assert per_reconcile[1] == per_reconcile[0]
 
@@ -1569,34 +1630,53 @@ class TestVenueGateway:
         """Only a sent sell can be stranded, so a view after a sent buy reads no orders."""
         journal, gateway, _, _, _ = self._native(tmp_path, "okx")
         reads: list[str] = []
-        orders, net_orders, open_orders = (
-            journal.orders,
-            journal.net_orders,
-            journal.physical_open_orders,
+        monkeypatch.setattr(journal, "orders", _CountedRead(journal.orders, "orders", reads))
+        monkeypatch.setattr(
+            journal, "net_orders", _CountedRead(journal.net_orders, "net_orders", reads)
         )
-
-        def counted_orders() -> tuple[TaggedOrder, ...]:
-            """Count one read of the journal's orders."""
-            reads.append("orders")
-            return orders()
-
-        def counted_net_orders() -> tuple[NetOrder, ...]:
-            """Count one read of the journal's physical orders."""
-            reads.append("net_orders")
-            return net_orders()
-
-        def counted_open_orders(account_id: str) -> tuple[OrderState, ...]:
-            """Count one read of the account's open physical orders."""
-            reads.append("physical_open_orders")
-            return open_orders(account_id)
-
-        monkeypatch.setattr(journal, "orders", counted_orders)
-        monkeypatch.setattr(journal, "net_orders", counted_net_orders)
-        monkeypatch.setattr(journal, "physical_open_orders", counted_open_orders)
+        monkeypatch.setattr(
+            journal,
+            "physical_open_orders",
+            _CountedRead(journal.physical_open_orders, "physical_open_orders", reads),
+        )
         view = gateway.inspect()
         assert len(view.dispatches) == 1 and view.stranded == ()
         # Every view used to read both order lists to look for stranded sells.
         assert reads == []
+
+    @staticmethod
+    def _execute_fill(
+        adapter: ObservedVenue,
+        quote_currency: Currency,
+        clock: AdvancingClock,
+        side: Literal["buy", "sell"],
+        quantity: str,
+        price: str,
+        fee: str,
+    ) -> None:
+        """Fill the venue's current order and move its wallet accordingly."""
+        request = adapter.request
+        assert request is not None
+        adapter.filled += Decimal(quantity)
+        signed = Decimal(quantity) if side == "buy" else -Decimal(quantity)
+        adapter.base_balance += signed
+        adapter.quote_balance -= signed * Decimal(price) + Decimal(fee)
+        adapter.executions += (
+            VenueFillFact(
+                fill_id=f"{side}-{len(adapter.executions)}",
+                client_id=request.client_id,
+                venue_order_id="42",
+                symbol=request.symbol,
+                side=side,
+                quantity=Decimal(quantity),
+                price=Decimal(price),
+                fee=Decimal(fee),
+                fee_currency=quote_currency.code,
+                source_at=clock.now(),
+                received_at=clock.now(),
+                raw=f"{side}-trade".encode(),
+            ),
+        )
 
     def test_stranded_sell_is_flagged_and_cancelled_under_one_authorization(
         self, tmp_path: Path
@@ -1613,35 +1693,10 @@ class TestVenueGateway:
         assert not gateway.reconcile().recovery_required
         authorization = self._authorization(config, enabled=True)
 
-        def execute(side: Literal["buy", "sell"], quantity: str, price: str, fee: str) -> None:
-            """Fill the venue's current order and move its wallet accordingly."""
-            request = adapter.request
-            assert request is not None
-            adapter.filled += Decimal(quantity)
-            signed = Decimal(quantity) if side == "buy" else -Decimal(quantity)
-            adapter.base_balance += signed
-            adapter.quote_balance -= signed * Decimal(price) + Decimal(fee)
-            adapter.executions += (
-                VenueFillFact(
-                    fill_id=f"{side}-{len(adapter.executions)}",
-                    client_id=request.client_id,
-                    venue_order_id="42",
-                    symbol=request.symbol,
-                    side=side,
-                    quantity=Decimal(quantity),
-                    price=Decimal(price),
-                    fee=Decimal(fee),
-                    fee_currency=quote_currency.code,
-                    source_at=clock.now(),
-                    received_at=clock.now(),
-                    raw=f"{side}-trade".encode(),
-                ),
-            )
-
         # Inventory: a two-unit buy fills whole.
         bought = self._admit(journal, config, clock)
         assert gateway.submit(bought, authorization).submission_attempted
-        execute("buy", "2", "100", "0.2")
+        self._execute_fill(adapter, quote_currency, clock, "buy", "2", "100", "0.2")
         adapter.request, adapter.filled = None, Decimal(0)
         assert not gateway.reconcile().recovery_required
         # A two-unit sell at 100, reserved at its floor: 0.2 plus a minor unit per 0.01 lot.
@@ -1673,7 +1728,7 @@ class TestVenueGateway:
         assert gateway.submit(sell_id, authorization).submission_attempted
         assert gateway.inspect().stranded == ()
         # 1.9 units fill at 105 for 0.1995, leaving less than one lot's 0.001 at the limit.
-        execute("sell", "1.9", "105", "0.1995")
+        self._execute_fill(adapter, quote_currency, clock, "sell", "1.9", "105", "0.1995")
         view = gateway.reconcile()
         assert not view.recovery_required
         assert view.stranded == (sell_id,)
@@ -1685,17 +1740,11 @@ class TestVenueGateway:
     @staticmethod
     def _locked_release(monkeypatch: pytest.MonkeyPatch) -> None:
         """Make the guard's lease release time out as if another writer held the lock."""
-        release = _AccountTransaction.release_lease
-        calls = itertools.count()
-
-        def release_lease(self: _AccountTransaction, order_id: str, holder: str) -> None:
-            """Time out the guard's release once, then release normally."""
-            if not next(calls):
-                raise sqlite3.OperationalError("database is locked")
-            # The next stop drops the unreleased row: its holder's lock is gone.
-            release(self, order_id, holder)
-
-        monkeypatch.setattr(_AccountTransaction, "release_lease", release_lease)
+        monkeypatch.setattr(
+            AccountTransaction,
+            "release_lease",
+            _LockedReleaseOnce(AccountTransaction.release_lease),
+        )
 
     def test_failed_lease_release_keeps_the_venue_rejection(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1725,15 +1774,7 @@ class TestVenueGateway:
     ) -> None:
         """A SQLite error inside submit faults the account instead of escaping the fence."""
         journal, gateway, adapter, _, authorization, order_id = self._ready(tmp_path)
-        apply_event = journal.apply_event
-
-        def locked_unknown(event: OrderEvent) -> None:
-            """Time out the "unknown" event write; apply every other event."""
-            if event.kind == "unknown":
-                raise sqlite3.OperationalError("database is locked")
-            apply_event(event)
-
-        monkeypatch.setattr(journal, "apply_event", locked_unknown)
+        monkeypatch.setattr(journal, "apply_event", _LockedUnknownEvent(journal.apply_event))
         with pytest.raises(sqlite3.OperationalError):
             gateway.submit(order_id, authorization)
         assert adapter.submit_count == 0

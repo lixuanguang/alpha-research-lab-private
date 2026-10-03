@@ -19,6 +19,7 @@ from paper_services import PaperServiceWorkload
 # project library imports
 from configuration import (
     AccountConfiguration,
+    InstrumentFeeRate,
     OpeningAccount,
     PaperAuthorization,
     PaperDeployment,
@@ -27,7 +28,6 @@ from configuration import (
     PaperServiceInstance,
     PaperServiceSource,
 )
-from configuration.accounts import InstrumentFeeRate
 from execution import PaperOwner
 from financial_units import Dimension, Money, Quantity
 from market_data.collection import CaptureTransport

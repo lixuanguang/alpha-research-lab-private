@@ -11,12 +11,13 @@ import sqlite3
 import stat
 from collections.abc import Callable
 from contextlib import ExitStack, closing
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import BinaryIO, Literal, cast
 
 # project library imports
-from serialization import DomainCodec, WireRecord, publish_directory, sync_directory
+from serialization import DomainCodec, DurableDirectory, WireRecord
 
 _COMPONENT = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
@@ -163,7 +164,7 @@ class WorkspaceBackup:
                     os.fsync(output.fileno())
                 cls._verify(staging, max_files=max_files, max_total_bytes=max_total_bytes)
                 cls._sync_tree(staging)
-                if not publish_directory(staging, backup_root):
+                if not DurableDirectory.publish(staging, backup_root):
                     raise FileExistsError("backup destination already exists")
         return hashlib.sha256(encoded).hexdigest()
 
@@ -200,7 +201,7 @@ class WorkspaceBackup:
             if validate_restored is not None:
                 validate_restored(staging)
             cls._sync_tree(staging)
-            if not publish_directory(staging, destination_root):
+            if not DurableDirectory.publish(staging, destination_root):
                 raise FileExistsError("restore destination must be absent")
         return manifest
 
@@ -347,7 +348,7 @@ class WorkspaceBackup:
         if not stat.S_ISREG(source.lstat().st_mode):
             raise ValueError("workspace source file changed type")
         with source.open("rb") as original, destination.open("xb") as copy:
-            for chunk in iter(lambda: original.read(1_048_576), b""):
+            for chunk in iter(partial(original.read, 1_048_576), b""):
                 copy.write(chunk)
             copy.flush()
             os.fsync(copy.fileno())
@@ -368,7 +369,7 @@ class WorkspaceBackup:
         """Hash a file in bounded chunks."""
         digest = hashlib.sha256()
         with path.open("rb") as source:
-            for chunk in iter(lambda: source.read(1_048_576), b""):
+            for chunk in iter(partial(source.read, 1_048_576), b""):
                 digest.update(chunk)
         return digest.hexdigest()
 
@@ -448,5 +449,5 @@ class WorkspaceBackup:
         """Synchronize staged directories from leaves to publication parent."""
         for path in sorted(root.rglob("*"), reverse=True):
             if path.is_dir():
-                sync_directory(path)
-        sync_directory(root)
+                DurableDirectory.sync(path)
+        DurableDirectory.sync(root)

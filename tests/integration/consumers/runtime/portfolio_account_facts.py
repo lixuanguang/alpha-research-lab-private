@@ -10,9 +10,8 @@ from typing import Literal
 
 # project library imports
 from accounting import AccountLedger, AccountSnapshot, Fill
-from applications.execute.accounts import AccountExecutionResult
-from configuration import AccountConfiguration, OpeningAccount
-from configuration.accounts import InstrumentFeeRate
+from applications.execute import AccountExecutionResult
+from configuration import AccountConfiguration, InstrumentFeeRate, OpeningAccount
 from execution import (
     AccountDecision,
     AccountQuote,

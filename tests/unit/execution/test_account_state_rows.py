@@ -7,6 +7,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 from contextlib import closing
+from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -19,31 +20,32 @@ from test_account_history_scaling import _SharedFirmHistory
 from execution import AccountJournal
 from execution.account_state import (
     AccountStateStore,
-    _assemble,
-    _HistoryDigest,
-    _HistorySummary,
-    _row_values,
-    _RowSummary,
-    _strip,
+    HistoryDigest,
+    HistorySummary,
+    RowSummary,
+    StateRows,
 )
 from serialization import DomainCodec
 
 
-def _head_bytes(path: Path) -> int:
-    """Return the size of the committed firm head."""
-    with closing(sqlite3.connect(path)) as connection:
-        row = cast(
-            tuple[object, ...], connection.execute("SELECT payload FROM firm WHERE id=1").fetchone()
-        )
-    assert type(row[0]) is bytes
-    return len(row[0])
+class _CommitBeforeRowLoad:
+    """Commit from another journal between the head select and the row selects."""
 
+    def __init__(
+        self,
+        history: _SharedFirmHistory,
+        load: Callable[[sqlite3.Connection, HistorySummary], dict[str, tuple[object, ...]]],
+    ) -> None:
+        """Bind the other writer and the original row loader."""
+        self._history = history
+        self._load = load
 
-def _execute(path: Path, statement: str) -> None:
-    """Change the stored rows outside the journal."""
-    with closing(sqlite3.connect(path)) as connection:
-        connection.executescript(statement)
-        connection.commit()
+    def __call__(
+        self, connection: sqlite3.Connection, summary: HistorySummary
+    ) -> dict[str, tuple[object, ...]]:
+        """Commit through the other journal, then load rows as before."""
+        self._history.round_trip()
+        return self._load(connection, summary)
 
 
 class TestAccountStateRows:
@@ -56,7 +58,7 @@ class TestAccountStateRows:
         for orders in (10, 100):
             while history.orders < orders:
                 history.round_trip()
-            sizes.append(_head_bytes(history.journal.path))
+            sizes.append(TestAccountStateRows.head_bytes(history.journal.path))
         # Only digits of row counts may differ.
         assert abs(sizes[1] - sizes[0]) < 64
         reopened = AccountJournal(history.journal.path, history._config())
@@ -69,17 +71,17 @@ class TestAccountStateRows:
         for _ in range(3):
             history.round_trip()
         state = history.journal._store.read()
-        stripped = _strip(state)
-        assert not any(_row_values(stripped).values())
-        assert _assemble(stripped, _row_values(state)) == state
+        stripped = StateRows.strip(state)
+        assert not any(StateRows.row_values(stripped).values())
+        assert StateRows.assemble(stripped, StateRows.row_values(state)) == state
 
     @pytest.mark.parametrize("digest", ["g" * 64, "A" * 64, "a" * 63, ""])
     def test_history_and_row_digests_share_one_rule(self, digest: str) -> None:
         """Row summaries refuse exactly the digests that history digests refuse."""
         with pytest.raises(ValueError, match="invalid account history digest"):
-            _HistoryDigest(count=1, sha256=digest)
+            HistoryDigest(count=1, sha256=digest)
         with pytest.raises(ValueError, match="invalid account state row summary"):
-            _RowSummary(field="events", count=1, sha256=digest)
+            RowSummary(field="events", count=1, sha256=digest)
 
     def test_order_lookups_follow_the_staged_orders(self, tmp_path: Path) -> None:
         """Indexed lookups see an order saved in place and refuse unknown identities."""
@@ -120,14 +122,7 @@ class TestAccountStateRows:
         history.round_trip()
         reader = AccountStateStore(history.journal.path, history._config(), DomainCodec())
         before = reader.read()
-        load = reader._rows.load
-
-        def load_after_commit(
-            connection: sqlite3.Connection, summary: _HistorySummary
-        ) -> dict[str, tuple[object, ...]]:
-            """Commit from another journal between the head select and the row selects."""
-            history.round_trip()
-            return load(connection, summary)
+        load_after_commit = _CommitBeforeRowLoad(history, reader._rows.load)
 
         # A different head forces the reader past its cache into the row selects.
         history.round_trip()
@@ -159,7 +154,7 @@ class TestAccountStateRows:
             history.round_trip()
         path, config = history.journal.path, history._config()
         assert AccountJournal.verify(path, config)
-        _execute(path, tamper)
+        TestAccountStateRows.execute(path, tamper)
         with pytest.raises(ValueError, match="state rows differ from its head"):
             AccountJournal.verify(path, config)
         if not tamper.startswith("INSERT"):
@@ -192,10 +187,10 @@ class TestAccountStateRows:
         """A journal without state rows is an unsupported schema, never read or migrated."""
         history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
         path, config = history.journal.path, history._config()
-        _execute(path, "DROP TABLE state_rows")
+        TestAccountStateRows.execute(path, "DROP TABLE state_rows")
         refusals: tuple[Callable[[], object], ...] = (
-            lambda: AccountJournal(path, config),
-            lambda: AccountJournal.verify(path, config),
+            partial(AccountJournal, path, config),
+            partial(AccountJournal.verify, path, config),
         )
         for refusal in refusals:
             with pytest.raises(ValueError, match="unsupported account journal schema"):
@@ -223,7 +218,7 @@ class TestAccountStateRows:
         for orders in (100, 1000):
             while history.orders < orders:
                 history.round_trip()
-            values = _row_values(store.read())
+            values = StateRows.row_values(store.read())
             samples: list[float] = []
             with closing(sqlite3.connect(store.path)) as connection:
                 for _ in range(31):
@@ -235,3 +230,21 @@ class TestAccountStateRows:
         print(f"unchanged row write at 100/1000 orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Walking, copying and re-hashing every row of every field grew with history.
         assert medians[1] < 2 * medians[0]
+
+    @staticmethod
+    def head_bytes(path: Path) -> int:
+        """Return the size of the committed firm head."""
+        with closing(sqlite3.connect(path)) as connection:
+            row = cast(
+                tuple[object, ...],
+                connection.execute("SELECT payload FROM firm WHERE id=1").fetchone(),
+            )
+        assert type(row[0]) is bytes
+        return len(row[0])
+
+    @staticmethod
+    def execute(path: Path, statement: str) -> None:
+        """Change the stored rows outside the journal."""
+        with closing(sqlite3.connect(path)) as connection:
+            connection.executescript(statement)
+            connection.commit()

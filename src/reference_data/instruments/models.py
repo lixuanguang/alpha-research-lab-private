@@ -23,6 +23,9 @@ from reference_data.instruments.identity import (
     InstrumentIdentityError as InstrumentIdentityError,
 )
 from reference_data.instruments.identity import (
+    InstrumentIdentityModel as InstrumentIdentityModel,
+)
+from reference_data.instruments.identity import (
     InstrumentIdentityValidationError as InstrumentIdentityValidationError,
 )
 from reference_data.instruments.identity import (
@@ -30,7 +33,4 @@ from reference_data.instruments.identity import (
 )
 from reference_data.instruments.identity import (
     MappingId as MappingId,
-)
-from reference_data.instruments.identity import (
-    _InstrumentIdentityModel as _InstrumentIdentityModel,
 )

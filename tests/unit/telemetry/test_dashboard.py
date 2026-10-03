@@ -11,8 +11,10 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from fractions import Fraction
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Protocol
 
 # third party library imports
 import pytest
@@ -35,6 +37,75 @@ from telemetry.operations import OperationalAlerts
 
 # A short existing root keeps AF_UNIX paths in limits on macOS and Linux.
 _SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
+
+
+class _RecordedWriter:
+    """Run another writer and record its failure instead of losing it in the thread."""
+
+    def __init__(self, target: Callable[[], object]) -> None:
+        """Bind the write with no failure yet."""
+        self._target = target
+        self.errors: list[BaseException] = []
+
+    def __call__(self) -> None:
+        """Run the write and keep any failure."""
+        try:
+            self._target()
+        except BaseException as error:
+            self.errors.append(error)
+
+
+class _PathCheck(Protocol):
+    """The ``Path.exists`` call shape, called with the path explicitly."""
+
+    def __call__(self, path: Path, /, *, follow_symlinks: bool = ...) -> bool:
+        """Report whether the path exists."""
+        ...
+
+
+class _RaceAfterManifestCheck:
+    """Let another writer run between the manifest check and the listing, once.
+
+    Installed as ``Path.exists`` it binds the path like a method.
+    """
+
+    def __init__(self, exists: _PathCheck, manifest: Path, write: Callable[[], object]) -> None:
+        """Bind the original check, the manifest path and the racing write."""
+        self._exists = exists
+        self._manifest = manifest
+        self._write = write
+        self._started = threading.Event()
+        self.raced: list[tuple[threading.Thread, list[BaseException]]] = []
+
+    def __get__(self, instance: Path, owner: type[Path]) -> partial[bool]:
+        """Bind the check to the path it is called on."""
+        return partial(self, instance)
+
+    def __call__(self, path: Path, *, follow_symlinks: bool = True) -> bool:
+        """Check the path as before, starting the other writer after the manifest check."""
+        seen = self._exists(path, follow_symlinks=follow_symlinks)
+        if path == self._manifest and not self._started.is_set():
+            self._started.set()
+            self.raced.append(TestDashboard._race(self._write))
+        return seen
+
+
+class _RaceBeforeRename:
+    """Let another writer publish just before this one moves a directory aside, once."""
+
+    def __init__(self, rename: Callable[[Path, Path], None], write: Callable[[], object]) -> None:
+        """Bind the original rename and the racing write."""
+        self._rename = rename
+        self._write = write
+        self._started = threading.Event()
+        self.raced: list[tuple[threading.Thread, list[BaseException]]] = []
+
+    def __call__(self, source: Path, target: Path) -> None:
+        """Start the other writer once, then rename as before."""
+        if not self._started.is_set():
+            self._started.set()
+            self.raced.append(TestDashboard._race(self._write))
+        self._rename(source, target)
 
 
 class _RetainedResultMetric:
@@ -291,19 +362,11 @@ class TestDashboard:
     @staticmethod
     def _race(target: Callable[[], object]) -> tuple[threading.Thread, list[BaseException]]:
         """Start another writer and give it time to finish unless a lock holds it."""
-        errors: list[BaseException] = []
-
-        def run() -> None:
-            """Record the other writer's failure instead of losing it in the thread."""
-            try:
-                target()
-            except BaseException as error:
-                errors.append(error)
-
-        thread = threading.Thread(target=run)
+        writer = _RecordedWriter(target)
+        thread = threading.Thread(target=writer)
         thread.start()
         thread.join(0.5)
-        return thread, errors
+        return thread, writer.errors
 
     def test_concurrent_writers_of_one_view_both_succeed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -312,18 +375,10 @@ class TestDashboard:
         snapshot = self._view()
         directory = tmp_path / "view"
         manifest = directory / "manifest.json"
-        exists = Path.exists
-        raced: list[tuple[threading.Thread, list[BaseException]]] = []
-        started = threading.Event()
-
-        def exists_then_race(path: Path, *, follow_symlinks: bool = True) -> bool:
-            """Let another writer run between the manifest check and the listing."""
-            seen = exists(path, follow_symlinks=follow_symlinks)
-            if path == manifest and not started.is_set():
-                started.set()
-                raced.append(self._race(lambda: snapshot.write(directory, self._view_events())))
-            return seen
-
+        exists_then_race = _RaceAfterManifestCheck(
+            Path.exists, manifest, partial(snapshot.write, directory, self._view_events())
+        )
+        raced = exists_then_race.raced
         monkeypatch.setattr(Path, "exists", exists_then_race)
         assert snapshot.write(directory, self._view_events()) == directory / "dashboard.html"
         ((other, errors),) = raced
@@ -339,17 +394,10 @@ class TestDashboard:
         directory = tmp_path / "view"
         directory.mkdir()
         (directory / "snapshot.json").write_bytes(b'{"partial"')
-        rename = os.rename
-        raced: list[tuple[threading.Thread, list[BaseException]]] = []
-        started = threading.Event()
-
-        def race_then_rename(source: Path, target: Path) -> None:
-            """Let another writer publish just before this one moves the directory aside."""
-            if not started.is_set():
-                started.set()
-                raced.append(self._race(lambda: first.write(directory, self._view_events())))
-            rename(source, target)
-
+        race_then_rename = _RaceBeforeRename(
+            os.rename, partial(first.write, directory, self._view_events())
+        )
+        raced = race_then_rename.raced
         monkeypatch.setattr("telemetry.dashboard.os.rename", race_then_rename)
         assert second.write(directory, self._view_events()) == directory / "dashboard.html"
         ((other, errors),) = raced

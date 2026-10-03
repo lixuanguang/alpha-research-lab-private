@@ -57,6 +57,26 @@ _START = datetime(2024, 6, 1, tzinfo=UTC)
 _CODEC = DomainCodec()
 
 
+class _RecordingFeatureFactory:
+    """Record formal resolution and construct the compatible delegating evaluator."""
+
+    def __init__(self) -> None:
+        """Start with no resolutions."""
+        self.resolved: list[str] = []
+
+    def __call__(self, definition: TrailingReturn) -> FeatureDefinition:
+        """Record the definition identity and wrap it.
+
+        Args:
+            definition: Typed feature settings retained by the study.
+
+        Returns:
+            Evaluator preserving the selected definition contract.
+        """
+        self.resolved.append(definition.identity)
+        return _DelegatingFeature(definition)
+
+
 class _AdmittedPrices(ResearchReader):
     """Supply actual admitted native query results while recording requested cutoff windows."""
 
@@ -940,20 +960,8 @@ class TestFeatureStudies:
             ),
             request,
         )
-        resolved: list[str] = []
-
-        def factory(definition: TrailingReturn) -> FeatureDefinition:
-            """Record formal resolution and construct the compatible evaluator.
-
-            Args:
-                definition: Typed feature settings retained by the study.
-
-            Returns:
-                Evaluator preserving the selected definition contract.
-            """
-            resolved.append(definition.identity)
-            return _DelegatingFeature(definition)
-
+        factory = _RecordingFeatureFactory()
+        resolved = factory.resolved
         registry = FeatureRegistry()
         registry.register("delegating-trailing", factory)
         with (

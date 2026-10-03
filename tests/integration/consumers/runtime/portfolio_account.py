@@ -11,10 +11,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-if __name__ == "__main__":
-    # Python -I excludes the script directory; expose only this copied consumer bundle.
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 # third party library imports
 import msgspec
 from msgspec.structs import replace
@@ -26,7 +22,7 @@ from portfolio_account_facts import (
 
 # project library imports
 from accounting import AccountLedger, AccountSnapshot
-from applications.execute.accounts import (
+from applications.execute import (
     AccountExecutionApplication,
     AccountExecutionRequest,
     AccountExecutionResult,

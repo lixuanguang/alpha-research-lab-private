@@ -13,7 +13,7 @@ from typing import BinaryIO
 # project library imports
 from market_data.contracts import RawObject, RequestBinding
 from market_data.storage.objects import RawFiles
-from serialization import sync_directory
+from serialization import DurableDirectory
 
 
 class RawStore:
@@ -78,7 +78,7 @@ class RawStore:
                     staging.unlink(missing_ok=True)
         with self.open(descriptor=descriptor, request=request) as published:
             os.fsync(published.fileno())
-        sync_directory(self._root)
+        DurableDirectory.sync(self._root)
         return destination
 
     def open(self, *, descriptor: RawObject, request: RequestBinding) -> BinaryIO:

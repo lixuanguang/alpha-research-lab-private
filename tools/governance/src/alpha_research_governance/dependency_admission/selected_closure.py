@@ -27,10 +27,7 @@ from alpha_research_governance.dependency_admission.models import (
     DependencyAdmission,
     DependencyAdmissionError,
 )
-from alpha_research_governance.dependency_admission.policy import (
-    _locked_python_packages,
-    validate_repository,
-)
+from alpha_research_governance.dependency_admission.policy import DependencyRepository
 from alpha_research_governance.dependency_admission.wheel_archive import (
     WheelArchive,
     WheelIdentity,
@@ -117,7 +114,7 @@ class SelectedClosureAdmission:
             OSError: Required repository or wheel bytes cannot be read.
         """
         environment = self._target_environment(target)
-        policy = validate_repository(self._root)
+        policy = DependencyRepository.validate(self._root)
         admitted_digests = dict(policy.lock_digests)
         if self._selected_relative not in admitted_digests:
             raise DependencyAdmissionError(
@@ -126,8 +123,8 @@ class SelectedClosureAdmission:
         selected_digest = hashlib.sha256(self._selected_lock.read_bytes()).hexdigest()
         if selected_digest != admitted_digests[self._selected_relative]:
             raise DependencyAdmissionError(["selected lock differs from admitted SHA-256 digest"])
-        selected = _locked_python_packages(self._selected_lock)
-        full = _locked_python_packages(self._root / _ROOT_LOCK_PATH)
+        selected = DependencyRepository.locked_packages(self._selected_lock)
+        full = DependencyRepository.locked_packages(self._root / _ROOT_LOCK_PATH)
         inventory = self._inventory(root_wheel, wheels)
         root_name = inventory[root_wheel.resolve(strict=True)].name
         if _OPERATING_LOCKS.get(root_name) != self._selected_relative:
@@ -203,8 +200,8 @@ class SelectedClosureAdmission:
             or facts.selected_lock_sha256 != digests[lock_path]
         ):
             raise DependencyAdmissionError(["retained closure lock digest differs"])
-        selected = _locked_python_packages(selected_lock)
-        full = _locked_python_packages(root_lock)
+        selected = DependencyRepository.locked_packages(selected_lock)
+        full = DependencyRepository.locked_packages(root_lock)
         by_name: dict[str, WheelIdentity] = {}
         for path in wheels:
             identity = WheelArchive.inspect(path)

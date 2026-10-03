@@ -5,7 +5,9 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 from zipfile import ZipFile
 
@@ -17,6 +19,10 @@ from research.studies.configuration import BacktestRun
 from research.studies.tracking import ClearMLDestination
 from runtime import ImplementationIdentity, RuntimeFiles
 from serialization import DomainCodec, WireRecord
+
+if TYPE_CHECKING:
+    # third party library imports
+    from clearml import Task
 
 
 class PipelineRun(WireRecord, frozen=True):
@@ -272,3 +278,47 @@ class ResearchPipeline:
             return controller.id
         finally:
             controller.close()
+
+
+class PipelineStepTask:
+    """Read and update the ClearML task that runs one pipeline step on a local agent."""
+
+    def __init__(self, task: Task) -> None:
+        """Bind one server task.
+
+        Args:
+            task: ClearML task selected by the agent for this step.
+        """
+        self._task = task
+
+    @classmethod
+    def get(cls, task_id: str) -> PipelineStepTask:
+        """Read the task the local agent supplied for this step.
+
+        Args:
+            task_id: Server task identity from the agent's environment.
+
+        Returns:
+            The bound step task.
+        """
+        # third party library imports
+        from clearml import Task
+
+        return cls(Task.get_task(task_id=task_id))
+
+    @property
+    def identity(self) -> str:
+        """Return the server task identity."""
+        return self._task.id
+
+    def parameters(self) -> dict[str, str]:
+        """Return the task's searchable parameters."""
+        return self._task.get_parameters()
+
+    def set_parameters(self, parameters: Mapping[str, str]) -> None:
+        """Store explicitly authored non-secret searchable parameters.
+
+        Args:
+            parameters: Complete parameter mapping to retain on the task.
+        """
+        self._task.set_parameters(parameters)

@@ -17,11 +17,11 @@ from reference_data.instruments.models import (
     IdentifierScheme,
     InstrumentId,
     InstrumentIdentity,
+    InstrumentIdentityModel,
     InstrumentIdentityValidationError,
     InstrumentKind,
     MappingId,
     SymbologyMapping,
-    _InstrumentIdentityModel,
 )
 
 
@@ -37,7 +37,7 @@ class AmbiguousIdentifierError(InstrumentIdentityValidationError):
     """Report a lookup matching more than one canonical instrument."""
 
 
-class SymbologyCatalog(_InstrumentIdentityModel):
+class SymbologyCatalog(InstrumentIdentityModel):
     """Hold one immutable projection of canonical identities and mapping history.
 
     Corrections remain in ``mappings`` and superseded assertions are excluded from
@@ -300,7 +300,7 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         """
         if not isinstance(identifier_query, IdentifierQuery):
             raise InstrumentIdentityValidationError("identifier_query must be an IdentifierQuery")
-        valid_at_utc = _InstrumentIdentityModel._require_utc_datetime(
+        valid_at_utc = InstrumentIdentityModel._require_utc_datetime(
             valid_at, field_name="valid_at"
         )
         matching_mappings = tuple(
@@ -344,7 +344,7 @@ class SymbologyCatalog(_InstrumentIdentityModel):
             UnknownInstrumentError: The canonical instrument is not registered.
         """
         self.get_instrument_identity(instrument_id)
-        valid_at_utc = _InstrumentIdentityModel._require_utc_datetime(
+        valid_at_utc = InstrumentIdentityModel._require_utc_datetime(
             valid_at, field_name="valid_at"
         )
         if identifier_scheme is not None and not isinstance(identifier_scheme, IdentifierScheme):

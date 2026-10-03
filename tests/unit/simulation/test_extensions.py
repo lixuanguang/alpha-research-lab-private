@@ -32,6 +32,21 @@ from strategies import Momentum, Reversal, RuleRegistry, TargetRule
 _START = datetime(2024, 6, 1, tzinfo=UTC)
 
 
+class ExtensionFixture:
+    """Build delegating feature and estimator extensions."""
+
+    @staticmethod
+    def delegating_feature(definition: TrailingReturn) -> FeatureDefinition:
+        """Construct one feature evaluator from typed settings."""
+        return _DelegatingFeature(definition)
+
+    @staticmethod
+    def delegating_estimator(definition: LinearDefinition) -> LinearModel:
+        """Construct one estimator after observing typed settings."""
+        definition.__post_init__()
+        return _DelegatingEstimator()
+
+
 class _InvalidIdentityRule:
     """Provide a structurally valid rule with an invalid registration identity."""
 
@@ -105,17 +120,6 @@ class _DelegatingFeature:
 
 class _DelegatingEstimator(LinearModel):
     """Mark a distinct estimator engine while preserving the linear consumer API."""
-
-
-def _delegating_feature(definition: TrailingReturn) -> FeatureDefinition:
-    """Construct one feature evaluator from typed settings."""
-    return _DelegatingFeature(definition)
-
-
-def _delegating_estimator(definition: LinearDefinition) -> LinearModel:
-    """Construct one estimator after observing typed settings."""
-    definition.__post_init__()
-    return _DelegatingEstimator()
 
 
 class TestRuleRegistry:
@@ -235,7 +239,7 @@ class TestResearchRegistries:
         """Allow a distinct evaluator while retaining identity, units and timing."""
         definition = self._feature()
         registry = FeatureRegistry()
-        registry.register("delegating-trailing", _delegating_feature)
+        registry.register("delegating-trailing", ExtensionFixture.delegating_feature)
 
         resolved = registry.resolve("delegating-trailing", definition)
 
@@ -254,7 +258,7 @@ class TestResearchRegistries:
             mode="configured", assumptions="Injected exact estimator", intercept=zero, slope=zero
         )
         registry = EstimatorRegistry()
-        registry.register("delegating-linear", _delegating_estimator)
+        registry.register("delegating-linear", ExtensionFixture.delegating_estimator)
 
         first = registry.resolve("delegating-linear", definition)
         second = registry.resolve("delegating-linear", definition)

@@ -16,7 +16,7 @@ from market_data.adapters.venues.okx.history_discovery import OKXArchiveDiscover
 from market_data.adapters.venues.okx.history_reader import OKXArchiveReader
 from market_data.contracts import OKXArchiveRequest, RawObject
 from market_data.storage import RawFiles, RawStore
-from serialization import DomainCodec, sync_directory
+from serialization import DomainCodec, DurableDirectory
 
 
 class OKXArchiveStore:
@@ -49,7 +49,7 @@ class OKXArchiveStore:
         self.root.mkdir(parents=True, exist_ok=False)
         self._write("index.json", index)
         self._write("request.json", self.codec.encode_json(request))
-        sync_directory(self.root.parent)
+        DurableDirectory.sync(self.root.parent)
 
     def finish(self, request: OKXArchiveRequest, received: datetime) -> RawObject:
         """Publish validated archive bytes through the existing content-addressed raw store.
@@ -74,7 +74,7 @@ class OKXArchiveStore:
         descriptor = replace(descriptor, ts_ingested=max(received, datetime.now(UTC)))
         self._write("manifest.pending", self.codec.encode_json(descriptor))
         os.replace(self.root / "manifest.pending", self.root / "manifest.json")
-        sync_directory(self.root)
+        DurableDirectory.sync(self.root)
         return descriptor
 
     def replay(self) -> dict[str, object]:
@@ -115,4 +115,4 @@ class OKXArchiveStore:
             output.write(raw)
             output.flush()
             os.fsync(output.fileno())
-        sync_directory(self.root)
+        DurableDirectory.sync(self.root)

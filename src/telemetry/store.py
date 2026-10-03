@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import NamedTuple, cast
 
 # project library imports
-from serialization import DomainCodec, require_sqlite_layout
+from serialization import DomainCodec, SqliteLayout
 from telemetry.events import MonitoringEvent, MonitoringQuery
 
 # The complete journal layout; opening refuses any other.
@@ -314,7 +314,7 @@ class TelemetryStore:
         Names alone are not enough: a trigger or column changed under the same name
         would otherwise open as current.
         """
-        require_sqlite_layout(connection, _LAYOUT, "unsupported telemetry store schema")
+        SqliteLayout.require(connection, _LAYOUT, "unsupported telemetry store schema")
         cls._floor(connection)
 
     @staticmethod

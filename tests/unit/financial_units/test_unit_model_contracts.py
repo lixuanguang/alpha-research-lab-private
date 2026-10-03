@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 from collections.abc import Callable, Mapping
 from datetime import date, datetime
+from functools import partial
 from uuid import UUID
 
 # third party library imports
@@ -37,8 +38,10 @@ from financial_units import (
     Volatility,
     Yield,
 )
-from financial_units.models import _FinancialUnitModel
+from financial_units.models import FinancialUnitModel
 from reference_data.instruments import InstrumentId
+
+_NOT_A_DIMENSION: dict[str, object] = {}
 
 
 class TestFinancialModelContracts:
@@ -55,7 +58,7 @@ class TestFinancialModelContracts:
         Returns:
             A dimension carrying the unchecked replacement for boundary testing.
         """
-        return super(_FinancialUnitModel, model).model_copy(update=update)
+        return super(FinancialUnitModel, model).model_copy(update=update)
 
     def test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation(self) -> None:
         """Reject unchecked identity and calendar replacements at financial boundaries."""
@@ -101,10 +104,10 @@ class TestFinancialModelContracts:
         ],
     )
     def test_representative_models_keep_frozen_hashable_strict_pydantic_semantics(
-        self, model: _FinancialUnitModel
+        self, model: FinancialUnitModel
     ) -> None:
         """Preserve strict validation, immutability and hashes across public model copies."""
-        assert isinstance(model, _FinancialUnitModel)
+        assert isinstance(model, FinancialUnitModel)
         payload: dict[str, object] = dict(model)
         assert model.model_validate(payload) == model
         assert model.model_validate(model) == model
@@ -129,32 +132,41 @@ class TestFinancialModelContracts:
     @pytest.mark.parametrize(
         "operation",
         [
-            lambda: Money(value=D("1"), currency="USD"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor currency rejection; expires=2027-03-01]
-            lambda: Dimension(instrument_id=UUID(int=1), kind=QuantityKind.SHARE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor identifier rejection; expires=2027-03-01]
-            lambda: Dimension(instrument_id=InstrumentId(UUID(int=1)), kind="share"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor kind rejection; expires=2027-03-01]
-            lambda: Quantity(value=D("1"), dimension={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
-            lambda: Price(value=D("1"), currency=Currency.from_code("USD"), per={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
-            lambda: RateConvention(day_count="actual_360", compounding=Compounding.SIMPLE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor day-count rejection; expires=2027-03-01]
-            lambda: RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC),
-            lambda: RateConvention(
+            partial(Money, value=D("1"), currency="USD"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor currency rejection; expires=2027-03-01]
+            partial(Dimension, instrument_id=UUID(int=1), kind=QuantityKind.SHARE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor identifier rejection; expires=2027-03-01]
+            partial(Dimension, instrument_id=InstrumentId(UUID(int=1)), kind="share"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor kind rejection; expires=2027-03-01]
+            partial(Quantity, value=D("1"), dimension=_NOT_A_DIMENSION),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
+            partial(Price, value=D("1"), currency=Currency.from_code("USD"), per=_NOT_A_DIMENSION),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
+            partial(RateConvention, day_count="actual_360", compounding=Compounding.SIMPLE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor day-count rejection; expires=2027-03-01]
+            partial(
+                RateConvention, day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC
+            ),
+            partial(
+                RateConvention,
                 day_count=DayCount.ACTUAL_360,
                 compounding=Compounding.PERIODIC,
                 payments_per_year=True,
             ),
-            lambda: CONVENTION.model_copy(update={"payments_per_year": 1}),
-            lambda: EvaluationContext(
-                evaluation_date=datetime(2024, 1, 1), convention_revision="v1"
+            partial(CONVENTION.model_copy, update=dict[str, object](payments_per_year=1)),
+            partial(
+                EvaluationContext, evaluation_date=datetime(2024, 1, 1), convention_revision="v1"
             ),
-            lambda: CONTEXT.model_copy(update={"convention_revision": " "}),
-            lambda: FXRate(
-                value=D("1"), base=Currency.from_code("USD"), quote=Currency.from_code("USD")
+            partial(CONTEXT.model_copy, update=dict[str, object](convention_revision=" ")),
+            partial(
+                FXRate,
+                value=D("1"),
+                base=Currency.from_code("USD"),
+                quote=Currency.from_code("USD"),
             ),
-            lambda: FXRate(
-                value=D("0"), base=Currency.from_code("USD"), quote=Currency.from_code("EUR")
+            partial(
+                FXRate,
+                value=D("0"),
+                base=Currency.from_code("USD"),
+                quote=Currency.from_code("EUR"),
             ),
-            lambda: Tick(value=D("0"), currency=Currency.from_code("USD"), per=SHARES),
-            lambda: Lot(value=D("-1"), dimension=SHARES),
-            lambda: Multiplier(value=D("0"), input_dimension=SHARES, output_dimension=SHARES),
+            partial(Tick, value=D("0"), currency=Currency.from_code("USD"), per=SHARES),
+            partial(Lot, value=D("-1"), dimension=SHARES),
+            partial(Multiplier, value=D("0"), input_dimension=SHARES, output_dimension=SHARES),
         ],
     )
     def test_invalid_units_and_conventions(self, operation: Callable[[], object]) -> None:

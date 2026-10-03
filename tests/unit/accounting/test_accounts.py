@@ -13,7 +13,7 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting.accounts import (
-    _ACCOUNT_REPLAYS,
+    ACCOUNT_REPLAYS,
     AccountLedger,
     AccountPosting,
     AccountSnapshot,
@@ -583,6 +583,19 @@ class TestAccountLedger:
                 assert ledger.snapshot(instance_id) == self._summed(ledger, instance_id)
 
     @staticmethod
+    def _dimension_order(item: tuple[Dimension, Fraction]) -> bytes:
+        """Order dimensions by their lossless wire bytes."""
+        return DomainCodec().encode_json(item[0])
+
+    @staticmethod
+    def _money(totals: dict[str, Fraction], currencies: tuple[Currency, ...]) -> tuple[Money, ...]:
+        """Project exact totals in declared currency order."""
+        return tuple(
+            Money(value=DecimalGrid.exact_decimal(totals[currency.code]), currency=currency)
+            for currency in currencies
+        )
+
+    @staticmethod
     def _summed(ledger: AccountLedger, instance_id: str | None) -> AccountSnapshot:
         """Sum a scope's effective postings directly, independently of the ledger's fold."""
         currencies = ledger.state.currencies
@@ -614,31 +627,21 @@ class TestAccountLedger:
                 rebates[code] += value
             elif effect.kind == "transfer":
                 transfers[code] += value
-        codec = DomainCodec()
-
-        def order(item: tuple[Dimension, Fraction]) -> bytes:
-            """Order dimensions by their lossless wire bytes."""
-            return codec.encode_json(item[0])
-
-        def money(totals: dict[str, Fraction]) -> tuple[Money, ...]:
-            """Project exact totals in declared currency order."""
-            return tuple(
-                Money(value=DecimalGrid.exact_decimal(totals[currency.code]), currency=currency)
-                for currency in currencies
-            )
-
+        money = TestAccountLedger._money
         return AccountSnapshot(
             account_id=ledger.state.account_id,
             instance_id=instance_id,
-            cash=money(cash),
+            cash=money(cash, currencies),
             positions=tuple(
                 Quantity(value=DecimalGrid.exact_decimal(value), dimension=dimension)
-                for dimension, value in sorted(positions.items(), key=order)
+                for dimension, value in sorted(
+                    positions.items(), key=TestAccountLedger._dimension_order
+                )
                 if value
             ),
-            fees=money(fees),
-            rebates=money(rebates),
-            transfers=money(transfers),
+            fees=money(fees, currencies),
+            rebates=money(rebates, currencies),
+            transfers=money(transfers, currencies),
             fill_ids=tuple(fill_ids),
             posting_ids=tuple(
                 posting.identity
@@ -679,10 +682,10 @@ class TestAccountLedger:
         for second in range(40):
             ledger.post(self._transfer(f"deposit-{second}", seconds=second, value="1"))
             states.append(ledger.state)
-        remembered = [state for state in states if _ACCOUNT_REPLAYS.find(state) is not None]
+        remembered = [state for state in states if ACCOUNT_REPLAYS.find(state) is not None]
         # Each fold is as large as its history; 64 of them per account made memory quadratic.
         assert remembered == states[-4:]
-        assert _ACCOUNT_REPLAYS.find(quiet) is not None
+        assert ACCOUNT_REPLAYS.find(quiet) is not None
 
     def test_exact_balances_survive_low_decimal_precision(self) -> None:
         """Avoid ambient Decimal rounding in cumulative multi-posting balances."""

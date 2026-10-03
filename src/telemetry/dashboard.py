@@ -22,7 +22,7 @@ import msgspec
 
 # project library imports
 from financial_units import ExactRatio
-from serialization import DomainCodec, WireRecord, publish_directory
+from serialization import DomainCodec, DurableDirectory, WireRecord
 from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringQuery
 from telemetry.metrics import (
     MetricPoint,
@@ -449,8 +449,8 @@ class DashboardSnapshot(WireRecord, frozen=True):
         payloads = tuple(provenance.splitlines()) if provenance else ()
         if provenance and not provenance.endswith(b"\n"):
             raise ValueError("retained dashboard provenance is incomplete")
-        _Selection.admit_all(snapshot.query, payloads, codec)
-        if (len(payloads), _Selection.digest(payloads)) != (
+        DashboardViewSelection.admit_all(snapshot.query, payloads, codec)
+        if (len(payloads), DashboardViewSelection.digest(payloads)) != (
             snapshot.event_count,
             snapshot.events_sha256,
         ):
@@ -478,7 +478,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
         """
         DashboardSnapshot.__post_init__(self)
         codec = DomainCodec()
-        selection = _Selection.of(self.query, inputs, codec)
+        selection = DashboardViewSelection.of(self.query, inputs, codec)
         if (len(selection.rows), selection.digest_all()) != (
             self.event_count,
             self.events_sha256,
@@ -530,7 +530,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
                     output.write(payload)
                     output.flush()
                     os.fsync(output.fileno())
-            if not publish_directory(staging, directory):
+            if not DurableDirectory.publish(staging, directory):
                 # A publisher outside this lock went first; its view must be this one.
                 return self._verified(directory)
         finally:
@@ -856,7 +856,7 @@ class _DecodeCache:
         self.private: OrderedDict[bytes, tuple[MonitoringEvent, str]] = OrderedDict()
 
 
-class _Selection:
+class DashboardViewSelection:
     """Hold one query's selected payloads in query order and admit events on demand.
 
     Payloads come from the store's latest-revision selection or from caller events
@@ -887,7 +887,7 @@ class _Selection:
         inputs: tuple[MonitoringEvent, ...] | TelemetrySelection,
         codec: DomainCodec,
         cache: _DecodeCache | None = None,
-    ) -> _Selection:
+    ) -> DashboardViewSelection:
         """Accept a store selection for this query, or admit and order caller events."""
         query.__post_init__()
         if type(inputs) is TelemetrySelection:
@@ -1042,13 +1042,13 @@ class DashboardBuilder:
     ) -> DashboardSnapshot:
         """Build an immutable view whose alerts cannot invoke hard controls."""
         return DashboardBuilder._build(
-            config, _Selection.of(query, inputs, DomainCodec()), registry, alerts
+            config, DashboardViewSelection.of(query, inputs, DomainCodec()), registry, alerts
         )
 
     @staticmethod
     def _build(
         config: DashboardConfig,
-        selection: _Selection,
+        selection: DashboardViewSelection,
         registry: MetricRegistry,
         alerts: OperationalAlerts | None,
     ) -> DashboardSnapshot:
@@ -1111,7 +1111,9 @@ class DashboardBuilder:
         )
 
     @staticmethod
-    def _panel(identity: str, selection: _Selection, registry: MetricRegistry) -> PanelResult:
+    def _panel(
+        identity: str, selection: DashboardViewSelection, registry: MetricRegistry
+    ) -> PanelResult:
         """Evaluate one registered definition over its named, versioned inputs."""
         definition = registry.definition(identity)
         spec, query = definition.spec, selection.query
@@ -1122,7 +1124,7 @@ class DashboardBuilder:
                 status="inapplicable",
                 reason="metric does not apply to this mode",
                 input_count=0,
-                inputs_sha256=_Selection.digest(()),
+                inputs_sha256=DashboardViewSelection.digest(()),
                 point_count=0,
             )
         if type(definition) is SeriesMetric:
@@ -1149,7 +1151,7 @@ class DashboardBuilder:
         )
 
     @staticmethod
-    def _series(spec: MetricSpec, selection: _Selection) -> PanelResult:
+    def _series(spec: MetricSpec, selection: DashboardViewSelection) -> PanelResult:
         """Apply installed last/sum/mean/maximum semantics, decoding only what is shown.
 
         The result equals ``SeriesMetric.evaluate`` over every input, restricted to
@@ -1249,7 +1251,7 @@ class DashboardRenderer:
         """
         snapshot = DashboardBuilder._build(
             self.config,
-            _Selection.of(query, inputs, self.codec, self._events),
+            DashboardViewSelection.of(query, inputs, self.codec, self._events),
             self.registry,
             None,
         )

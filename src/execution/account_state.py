@@ -43,10 +43,10 @@ from execution.account_reduction import PaperReductionResult
 from execution.paper_authority import PaperActivation
 from execution.records import OrderEvent, OrderState, StepCommit
 from reference_data.instruments import InstrumentId
-from serialization import DomainCodec, WireRecord, require_sqlite_layout
+from serialization import DomainCodec, SqliteLayout, WireRecord
 
 
-class _SavedDecision(WireRecord, frozen=True):
+class SavedDecision(WireRecord, frozen=True):
     """Retain original request and outcome for restart-safe idempotent admission."""
 
     request: AccountDecision
@@ -67,7 +67,7 @@ class _Reconciliation(WireRecord, frozen=True):
     matched: bool
 
 
-class _SavedPortfolioBatch(WireRecord, frozen=True):
+class SavedPortfolioBatch(WireRecord, frozen=True):
     """Retain exact coordination input and outcome for transport retry."""
 
     batch: PortfolioBatch
@@ -112,7 +112,7 @@ class _InstanceControl(WireRecord, frozen=True):
             raise ValueError("invalid instance control")
 
 
-class _FirmState(WireRecord, frozen=True):
+class FirmState(WireRecord, frozen=True):
     """Hold the complete local transaction boundary.
 
     The three history tuples hold only the items staged by the current
@@ -123,12 +123,12 @@ class _FirmState(WireRecord, frozen=True):
     accounts: tuple[AccountView, ...]
     orders: tuple[TaggedOrder, ...] = ()
     quotes: tuple[AccountQuote, ...] = ()
-    decisions: tuple[_SavedDecision, ...] = ()
+    decisions: tuple[SavedDecision, ...] = ()
     events: tuple[_SavedEvent, ...] = ()
     reconciliations: tuple[_Reconciliation, ...] = ()
     failed_events: tuple[OrderEvent, ...] = ()
     failed_postings: tuple[AccountPosting, ...] = ()
-    portfolio_batches: tuple[_SavedPortfolioBatch, ...] = ()
+    portfolio_batches: tuple[SavedPortfolioBatch, ...] = ()
     net_orders: tuple[NetOrder, ...] = ()
     net_events: tuple[_SavedNetEvent, ...] = ()
     failed_net_events: tuple[OrderEvent, ...] = ()
@@ -148,23 +148,7 @@ class _FirmState(WireRecord, frozen=True):
     paper_restore_quarantine: bool = False
 
 
-def _require_digest(count: object, sha256: object, message: str) -> None:
-    """Require a row count, with no digest for no rows and lowercase hex sha256 otherwise."""
-    if (
-        type(count) is not int
-        or count < 0
-        or type(sha256) is not str
-        or (sha256 == "") != (count == 0)
-        or (count and (len(sha256) != 64 or sha256 != sha256.lower()))
-    ):
-        raise ValueError(message)
-    try:
-        bytes.fromhex(sha256)
-    except ValueError:
-        raise ValueError(message) from None
-
-
-class _HistoryDigest(WireRecord, frozen=True):
+class HistoryDigest(WireRecord, frozen=True):
     """Bind one history table's row count to a hash chain over its item bytes."""
 
     count: int
@@ -172,12 +156,28 @@ class _HistoryDigest(WireRecord, frozen=True):
 
     def __post_init__(self) -> None:
         """Require an empty chain for no rows and a sha256 digest otherwise."""
-        _require_digest(self.count, self.sha256, "invalid account history digest")
+        HistoryDigest.require_shape(self.count, self.sha256, "invalid account history digest")
 
-    def extend(self, item: bytes) -> _HistoryDigest:
+    def extend(self, item: bytes) -> HistoryDigest:
         """Chain one more item's exact bytes after the current rows."""
         digest = hashlib.sha256(bytes.fromhex(self.sha256) + item).hexdigest()
-        return _HistoryDigest(count=self.count + 1, sha256=digest)
+        return HistoryDigest(count=self.count + 1, sha256=digest)
+
+    @staticmethod
+    def require_shape(count: object, sha256: object, message: str) -> None:
+        """Require a row count, with no digest for no rows and lowercase hex sha256 otherwise."""
+        if (
+            type(count) is not int
+            or count < 0
+            or type(sha256) is not str
+            or (sha256 == "") != (count == 0)
+            or (count and (len(sha256) != 64 or sha256 != sha256.lower()))
+        ):
+            raise ValueError(message)
+        try:
+            bytes.fromhex(sha256)
+        except ValueError:
+            raise ValueError(message) from None
 
 
 class _InstanceCheckpoint(WireRecord, frozen=True):
@@ -187,7 +187,7 @@ class _InstanceCheckpoint(WireRecord, frozen=True):
     checkpoint: bytes
 
 
-class _RowSummary(WireRecord, frozen=True):
+class RowSummary(WireRecord, frozen=True):
     """Bind one row-kept state field to its row count and a digest of its row digests."""
 
     field: str
@@ -198,26 +198,26 @@ class _RowSummary(WireRecord, frozen=True):
         """Require a field name, an empty digest for no rows and a sha256 digest otherwise."""
         if type(self.field) is not str or not self.field:
             raise ValueError("invalid account state row summary")
-        _require_digest(self.count, self.sha256, "invalid account state row summary")
+        HistoryDigest.require_shape(self.count, self.sha256, "invalid account state row summary")
 
     @staticmethod
-    def of(field: str, digests: list[bytes]) -> _RowSummary:
+    def of(field: str, digests: list[bytes]) -> RowSummary:
         """Summarize rows from their sha256 digests in position order."""
-        return _RowSummary(
+        return RowSummary(
             field=field,
             count=len(digests),
             sha256=hashlib.sha256(b"".join(digests)).hexdigest() if digests else "",
         )
 
 
-class _HistorySummary(WireRecord, frozen=True):
+class HistorySummary(WireRecord, frozen=True):
     """Summarize the history tables and state rows committed with one head."""
 
-    decisions: _HistoryDigest
-    portfolio_batches: _HistoryDigest
-    paper_traces: _HistoryDigest
+    decisions: HistoryDigest
+    portfolio_batches: HistoryDigest
+    paper_traces: HistoryDigest
     checkpoints: tuple[_InstanceCheckpoint, ...]
-    rows: tuple[_RowSummary, ...]
+    rows: tuple[RowSummary, ...]
 
     def __post_init__(self) -> None:
         """Require one checkpoint entry per instance and one summary per row field."""
@@ -227,14 +227,14 @@ class _HistorySummary(WireRecord, frozen=True):
             raise ValueError("invalid account state row summaries")
 
 
-class _FirmHead(WireRecord, frozen=True):
+class FirmHead(WireRecord, frozen=True):
     """Persist the live head: current state without history, plus its summary.
 
     Paper activation is recorded only by the presence of ``paper_activations``.
     """
 
-    history: _HistorySummary
-    state: _FirmState
+    history: HistorySummary
+    state: FirmState
     schema_version: Literal["account-journal"] = "account-journal"
 
     def __post_init__(self) -> None:
@@ -271,48 +271,8 @@ _ROWS_TABLE = (
 class _LoadedHead(NamedTuple):
     """A committed head's history summary with its complete in-memory state."""
 
-    history: _HistorySummary
-    state: _FirmState
-
-
-def _row_values(state: _FirmState) -> dict[str, tuple[object, ...]]:
-    """Return every row-kept tuple of a complete state by its row field name."""
-    values: dict[str, tuple[object, ...]] = {
-        name: cast(tuple[object, ...], getattr(state, name)) for name, _ in _ROW_FIELDS
-    }
-    for account in state.accounts:
-        values[_POSTINGS + account.ledger.account_id] = account.ledger.postings
-    return values
-
-
-def _strip(state: _FirmState) -> _FirmState:
-    """Return the head part of a complete state: row-kept fields and postings emptied."""
-    accounts: list[AccountView] = []
-    for account in state.accounts:
-        ledger: AccountState = replace(account.ledger, postings=())
-        accounts.append(replace(account, ledger=ledger))
-    views: tuple[AccountView, ...] = tuple(accounts)
-    emptied: dict[str, object] = {name: () for name, _ in _ROW_FIELDS}
-    return replace(state, accounts=views, **emptied)
-
-
-def _assemble(state: _FirmState, values: dict[str, tuple[object, ...]]) -> _FirmState:
-    """Restore a head state's row-kept fields and postings from decoded rows."""
-    expected = {name for name, _ in _ROW_FIELDS} | {
-        _POSTINGS + account.ledger.account_id for account in state.accounts
-    }
-    if set(values) != expected:
-        raise ValueError("account journal state rows differ from its head")
-    accounts: list[AccountView] = []
-    for account in state.accounts:
-        postings = cast(tuple[AccountPosting, ...], values[_POSTINGS + account.ledger.account_id])
-        # Decoding validated each posting row; attach reuses or extends a remembered
-        # fold instead of validating and replaying the whole history again.
-        ledger = AccountLedger.attach(account.ledger, postings)
-        accounts.append(replace(account, ledger=ledger))
-    views: tuple[AccountView, ...] = tuple(accounts)
-    rows: dict[str, object] = {name: values[name] for name, _ in _ROW_FIELDS}
-    return replace(state, accounts=views, **rows)
+    history: HistorySummary
+    state: FirmState
 
 
 class _CachedRows(NamedTuple):
@@ -320,10 +280,10 @@ class _CachedRows(NamedTuple):
 
     items: tuple[object, ...]
     digests: list[bytes]
-    summary: _RowSummary
+    summary: RowSummary
 
 
-class _StateRows:
+class StateRows:
     """Keep row-kept state fields in ``state_rows`` and reuse decoded rows in process.
 
     A commit skips a field whose tuple is unchanged, writes only rows whose item
@@ -343,9 +303,9 @@ class _StateRows:
         connection: sqlite3.Connection,
         committed: dict[str, tuple[object, ...]],
         staged: dict[str, tuple[object, ...]],
-    ) -> tuple[tuple[_RowSummary, ...], dict[str, _CachedRows]]:
+    ) -> tuple[tuple[RowSummary, ...], dict[str, _CachedRows]]:
         """Write changed rows; return the summaries and the cache entries to keep on commit."""
-        summaries: list[_RowSummary] = []
+        summaries: list[RowSummary] = []
         updates: dict[str, _CachedRows] = {}
         for field in sorted(staged):
             items = staged[field]
@@ -390,7 +350,7 @@ class _StateRows:
                     "DELETE FROM state_rows WHERE field=? AND seq>=?", (field, len(items))
                 )
                 del digests[len(items) :]
-            summary = _RowSummary.of(field, digests)
+            summary = RowSummary.of(field, digests)
             updates[field] = _CachedRows(items, digests, summary)
             summaries.append(summary)
         return tuple(summaries), updates
@@ -400,7 +360,7 @@ class _StateRows:
         self._cache.update(updates)
 
     def load(
-        self, connection: sqlite3.Connection, summary: _HistorySummary
+        self, connection: sqlite3.Connection, summary: HistorySummary
     ) -> dict[str, tuple[object, ...]]:
         """Return every row-kept tuple, decoding only rows the cache does not hold."""
         values: dict[str, tuple[object, ...]] = {}
@@ -439,14 +399,14 @@ class _StateRows:
                     if stored is None:
                         raise ValueError("account journal state rows differ from its head")
                     items.append(self._decode(stored[0], digest, target))
-            loaded = _RowSummary.of(field, digests)
+            loaded = RowSummary.of(field, digests)
             if loaded != expected:
                 raise ValueError("account journal state rows differ from its head")
             values[field] = tuple(items)
             self._cache[field] = _CachedRows(values[field], digests, loaded)
         return values
 
-    def verify(self, connection: sqlite3.Connection, summary: _HistorySummary) -> None:
+    def verify(self, connection: sqlite3.Connection, summary: HistorySummary) -> None:
         """Require stored row fields to be exactly those the head summarizes."""
         stored = cast(
             list[tuple[object, ...]],
@@ -489,11 +449,53 @@ class _StateRows:
                 return target
         raise ValueError("account journal state rows differ from its head")
 
+    @staticmethod
+    def row_values(state: FirmState) -> dict[str, tuple[object, ...]]:
+        """Return every row-kept tuple of a complete state by its row field name."""
+        values: dict[str, tuple[object, ...]] = {
+            name: cast(tuple[object, ...], getattr(state, name)) for name, _ in _ROW_FIELDS
+        }
+        for account in state.accounts:
+            values[_POSTINGS + account.ledger.account_id] = account.ledger.postings
+        return values
 
-_EMPTY_HISTORY = _HistorySummary(
-    decisions=_HistoryDigest(count=0, sha256=""),
-    portfolio_batches=_HistoryDigest(count=0, sha256=""),
-    paper_traces=_HistoryDigest(count=0, sha256=""),
+    @staticmethod
+    def strip(state: FirmState) -> FirmState:
+        """Return the head part of a complete state: row-kept fields and postings emptied."""
+        accounts: list[AccountView] = []
+        for account in state.accounts:
+            ledger: AccountState = replace(account.ledger, postings=())
+            accounts.append(replace(account, ledger=ledger))
+        views: tuple[AccountView, ...] = tuple(accounts)
+        emptied: dict[str, object] = {name: () for name, _ in _ROW_FIELDS}
+        return replace(state, accounts=views, **emptied)
+
+    @staticmethod
+    def assemble(state: FirmState, values: dict[str, tuple[object, ...]]) -> FirmState:
+        """Restore a head state's row-kept fields and postings from decoded rows."""
+        expected = {name for name, _ in _ROW_FIELDS} | {
+            _POSTINGS + account.ledger.account_id for account in state.accounts
+        }
+        if set(values) != expected:
+            raise ValueError("account journal state rows differ from its head")
+        accounts: list[AccountView] = []
+        for account in state.accounts:
+            postings = cast(
+                tuple[AccountPosting, ...], values[_POSTINGS + account.ledger.account_id]
+            )
+            # Decoding validated each posting row; attach reuses or extends a remembered
+            # fold instead of validating and replaying the whole history again.
+            ledger = AccountLedger.attach(account.ledger, postings)
+            accounts.append(replace(account, ledger=ledger))
+        views: tuple[AccountView, ...] = tuple(accounts)
+        rows: dict[str, object] = {name: values[name] for name, _ in _ROW_FIELDS}
+        return replace(state, accounts=views, **rows)
+
+
+_EMPTY_HISTORY = HistorySummary(
+    decisions=HistoryDigest(count=0, sha256=""),
+    portfolio_batches=HistoryDigest(count=0, sha256=""),
+    paper_traces=HistoryDigest(count=0, sha256=""),
     checkpoints=(),
     rows=(),
 )
@@ -556,26 +558,6 @@ class DispatchLease(WireRecord, frozen=True):
             raise ValueError("invalid dispatch lease")
 
 
-def _decision_key(saved: _SavedDecision) -> tuple[str, ...]:
-    """Return the decisions table lookup columns."""
-    return saved.request.instance_id, saved.request.decision.identity
-
-
-def _batch_key(saved: _SavedPortfolioBatch) -> tuple[str, ...]:
-    """Return the portfolio batches table lookup column."""
-    return (saved.batch.identity,)
-
-
-def _trace_key(trace: AccountPaperTrace) -> tuple[str, ...]:
-    """Return the paper traces table lookup columns."""
-    return (
-        trace.account_id,
-        trace.scenario.venue,
-        str(trace.scenario.instrument_id.uuid_value),
-        trace.market.identity,
-    )
-
-
 # Each table's insert and ordered full read, as (seq, *key columns, payload).
 _TABLE_STATEMENTS: dict[str, tuple[str, str]] = {
     "decisions": (
@@ -626,7 +608,7 @@ class _HistoryTables:
     """Read committed history rows inside one open SQLite transaction."""
 
     def __init__(
-        self, connection: sqlite3.Connection, codec: DomainCodec, summary: _HistorySummary
+        self, connection: sqlite3.Connection, codec: DomainCodec, summary: HistorySummary
     ) -> None:
         """Bind the connection whose transaction fixes the visible rows."""
         self.connection = connection
@@ -634,13 +616,13 @@ class _HistoryTables:
         self.summary = summary
         self._checkpoints: dict[str, bytes] | None = None
 
-    def find_decision(self, instance_id: str, decision_identity: str) -> _SavedDecision | None:
+    def find_decision(self, instance_id: str, decision_identity: str) -> SavedDecision | None:
         """Resolve one committed decision by its unique key."""
         payload = self._payload(
             "SELECT payload FROM decisions WHERE instance_id=? AND decision_identity=?",
             (instance_id, decision_identity),
         )
-        return None if payload is None else self.codec.decode_json(payload, _SavedDecision)
+        return None if payload is None else self.codec.decode_json(payload, SavedDecision)
 
     def latest_checkpoint(self, instance_id: str) -> bytes | None:
         """Read the instance's latest committed continuation from the head."""
@@ -650,12 +632,12 @@ class _HistoryTables:
             }
         return self._checkpoints.get(instance_id)
 
-    def find_batch(self, identity: str) -> _SavedPortfolioBatch | None:
+    def find_batch(self, identity: str) -> SavedPortfolioBatch | None:
         """Resolve one committed portfolio batch by its unique identity."""
         payload = self._payload(
             "SELECT payload FROM portfolio_batches WHERE batch_identity=?", (identity,)
         )
-        return None if payload is None else self.codec.decode_json(payload, _SavedPortfolioBatch)
+        return None if payload is None else self.codec.decode_json(payload, SavedPortfolioBatch)
 
     def find_trace(
         self,
@@ -694,21 +676,24 @@ class _HistoryTables:
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield cast(int, row[0]), self.codec.decode_json(self._blob(row[1]), AccountPaperTrace)
 
-    def append(self, state: _FirmState) -> _HistorySummary:
+    def append(self, state: FirmState) -> HistorySummary:
         """Insert the state's staged history items and return the extended summary."""
         decisions = self._insert(
-            "decisions", self.summary.decisions, state.decisions, _decision_key
+            "decisions", self.summary.decisions, state.decisions, _HistoryTables._decision_key
         )
         batches = self._insert(
-            "portfolio_batches", self.summary.portfolio_batches, state.portfolio_batches, _batch_key
+            "portfolio_batches",
+            self.summary.portfolio_batches,
+            state.portfolio_batches,
+            _HistoryTables._batch_key,
         )
         traces = self._insert(
-            "paper_traces", self.summary.paper_traces, state.paper_traces, _trace_key
+            "paper_traces", self.summary.paper_traces, state.paper_traces, _HistoryTables._trace_key
         )
         checkpoints = {item.instance_id: item.checkpoint for item in self.summary.checkpoints}
         for saved in state.decisions:
             checkpoints[saved.request.instance_id] = saved.request.checkpoint
-        return _HistorySummary(
+        return HistorySummary(
             decisions=decisions,
             portfolio_batches=batches,
             paper_traces=traces,
@@ -721,9 +706,9 @@ class _HistoryTables:
 
     def verify(self) -> None:
         """Check every row, its key columns and the head's counts, digests and checkpoints."""
-        decisions = self._verify_table("decisions", _SavedDecision, _decision_key)
-        self._verify_table("portfolio_batches", _SavedPortfolioBatch, _batch_key)
-        self._verify_table("paper_traces", AccountPaperTrace, _trace_key)
+        decisions = self._verify_table("decisions", SavedDecision, _HistoryTables._decision_key)
+        self._verify_table("portfolio_batches", SavedPortfolioBatch, _HistoryTables._batch_key)
+        self._verify_table("paper_traces", AccountPaperTrace, _HistoryTables._trace_key)
         checkpoints: dict[str, bytes] = {}
         for saved in decisions:
             checkpoints[saved.request.instance_id] = saved.request.checkpoint
@@ -737,10 +722,10 @@ class _HistoryTables:
     def _insert[T](
         self,
         table: str,
-        digest: _HistoryDigest,
+        digest: HistoryDigest,
         items: tuple[T, ...],
         key: Callable[[T], tuple[str, ...]],
-    ) -> _HistoryDigest:
+    ) -> HistoryDigest:
         """Append staged items after the committed rows, extending the table's chain."""
         statement = _TABLE_STATEMENTS[table][0]
         for item in items:
@@ -754,7 +739,7 @@ class _HistoryTables:
     ) -> list[T]:
         """Decode one table in order and compare it with the head's digest."""
         cursor = self.connection.execute(_TABLE_STATEMENTS[table][1])
-        digest = _HistoryDigest(count=0, sha256="")
+        digest = HistoryDigest(count=0, sha256="")
         items: list[T] = []
         for row in cast(Iterator[tuple[object, ...]], cursor):
             payload = self._blob(row[-1])
@@ -787,6 +772,26 @@ class _HistoryTables:
             raise ValueError("account journal history row is malformed")
         return value
 
+    @staticmethod
+    def _decision_key(saved: SavedDecision) -> tuple[str, ...]:
+        """Return the decisions table lookup columns."""
+        return saved.request.instance_id, saved.request.decision.identity
+
+    @staticmethod
+    def _batch_key(saved: SavedPortfolioBatch) -> tuple[str, ...]:
+        """Return the portfolio batches table lookup column."""
+        return (saved.batch.identity,)
+
+    @staticmethod
+    def _trace_key(trace: AccountPaperTrace) -> tuple[str, ...]:
+        """Return the paper traces table lookup columns."""
+        return (
+            trace.account_id,
+            trace.scenario.venue,
+            str(trace.scenario.instrument_id.uuid_value),
+            trace.market.identity,
+        )
+
 
 class _AccountSnapshot:
     """Answer history lookups by identity without exposing collection storage.
@@ -794,7 +799,7 @@ class _AccountSnapshot:
     Committed rows precede the items staged in ``state``.
     """
 
-    def __init__(self, state: _FirmState, tables: _HistoryTables) -> None:
+    def __init__(self, state: FirmState, tables: _HistoryTables) -> None:
         """Retain one immutable state value and its committed history."""
         self.state = state
         self.tables = tables
@@ -805,7 +810,7 @@ class _AccountSnapshot:
         """Yield one account's committed traces after a sequence; staged items are excluded."""
         return self.tables.iter_traces_after(account_id, after_seq)
 
-    def find_decision(self, instance_id: str, decision_identity: str) -> _SavedDecision | None:
+    def find_decision(self, instance_id: str, decision_identity: str) -> SavedDecision | None:
         """Resolve one saved decision by instance and decision identity."""
         committed = self.tables.find_decision(instance_id, decision_identity)
         if committed is not None:
@@ -825,7 +830,7 @@ class _AccountSnapshot:
                 return saved.request.checkpoint
         return self.tables.latest_checkpoint(instance_id)
 
-    def find_batch(self, identity: str) -> _SavedPortfolioBatch | None:
+    def find_batch(self, identity: str) -> SavedPortfolioBatch | None:
         """Resolve one saved portfolio batch by its stable identity."""
         committed = self.tables.find_batch(identity)
         if committed is not None:
@@ -884,21 +889,21 @@ class _AccountSnapshot:
             yield from staged
 
 
-class _AccountTransaction(_AccountSnapshot):
+class AccountTransaction(_AccountSnapshot):
     """Own the staged state of a single serialized firm transaction."""
 
     # Identity lookups of the current order tuples; see find_order and find_net_order.
     _order_index: tuple[tuple[TaggedOrder, ...], dict[str, TaggedOrder]] | None = None
     _net_order_index: tuple[tuple[NetOrder, ...], dict[str, NetOrder]] | None = None
 
-    def append_decisions(self, *saved: _SavedDecision) -> None:
+    def append_decisions(self, *saved: SavedDecision) -> None:
         """Append saved decisions after all existing history."""
-        decisions: tuple[_SavedDecision, ...] = (*self.state.decisions, *saved)
+        decisions: tuple[SavedDecision, ...] = (*self.state.decisions, *saved)
         self.state = replace(self.state, decisions=decisions)
 
-    def append_batch(self, saved: _SavedPortfolioBatch) -> None:
+    def append_batch(self, saved: SavedPortfolioBatch) -> None:
         """Append one saved portfolio batch after all existing history."""
-        batches: tuple[_SavedPortfolioBatch, ...] = (*self.state.portfolio_batches, saved)
+        batches: tuple[SavedPortfolioBatch, ...] = (*self.state.portfolio_batches, saved)
         self.state = replace(self.state, portfolio_batches=batches)
 
     def append_trace(self, trace: AccountPaperTrace) -> None:
@@ -1057,7 +1062,7 @@ class AccountStateStore:
         self.codec = codec
         self._configuration_payload = codec.encode_json(config)
         self._cached_snapshot: tuple[bytes, _LoadedHead] | None = None
-        self._rows = _StateRows(codec)
+        self._rows = StateRows(codec)
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -1071,8 +1076,10 @@ class AccountStateStore:
                 for statement in (*_HISTORY_TABLES, _LEASE_TABLE, _ROWS_TABLE):
                     connection.execute(statement)
                 initial = self._initial()
-                rows, updates = self._rows.write(connection, {}, _row_values(initial))
-                head = _FirmHead(history=replace(_EMPTY_HISTORY, rows=rows), state=_strip(initial))
+                rows, updates = self._rows.write(connection, {}, StateRows.row_values(initial))
+                head = FirmHead(
+                    history=replace(_EMPTY_HISTORY, rows=rows), state=StateRows.strip(initial)
+                )
                 connection.execute(
                     "INSERT INTO firm VALUES (1, ?, ?)", (payload, self.codec.encode_json(head))
                 )
@@ -1093,9 +1100,9 @@ class AccountStateStore:
         Names alone are not enough: a layout that kept every table name but
         changed a column, constraint or index would otherwise open as current.
         """
-        require_sqlite_layout(connection, _LAYOUT, "unsupported account journal schema")
+        SqliteLayout.require(connection, _LAYOUT, "unsupported account journal schema")
 
-    def read(self) -> _FirmState:
+    def read(self) -> FirmState:
         """Read one atomic firm snapshot; its history tuples are empty."""
         with closing(self._connect()) as connection:
             # The head and its rows are separate selects; one transaction keeps
@@ -1151,11 +1158,11 @@ class AccountStateStore:
                 connection.execute("BEGIN")
                 AccountStateStore._require_layout(connection)
                 payload = _FirmRow.payload(connection, codec.encode_json(config))
-                head = codec.decode_json(payload, _FirmHead)
+                head = codec.decode_json(payload, FirmHead)
                 _HistoryTables(connection, codec, head.history).verify()
-                rows = _StateRows(codec)
+                rows = StateRows(codec)
                 rows.verify(connection, head.history)
-                state = _assemble(head.state, rows.load(connection, head.history))
+                state = StateRows.assemble(head.state, rows.load(connection, head.history))
                 for account in state.accounts:
                     AccountLedger(account.ledger)
                 connection.rollback()
@@ -1174,14 +1181,14 @@ class AccountStateStore:
                 raise ValueError("account snapshot has SQLite sidecars")
 
     @contextmanager
-    def write(self) -> Iterator[_AccountTransaction]:
+    def write(self) -> Iterator[AccountTransaction]:
         """Serialize read/check/write so concurrent clients cannot over-admit capacity."""
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 head = self._load(connection)
                 tables = self._tables(connection, head.history)
-                transaction = _AccountTransaction(head.state, tables)
+                transaction = AccountTransaction(head.state, tables)
                 yield transaction
                 staged = transaction.state
                 if staged is head.state:
@@ -1192,9 +1199,11 @@ class AccountStateStore:
                 history = tables.append(staged)
                 complete = replace(staged, decisions=(), portfolio_batches=(), paper_traces=())
                 rows, updates = self._rows.write(
-                    connection, _row_values(head.state), _row_values(complete)
+                    connection, StateRows.row_values(head.state), StateRows.row_values(complete)
                 )
-                written = _FirmHead(history=replace(history, rows=rows), state=_strip(complete))
+                written = FirmHead(
+                    history=replace(history, rows=rows), state=StateRows.strip(complete)
+                )
                 payload = self.codec.encode_json(written)
                 connection.execute("UPDATE firm SET payload=? WHERE id=1", (payload,))
                 connection.commit()
@@ -1206,11 +1215,11 @@ class AccountStateStore:
                 connection.rollback()
                 raise
 
-    def _tables(self, connection: sqlite3.Connection, history: _HistorySummary) -> _HistoryTables:
+    def _tables(self, connection: sqlite3.Connection, history: HistorySummary) -> _HistoryTables:
         """Bind history lookups to this connection's transaction."""
         return _HistoryTables(connection, self.codec, history)
 
-    def _initial(self) -> _FirmState:
+    def _initial(self) -> FirmState:
         """Create explicit initial funding postings; require reconciliation before admission."""
         accounts: list[AccountView] = []
         for opening in self.config.accounts:
@@ -1233,7 +1242,7 @@ class AccountStateStore:
                         )
                     )
             accounts.append(AccountView(ledger=ledger.state))
-        return _FirmState(accounts=tuple(accounts))
+        return FirmState(accounts=tuple(accounts))
 
     def _connect(self) -> sqlite3.Connection:
         """Open a durable bounded SQLite connection shared by all firm clients."""
@@ -1248,9 +1257,9 @@ class AccountStateStore:
         cached = self._cached_snapshot
         if cached is not None and payload == cached[0]:
             return cached[1]
-        head = self.codec.decode_json(payload, _FirmHead)
+        head = self.codec.decode_json(payload, FirmHead)
         loaded = _LoadedHead(
-            head.history, _assemble(head.state, self._rows.load(connection, head.history))
+            head.history, StateRows.assemble(head.state, self._rows.load(connection, head.history))
         )
         self._cached_snapshot = payload, loaded
         return loaded

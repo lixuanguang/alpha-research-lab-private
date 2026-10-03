@@ -15,9 +15,9 @@ from pydantic import ValidationInfo, field_validator, model_validator
 # project library imports
 from reference_data.instruments.identity import (
     InstrumentId,
+    InstrumentIdentityModel,
     InstrumentIdentityValidationError,
     MappingId,
-    _InstrumentIdentityModel,
 )
 
 
@@ -137,7 +137,7 @@ class _IdentifierFields:
         identifier_scheme: IdentifierScheme, candidate_value: object
     ) -> str:
         """Validate bounded exact text and the checksum required by its global scheme."""
-        identifier_value = _InstrumentIdentityModel._require_bounded_text(
+        identifier_value = InstrumentIdentityModel._require_bounded_text(
             candidate_value, field_name="identifier value", maximum_length=256
         )
         checksum_validators = {
@@ -164,7 +164,7 @@ class _IdentifierFields:
         return identifier_value
 
 
-class ExternalIdentifier(_InstrumentIdentityModel):
+class ExternalIdentifier(InstrumentIdentityModel):
     """Represent an exact adapter-boundary identifier without normalizing its value.
 
     Attributes:
@@ -227,7 +227,7 @@ class ExternalIdentifier(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The value is not bounded text or contains
                 control, format or surrogate characters.
         """
-        return _InstrumentIdentityModel._require_bounded_text(
+        return InstrumentIdentityModel._require_bounded_text(
             value, field_name="identifier value", maximum_length=256
         )
 
@@ -272,7 +272,7 @@ class ExternalIdentifier(_InstrumentIdentityModel):
         return self
 
 
-class IdentifierQuery(_InstrumentIdentityModel):
+class IdentifierQuery(InstrumentIdentityModel):
     """Represent an exact or intentionally namespace-broad temporal lookup.
 
     Omitting the namespace admits all namespaces for the same scheme and exact
@@ -338,7 +338,7 @@ class IdentifierQuery(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The value is not bounded text or contains
                 control, format or surrogate characters.
         """
-        return _InstrumentIdentityModel._require_bounded_text(
+        return InstrumentIdentityModel._require_bounded_text(
             value, field_name="identifier value", maximum_length=256
         )
 
@@ -419,7 +419,7 @@ class IdentifierQuery(_InstrumentIdentityModel):
         )
 
 
-class SymbologyMapping(_InstrumentIdentityModel):
+class SymbologyMapping(InstrumentIdentityModel):
     """Record one immutable, validity-dated, source-attributed mapping assertion.
 
     The interval describes valid time, not when the assertion became known.
@@ -474,7 +474,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
                     "correction_reason is permitted only when supersedes_mapping_id is present"
                 )
         else:
-            _InstrumentIdentityModel._require_bounded_text(
+            InstrumentIdentityModel._require_bounded_text(
                 correction_reason,
                 field_name="correction_reason",
                 maximum_length=512,
@@ -598,7 +598,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The value is not an aware datetime with a zero
                 UTC offset.
         """
-        return _InstrumentIdentityModel._require_utc_datetime(value, field_name="valid_from")
+        return InstrumentIdentityModel._require_utc_datetime(value, field_name="valid_from")
 
     @field_validator("valid_to", mode="before")
     @classmethod
@@ -618,7 +618,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
         return (
             None
             if value is None
-            else _InstrumentIdentityModel._require_utc_datetime(value, field_name="valid_to")
+            else InstrumentIdentityModel._require_utc_datetime(value, field_name="valid_to")
         )
 
     @field_validator("source", "source_revision", mode="before")
@@ -683,7 +683,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
                     "correction_reason is permitted only when supersedes_mapping_id is present"
                 )
         else:
-            _InstrumentIdentityModel._require_bounded_text(
+            InstrumentIdentityModel._require_bounded_text(
                 self.correction_reason,
                 field_name="correction_reason",
                 maximum_length=512,
@@ -704,7 +704,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The instant is not an aware datetime with a zero
                 UTC offset.
         """
-        valid_at_utc = _InstrumentIdentityModel._require_utc_datetime(
+        valid_at_utc = InstrumentIdentityModel._require_utc_datetime(
             valid_at, field_name="valid_at"
         )
         return self.valid_from <= valid_at_utc and (

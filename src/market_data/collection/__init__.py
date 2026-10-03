@@ -11,6 +11,7 @@ from market_data.collection.runner import (
     CaptureRunResult,
     CaptureTransport,
 )
+from market_data.collection.segments import CaptureSegmentWriter
 
 __all__ = [
     "BookCapture",
@@ -19,6 +20,7 @@ __all__ = [
     "CaptureRunResult",
     "CaptureRunRunner",
     "CaptureRunner",
+    "CaptureSegmentWriter",
     "CaptureTransport",
     "ReceiptStream",
 ]

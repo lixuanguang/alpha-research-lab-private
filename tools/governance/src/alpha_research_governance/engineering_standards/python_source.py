@@ -34,10 +34,13 @@ class PythonFinding(ImmutableModel):
         """
         return self.path, self.symbol, self.rule, self.detail
 
+    def sort_key(self) -> tuple[str, str, str, str, int]:
+        """Return the deterministic ordering key for this finding.
 
-def _finding_sort_key(finding: PythonFinding) -> tuple[str, str, str, str, int]:
-    """Return the deterministic ordering key for one finding."""
-    return (*finding.key, finding.line)
+        Returns:
+            The stable identity followed by the source line.
+        """
+        return (*self.key, self.line)
 
 
 @dataclass
@@ -150,7 +153,7 @@ class PythonSourceChecker:
                 line = max(error.lineno, 1)
             detail = "tokenization" if isinstance(error, tokenize.TokenError) else "syntax"
             self._add("<module>", "PYS001", detail, line)
-            result = tuple(sorted(self._findings, key=_finding_sort_key))
+            result = tuple(sorted(self._findings, key=PythonFinding.sort_key))
             self._clear()
             return result
         try:
@@ -158,7 +161,7 @@ class PythonSourceChecker:
             self._check_any(module)
             self._collect_overload_bindings(module)
             self._check_docs(module)
-            return tuple(sorted(self._findings, key=_finding_sort_key))
+            return tuple(sorted(self._findings, key=PythonFinding.sort_key))
         finally:
             self._clear()
 

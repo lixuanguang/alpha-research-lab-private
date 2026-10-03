@@ -14,7 +14,7 @@ from accounting import AccountLedger, AccountPosting, Fill
 from configuration import AccountConfiguration
 from execution.account_admission import AccountAdmission
 from execution.account_records import NetAllocation, NetFeeAllocation, NetFeeCorrection, NetOrder
-from execution.account_state import _AccountTransaction, _SavedEvent, _SavedNetEvent
+from execution.account_state import AccountTransaction, _SavedEvent, _SavedNetEvent
 from execution.lifecycle import SpotOrderLifecycle
 from execution.records import OrderEvent
 from financial_units import DecimalGrid, Money, Quantity
@@ -37,7 +37,7 @@ class PhysicalAllocation:
         self.admission = admission
 
     def apply_event(
-        self, transaction: _AccountTransaction, event: OrderEvent
+        self, transaction: AccountTransaction, event: OrderEvent
     ) -> tuple[NetOrder | None, str | None]:
         """Apply one physical fact while durably retaining rejected conflicts."""
         failure: str | None = None
@@ -88,7 +88,7 @@ class PhysicalAllocation:
         return result, failure
 
     def correct_fee(
-        self, transaction: _AccountTransaction, correction: NetFeeCorrection
+        self, transaction: AccountTransaction, correction: NetFeeCorrection
     ) -> NetOrder:
         """Revise one physical fill fee and its child postings atomically."""
         for saved in transaction.state.net_fee_corrections:
@@ -244,7 +244,7 @@ class PhysicalAllocation:
         return updated_parent
 
     def physical_attribution_matches(
-        self, transaction: _AccountTransaction, account_id: str
+        self, transaction: AccountTransaction, account_id: str
     ) -> bool:
         """Compare physical fills against effective child quantity, cash, and fees."""
         effective = {
@@ -328,7 +328,7 @@ class PhysicalAllocation:
                 return False
         return True
 
-    def record_failed_event(self, transaction: _AccountTransaction, event: OrderEvent) -> None:
+    def record_failed_event(self, transaction: AccountTransaction, event: OrderEvent) -> None:
         """Retain one rejected physical fact and durably fence its accounts."""
         failed_net_events = transaction.state.failed_net_events
         if event not in failed_net_events:
@@ -340,7 +340,7 @@ class PhysicalAllocation:
         transaction.state = replace(transaction.state, failed_net_events=failed_net_events)
 
     def _apply_attribution(
-        self, transaction: _AccountTransaction, parent: NetOrder, event: OrderEvent
+        self, transaction: AccountTransaction, parent: NetOrder, event: OrderEvent
     ) -> tuple[
         NetOrder,
         tuple[str, ...],

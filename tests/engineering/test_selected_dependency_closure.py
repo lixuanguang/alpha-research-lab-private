@@ -244,7 +244,7 @@ class TestSelectedClosureAdmission:
         """Bind three verified wheels, two active edges and exact policy/lock bytes."""
         root, selected, inventory, policy = self._fixture(tmp_path)
         with patch(
-            "alpha_research_governance.dependency_admission.selected_closure.validate_repository",
+            "alpha_research_governance.dependency_admission.policy.DependencyRepository.validate",
             return_value=policy,
         ) as validate:
             facts = SelectedClosureAdmission(tmp_path, selected).admit(
@@ -274,7 +274,7 @@ class TestSelectedClosureAdmission:
         """Require staged bytes and signed edges to describe the same actual closure."""
         root, selected, inventory, policy = self._fixture(tmp_path)
         with patch(
-            "alpha_research_governance.dependency_admission.selected_closure.validate_repository",
+            "alpha_research_governance.dependency_admission.policy.DependencyRepository.validate",
             return_value=policy,
         ):
             facts = SelectedClosureAdmission(tmp_path, selected).admit(
@@ -417,7 +417,7 @@ class TestSelectedClosureAdmission:
         elif mutation == "lock":
             selected.write_text(selected.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         with patch(
-            "alpha_research_governance.dependency_admission.selected_closure.validate_repository",
+            "alpha_research_governance.dependency_admission.policy.DependencyRepository.validate",
             return_value=policy,
         ):
             with pytest.raises(DependencyAdmissionError, match=message):
@@ -486,7 +486,7 @@ class TestSelectedWheelhouse:
         exported: dict[str, str] = {"pydantic": "2.13.5"}
         with (
             patch(
-                "alpha_research_governance.dependency_admission.wheelhouse.validate_repository",
+                "alpha_research_governance.dependency_admission.policy.DependencyRepository.validate",
                 return_value=policy,
             ),
             patch.object(SelectedWheelhouse, "_export", return_value=exported),
@@ -507,7 +507,7 @@ class TestSelectedWheelhouse:
         exported: dict[str, str] = {"pydantic": "2.13.5"}
         with (
             patch(
-                "alpha_research_governance.dependency_admission.wheelhouse.validate_repository",
+                "alpha_research_governance.dependency_admission.policy.DependencyRepository.validate",
                 return_value=policy,
             ),
             patch.object(SelectedWheelhouse, "_export", return_value=exported),
@@ -525,7 +525,7 @@ class TestSelectedWheelhouse:
         selected.write_text(selected.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         with (
             patch(
-                "alpha_research_governance.dependency_admission.wheelhouse.validate_repository",
+                "alpha_research_governance.dependency_admission.policy.DependencyRepository.validate",
                 return_value=policy,
             ),
             patch.object(SelectedWheelhouse, "_export") as export,
@@ -549,7 +549,7 @@ class TestSelectedWheelhouse:
         exported: dict[str, str] = {"pydantic": "2.13.5"}
         with (
             patch(
-                "alpha_research_governance.dependency_admission.wheelhouse.validate_repository",
+                "alpha_research_governance.dependency_admission.policy.DependencyRepository.validate",
                 return_value=policy,
             ),
             patch.object(SelectedWheelhouse, "_export", return_value=exported),

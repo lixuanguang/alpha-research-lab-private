@@ -14,7 +14,7 @@ from alpha_research_governance.artifact_supply_chain.bundles import ReleaseRegis
 from alpha_research_governance.artifact_supply_chain.installation import LocalInstallation
 from alpha_research_governance.artifact_supply_chain.provenance import ReleaseProvenance
 from alpha_research_governance.artifact_supply_chain.records import InstallationPolicy
-from alpha_research_governance.dependency_admission import require_release_admission
+from alpha_research_governance.dependency_admission import DependencyRepository
 from alpha_research_governance.dependency_admission.wheelhouse import SelectedWheelhouse
 
 
@@ -77,7 +77,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             if len(tokens) != 1:
                 print(usage, file=sys.stderr)
                 return 2
-            require_release_admission(Path.cwd())
+            DependencyRepository.require_release(Path.cwd())
             print(
                 "artifact release blocked: select an admitted operating build profile",
                 file=sys.stderr,

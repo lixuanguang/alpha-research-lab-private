@@ -14,7 +14,7 @@ import pytest
 from msgspec.structs import force_setattr, replace
 
 # project library imports
-from applications.execute.source_service import _DecodedBookObservation
+from applications.execute.source_service import DecodedBookObservation
 from configuration import CaptureConfig
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookDepth, BookProjection, CaptureReplay
@@ -404,7 +404,7 @@ class TestBookQuoteContract:
             scenario.acknowledge_bitfinex(0)
             row, _ = scenario.push("frame", raw=b"[7,[[1,100,1],[2,101,-2]],1]")
         codec = DomainCodec()
-        decoded = codec.decode_json(codec.encode_json(row), _DecodedBookObservation)
+        decoded = codec.decode_json(codec.encode_json(row), DecodedBookObservation)
         depth = BookDepth.from_observation(decoded)
         if decoded.orders:
             force_setattr(decoded.orders[0], "size", Decimal(0))

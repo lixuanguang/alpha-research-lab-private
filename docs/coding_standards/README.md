@@ -4,8 +4,8 @@ This is the repository's single engineering guide. It applies to Python source,
 tests, scripts, configuration-owned snippets, and the native stubs under
 `tools/typing/stubs`. It governs new code and code materially changed by a
 patch; it does not require unrelated existing code to be rewritten in that patch.
-The OOP target also covers existing owned Python implementation, with remaining
-work recorded under [Python scope and migration](#python-scope-and-migration).
+The OOP target also covers existing owned Python implementation; the completed
+migration is recorded under [Python scope and migration](#python-scope-and-migration).
 Repository configuration and the owning target contract take precedence when
 they are more specific.
 
@@ -30,11 +30,11 @@ entry points are:
 
 | Command | Current purpose |
 | --- | --- |
-| `make format-check` / `make format` | Check or apply Ruff formatting to `src`, `tests`, governance tooling, and owned stubs |
+| `make format-check` / `make format` | Check or apply Ruff formatting to `src`, `tests`, governance tooling, owned stubs and `examples` |
 | `make lint` | Ruff lint and import checks over the same Python scope |
 | `make typecheck` | Strict mypy over the same scope, followed by native `stubtest` |
-| `make engineering-standards-check` | Local import, explicit-`Any`, docstring, suppression, tool-configuration, and [format-compatibility wording](#format-changes-replace-in-place) checks |
-| `make security` | Bandit over runtime and governance source |
+| `make engineering-standards-check` | Local import, explicit-`Any`, docstring, suppression, tool-configuration, class-ownership and [format-compatibility wording](#format-changes-replace-in-place) checks |
+| `make security` | Bandit over runtime, governance and example source |
 | `make check` | Complete source checks and installed-wheel smoke validation |
 
 For local iteration, use `uv run --frozen ruff check <paths>`,
@@ -54,17 +54,36 @@ merge. Use the repository workflow for implementation and acceptance; automated
 success does not replace domain review or grant release or activation authority.
 
 The checker scans every `.py` and `.pyi` file recursively under exactly:
-`src`, `tests`, `tools/governance/src`, and `tools/typing/stubs`, including files
-that Git does not track. It also scans every UTF-8 text file under `src` for
+`src`, `tests`, `tools/governance/src`, `tools/typing/stubs` and `examples`,
+including files that Git does not track. It also scans every UTF-8 text file under `src` for
 [format-compatibility wording](#format-changes-replace-in-place), and under `src`,
 `tools`, `tests` and `configs` (outside hidden directories) for revision-suffixed names. A missing root,
-unreadable source, malformed configuration, or finding fails closed. It has no source-rule waiver or
-function-registration mechanism. The checker does not yet enforce the
-orchestrator-only function rule or assess class cohesion; those are review
-requirements pending the [OOP migration](../roadmap/README.md#delivery-order-and-dependencies).
-A passing check does not establish OOP compliance. Line-scoped tool suppressions
-are separate and must carry the owner, rationale, and expiry metadata described
-below.
+unreadable source, malformed configuration, or finding fails closed. It has no
+source-rule waiver or function-registration mechanism.
+
+The ownership check scans the same roots and enforces the
+[orchestrator and ownership rules](#python-scope-and-migration) structurally:
+
+- module-level functions are limited to public functions in `applications`
+  modules, `main` command functions in applications, governance tooling, test
+  consumers, subprocess support and example scripts, `pytest_*` hooks in
+  `conftest.py`, runtime lazy-export `__getattr__`, `@overload` signatures and
+  native stubs;
+- nested functions and lambdas are refused everywhere;
+- names from a library with an owned stub under `tools/typing/stubs` may be used
+  only inside class bodies, apart from imports and annotations, and
+  `applications` modules may not import those libraries; and
+- tests, tooling and examples may not import private runtime modules or names,
+  may import only names in an owner's `__all__` from owner APIs, and outside
+  `tests/unit` may not import below an owner API. No maintained source may
+  mutate `sys.path`.
+
+Whether a permitted function actually orchestrates, and whether a class is
+cohesive, remain review requirements; a passing check does not establish OOP
+compliance. Every finding fails; the temporary migration ledger was removed when
+the [ownership migration](../roadmap/python-ownership.md) completed. Line-scoped
+tool suppressions are separate and must carry the owner, rationale, and expiry
+metadata described below.
 
 The configured tools currently require:
 
@@ -235,13 +254,11 @@ functions; they MUST retain those signatures. Calls into those libraries belong
 behind owned adapter classes. Historical fixtures and recorded examples retain
 their original meaning and are not evidence of current OOP compliance.
 
-Existing non-orchestrator functions remain migration work, not a permanent
-exception or evidence that migration is complete. New and materially changed
-implementation MUST follow this rule. Migrate each affected API with its callers,
-exports, tests and documentation; retain current API descriptions until the code
-changes. The [roadmap](../roadmap/README.md#delivery-order-and-dependencies) owns the remaining
-implementation and enforcement work. This policy update changes no runtime API
-or checker behavior by itself.
+All maintained Python follows these rules; the
+[ownership migration](../roadmap/python-ownership.md) records how existing code was
+moved. A change to a supported API moves its callers, exports, tests and
+documentation together. A double installed on a class in place of a method
+implements `__get__` so it binds like the method it replaces.
 
 ### Generalized code and configuration-driven activation
 

@@ -10,7 +10,7 @@ from tempfile import NamedTemporaryFile
 
 # project library imports
 from research.experiments import AttemptStore, Fingerprint
-from serialization import DomainCodec, WireRecord, sync_directory
+from serialization import DomainCodec, DurableDirectory, WireRecord
 from simulation import EconomicCheckpoint
 
 
@@ -125,4 +125,4 @@ class ResultManifest(WireRecord, frozen=True):
                 os.link(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)
-        sync_directory(path.parent)
+        DurableDirectory.sync(path.parent)

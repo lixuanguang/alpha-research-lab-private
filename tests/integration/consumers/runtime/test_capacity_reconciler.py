@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import time
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 
 # third party library imports
@@ -25,6 +26,60 @@ from execution import (
 from financial_units import Money
 
 _ACCOUNT = "okx-shared"
+
+
+class TestCapacityReconcilerStatus:
+    """Read each account's last applied market from service status."""
+
+    def test_trial_reads_each_accounts_last_applied_market_from_status(
+        self, tmp_path: Path
+    ) -> None:
+        """The reconciliation clock is the supervisor's last applied market for the account."""
+        trial = object.__new__(CapacityTrial)
+        trial.config = ReconcilerFixture.workload(datetime.now(UTC)).service_configuration()
+        trial.service_root = tmp_path
+        at = datetime(2026, 10, 3, 12, tzinfo=UTC)
+        status: dict[str, object] = {
+            "sources": {
+                source.name: {
+                    "markets": [{"identity": "m", "at": at.isoformat()}]
+                    if source.name == "okx-btc-book"
+                    else [None]
+                }
+                for source in trial.config.sources
+            }
+        }
+        (tmp_path / "status.json").write_bytes(msgspec.json.encode(status))
+        assert trial._accepted_market_at("okx-shared") == at
+        assert trial._accepted_market_at("okx-isolated") is None
+
+
+class ReconcilerFixture:
+    """Build reconciler journals and workloads."""
+
+    @staticmethod
+    def workload(opening: datetime) -> SustainedWorkload:
+        """Select the sustained topology opened just before a reconciliation test."""
+        return SustainedWorkload(opening_at=opening, socket_root=_WORKLOAD_SOCKETS)
+
+    @staticmethod
+    def journal(path: Path) -> AccountJournal:
+        """Open one sustained owner's journal reconciled at its opening."""
+        opening = datetime.now(UTC) - timedelta(seconds=5)
+        workload = ReconcilerFixture.workload(opening - timedelta(seconds=1))
+        service = workload.service_configuration()
+        account = next(item for item in service.accounts if item.account_id == _ACCOUNT)
+        source = next(item for item in service.sources if item.capture.venue == "okx")
+        venue = workload.venue_workload("okx")
+        journal = AccountJournal(path, account.configuration)
+        journal.observe(
+            AccountQuote(
+                price=venue.price("100", source.scenario.adverse.per),
+                at=opening - timedelta(microseconds=1),
+            )
+        )
+        assert journal.reconcile(venue.opening_observation(_ACCOUNT, opening))
+        return journal
 
 
 class _JournalClient:
@@ -70,43 +125,29 @@ class _JournalClient:
 _WORKLOAD_SOCKETS = Path("/private/tmp/capacity-reconciler-test")
 
 
-def _workload(opening: datetime) -> SustainedWorkload:
-    """Select the sustained topology opened just before a reconciliation test."""
-    return SustainedWorkload(opening_at=opening, socket_root=_WORKLOAD_SOCKETS)
-
-
-def _journal(path: Path) -> AccountJournal:
-    """Open one sustained owner's journal reconciled at its opening."""
-    opening = datetime.now(UTC) - timedelta(seconds=5)
-    workload = _workload(opening - timedelta(seconds=1))
-    service = workload.service_configuration()
-    account = next(item for item in service.accounts if item.account_id == _ACCOUNT)
-    source = next(item for item in service.sources if item.capture.venue == "okx")
-    venue = workload.venue_workload("okx")
-    journal = AccountJournal(path, account.configuration)
-    journal.observe(
-        AccountQuote(
-            price=venue.price("100", source.scenario.adverse.per),
-            at=opening - timedelta(microseconds=1),
-        )
-    )
-    assert journal.reconcile(venue.opening_observation(_ACCOUNT, opening))
-    return journal
-
-
 class TestCapacityReconciler:
     """Keep account state fresh only through exact, retained reconciliations."""
 
+    @staticmethod
+    def _append_row(rows: list[tuple[str, object]], kind: str, values: object) -> None:
+        """Retain one reconciler record."""
+        rows.append((kind, values))
+
+    @staticmethod
+    def _wall_clock(account_id: str) -> datetime:
+        """Report the current UTC wall clock as every account's knowledge time."""
+        return datetime.now(UTC)
+
     def test_matched_reconciliation_advances_account_freshness(self, tmp_path: Path) -> None:
         """Each round reconciles the settled facts under a fresh identity."""
-        journal = _journal(tmp_path / "account.sqlite3")
+        journal = ReconcilerFixture.journal(tmp_path / "account.sqlite3")
         before = journal.accounts()[0].reconciled_at
         rows: list[tuple[str, object]] = []
         reconciler = AccountReconciler(
             {_ACCOUNT: _JournalClient(journal)},
             period_seconds=0.05,
-            record=lambda kind, values: rows.append((kind, values)),
-            knowledge=lambda _: datetime.now(UTC),
+            record=partial(self._append_row, rows),
+            knowledge=self._wall_clock,
         )
         reconciler.start()
         deadline = time.monotonic() + 5
@@ -122,18 +163,20 @@ class TestCapacityReconciler:
 
     def test_a_commit_between_read_and_reconcile_faults_and_stops(self, tmp_path: Path) -> None:
         """A mismatch is retained as a failure, faults the account and is never retried."""
-        journal = _journal(tmp_path / "account.sqlite3")
+        journal = ReconcilerFixture.journal(tmp_path / "account.sqlite3")
         rows: list[tuple[str, object]] = []
         reconciler = AccountReconciler(
             {
                 _ACCOUNT: _JournalClient(
                     journal,
-                    commit_between=_workload(datetime.now(UTC)).venue_workload("okx").money("-1"),
+                    commit_between=ReconcilerFixture.workload(datetime.now(UTC))
+                    .venue_workload("okx")
+                    .money("-1"),
                 )
             },
             period_seconds=0.05,
-            record=lambda kind, values: rows.append((kind, values)),
-            knowledge=lambda _: datetime.now(UTC),
+            record=partial(self._append_row, rows),
+            knowledge=self._wall_clock,
         )
         reconciler.start()
         deadline = time.monotonic() + 5
@@ -149,14 +192,14 @@ class TestCapacityReconciler:
         self, tmp_path: Path
     ) -> None:
         """The account's knowledge never passes its last accepted market; none yet skips."""
-        journal = _journal(tmp_path / "account.sqlite3")
+        journal = ReconcilerFixture.journal(tmp_path / "account.sqlite3")
         accepted = datetime.now(UTC) - timedelta(seconds=2)
         clock: dict[str, datetime | None] = {_ACCOUNT: None}
         rows: list[tuple[str, object]] = []
         reconciler = AccountReconciler(
             {_ACCOUNT: _JournalClient(journal)},
             period_seconds=60,
-            record=lambda kind, values: rows.append((kind, values)),
+            record=partial(self._append_row, rows),
             knowledge=clock.get,
         )
         assert reconciler.reconcile(_ACCOUNT) and reconciler.attempts == 0
@@ -164,24 +207,3 @@ class TestCapacityReconciler:
         clock[_ACCOUNT] = accepted
         assert reconciler.reconcile(_ACCOUNT) and reconciler.attempts == 1
         assert journal.accounts()[0].reconciled_at == accepted
-
-
-def test_trial_reads_each_accounts_last_applied_market_from_status(tmp_path: Path) -> None:
-    """The reconciliation clock is the supervisor's last applied market for the account."""
-    trial = object.__new__(CapacityTrial)
-    trial.config = _workload(datetime.now(UTC)).service_configuration()
-    trial.service_root = tmp_path
-    at = datetime(2026, 10, 3, 12, tzinfo=UTC)
-    status: dict[str, object] = {
-        "sources": {
-            source.name: {
-                "markets": [{"identity": "m", "at": at.isoformat()}]
-                if source.name == "okx-btc-book"
-                else [None]
-            }
-            for source in trial.config.sources
-        }
-    }
-    (tmp_path / "status.json").write_bytes(msgspec.json.encode(status))
-    assert trial._accepted_market_at("okx-shared") == at
-    assert trial._accepted_market_at("okx-isolated") is None
