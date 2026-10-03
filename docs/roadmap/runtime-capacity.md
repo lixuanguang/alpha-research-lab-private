@@ -2281,3 +2281,93 @@ Each step below keeps its own tests, and nothing is signed until S6.
 S1 and S2 are the largest and riskiest: they change capture and replay code that
 qualified stage-1 evidence relies on. Running every stage-1 suite unchanged is their
 acceptance bar.
+
+#### S1 design note: rollover in paper capture (2026-10-03)
+
+The approved sequence says S1 gives the paper path a segment chain while its observer,
+health and measurement hooks behave as today. Two qualified pieces already exist, and
+neither does the whole job:
+- `CaptureRunner` owns the paper semantics: retries and gaps, stop reasons, observer,
+  health, measurements and terminal replay parity. It writes one `CaptureJournal`.
+- The collector's `CaptureSegmentWriter`, `CaptureRunJournal` and `SavedCaptureRun` own
+  rotation, the predecessor-bound chain and independent chain replay. They have none of
+  the paper hooks, and `CaptureRunRunner` has its own UTC-window, readiness and resume
+  semantics.
+
+**Choice.** `CaptureRunner` gains a chain mode that writes through the collector's
+qualified writer and run journal unchanged. The paper semantics stay in one place, and
+nothing qualified for the collector is forked. The alternative, adding paper hooks to
+`CaptureRunRunner`, would put stage-1 paper behaviour on a different session and stop
+model.
+
+**Behaviour:**
+- **Entry point.** A new `run_chain()` takes a `CaptureRunRequest` and returns its own
+  chain result. `run()` and its result type are unchanged, and both share one capture
+  loop. With a run request:
+  - the source configuration's duration, message and byte limits apply per segment
+    (the declared 30 minutes, 75,000 messages and 256 MiB);
+  - the window's `stop_at`, `max_messages`, `max_bytes` and `max_segments` bound the
+    whole run;
+  - `ready_by` is not used by paper capture, which keeps the supervisor's own readiness
+    checks.
+- **Rollover is storage only.** Before an original record would cross a segment limit,
+  the writer seals the segment and provisions its successor, bound to the predecessor's
+  committed digest. Then it appends the record. The socket, session, epoch, native
+  sequence and reconstruction state carry on. No session, gap, end or snapshot is
+  written at the boundary.
+- **Hooks.**
+  - Observer rows and measurement cursors carry the run-wide record position, so for
+    one segment they equal today's values.
+  - Health counts are run-wide.
+  - Each rollover adds one opt-in `capture_rollover` measurement row with its seal and
+    provisioning duration. The boundary pause must be measured, because sealing hashes
+    and publishes the whole segment while receipts wait in the bounded queue.
+- **Limits.** A whole-run byte or segment refusal ends the run as today's storage refusal
+  (`storage_limit_unknown_tail`), with a gap and terminal records.
+- **Rollover failure.** A persistence failure while sealing or provisioning raises, as
+  any capture persistence failure does today. The source child fails and the supervisor
+  starts a fresh recording with a fresh snapshot: a declared gap, never continuity.
+  Sealed segments still verify as an exact chain prefix, and the observer never sees a
+  record that is not durable.
+- **Finish.** The last segment is sealed, the run summary retained, and
+  `SavedCaptureRun` must replay the whole chain to the live summary before the result is
+  returned (`replay_parity`). Its offline deadline is the contract's 7,200 s maximum
+  for now, since S3 and S5 declare the service's stop budget.
+- **Run files.** The run journal writes its progress file as it does for the collector,
+  including the collector's resume instruction. Paper capture never resumes a chain.
+- **Refusals.** Chain mode refuses the canonical-prefix (`snapshot_records`) mode, and,
+  through `CaptureRunRequest`, any venue other than OKX and Bitfinex.
+
+**Out of S1:**
+- `PaperServiceSource` configuration, the supervisor's choice of chain mode, and
+  recording-keyed delivery and measurement paths. These belong to S2 and S3: the signed
+  configuration changes in S3, and consumers must read chains (S2) before the supervisor
+  produces them.
+- The source service child accepts either request type, so S2 can wire it.
+
+**Tests (behavioural):**
+- One socket and one subscription across at least two segments, with every authored
+  frame stored once and in order, and no session or snapshot in a suffix segment.
+- Native sequence continuity across the boundary.
+- Continuous observer positions, each callback only after its record is durable in its
+  own segment.
+- Run-wide measurement cursors and one rollover row per seal.
+- Exact chained replay equal to the live summary.
+- A provisioning failure mid-rollover: the run raises, persistence failure is reported,
+  the sealed prefix verifies and the observer saw only durable records.
+- A segment-limit refusal ending with a gap and a verifiable chain.
+- Every existing single-segment capture, paper and stage-1 test unchanged.
+
+**Review before commit (2026-10-03).** One correctness gap was found and fixed. A
+reconnect's `session` record is an original record, so the writer can roll over on it. In
+the last admitted segment, or at the whole-run byte limit, it was refused with an
+`OverflowError` that escaped `run_chain()` as a persistence failure, with no terminal
+records. That contradicted the limits rule above. Chain mode now retains it as the frame
+path's refusal: a `storage_limit_unknown_tail` gap, then `end`, with exact chained replay.
+No connection is opened for the refused epoch. `run()` is unchanged: a refusal there still
+raises, as before. Test: a disconnect after a full segment, with one admitted segment and
+one retry. Two smaller points are kept as recorded behaviour, for S3 to declare:
+- Paper capture bounds reconnects with the source configuration's `retries`. It does not
+  use the window's `max_reconnects`.
+- The run's `progress.json` is written when the run is opened, at each seal and at finish.
+  It is not refreshed every second during collection, as the collector refreshes it.

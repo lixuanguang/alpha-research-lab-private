@@ -12,7 +12,12 @@ from pathlib import Path
 from market_data.adapters.sources import BookAdapters
 from market_data.adapters.transport import VenueSubscriptions, VenueTransport
 from market_data.collection import CaptureRunner, CaptureTransport
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
+from market_data.contracts import (
+    BookObservation,
+    CaptureRecord,
+    CaptureRequest,
+    CaptureRunRequest,
+)
 from runtime import ProcessSupervisor
 from serialization import DomainCodec, WireRecord
 from telemetry import HealthMetrics, RuntimeMeasurementJournal
@@ -73,7 +78,7 @@ class SourceForwarder:
 
 
 async def capture_service(
-    request: CaptureRequest,
+    request: CaptureRequest | CaptureRunRequest,
     root: Path,
     connection: Connection[bytes, bytes],
     health: HealthMetrics,
@@ -81,7 +86,11 @@ async def capture_service(
     measurement_path: Path | None = None,
     stop: Event | None = None,
 ) -> None:
-    """Compose native source ownership, retained capture and independent process heartbeat."""
+    """Compose native source ownership, retained capture and independent process heartbeat.
+
+    A run request captures through rolled-over segments under ``root / run_id``; a
+    single request keeps its one recording under ``root / recording_id``.
+    """
     heartbeat = asyncio.create_task(ProcessSupervisor.heartbeat(health))
     measurements: RuntimeMeasurementJournal | None = None
     try:
@@ -95,10 +104,12 @@ async def capture_service(
             health=health,
             measurements=measurements,
         )
-        result = await runner.run(
-            request, root, stop_requested=None if stop is None else stop.is_set
-        )
-        (root / "source-result.json").write_bytes(DomainCodec().encode_json(result.summary))
+        stop_requested = None if stop is None else stop.is_set
+        if isinstance(request, CaptureRunRequest):
+            summary = (await runner.run_chain(request, root, stop_requested=stop_requested)).summary
+        else:
+            summary = (await runner.run(request, root, stop_requested=stop_requested)).summary
+        (root / "source-result.json").write_bytes(DomainCodec().encode_json(summary))
     finally:
         try:
             if measurements is not None:
@@ -110,7 +121,7 @@ async def capture_service(
 
 
 def run_source_service(
-    request: CaptureRequest,
+    request: CaptureRequest | CaptureRunRequest,
     root: Path,
     connection: Connection[bytes, bytes],
     health: HealthMetrics,
