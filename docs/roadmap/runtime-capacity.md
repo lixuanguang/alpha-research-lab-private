@@ -3050,3 +3050,67 @@ things combined:
 account's latest report has been retained, and again after any report fails. Only then
 does it follow the cadence. Undeclared configurations keep sampling every pass,
 unchanged. The full lane passed: 2,385 passed and 2 skipped.
+
+#### Stage 2a rehearsals 4–5 and counted attempt (2026-10-03)
+
+**Rehearsal 4.** It was aborted by the operator during the candidate build. The
+background task chaining it to the counted attempt would have exceeded its 2-hour
+limit. No trial ran, and the evidence is kept as `stage2a-rehearsal-4-aborted`.
+
+**Rehearsal 5 (uncounted).**
+- Frozen at `8306063` (installed implementation `17395eb9…`). It passed every step.
+- Phase A worst-window p99 values:
+
+  | Class | Worst-window p99 |
+  | --- | --- |
+  | Receipt to durable | 2.3 ms |
+  | Durable to BBO | 18.4 ms |
+  | Depth/BBO reads | 21.5 ms |
+  | Dashboard reads | 58.3 ms |
+  | Feature retrieval | 12.5 ms |
+  | Feature availability | 190 ms |
+
+- The owner death was fenced in 1.07 s.
+- After the recovery, all instances progressed in 9.65 s, and phase B passed.
+- The host gate's longest excess was 9 s.
+
+**Counted attempt (`stage2a-counted`): passed.**
+- **How it ran.** The owner approved, on 2026-10-03, starting the counted attempt
+  immediately after a fully passing rehearsal. It ran once, from 14:33 to 15:31 UTC,
+  on the same frozen commit and consumers as rehearsal 5. Evidence is in
+  `logs/runtime-capacity/stage2a-counted/`, stored outside iCloud.
+- **Steps.** Every step passed: freeze, candidate, quiet host, grant, phase A, both
+  cleanup audits, phase B and the host gate.
+
+| Measure | Phase A (1,800 s) | Phase B (600 s, after recovery) |
+| --- | --- | --- |
+| Capture | 2 segments per source with chained replay parity; every authored slot retained exactly and on time | 1 segment per source; same proof |
+| Receipt to durable, worst-window p99 | 2.4 ms | 1.2 ms |
+| Durable to BBO, worst-window p99 | 17.6 ms | 14.1 ms |
+| Depth/BBO and dashboard reads, worst-window p99 | 21.7 / 60.4 ms | 19.6 / 28.1 ms |
+| Feature retrieval and availability, worst-window p99 | 12.0 / 161 ms | 11.4 / 124 ms |
+| Selected book to checkpoint (reported only) | 50.4 ms | 48.2 ms |
+| Checkpoints per account | 595, all `target_matched`, no rejection | 198, all `target_matched` |
+| Reconciliation | 29 per account, all matched | 10 per account, all matched |
+| Fault and recovery | Injected death of the `bitfinex-isolated` owner, fenced in 0.16 s | Four-owner recovery: all eight instances progressed 11.06 s after the first claim (25.1 s of operator time) |
+
+- **Host.** The idle check measured a mean of 0.21 non-trial cores. The iCloud criterion
+  was waived by the owner. Across the attempt, the longest continuous stretch of
+  non-trial load above 2 cores was 10 s, against the 60 s window.
+
+**What this qualifies.** Stage 2a, for its declared envelope:
+- about 50 minutes of service life under ordinary one-hour grants;
+- rollover in signed paper capture;
+- an order-light commit mix that held positions inside the unchanged state-age budget
+  through reconciliation;
+- one injected owner death followed by four-owner recovery;
+- every stage-1 latency target in every 300-second window.
+
+**Still open.** It is not MR15 acceptance, not stage 2, and not 24-hour operation.
+- 2b, the 24-hour trial, has not started. It needs 26-hour grants, which must first be
+  shown to deny use after expiry and after revocation.
+- Checkpoint percentiles stay deferred to 2b, because 2a reaches fewer than 1,000
+  checkpoints per account.
+- The account service's in-process startup owner check still reads full history.
+- The reconciler's projections and its accepted-market clock are harness behaviour that
+  2b must keep.
