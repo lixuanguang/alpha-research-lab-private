@@ -227,6 +227,7 @@ class PaperServices:
         self.stop_at: datetime | None = None
         self._observation_executor: concurrent.futures.ThreadPoolExecutor | None = None
         self._has_disjoint_source_accounts = self._sources_have_disjoint_accounts()
+        self._next_telemetry = 0.0
         self._pending_observations: dict[
             str, concurrent.futures.Future[tuple[tuple[str, Exception], ...]]
         ] = {}
@@ -1251,7 +1252,12 @@ class PaperServices:
                     "status": "failed",
                     "error": self.monitor.last_error,
                 }
-        if self.diagnostics is not None:
+        # Diagnostic telemetry is retained every pass, or on its own declared cadence.
+        if self.diagnostics is not None and (
+            self.config.telemetry_seconds is msgspec.UNSET
+            or time.monotonic() >= self._next_telemetry
+        ):
+            self._next_telemetry = time.monotonic() + self.config.telemetry_interval
             self.diagnostics.submit(latest_markets)
 
     def _collect_diagnostics(self) -> None:

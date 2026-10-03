@@ -71,6 +71,7 @@ class TestCapacitySustained:
             assert identity != SustainedNativeFixture(source, start_high=True).identity
         assert all(account.configuration.service_life_limit == 3000 for account in service.accounts)
         assert service.duration_seconds == 2880
+        assert service.telemetry_interval == 15
         assert {(item.policy, str(item.quantity.value)) for item in service.instances} == {
             ("target_clip", "1")
         }

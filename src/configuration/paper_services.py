@@ -165,6 +165,14 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
     worker_timeout_seconds: int = 2
     alert_socket: str | None = None
     schema_version: Literal["paper-services"] = "paper-services"
+    # Diagnostic telemetry cadence; protection reads stay every poll. Omitted when
+    # unset, so earlier selections keep their bytes and their one-second cadence.
+    telemetry_seconds: int | msgspec.UnsetType = msgspec.UNSET
+
+    @property
+    def telemetry_interval(self) -> int:
+        """Return the declared diagnostic telemetry cadence, one second when undeclared."""
+        return 1 if self.telemetry_seconds is msgspec.UNSET else self.telemetry_seconds
 
     def __post_init__(self) -> None:
         """Validate all definitions, budgets and scheduling bounds before spawning work."""
@@ -180,6 +188,13 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
             or not 1 <= self.duration_seconds <= SERVICE_LIFE_MAXIMUM_SECONDS
             or self.poll_seconds != 1
             or self.worker_timeout_seconds != 2
+            or (
+                self.telemetry_seconds is not msgspec.UNSET
+                and (
+                    type(self.telemetry_seconds) is not int
+                    or not 1 <= self.telemetry_seconds <= 300
+                )
+            )
         ):
             raise ValueError("invalid bounded paper service selection")
         if self.previous_sha256 is not None:

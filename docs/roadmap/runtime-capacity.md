@@ -2945,3 +2945,17 @@ operation.
    monitoring rate, that window holds more than 10,000 events within five minutes,
    which a 75-second stage-1 run never reached. This is a query-contract decision for
    the owner. It is not changed here.
+
+**Owner decision after rehearsal 1 (2026-10-03): telemetry cadence.**
+- **The problem.** Each account retains 36 diagnostic metrics. At one sample a second,
+  a one-hour dashboard window holds about 130,000 events, against its unchanged
+  10,000-event cap.
+- **The change.** `PaperServiceConfiguration` gains an optional `telemetry_seconds`
+  (1–300 s). It is omitted when unset, so the stage-1 selection is byte-identical and
+  keeps submitting diagnostics on every pass.
+- **2a.** `SustainedWorkload` declares 15 s, which is about 8,640 events per account per
+  hour.
+- **Unchanged.** Protection reads stay every second, and the dashboard's one-hour window,
+  result cap and latency budget do not change.
+
+The full lane passed: 2,382 passed and 2 skipped. Strict mypy is clean.

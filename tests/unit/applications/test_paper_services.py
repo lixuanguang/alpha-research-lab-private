@@ -1198,6 +1198,46 @@ class TestPaperServices:
         with pytest.raises(ValueError, match="outlives an account service life"):
             replace(declared, duration_seconds=3001)
 
+    def test_diagnostic_telemetry_follows_its_declared_cadence(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Undeclared cadence submits every pass; a declared one waits its interval."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        assert b"telemetry_seconds" not in DomainCodec().encode_json(config)
+        assert config.telemetry_interval == 1
+        for invalid in (0, 301):
+            with pytest.raises(ValueError, match="bounded paper service selection"):
+                replace(config, telemetry_seconds=invalid)
+
+        class _Diagnostics:
+            """Count submitted diagnostic batches."""
+
+            def __init__(self) -> None:
+                """Start with none submitted."""
+                self.submitted = 0
+
+            def submit(self, markets: dict[str, tuple[PaperMarket, ...]]) -> None:
+                """Count one batch."""
+                self.submitted += 1
+
+            def poll(self) -> tuple[_DiagnosticReceipt, ...]:
+                """Return no completed receipts."""
+                return ()
+
+        counts: list[int] = []
+        for selected in (config, replace(config, telemetry_seconds=15)):
+            services = _SupervisorHarness(selected, self._owner(), tmp_path, self._socket_path())
+            services.accounts.clear()
+            diagnostics = _Diagnostics()
+            services.diagnostics = cast(PaperServiceDiagnostics, diagnostics)
+            for _ in range(3):
+                services._sample()
+            counts.append(diagnostics.submitted)
+        assert counts == [3, 1]
+
     def test_closing_a_source_releases_each_book_index_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

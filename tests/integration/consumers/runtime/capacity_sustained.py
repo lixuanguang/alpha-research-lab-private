@@ -177,6 +177,8 @@ class SustainedWorkload(CapacityWorkload):
             accounts=accounts,
             sources=sources,
             duration_seconds=self.supervisor_seconds,
+            # A one-hour dashboard window of 36 metrics stays inside 10,000 events.
+            telemetry_seconds=15,
         )
         service.__post_init__()
         return service
