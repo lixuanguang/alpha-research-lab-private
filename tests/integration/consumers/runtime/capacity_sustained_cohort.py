@@ -154,7 +154,9 @@ class SustainedGates:
             ),
             Gate(
                 "native_delivery_parity_complete",
-                cls._delivery_complete(results),
+                cls._delivery_complete(
+                    results, declaration.inject_owner_death if phase == "a" else None
+                ),
                 cls._delivery_statuses(results),
             ),
         ]
@@ -284,11 +286,22 @@ class SustainedGates:
         return statuses
 
     @classmethod
-    def _delivery_complete(cls, results: dict[str, object]) -> bool:
-        """Require the complete native stream for every account delivery."""
+    def _delivery_complete(cls, results: dict[str, object], fenced: str | None) -> bool:
+        """Require the complete native stream for every account delivery.
+
+        The owner killed at the end of phase A stops receiving deliveries at its fence
+        while capture continues, so its log may end with an exactly matched prefix and an
+        unattributed tail. Any mismatch inside the prefix fails collection outright.
+        """
         statuses = cls._delivery_statuses(results)
         return bool(statuses) and all(
-            status == "pass_complete_native_stream" for status in statuses.values()
+            status == "pass_complete_native_stream"
+            or (
+                fenced is not None
+                and key.endswith(f"/{fenced}")
+                and status == "unmeasured_unattributed_delivery_tail"
+            )
+            for key, status in statuses.items()
         )
 
     @staticmethod

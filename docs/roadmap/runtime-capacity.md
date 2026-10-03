@@ -2895,3 +2895,53 @@ commit, with its own `--no-editable` environment. Evidence goes to
 `~/AlphaResearchEvidence.noindex/runtime-capacity/stage2a-rehearsal-<n>`, linked under
 `logs/runtime-capacity/`. Passing it is not 2a acceptance, MR15 acceptance or 24-hour
 operation.
+
+#### Stage 2a rehearsal 1 (uncounted, 2026-10-03)
+
+**Setup.**
+- Frozen at `120edde` (installed implementation `b9da3a8a…`).
+- Evidence is in `logs/runtime-capacity/stage2a-rehearsal-1/`, stored outside iCloud.
+
+**Steps.**
+- **Before phase A:** freeze, build and install, the quiet-host check and the grants all
+  passed.
+  - The idle check measured a mean of 0.21 non-trial cores over 300 s.
+  - No declared process was running.
+  - The iCloud criterion was recorded as `waived_by_owner`.
+- **Phase A:** failed six gates, so the attempt stopped there as declared.
+- **After phase A:** the cleanup audit passed.
+
+**What phase A qualified.**
+
+| Measure | Result |
+| --- | --- |
+| Capture | Every source rolled into 2 segments with chained replay parity. All 49,500 authored slots per source were retained exactly and on time |
+| Receipt to durable | p99 1.4–2.6 ms (maximum 63 ms) per source, in every 300-second window |
+| Durable to BBO | p99 11.9–15.9 ms (maximum 341 ms) per account; the worst window p99 was 17 ms |
+| Feature retrieval | p99 11.9 ms over 57,600 lookups |
+| Feature availability | Durable to available p99 171 ms |
+| Depth/BBO reads | Passed every window; the worst window p99 was 210 ms |
+| Selected book to checkpoint | p99 55 ms (2,380 samples, reported only) |
+| Commits | Every committed checkpoint was `target_matched`. The opening orders committed before the interval started. Orders stayed within the grant |
+| Injected owner death | Fenced in 0.72 s; every process ended inside its declared bound |
+| Host, assessed offline | Non-trial load averaged 0.34 cores. The longest continuous stretch above 2 cores was 3 s, so the gate would have passed |
+
+**Failures and causes.**
+1. **Reconciler response size.** The reconciler read each owner through a full
+   `inspect`. That response carries every paper trace, so it grew by about 55 KB a
+   minute. After 19 matched rounds per account, `bitfinex-isolated` crossed the owner
+   socket's 1 MiB response limit. Reconciliation stopped, and about 169 checkpoints per
+   account were then rejected as `stale_firm_account`. This failed `trial_passed`,
+   `accounts_reconciled_on_cadence` and `checkpoints_commit_without_rejection`.
+   **Fixed:** the reconciler now reads the `accounts` (about 3.5 KB) and `net_orders`
+   (about 2.4 KB) projections. Its test client refuses a full inspection.
+2. **Delivery parity for the killed owner.** The killed owner's delivery log stops at
+   its fence while capture continues, so it ends with an exactly matched prefix and an
+   unattributed tail. **Fixed in the gate:** only the injected account may end that way.
+   Any other account's tail, or any mismatch inside the prefix, still fails.
+3. **Dashboard result limit.** From second 282, all 30,360 dashboard reads were refused
+   with `monitoring query exceeds its explicit result limit`. The declared dashboard
+   workload queries a one-hour window capped at 10,000 returned events. At this run's
+   monitoring rate, that window holds more than 10,000 events within five minutes,
+   which a 75-second stage-1 run never reached. This is a query-contract decision for
+   the owner. It is not changed here.

@@ -33,14 +33,20 @@ class _JournalClient:
         self.journal, self.commit_between = journal, commit_between
 
     def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
-        """Return complete facts, then optionally commit a transfer the facts do not hold."""
-        assert request.action == "inspect"
-        facts = AccountExecutionResult(
-            accounts=self.journal.accounts(),
-            orders=self.journal.orders(),
-            net_orders=self.journal.net_orders(),
+        """Serve one bounded projection, then optionally commit a transfer it does not hold.
+
+        A full inspection is refused: it carries every paper trace and outgrows the
+        owner socket's one MiB response bound during a sustained run.
+        """
+        assert request.action == "inspect" and request.projection in ("accounts", "net_orders")
+        facts = (
+            AccountExecutionResult(accounts=self.journal.accounts(), orders=())
+            if request.projection == "accounts"
+            else AccountExecutionResult(
+                accounts=(), orders=(), net_orders=self.journal.net_orders()
+            )
         )
-        if self.commit_between is not None:
+        if self.commit_between is not None and request.projection == "net_orders":
             at = datetime.now(UTC)
             self.journal.post(
                 AccountPosting(

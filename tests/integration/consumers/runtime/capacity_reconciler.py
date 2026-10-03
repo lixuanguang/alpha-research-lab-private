@@ -31,8 +31,11 @@ class AccountReconciler:
     """Reconcile every account on a fixed cadence and stop at the first mismatch.
 
     Paper facts are the account's own settled ledger and open physical orders, as
-    the four-owner recovery uses. A mismatch faults the account (``account_break``),
-    so it is retained as a failure and never retried.
+    the four-owner recovery uses. They are read through the ``accounts`` and
+    ``net_orders`` projections: a full inspection carries every paper trace, grows
+    with the run and exceeds the owner socket's one MiB response bound. A mismatch
+    faults the account (``account_break``), so it is retained as a failure and never
+    retried.
     """
 
     def __init__(
@@ -55,13 +58,23 @@ class AccountReconciler:
         """Read one account's facts, reconcile them under a fresh identity and retain both."""
         client = self.accounts[account_id]
         started = time.monotonic()
-        state = client.execute(AccountExecutionRequest(action="inspect", account_id=account_id))
+        accounts = client.execute(
+            AccountExecutionRequest(action="inspect", account_id=account_id, projection="accounts")
+        ).accounts
+        orders = client.execute(
+            AccountExecutionRequest(
+                action="inspect", account_id=account_id, projection="net_orders"
+            )
+        ).net_orders
+        ledger = next(item.ledger for item in accounts if item.ledger.account_id == account_id)
         observation = AccountObservation(
             identity=f"sustained-reconcile-{uuid4().hex}",
             at=datetime.now(UTC),
-            snapshot=AccountLedger(state.accounts[0].ledger).snapshot(),
+            snapshot=AccountLedger(ledger).snapshot(),
             open_orders=tuple(
-                item.order for item in state.net_orders if not item.order.is_terminal
+                item.order
+                for item in orders
+                if item.account_id == account_id and not item.order.is_terminal
             ),
         )
         matched = client.reconcile(observation)

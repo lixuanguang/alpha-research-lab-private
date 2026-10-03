@@ -177,6 +177,21 @@ class TestSustainedGates:
         assert mutated("fence") == ["injected_owner_death_fenced"]
         assert mutated("segments") == ["segments_rolled_over"]
 
+    def test_only_the_fenced_owner_may_end_with_an_undelivered_tail(self) -> None:
+        """The injected owner's log stops at its fence; any other account's tail fails."""
+        summary, results, sustained, observations = _evidence("a")
+        sources = cast(dict[str, dict[str, dict[str, dict[str, object]]]], results["sources"])
+        parity = cast(
+            dict[str, dict[str, object]],
+            sources["bitfinex-eth-book"]["recordings"]["run"]["delivery_parity"],
+        )
+        parity["bitfinex-isolated"]["status"] = "unmeasured_unattributed_delivery_tail"
+        assert _failed("a", summary, results, sustained, observations) == []
+        parity["bitfinex-shared"]["status"] = "unmeasured_unattributed_delivery_tail"
+        assert _failed("a", summary, results, sustained, observations) == [
+            "native_delivery_parity_complete"
+        ]
+
     def test_recovered_phase_places_no_further_orders(self) -> None:
         """After recovery the held target needs no order; any reserved commit fails."""
         summary, results, sustained, observations = _evidence("b")
