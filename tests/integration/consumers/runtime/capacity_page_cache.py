@@ -24,6 +24,11 @@ _MS_SYNC = 0x10
 class PageCache:
     """Own per-file eviction and residency observation on the declared Darwin host."""
 
+    # Declared here because type checkers on other platforms treat the Darwin-only
+    # initializer as unreachable and could not otherwise infer these attributes.
+    libc: ctypes.CDLL
+    page: int
+
     def __init__(self) -> None:
         """Bind libc; other platforms have different eviction semantics and are refused."""
         if sys.platform != "darwin":
