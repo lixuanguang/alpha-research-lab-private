@@ -9,7 +9,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 # third party library imports
 import msgspec
@@ -617,6 +617,18 @@ class TestSharedPublicPaper:
             isinstance(item["book_to_checkpoint_ns"], int) and item["book_to_checkpoint_ns"] >= 0
             for item in selected_rows
         )
+        # Opt-in phase clocks are ordered; a direct observe has no supervisor pipe receipt.
+        for item in measured:
+            assert item["pipe_received_ns"] is None
+            phases = cast(dict[str, int], item["phase_ns"])
+            started, finished = cast(int, item["book_started_ns"]), cast(int, item["finished_ns"])
+            assert started <= phases["retained_ns"] <= finished
+            if item["market_selected"]:
+                assert phases["retained_ns"] <= phases["observed_ns"] <= phases["matched_ns"]
+            if item["policy_selected"]:
+                assert phases["matched_ns"] <= phases["evaluated_ns"] <= finished
+            else:
+                assert "evaluated_ns" not in phases
         codec = DomainCodec()
         retained_bytes = path.with_suffix(".jsonl").read_bytes().splitlines()
         retained = tuple(codec.decode_json(line, SharedBookDelivery) for line in retained_bytes)

@@ -51,6 +51,7 @@ type AccountResponseProjection = Literal[
     "residuals",
     "reductions",
     "operation",
+    "monitoring",
 ]
 
 
@@ -133,6 +134,7 @@ class AccountExecutionRequest(WireRecord, frozen=True):
             "residuals",
             "reductions",
             "operation",
+            "monitoring",
         ):
             raise ValueError("invalid account response projection")
         if self.projection == "operation":

@@ -11,6 +11,7 @@ from pathlib import Path
 
 # third party library imports
 import pytest
+from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountLedger, AccountSnapshot
@@ -18,6 +19,7 @@ from configuration import AccountConfiguration, OpeningAccount, PaperExecutionSc
 from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountDecision,
+    AccountExecutionRequest,
     AccountJournal,
     AccountObservation,
     AccountQuote,
@@ -25,9 +27,13 @@ from execution import (
     PaperMarket,
 )
 from execution.account_admission import AccountAdmission
+from execution.account_paper import AccountPaperMatching
+from execution.account_records import AccountPaperTrace
+from execution.records import OrderEvent
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
+from serialization import DomainCodec
 from strategies import OrderIntent
 
 
@@ -340,3 +346,71 @@ class TestAccountHistoryScaling:
         print(f"read after commit at 40/400 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Re-validating every posting twice and replaying each ledger grew about tenfold.
         assert medians[1] < 3 * medians[0]
+
+
+class TestBoundedMonitoringReads:
+    """Monitoring reads stay bounded while the paper trace history grows."""
+
+    def test_incremental_report_facts_equal_a_full_scan(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reads decode each committed trace once and always equal a fresh journal's scan."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        decoded: list[str] = []
+        original = AccountPaperMatching._add_trace_facts
+
+        def counting(trace: AccountPaperTrace, events: list[OrderEvent], ids: set[str]) -> None:
+            """Count each trace this journal's reader decodes for report facts."""
+            decoded.append(trace.market.identity)
+            original(trace, events, ids)
+
+        monkeypatch.setattr(AccountPaperMatching, "_add_trace_facts", staticmethod(counting))
+        seen: list[str] = []
+        for step in range(6):
+            history.round_trip() if step % 2 == 0 else history.busy_tick()
+            decoded.clear()
+            cached = history.journal.paper_report_facts("busy")
+            # The long-lived journal never decodes a committed trace a second time.
+            assert not set(decoded) & set(seen)
+            seen.extend(decoded)
+            fresh = AccountJournal(tmp_path / "firm.sqlite3", history._config())
+            assert cached == fresh.paper_report_facts("busy")
+        assert len(history.journal.paper_report_facts("busy")[0]) == history.orders
+
+    def test_monitoring_projection_keeps_only_the_newest_trace(self, tmp_path: Path) -> None:
+        """Monitoring equals the full inspection except that it carries the newest trace only."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        for _ in range(3):
+            history.round_trip()
+        history.busy_tick()
+        full = history.journal.result_snapshot(
+            AccountExecutionRequest(action="inspect", account_id="busy")
+        )
+        monitoring = history.journal.result_snapshot(
+            AccountExecutionRequest(action="inspect", account_id="busy", projection="monitoring")
+        )
+        assert len(full.paper_traces) > 1
+        assert monitoring.paper_traces == (full.paper_traces[-1],)
+        assert replace(monitoring, paper_traces=full.paper_traces) == full
+        with pytest.raises(ValueError, match="requires inspection"):
+            AccountExecutionRequest(action="quote", projection="monitoring")
+
+    def test_monitoring_response_size_ignores_trace_history(self, tmp_path: Path) -> None:
+        """The bounded read stays one size as traces accumulate; the full read keeps growing."""
+        history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
+        history.round_trip()
+        codec = DomainCodec()
+        sizes: dict[str, list[int]] = {"full": [], "monitoring": []}
+        for ticks in (10, 200):
+            while history.markets < ticks:
+                history.busy_tick()
+            for projection in ("full", "monitoring"):
+                result = history.journal.result_snapshot(
+                    AccountExecutionRequest(
+                        action="inspect", account_id="busy", projection=projection
+                    )
+                )
+                sizes[projection].append(len(codec.encode_json(result)))
+        # Only identifier lengths in the newest trace may differ.
+        assert abs(sizes["monitoring"][1] - sizes["monitoring"][0]) < 100
+        assert sizes["full"][1] > 5 * sizes["full"][0]

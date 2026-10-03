@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -291,6 +292,11 @@ class CapacityTrial:
     def launch(self) -> None:
         """Start four finite signed services together and measure real startup skew."""
         self.socket_root.mkdir(parents=True, exist_ok=True)
+        # Opt each account service into its request timings for this trial.
+        for definition in self.config.accounts:
+            timings = Path(definition.socket_path).with_suffix(".request-timings.jsonl")
+            timings.unlink(missing_ok=True)
+            timings.touch()
         self.receiver = AlertReceiver(
             self.socket_root / "alerts.sock", self.output / "alerts.jsonl"
         )
@@ -775,6 +781,12 @@ class CapacityTrial:
             self.receiver.close()
         for stream in self.streams:
             stream.close()
+        for definition in self.config.accounts:
+            timings = Path(definition.socket_path).with_suffix(".request-timings.jsonl")
+            if timings.is_file():
+                shutil.copyfile(
+                    timings, self.output / f"{definition.account_id}.request-timings.jsonl"
+                )
         phases: dict[str, str] = {}
         for definition in self.config.accounts:
             try:

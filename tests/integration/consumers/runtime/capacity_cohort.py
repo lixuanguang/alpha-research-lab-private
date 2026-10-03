@@ -11,7 +11,9 @@ history with every reader file evicted from the page cache before each round; th
 uncounted ``features-diagnostic`` sequence runs one signed steady trial with integrated
 feature serving, retains its gates without grading them, and always audits cleanup;
 the ``features`` sequence runs the initial steady feature interval and 17 recovery
-intervals, auditing each, then grades the 17-interval materialization cohort.
+intervals, auditing each, then grades the 17-interval materialization cohort; the
+uncounted ``recovery-chain`` sequence runs a steady interval and four recoveries without
+feature serving, retaining each interval's gates and latencies without grading them.
 
 The trial gates restate the stage-1 targets the runtime-capacity record keeps
 unchanged: they read the statuses ``CapacityResultsCollector`` derives from the
@@ -49,8 +51,16 @@ from runtime import InstalledIdentity
 from serialization import DomainCodec
 
 PublicVenue = Literal["okx", "bitfinex"] | None
-Sequence = Literal["dashboard", "public-okx", "filesystem-cold", "features-diagnostic", "features"]
+Sequence = Literal[
+    "dashboard",
+    "public-okx",
+    "filesystem-cold",
+    "features-diagnostic",
+    "features",
+    "recovery-chain",
+]
 _FEATURE_RECOVERIES = 17
+_CHAIN_RECOVERIES = 4
 _GIB = 1024**3
 # Unchanged stage-1 resource ceilings (budgets_unchanged in the capacity record).
 _AVERAGE_CPU_CORES = 7
@@ -652,11 +662,14 @@ class Cohort:
         *,
         features: bool = False,
         recover: bool = False,
+        sample_host: bool = False,
     ) -> tuple[Gate, ...]:
         """Run one finite trial, collect its facts and assess its declared gates."""
         output = root / name
-        # Feature trials also sample the whole host, ungraded, to attribute contention.
-        host = HostSampler(root / f"{name}.host-resources.jsonl") if features else None
+        # Feature and diagnostic trials also sample the whole host, ungraded.
+        host = (
+            HostSampler(root / f"{name}.host-resources.jsonl") if features or sample_host else None
+        )
         if host is not None:
             host.start()
         try:
@@ -762,6 +775,33 @@ class Cohort:
             "failed_gates": [gate.name for gate in gates if not gate.passed],
         }
 
+    def chain_interval(self, name: str, recover: bool) -> dict[str, object]:
+        """Run one chained interval and retain, ungraded, its gates and runtime latencies."""
+        gates = self.trial(self.root, name, None, recover=recover, sample_host=True)
+        latency: dict[str, object] = {}
+        results = self.root / name / "results.json"
+        if results.is_file():
+            sources = _Tree.mapping(
+                msgspec.json.decode(results.read_bytes(), type=dict[str, object]).get("sources")
+                or {}
+            )
+            for source_name, source in sorted(sources.items()):
+                for recording in _Tree.mapping(_Tree.get(source, "recordings") or {}).values():
+                    probe = _Tree.get(recording, "source_probe", "steady_receipt_to_durable")
+                    latency[f"{source_name}.receipt_to_durable_p95_ns"] = _Tree.get(probe, "p95_ns")
+                    for account, account_probe in sorted(
+                        _Tree.mapping(_Tree.get(recording, "account_probes") or {}).items()
+                    ):
+                        latency[f"{source_name}.{account}.durable_to_bbo_p95_ns"] = _Tree.get(
+                            account_probe, "steady_durable_to_bbo", "p95_ns"
+                        )
+        return {
+            "graded": False,
+            "gates": len(gates),
+            "failed_gates": [gate.name for gate in gates if not gate.passed],
+            "latency": latency,
+        }
+
     def feature_cohort(self) -> tuple[Gate, ...]:
         """Grade the 17 recovery intervals' materializations as one declared cohort."""
         result = FeatureCohortResults(
@@ -828,6 +868,20 @@ class Cohort:
             self.step("filesystem-cold-queries", self.filesystem_cold)
             return
         self.step("candidate", self.candidate)
+        if self.sequence == "recovery-chain":
+            self.step("grant-steady", lambda: self.grant(self.root, None))
+            chain = (
+                ("steady", False),
+                *((f"recovery-{index:02d}", True) for index in range(1, _CHAIN_RECOVERIES + 1)),
+            )
+            for name, recover in chain:
+                try:
+                    self.step(
+                        f"{name}-chain-diagnostic", partial(self.chain_interval, name, recover)
+                    )
+                finally:
+                    self.step(f"cleanup-audit-{name}", partial(self.audit, self.root, name))
+            return
         if self.sequence == "features":
             self.step("grant-steady", lambda: self.grant(self.root, None))
             trials = (
@@ -893,7 +947,14 @@ def main() -> None:
     parser.add_argument("--label", required=True)
     parser.add_argument(
         "--sequence",
-        choices=("dashboard", "public-okx", "filesystem-cold", "features-diagnostic", "features"),
+        choices=(
+            "dashboard",
+            "public-okx",
+            "filesystem-cold",
+            "features-diagnostic",
+            "features",
+            "recovery-chain",
+        ),
         default="dashboard",
     )
     parser.add_argument("--history-trial", type=Path, default=None)

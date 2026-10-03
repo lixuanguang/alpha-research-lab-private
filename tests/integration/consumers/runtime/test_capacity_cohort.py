@@ -451,10 +451,11 @@ class _ReportingCohort(Cohort):
     """Replace every side-effecting action with a report of its inputs."""
 
     trials: list[tuple[str, bool, bool]]
+    sampled: list[bool]
 
     def run(self) -> None:
         """Start each run with an empty trial report."""
-        self.trials = []
+        self.trials, self.sampled = [], []
         super().run()
 
     def freeze(self) -> dict[str, object]:
@@ -485,9 +486,11 @@ class _ReportingCohort(Cohort):
         *,
         features: bool = False,
         recover: bool = False,
+        sample_host: bool = False,
     ) -> tuple[Gate, ...]:
         """Report the trial's flags; a diagnostic feature trial fails one gate."""
         self.trials.append((name, features, recover))
+        self.sampled.append(sample_host)
         if features and self.sequence == "features-diagnostic":
             return (*_PASSING, Gate("feature_latency", False, None))
         return _PASSING
@@ -622,6 +625,7 @@ class TestCohortSequence:
                 *,
                 features: bool = False,
                 recover: bool = False,
+                sample_host: bool = False,
             ) -> tuple[Gate, ...]:
                 """Fail as a crashed trial process would."""
                 raise RuntimeError("trial crashed")
@@ -697,9 +701,17 @@ class TestCohortSequence:
                 *,
                 features: bool = False,
                 recover: bool = False,
+                sample_host: bool = False,
             ) -> tuple[Gate, ...]:
                 """Fail one interval as a latency miss would."""
-                super().trial(root, name, public_venue, features=features, recover=recover)
+                super().trial(
+                    root,
+                    name,
+                    public_venue,
+                    features=features,
+                    recover=recover,
+                    sample_host=sample_host,
+                )
                 return (Gate("trial_passed", name != "recovery-03", None),)
 
         cohort = _FailingThird(
@@ -723,6 +735,67 @@ class TestCohortSequence:
             ("cleanup-audit-recovery-03", True),
         ]
         assert [name for name, _, _ in cohort.trials][-1] == "recovery-03"
+
+    def test_recovery_chain_is_ungraded_sampled_and_audited(self, tmp_path: pathlib.Path) -> None:
+        """Four chained recoveries without features run in order, each host-sampled."""
+
+        class _SlowThird(_ReportingCohort):
+            """Fail the third recovery's latency gate, as the rehearsals did."""
+
+            def trial(
+                self,
+                root: pathlib.Path,
+                name: str,
+                public_venue: PublicVenue,
+                *,
+                features: bool = False,
+                recover: bool = False,
+                sample_host: bool = False,
+            ) -> tuple[Gate, ...]:
+                """Report the flags and fail one interval's BBO gate."""
+                super().trial(
+                    root,
+                    name,
+                    public_venue,
+                    features=features,
+                    recover=recover,
+                    sample_host=sample_host,
+                )
+                return (Gate("bitfinex.durable_to_bbo", name != "recovery-03", None),)
+
+        cohort = _SlowThird(
+            tmp_path / "cohort",
+            repository=tmp_path,
+            launcher=tmp_path / "launcher",
+            python=tmp_path / "python",
+            key_root=tmp_path / "keys",
+            socket_base=tmp_path / "sockets",
+            label="sequence-test",
+            sequence="recovery-chain",
+        )
+        cohort.run()
+        rows = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in (tmp_path / "cohort/steps.jsonl").read_bytes().splitlines()
+        ]
+        intervals = ("steady", "recovery-01", "recovery-02", "recovery-03", "recovery-04")
+        assert [row["step"] for row in rows] == [
+            "freeze",
+            "candidate",
+            "grant-steady",
+            *(
+                step
+                for name in intervals
+                for step in (f"{name}-chain-diagnostic", f"cleanup-audit-{name}")
+            ),
+        ]
+        assert cohort.trials == [(name, False, name != "steady") for name in intervals]
+        assert cohort.sampled == [True] * 5
+        third = next(row for row in rows if row["step"] == "recovery-03-chain-diagnostic")
+        assert third["passed"] is True
+        assert cast(dict[str, object], third["values"])["failed_gates"] == [
+            "bitfinex.durable_to_bbo"
+        ]
 
 
 class TestFeatureCohortGates:

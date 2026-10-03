@@ -44,6 +44,7 @@ class _AccountApplication(Protocol):
         telemetry_path: Path | None = None,
         release_identity: str | None = None,
         opened_journal: AccountJournal | None = None,
+        phases: dict[str, int] | None = None,
     ) -> AccountExecutionResult:
         """Return a typed account result for one retained command."""
         ...
@@ -112,6 +113,9 @@ class AccountOwnerService:
         self.paper_owner, self.socket_path = paper_owner, socket_path
         self.duration_seconds = duration_seconds
         self.health_path = socket_path.with_suffix(".health.json")
+        # Opt-in request timings: written only if the operator created this file first.
+        self.timings_path = socket_path.with_suffix(".request-timings.jsonl")
+        self._timings: Path | None = None
         self.requests_path = journal_path.parent / "service-requests"
         self._codec = DomainCodec()
         self._stopping = threading.Event()
@@ -133,6 +137,7 @@ class AccountOwnerService:
             endpoint_fence = stack.enter_context(os.fdopen(descriptor, "a+b"))
             fcntl.flock(endpoint_fence.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             result = self._require_current_owner()
+            self._enable_timings()
             self._owner_journal = AccountJournal(
                 self.journal_path, self.config, paper_owner=self.paper_owner
             )
@@ -249,15 +254,20 @@ class AccountOwnerService:
 
     def _serve_connection(self, connection: socket.socket) -> AccountExecutionResult | None:
         """Read one bounded frame, retain it, then send a success or fixed error."""
+        phases: dict[str, int] | None = {} if self._timings is not None else None
+        action: str | None = None
         try:
             deadline = time.monotonic() + 2
             header = self._read_exact(connection, 4, deadline=deadline)
+            if phases is not None:
+                phases["header_ns"] = time.monotonic_ns()
             length = int.from_bytes(header, "big")
             if not 0 < length <= self._maximum_bytes:
                 raise ValueError("paper service request exceeds one MiB")
             payload = self._read_exact(connection, length, deadline=deadline)
             request = self._codec.decode_json(payload, AccountExecutionRequest)
             request.__post_init__()
+            action = request.action
             if request.action not in self._served_actions:
                 raise ValueError("paper service action is outside its operating scope")
             if request.paper_owner is not None and request.paper_owner != self.paper_owner:
@@ -267,7 +277,11 @@ class AccountOwnerService:
             if request.account_id is not None and request.account_id != self.paper_owner.account_id:
                 raise ValueError("paper service account differs from its owner")
             retained = self._retain_request(payload)
+            if phases is not None:
+                phases["retained_ns"] = time.monotonic_ns()
             self._require_current_owner_fast()
+            if phases is not None:
+                phases["owner_checked_ns"] = time.monotonic_ns()
             if request.action == "shutdown_paper":
                 if request.control is None:
                     raise ValueError("paper service shutdown lacks stop control")
@@ -275,7 +289,9 @@ class AccountOwnerService:
                 self._shutdown_applied = True
                 self._stopping.set()
             else:
-                response = self._apply(retained, telemetry=request.action != "inspect")
+                response = self._apply(
+                    retained, telemetry=request.action != "inspect", phases=phases
+                )
             self._send(connection, b"\x00", self._codec.encode_json(response))
             return response
         except Exception as error:
@@ -287,6 +303,15 @@ class AccountOwnerService:
             return None
         finally:
             self._request_progress_ns = time.monotonic_ns()
+            if phases is not None and self._timings is not None:
+                phases["sent_ns"] = self._request_progress_ns
+                row: dict[str, object] = {"action": action, **phases}
+                with self._timings.open("ab") as stream:
+                    stream.write(self._codec.encode_json(row) + b"\n")
+
+    def _enable_timings(self) -> None:
+        """Record request timings only when the operator created the timings file."""
+        self._timings = self.timings_path if self.timings_path.is_file() else None
 
     def _apply_stop(self, control: AccountControl) -> AccountExecutionResult:
         """Translate a service shutdown into the ordinary fenced control path."""
@@ -310,7 +335,13 @@ class AccountOwnerService:
             )
         )
 
-    def _apply(self, request_path: Path, *, telemetry: bool = True) -> AccountExecutionResult:
+    def _apply(
+        self,
+        request_path: Path,
+        *,
+        telemetry: bool = True,
+        phases: dict[str, int] | None = None,
+    ) -> AccountExecutionResult:
         """Use only the signed config, journal, release and fixed telemetry path."""
         return self.application.run(
             config_path=self.config_path,
@@ -319,6 +350,7 @@ class AccountOwnerService:
             telemetry_path=self.telemetry_path if telemetry else None,
             release_identity=self.release_identity,
             opened_journal=self._owner_journal,
+            phases=phases,
         )
 
     def _retain_request(self, payload: bytes) -> Path:

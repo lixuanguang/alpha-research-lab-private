@@ -13,6 +13,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 # third party library imports
 import msgspec
@@ -67,6 +68,7 @@ class _RecordingAccountApplication:
         telemetry_path: Path | None = None,
         release_identity: str | None = None,
         opened_journal: AccountJournal | None = None,
+        phases: dict[str, int] | None = None,
     ) -> AccountExecutionResult:
         """Read the retained typed request and expose the selected telemetry path."""
         assert request_path is not None and opened_journal is not None
@@ -120,6 +122,65 @@ class TestAccountOwnerService:
         assert application.requests == [(request, None if action == "inspect" else telemetry_path)]
         retained = tuple(service.requests_path.glob("*.json"))
         assert len(retained) == 1 and retained[0].read_bytes() == payload
+
+    @pytest.mark.parametrize("opted_in", (True, False))
+    def test_request_timings_are_opt_in_and_ordered(self, tmp_path: Path, opted_in: bool) -> None:
+        """An operator-created timings file receives one ordered row per request."""
+        journal_path = tmp_path / "account.sqlite3"
+        owner = _ActivationFixture._bootstrap(journal_path)[-1]
+        config = _ActivationFixture._config()
+        codec = DomainCodec()
+        config_path = tmp_path / "config.json"
+        config_path.write_bytes(codec.encode_json(config))
+        service = AccountOwnerService(
+            application=AccountExecutionApplication(),
+            config=config,
+            config_path=config_path,
+            journal_path=journal_path,
+            telemetry_path=tmp_path / "telemetry.sqlite3",
+            release_identity=owner.release_identity,
+            paper_owner=owner,
+            socket_path=tmp_path / "account.sock",
+            duration_seconds=10,
+        )
+        if opted_in:
+            service.timings_path.touch()
+        service._enable_timings()
+        service._owner_journal = AccountJournal(journal_path, config, paper_owner=owner)
+        payload = codec.encode_json(
+            AccountExecutionRequest(
+                action="block",
+                account_id=owner.account_id,
+                reason="explicit protection",
+                paper_owner=owner,
+            )
+        )
+        server, client = socket.socketpair()
+        with server, client:
+            client.sendall(struct.pack("!I", len(payload)) + payload)
+            assert service._serve_connection(server) is not None
+        if not opted_in:
+            assert not service.timings_path.exists()
+            return
+        rows = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in service.timings_path.read_bytes().splitlines()
+        ]
+        assert len(rows) == 1 and rows[0]["action"] == "block"
+        order = (
+            "header_ns",
+            "retained_ns",
+            "owner_checked_ns",
+            "journal_ns",
+            "alerts_ns",
+            "snapshot_ns",
+            "monitoring_ns",
+            "telemetry_ns",
+            "sent_ns",
+        )
+        clocks = [rows[0][name] for name in order]
+        assert all(type(clock) is int for clock in clocks)
+        assert clocks == sorted(cast(list[int], clocks))
 
     @pytest.mark.parametrize("mismatch", ("path", "owner"))
     def test_opened_journal_cannot_override_request_binding(

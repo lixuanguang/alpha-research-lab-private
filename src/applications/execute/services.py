@@ -282,8 +282,11 @@ class PaperServices:
     def preflight(self) -> None:
         """Verify immutable deployed definitions and active owners before scheduling work."""
         for account_id, account in self.accounts.items():
+            # A bounded read: the full trace history outgrows the one MiB socket response.
             state = account.execute(
-                AccountExecutionRequest(action="inspect", account_id=account_id)
+                AccountExecutionRequest(
+                    action="inspect", account_id=account_id, projection="monitoring"
+                )
             )
             activation = next(
                 (
@@ -842,7 +845,7 @@ class PaperServices:
         self._finish_observations()
         consumed = False
         executor = self._observation_executor if self._has_disjoint_source_accounts else None
-        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery]] = []
+        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery, int]] = []
         self._check_owner_health()
         for name in tuple(sorted(self.active)):
             worker = self.workers[name]
@@ -884,6 +887,7 @@ class PaperServices:
                 if child.receiver.poll():
                     try:
                         payload = child.receiver.recv_bytes(16_777_216)
+                        received_ns = time.monotonic_ns()
                     except EOFError:
                         if self.is_stopping and child.stop is not None:
                             child.pipe_drained = True
@@ -895,7 +899,7 @@ class PaperServices:
                     child.received_count += 1
                     consumed = True
                     if executor is not None:
-                        ready.append((child, delivery))
+                        ready.append((child, delivery, received_ns))
                         continue
                     for account_id, observer in sorted(child.observers.items()):
                         if account_id in self.unavailable_accounts:
@@ -908,7 +912,9 @@ class PaperServices:
                                 child.definition.market_interval_us,
                             )
                         try:
-                            observer._observe_validated(delivery.record, delivery.book)
+                            observer._observe_validated(
+                                delivery.record, delivery.book, received_ns=received_ns
+                            )
                         except Exception as error:
                             self._observer_failed(account_id, error)
             except (OSError, EOFError, ValueError, TimeoutError) as error:
@@ -922,12 +928,12 @@ class PaperServices:
 
     def _observe_ready_sources(
         self,
-        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery]],
+        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery, int]],
         executor: concurrent.futures.ThreadPoolExecutor,
     ) -> None:
         """Own at most one in-flight frame per disjoint source across supervisor turns."""
         try:
-            for child, delivery in ready:
+            for child, delivery, received_ns in ready:
                 observers = []
                 for account_id, observer in sorted(child.observers.items()):
                     if account_id in self.unavailable_accounts:
@@ -938,7 +944,9 @@ class PaperServices:
                         )
                     observers.append((account_id, observer))
                 if observers:
-                    future = executor.submit(self._observe_source_group, delivery, tuple(observers))
+                    future = executor.submit(
+                        self._observe_source_group, delivery, tuple(observers), received_ns
+                    )
                     self._pending_observations[child.definition.name] = future
                     future.add_done_callback(self._notify_observation_completion)
         except BaseException:
@@ -985,12 +993,13 @@ class PaperServices:
     def _observe_source_group(
         delivery: _ReceivedSourceDelivery,
         observers: tuple[tuple[str, SharedPaperCaptureObserver], ...],
+        received_ns: int | None = None,
     ) -> tuple[tuple[str, Exception], ...]:
         """Preserve a source's account order without mutating supervisor lifecycle state."""
         failures: list[tuple[str, Exception]] = []
         for account_id, observer in observers:
             try:
-                observer._observe_validated(delivery.record, delivery.book)
+                observer._observe_validated(delivery.record, delivery.book, received_ns=received_ns)
             except Exception as error:
                 failures.append((account_id, error))
         return tuple(failures)

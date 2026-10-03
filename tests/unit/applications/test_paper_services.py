@@ -364,7 +364,9 @@ class _UncertainObserver(SharedPaperCaptureObserver):
         self.calls = 0
         self.policy_failure = policy_failure
 
-    def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
+    def _observe_validated(
+        self, record: CaptureRecord, row: BookObservation, *, received_ns: int | None = None
+    ) -> None:
         """Fail after receipt without claiming whether the account committed."""
         self.calls += 1
         if self.policy_failure:
@@ -463,7 +465,9 @@ class _ObservationGate(SharedPaperCaptureObserver):
         self.measurements = None
         self.index = None
 
-    def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
+    def _observe_validated(
+        self, record: CaptureRecord, row: BookObservation, *, received_ns: int | None = None
+    ) -> None:
         """Require concurrent arrival where declared, then retain the completed native position."""
         self.events.append(f"observe:{self.name}:{row.position}")
         self.callback_threads.append(threading.get_ident())

@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import sqlite3
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -55,8 +56,12 @@ class AccountExecutionApplication:
         telemetry_path: Path | None = None,
         release_identity: str | None = None,
         opened_journal: AccountJournal | None = None,
+        phases: dict[str, int] | None = None,
     ) -> AccountExecutionResult:
-        """Validate configuration/request bytes before any persistent operation."""
+        """Validate configuration/request bytes before any persistent operation.
+
+        ``phases``, when given, receives opt-in monotonic clocks after each stage.
+        """
         if release_identity is not None and (
             len(release_identity) != 64
             or any(character not in "0123456789abcdef" for character in release_identity)
@@ -272,11 +277,15 @@ class AccountExecutionApplication:
                     )
                 except OSError, sqlite3.Error:
                     alert_error = "alert_persistence_failed"
+        if phases is not None:
+            phases["journal_ns"] = time.monotonic_ns()
         try:
             alerts = alert_store.read()
         except OSError, sqlite3.Error, ValueError:
             alerts = ()
             alert_error = "alert_store_invalid"
+        if phases is not None:
+            phases["alerts_ns"] = time.monotonic_ns()
         result = replace(
             journal.result_snapshot(request),
             portfolio=portfolio,
@@ -291,6 +300,8 @@ class AccountExecutionApplication:
             reduction_result=reduction_result,
             claimed_owner=claimed_owner,
         )
+        if phases is not None:
+            phases["snapshot_ns"] = time.monotonic_ns()
         if telemetry_path is not None:
             operation_account_id = (
                 request.decision.account_id
@@ -327,12 +338,16 @@ class AccountExecutionApplication:
                     alert_store_invalid=alert_error == "alert_store_invalid",
                     operation_account_id=operation_account_id,
                 )
+                if phases is not None:
+                    phases["monitoring_ns"] = time.monotonic_ns()
                 completed_at = datetime.now(UTC)
                 events = tuple(
                     replace(event, available_at=completed_at, recorded_at=completed_at)
                     for event in events
                 )
                 TelemetryStore(telemetry_path).append(events)
+                if phases is not None:
+                    phases["telemetry_ns"] = time.monotonic_ns()
             except Exception as error:
                 # Account controls and their alert outcomes have already committed.
                 result = replace(result, telemetry_error=type(error).__name__)

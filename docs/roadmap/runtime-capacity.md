@@ -1938,6 +1938,123 @@ Uncounted rehearsals:
      the first workload to run 17 on one candidate. The cause of the step remains
      unattributed.
 
+**Recovery-chain diagnostic.** To separate chained recovery from feature serving, the
+driver gains an uncounted `recovery-chain` sequence:
+- fresh signed targets and one-hour grants;
+- the steady interval and four chained recoveries with feature serving off;
+- each interval host-sampled and immediately audited;
+- each interval's gates and its receipt-to-durable and durable-to-BBO p95 retained,
+  ungraded.
+
+If the step at recovery-03 recurs without features, chained recovery in the runtime is
+the cause. If it does not, the feature processes are.
+
+**Recovery-chain result (`01b393a`, `logs/runtime-capacity/recovery-chain-1/`, uncounted).**
+Without feature serving:
+- the steady interval and recoveries 01–02 had Bitfinex durable-to-BBO p95 of 10–22 ms;
+- recovery-03 rose to 87–102 ms and failed the `bitfinex-isolated` gate;
+- recovery-04 was partly back, at 38–40 ms (pass).
+
+Host load in recovery-03 was lower than before (4.4 busy cores on average). The step is
+therefore a chained-recovery runtime effect, not feature serving and not desktop load.
+It has now appeared at the third recovery in all three chained runs.
+
+What is known:
+- **Queueing, not processing.** Slow deliveries wait 120–140 ms between durability and
+  the start of processing; processing itself takes 0.3 ms. 96 of recovery-03's 116 slow
+  Bitfinex ETH deliveries began within 1.5 s after a policy-selected book, so deliveries
+  queue behind the account's serialized checkpoint work.
+- **Nothing visible changes at recovery-03.** Checkpoint durations stay similar across
+  the chain (p50 45–79 ms, max 123–216 ms). Orders stop at 48 after recovery-01, and
+  every interval commits 21 `matched` checkpoints, so the 80-order grant is not reached.
+  The causal source's history is a bounded deque, so reaching its 10,000 cap adds no
+  per-delivery cost.
+
+Attributing the step needs probes inside the paper service's delivery and checkpoint
+loop. It matters for stage 2, whose long runs accumulate the same state, as well as for
+the 17-recovery feature cohort.
+
+**Probed recovery chain (`38f5b9d`, `logs/runtime-capacity/recovery-chain-2/`, uncounted).**
+Opt-in phase clocks now record, for every measured paper delivery:
+- the supervisor's pipe receipt;
+- the end of delivery-log retention;
+- the account `observe` and `match_public_market` calls;
+- the policy and account evaluation.
+
+They are written only when the runtime measurement journal is enabled. Every interval
+passed this time, but recovery-03 again had the highest Bitfinex durable-to-BBO p95
+(48 ms against 3–5 ms in the steady interval and recoveries 01–02).
+
+- **Where the wait is.** Pipe receipt to processing start stayed at 1–3 ms p95 in every
+  interval. The growth is between durability and pipe receipt (Bitfinex p95 2 ms in
+  recovery-02, 46 ms in recovery-03): each source has one in-flight observation, so
+  later deliveries wait in the pipe while it finishes.
+- **What grows.** The per-selection account `observe` request keeps a flat median of
+  6–8 ms, but its slow tail grows along the chain. The worst call per interval was
+  34, 74, 104, 135 and 173 ms, and calls over 50 ms rise from at most one per account
+  (steady, recovery-01) to as many as four from recovery-02 on. Evaluation and matching
+  stay flat apart from isolated outliers.
+- **What persists across the chain.** Per-interval telemetry stores do not grow. Only
+  each account's `accounts.sqlite3` (3.5 MB after five intervals) and its retained
+  request files carry over.
+
+The next probe belongs inside the account service request (retain, owner check, journal
+apply, telemetry) to find which part of the slow `observe` calls grows.
+
+**Root cause: full-history monitoring reads on the serial account path
+(`cdb16de`, `logs/runtime-capacity/recovery-chain-3/`, uncounted).** The account
+service gained opt-in request timings: retain, owner check, journal operation, alerts,
+result snapshot, monitoring and telemetry. They are written only to an
+operator-created file beside the account socket; capacity trials opt in and keep the
+rows. Every interval passed this time. Per action, across the steady interval and
+recoveries 01–04:
+
+| Action (all four accounts) | Per interval | Total p95 / max by interval |
+| --- | --- | --- |
+| `inspect` | about 850 | 43/56, 88/97, 123/146, 157/166, 193/236 ms |
+| `quote` | 84 | flat, about 3–4 ms p95 |
+| `paper_market` | 84 | flat, about 6–10 ms p95 |
+| `coordinate` | 84 | flat, about 16–46 ms p95, apart from a recovery-01 outlier |
+
+All of the growth is in `inspect`'s `result_snapshot` phase (max 50, 91, 139, 158 and
+227 ms). Retained requests show where the slow ones come from. About a fifth of each
+account's inspections use the `full` projection with an account ID, sent by the
+runtime's paper service monitor (`src/applications/execute/service_monitor.py`) through
+the supervisor's diagnostics, roughly once a second per account.
+
+A full projection snapshots the account's entire retained history, so its cost grows
+with every interval on the same journal. Because the account service handles requests
+one at a time, a trading-path `quote`, `paper_market` or `coordinate` request arriving
+behind such a snapshot waits for it. Each source then holds its in-flight observation
+longer, and later deliveries back up in the source pipe. Around recovery-03 the
+snapshots reach 100–150 ms, and Bitfinex durable-to-BBO crosses its 100 ms p95 budget.
+
+The cost grows with history, not with time. Stage 2 would make it much larger: a
+24-hour journal is about 1,400 times longer than one interval.
+
+**Fix: bounded monitoring reads (owner-approved option A, 2026-10-03).**
+- **Monitoring projection.** A new `monitoring` projection on account inspection
+  returns everything the full inspection returns except the trace history, of which it
+  keeps only the newest trace. The monitor uses that trace only to check that no trace
+  postdates its receipt. The paper service monitor now requests this projection. Its
+  retained per-account snapshot file (`monitoring/<account>.json`) therefore carries
+  the newest trace instead of the whole trace history; its report, metrics and
+  economics are unchanged.
+- **Incremental report facts.** Report facts (fills and cost links) were found by
+  decoding every retained trace on each call. Committed traces are append-only with
+  increasing sequence (starting at 0), so a long-lived journal now keeps each account's
+  accumulated child fill events and physical fill identities and decodes only traces
+  committed since its last read. A write transaction holding staged traces still scans
+  everything. New tests show the cached facts equal a fresh journal's full scan after
+  every tick and round trip, that no committed trace is decoded twice, and that the
+  monitoring projection equals the full one apart from its traces. The existing
+  allocation and monitoring tests caught an off-by-one in the first version.
+- **Effect.** On the retained recovery-04 journal, a full inspection costs about
+  94–162 ms; a monitoring inspection costs 9–10 ms, with the same fills and costs.
+
+No journal schema, budget, authority or risk rule changes. The default and operator
+inspections stay complete.
+
 **Host attribution and evidence location (2026-10-02).** Two changes before rehearsal 3:
 - **Host sampler.** The cohort driver now runs
   [`capacity_host.py`](../../tests/integration/consumers/runtime/capacity_host.py) around
