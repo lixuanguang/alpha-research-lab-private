@@ -278,6 +278,7 @@ class SharedPaperCaptureObserver:
                         "policy_selected": bool(selected),
                         "checkpoint_acknowledged": acknowledged,
                         "checkpoint_status": self.decisions[-1].status if acknowledged else None,
+                        "checkpoint_reason": self.decisions[-1].reason if acknowledged else None,
                         "book_started_ns": book_started_ns,
                         "bbo_observed_ns": bbo_observed_ns,
                         "checkpoint_acknowledged_ns": finished_ns if acknowledged else None,

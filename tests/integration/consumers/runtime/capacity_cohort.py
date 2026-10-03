@@ -381,6 +381,9 @@ class CleanupAudit:
 class Cohort:
     """Own one declared attempt's ordered steps, evidence and first-failure stop."""
 
+    # The workload whose selection, owners and grants this cohort prepares.
+    workload_type: type[CapacityWorkload] = CapacityWorkload
+
     def __init__(
         self,
         output: Path,
@@ -468,7 +471,7 @@ class Cohort:
     def candidate(self) -> dict[str, object]:
         """Prepare inputs, then fetch, build, verify and install four signed targets."""
         self.root.mkdir()
-        workload = CapacityWorkload(
+        workload = self.workload_type(
             opening_at=datetime.now(UTC) - timedelta(seconds=5),
             socket_root=self.socket_base / "steady",
         )
@@ -622,7 +625,7 @@ class Cohort:
         service = self.codec.decode_json(
             (root / "preparation/services-initial.json").read_bytes(), PaperServiceConfiguration
         )
-        workload = CapacityWorkload(
+        workload = self.workload_type(
             opening_at=service.accounts[0].configuration.opening_at,
             socket_root=Path(service.accounts[0].socket_path).parent,
             public_venue=public_venue,

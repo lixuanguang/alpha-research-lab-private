@@ -25,7 +25,7 @@ from configuration import (
     PaperSourceChain,
 )
 from execution import AccountJournal, AccountObservation, AccountQuote
-from financial_units import Price
+from financial_units import Money, Price, Quantity
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookProjection, BookRegistry, CaptureReplay
 from market_data.collection import CaptureTransport
@@ -90,6 +90,19 @@ class SustainedNativeFixture(CapacityNativeFixture):
         else:
             offset = cls.period_seconds - 10 + (slot - cls.base_slots) / 100
         return period * cls.period_seconds + offset
+
+    @classmethod
+    def slot_ns(cls, index: int) -> int:
+        """Return one slot's exact authored offset in integer nanoseconds."""
+        if type(index) is not int or not 0 <= index < cls.frame_count:
+            raise ValueError("capacity slot lies outside the finite schedule")
+        period, slot = divmod(index, cls.base_slots + cls.burst_slots)
+        offset = (
+            slot * 40_000_000
+            if slot < cls.base_slots
+            else (cls.period_seconds - 10) * 1_000_000_000 + (slot - cls.base_slots) * 10_000_000
+        )
+        return period * cls.period_seconds * 1_000_000_000 + offset
 
     def authored_distribution(self) -> dict[str, object]:
         """Predeclare exact frame sizes and the periodic burst windows."""
@@ -195,6 +208,28 @@ class SustainedWorkload(CapacityWorkload):
             for source in service.sources
             if source.capture.venue != exclude_venue
         }
+
+    def first_touch_oracle(self) -> dict[str, tuple[Money, Money, tuple[Quantity, ...]]]:
+        """Return each owner's held target economics: one unit per instance at the 100 ask.
+
+        Paper fills carry no adverse cost here, so two units cost 200 plus the declared
+        0.1 percent fee of 0.20 on either venue.
+        """
+        result: dict[str, tuple[Money, Money, tuple[Quantity, ...]]] = {}
+        for venue in self.venues:
+            workload = self.venue_workloads[venue]
+            for role, dimension in (
+                ("shared", workload.dimensions[0]),
+                ("isolated", workload.dimensions[1]),
+            ):
+                result[f"{venue}-{role}"] = (
+                    workload.money("99799.80")
+                    if self.mode == "paper"
+                    else workload.money("100000"),
+                    workload.money("0.20") if self.mode == "paper" else workload.money("0"),
+                    (workload.quantity("2", dimension),) if self.mode == "paper" else (),
+                )
+        return result
 
     def projection(
         self,
@@ -451,6 +486,7 @@ class SustainedWorkload(CapacityWorkload):
         orders = journal.orders()
         first = min((tagged.order.decision_at for tagged in orders), default=None)
         ledger = AccountLedger(journal.accounts()[0].ledger)
+        snapshot = ledger.snapshot()
         holdings = {
             instance.instance_id: tuple(
                 str(item.value)
@@ -471,6 +507,7 @@ class SustainedWorkload(CapacityWorkload):
             ),
             "filled_orders": sum(tagged.order.filled.value > 0 for tagged in orders),
             "holdings": holdings,
+            "final_economics": (snapshot.cash, snapshot.fees, snapshot.positions),
         }
 
 

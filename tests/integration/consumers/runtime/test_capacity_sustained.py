@@ -107,6 +107,11 @@ class TestCapacitySustained:
             assert (facts["opening_orders"], facts["steady_orders"]) == (2, 0)
             assert facts["window_orders_projected"] == 2
             assert (facts["daily_order_target"], facts["grant_maximum_orders"]) == (40, 80)
+        # The recovery oracle is the replayed journal's own final economics.
+        oracle = workload.first_touch_oracle()
+        for account_id, facts in accounts.items():
+            cash, fees, positions = oracle[account_id]
+            assert facts["final_economics"] == ((cash,), (fees,), positions)
 
     def test_without_reconciliation_a_held_position_goes_stale(self, tmp_path: Path) -> None:
         """The unchanged 120-second state age rejects checkpoints that no reconcile refreshes."""

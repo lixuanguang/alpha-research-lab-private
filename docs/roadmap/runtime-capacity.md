@@ -2681,3 +2681,150 @@ The full lane ran 2,358 passed, 2 skipped and 1 failed. The failure was the engi
 
 Nothing is signed. The capacity harness's stage-1 selection, fixture and policies are
 unchanged.
+
+#### S5 design note: the 2a harness (2026-10-03)
+
+S5 builds the driver, observers and assessment that S6 declares and runs. Nothing here
+is signed or run.
+
+**Run shape.** 2a is two measured phases inside one ordinary one-hour grant, joined by
+one injected recovery that uses the qualified stage-1 path:
+1. **Phase A.** Launch four owners and the supervisor, then measure a steady interval
+   long enough to roll every source past one 30-minute segment.
+2. **Injected fault.** At the end of phase A, the driver kills one signed account owner
+   (the stage-1 owner-death probe) and must see dependent work fenced within 2 s. It
+   then shuts the supervisor down and waits for the remaining owners.
+3. **Phase B.** The stage-1 four-owner recovery runs: stop, settle, reconcile from
+   complete facts, claim new generations, relaunch. Phase B must reach progress on all
+   eight instances within 40 s of the first claim, then measure a second steady
+   interval.
+
+The fault drills that leave accounts faulted, such as source or policy death, cannot
+continue trading, so they stay stage-1 drills.
+
+**Timing.**
+- Every bound comes from the declaration, never a constant: each phase's interval,
+  supervisor duration and account service seconds.
+- The stage-1 defaults stay as they are: a 60 s interval, a 75 s supervisor and 120 s
+  services.
+- The account service refuses a life that would outlast its grant (S3), so a
+  misdeclared phase B fails at startup and never runs past expiry.
+
+**Driver.**
+- `CapacityTrial` keeps its behaviour and takes the timings and the workload type as
+  class-level declarations.
+- `SustainedTrial` uses `SustainedWorkload`. It sets the supervisor's duration for each
+  phase, which is an invocation setting outside signed authority, and runs readers,
+  samplers and feature processes for the whole interval.
+- The supervised child selects the matching fixture through an explicit workload
+  argument.
+- Recovery's economic oracle for 2a is the target holding: one unit per instance at the
+  opening ask, with the fee of the declared rate. That is cash 99,799.80 and fees 0.20
+  per account.
+
+**Reconciler.**
+- Every 60 s, for each account, the driver reads the account's complete facts through
+  its owner socket. It then reconciles that settled ledger and the open physical orders
+  with a fresh identity.
+- Each attempt is retained (account, clock, duration, matched).
+- A mismatch faults the account (`account_break`), so it fails the attempt at once. It
+  is never retried.
+- A decision computed before a reconciliation instant but committed after it is
+  rejected (`decision_precedes_account_state`). Such rejections are counted and
+  reported, never hidden.
+
+**Host.**
+- **Quiet-host precheck.** Before the grant step, the cohort:
+  - refuses to start while any declared interactive process is running (browsers, editors
+    and the Codex app);
+  - holds `caffeinate -dimsu` for its own life;
+  - records the iCloud pause as an operator attestation, because it cannot be verified
+    programmatically;
+  - samples the host for 5 minutes and requires non-trial load to average at most 1
+    core.
+- **Sampler.** `HostSampler` adds trial and non-trial cores to each row. Trial cores are
+  the cohort process and all its descendants, which include every owner, supervisor,
+  reader and feature process. Everything else, including root daemons counted only in
+  the host total, is non-trial.
+- **Host gate.** The attempt fails, with the busiest non-trial processes as attribution,
+  if non-trial load stays above a declared ceiling for longer than a declared window.
+  Budgets are never relaxed for host load.
+
+**Results.** A separate sustained collector reuses the stage-1 capture, paper, delivery
+and read primitives through `CaptureRecording`. The stage-1 collector and its 60 s
+gates are unchanged. The collector adds:
+- **Fixture proof:** every authored slot is retained exactly, in order and on time, on
+  the sustained schedule.
+- **Segments and replay:** the chain's segment count (at least two per source in phase
+  A) and exact chained replay.
+- **Rolling percentiles:** p50, p95, p99 and the maximum over fixed 300-second windows
+  for:
+  - receipt to durable;
+  - durable to BBO;
+  - selected book to checkpoint;
+  - every query class;
+  - feature lookups.
+
+  The declared budgets apply to every window, so a late tail cannot be averaged away.
+- **Commits:** checkpoint counts and reasons, orders against the grant, and
+  reconciliation outcomes.
+- **Host gate.**
+- **Cleanup audit.** The stage-1 audit.
+
+**Out of S5.** The exact phase lengths, ceilings, window budgets and gate list (S6
+declaration), the uncounted rehearsal, and any counted attempt.
+
+**Tests (behavioural, no signed run):**
+- Driver timing declarations: stage-1 defaults are unchanged, and a sustained phase is
+  bounded by its declaration.
+- The reconciler's matched and mismatched paths against a real account journal.
+- The host gate's sustained excess and attribution.
+- The quiet-host precheck's process and idle refusals.
+- Rolling windows that expose a late tail hidden by whole-run percentiles.
+- The sustained fixture proof on the periodic schedule.
+- The 2a oracle equal to the offline projection's final account facts.
+
+**S5 implementation (2026-10-03).** Implemented as designed. Nothing was signed or run.
+- **`capacity_trial.py`**
+  - Declared `TrialTimings` (stage-1 defaults 60/75/120 s) and an explicit workload
+    (`capacity` or `sustained`).
+  - The supervisor's duration is set per phase.
+  - An optional reconciler.
+  - An optional injected owner death, fenced by the stage-1 probe before shutdown, whose
+    launcher alone may exit nonzero.
+  - Stage-1 invocations are unchanged.
+- **`capacity_reconciler.py`.** The 60 s paper reconciler. It stops at the first
+  mismatch and never retries.
+- **`capacity_host.py`.** Trial and non-trial cores per row when given a trial root, the
+  `HostGate`, and the `QuietHostPrecheck`.
+- **`capacity_sustained_results.py`.**
+  - `RollingPercentiles`, with nearest-rank and a 1,000-sample minimum per window.
+  - Per-source and per-account latency classes.
+  - Checkpoint counts by status and reason, read from a new `checkpoint_reason` field in
+    the opt-in paper probe row.
+  - Reconciliations, recordings and replay parity.
+  - The sustained fixture proof on exact integer slot clocks.
+- **`capacity_sustained_cohort.py`.**
+  - `SustainedDeclaration`, `SustainedGates` and the sequence.
+  - The sequence: freeze, build and install, quiet-host precheck, one-hour grants, then
+    phase A (1,800 s interval, 1,860 s supervisor, 1,920 s owners, and an injected death
+    of `bitfinex-isolated`), then phase B (four-owner recovery, then 600/660/720 s),
+    each followed by a cleanup audit, then the whole-attempt host gate.
+  - Window budgets are the unchanged provisional targets. Selected book to checkpoint is
+    reported, not graded, because percentiles are deferred to 2b.
+  - The host defaults are a 2-core ceiling over 60 s, and a 5-minute idle check at 1
+    core. S6 declares them.
+- **Stage-1 collector.** It skips its 3,250-slot fixture proof for sustained runs.
+
+The full lane ran 2,377 passed, 2 skipped and 2 failed. The two failures were stage-1
+recovery tests that build a trial without its initializer. After the new driver fields
+gained class-level stage-1 defaults, that file passed (17 tests). Strict mypy is clean.
+
+**Not provable without an uncounted rehearsal:**
+- every reader, sampler and feature process over 30 minutes;
+- reconciliation through live owner sockets, and any checkpoints rejected around it;
+- the four-owner recovery after an owner death (stage 1 recovered only after orderly
+  shutdowns);
+- the realistic host-gate thresholds on this host.
+
+The S6 declaration must fix all of these before any counted attempt.

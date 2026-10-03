@@ -56,6 +56,8 @@ class _TrialContext(msgspec.Struct, frozen=True):
 
     public_venue: str | None
     variant: str
+    # Sustained runs author another schedule; the stage-1 slot proof does not apply.
+    workload: str = "capacity"
 
 
 class _MeasurementKind(msgspec.Struct, frozen=True):
@@ -1069,7 +1071,7 @@ class CapacityResultsCollector:
                 "live_public"
                 if definition.capture.venue == trial.public_venue
                 else "base_fixture"
-                if trial.variant == "base"
+                if trial.variant == "base" and trial.workload == "capacity"
                 else "other_fixture"
             )
             recordings: dict[str, object] = {}

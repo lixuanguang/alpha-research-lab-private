@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -29,7 +30,9 @@ from uuid import uuid4
 import msgspec
 from capacity_inputs import CapacityVariant, CapacityWorkload
 from capacity_reads import CapacityReadObserver
+from capacity_reconciler import AccountReconciler
 from capacity_recovery import CapacityRecovery
+from capacity_sustained import SustainedWorkload
 
 # project library imports
 from accounting import AccountLedger
@@ -129,8 +132,48 @@ class AlertReceiver:
         self.path.unlink(missing_ok=True)
 
 
+type TrialWorkload = Literal["capacity", "sustained"]
+
+
+@dataclass(frozen=True, slots=True)
+class TrialTimings:
+    """Declare one trial's measured interval and its finite process lifetimes.
+
+    The defaults are the stage-1 shape: a 60-second interval, a 75-second supervisor
+    and 120-second signed account services. A sustained phase declares its own.
+    """
+
+    interval_seconds: int = 60
+    supervisor_seconds: int = 75
+    service_seconds: int = 120
+
+    def __post_init__(self) -> None:
+        """Keep each service outliving the supervisor that outlives its interval."""
+        if not 0 < self.interval_seconds < self.supervisor_seconds < self.service_seconds:
+            raise ValueError("trial interval, supervisor and services must nest")
+
+
+def trial_workload(
+    name: TrialWorkload,
+    *,
+    opening_at: datetime,
+    socket_root: Path,
+    public_venue: Literal["okx", "bitfinex"] | None,
+) -> CapacityWorkload:
+    """Select the stage-1 or the sustained workload by its explicit declared name."""
+    factory = SustainedWorkload if name == "sustained" else CapacityWorkload
+    return factory(opening_at=opening_at, socket_root=socket_root, public_venue=public_venue)
+
+
 class CapacityTrial:
     """Own signed startup, a measured finite interval and unconditional shutdown."""
+
+    # Stage-1 defaults; a sustained phase declares its own in ``__init__``.
+    workload_name: TrialWorkload = "capacity"
+    timings: TrialTimings = TrialTimings()
+    reconcile_seconds: int | None = None
+    inject_owner_death: str | None = None
+    reconciler: AccountReconciler | None = None
 
     def __init__(
         self,
@@ -143,9 +186,22 @@ class CapacityTrial:
         recover: bool = False,
         faults: bool = False,
         features: bool = False,
+        workload: TrialWorkload = "capacity",
+        timings: TrialTimings | None = None,
+        reconcile_seconds: int | None = None,
+        inject_owner_death: str | None = None,
     ) -> None:
-        """Bind predeclared configuration and exact signed installation paths."""
+        """Bind predeclared configuration and exact signed installation paths.
+
+        A sustained phase may reconcile every owner on a cadence and end by killing
+        one owner, whose fencing is measured before the orderly shutdown.
+        """
         self.root, self.output, self.launcher = root, output, launcher
+        self.workload_name = workload
+        self.timings = TrialTimings() if timings is None else timings
+        self.reconcile_seconds, self.inject_owner_death = reconcile_seconds, inject_owner_death
+        self.reconciler: AccountReconciler | None = None
+        self.launchers: dict[str, subprocess.Popen[bytes]] = {}
         self.public_venue, self.variant = public_venue, variant
         self.recover, self.faults = recover, faults
         self.features = features
@@ -155,7 +211,8 @@ class CapacityTrial:
         )
         self.socket_root = Path(self.config.accounts[0].socket_path).parent
         self.control_socket = self.socket_root / "supervisor.sock"
-        self.workload = CapacityWorkload(
+        self.workload = trial_workload(
+            workload,
             opening_at=self.config.accounts[0].configuration.opening_at,
             socket_root=self.socket_root,
             public_venue=public_venue,
@@ -253,6 +310,7 @@ class CapacityTrial:
             self.supervisor_started_at = started
         child = subprocess.Popen(args, stdout=out, stderr=err)
         self.processes.append(child)
+        self.launchers[name] = child
         watcher = threading.Thread(target=self._watch_lifetime, args=(name, child, started))
         self.watchers.append(watcher)
         watcher.start()
@@ -262,7 +320,11 @@ class CapacityTrial:
         """Measure actual process exit independently of later sequential cleanup checks."""
         code = child.wait()
         elapsed = time.monotonic() - started
-        bound = 75 if name == "supervisor" else 120
+        bound = (
+            self.timings.supervisor_seconds
+            if name == "supervisor"
+            else self.timings.service_seconds
+        )
         self.record(
             "process_lifetime",
             {
@@ -300,8 +362,11 @@ class CapacityTrial:
         self.receiver = AlertReceiver(
             self.socket_root / "alerts.sock", self.output / "alerts.jsonl"
         )
+        # The supervisor's life is an invocation setting outside signed authority.
         selected = msgspec.structs.replace(
-            self.config, alert_socket=str(self.socket_root / "alerts.sock")
+            self.config,
+            alert_socket=str(self.socket_root / "alerts.sock"),
+            duration_seconds=self.timings.supervisor_seconds,
         )
         self._health_configuration = selected.identity
         (self.output / "configuration.json").write_bytes(self.codec.encode_json(selected))
@@ -315,7 +380,7 @@ class CapacityTrial:
                 action="serve_paper",
                 paper_owner=self.owners[name],
                 service_socket=definition.socket_path,
-                service_seconds=120,
+                service_seconds=self.timings.service_seconds,
             )
             path = self.output / f"serve-{name}.json"
             path.write_bytes(self.codec.encode_json(request))
@@ -354,6 +419,8 @@ class CapacityTrial:
             str(self.launcher),
             "--variant",
             self.variant,
+            "--workload",
+            self.workload_name,
         ]
         if self.public_venue is not None:
             args.extend(("--public-venue", self.public_venue))
@@ -565,21 +632,33 @@ class CapacityTrial:
         self.record("steady_completed", final)
         if not self._healthy_status(final):
             self.failures.append("steady interval lost active owners, sources or instances")
+        killed: subprocess.Popen[bytes] | None = None
+        if self.inject_owner_death is not None:
+            # The qualified probe measures the two-second fence before shutdown.
+            fenced = CapacityRecovery(self).account_death(self.inject_owner_death)
+            self.record(
+                "injected_owner_death",
+                {"account": self.inject_owner_death, "fence_seconds": fenced},
+            )
+            killed = self.launchers[self.inject_owner_death]
         self.control("shutdown")
         if self.supervisor is None or self.supervisor_started_at is None:
             raise RuntimeError("capacity shutdown lacks a started supervisor")
         code = self.supervisor.wait(
-            timeout=max(0, self.supervisor_started_at + 75 - time.monotonic())
+            timeout=max(
+                0,
+                self.supervisor_started_at + self.timings.supervisor_seconds - time.monotonic(),
+            )
         )
         if code:
             raise RuntimeError(f"supervisor exited with status {code}")
         accounts = tuple(process for process in self.processes if process is not self.supervisor)
         if self.first_service_at is None or len(accounts) != len(self.config.accounts):
             raise RuntimeError("capacity shutdown lacks every account launcher")
-        deadline = self.first_service_at + 120
+        deadline = self.first_service_at + self.timings.service_seconds
         for process in accounts:
             code = process.wait(timeout=max(0, deadline - time.monotonic()))
-            if code:
+            if code and process is not killed:
                 raise RuntimeError(f"account launcher {process.pid} exited with status {code}")
         self.retain_accounts("post_shutdown", sockets=False)
 
@@ -652,14 +731,27 @@ class CapacityTrial:
             if self._health_thread.is_alive():
                 raise TimeoutError("bounded health observer did not stop")
 
+    def _stop_reconciler(self) -> None:
+        """Join the owned reconciler and keep its first failure."""
+        if self.reconciler is None:
+            return
+        reconciler, self.reconciler = self.reconciler, None
+        reconciler.stop()
+        self.failures.extend(reconciler.failures)
+        self.record(
+            "reconciliation_completed",
+            {"attempts": reconciler.attempts, "failures": reconciler.failures},
+        )
+
     def _finish_healthy_interval(self) -> None:
         """Close the continuous health witness before requesting finite shutdown."""
         self._stop_health_monitor()
+        self._stop_reconciler()
         self._sample_health()
         self.finish_interval()
 
     def run(self) -> dict[str, object]:
-        """Measure at least 60 seconds, retaining every first failure and final protection."""
+        """Measure the declared interval, retaining every first failure and final protection."""
         self.output.mkdir(parents=True, exist_ok=False)
         result: dict[str, object] = {
             "implementation": InstalledIdentity.sha256(),
@@ -667,6 +759,8 @@ class CapacityTrial:
             "variant": self.variant,
             "features": self.features,
             "recover": self.recover,
+            "workload": self.workload_name,
+            "timings": self.timings,
             "fixture_identity": hashlib.sha256(
                 Path(__file__).with_name("capacity_inputs.py").read_bytes()
             ).hexdigest(),
@@ -689,6 +783,11 @@ class CapacityTrial:
             self._sample_health()
             self._health_thread = threading.Thread(target=self._monitor_health)
             self._health_thread.start()
+            if self.reconcile_seconds is not None:
+                self.reconciler = AccountReconciler(
+                    self.clients, period_seconds=self.reconcile_seconds, record=self.record
+                )
+                self.reconciler.start()
             self.record("steady_started", {"monotonic": start})
             result["reads"] = CapacityReadObserver(
                 self.output / "reads",
@@ -703,7 +802,7 @@ class CapacityTrial:
                     ),
                     *((self.output / "reads" / "features",) if self.features else ()),
                 ),
-                duration_seconds=60,
+                duration_seconds=self.timings.interval_seconds,
                 features=self.features,
                 feature_cohort="recovery_steady" if self.recover else "initial_steady",
             ).run(
@@ -719,6 +818,7 @@ class CapacityTrial:
         finally:
             try:
                 self._stop_health_monitor()
+                self._stop_reconciler()
             finally:
                 self.cleanup()
             result["failures"] = self.failures
@@ -827,6 +927,12 @@ class _Arguments(argparse.Namespace):
     recover: bool
     faults: bool
     features: bool
+    workload: TrialWorkload
+    interval_seconds: int
+    supervisor_seconds: int
+    service_seconds: int
+    reconcile_seconds: int | None
+    inject_owner_death: str | None
 
 
 def main() -> None:
@@ -845,6 +951,12 @@ def main() -> None:
     parser.add_argument("--recover", action="store_true")
     parser.add_argument("--faults", action="store_true")
     parser.add_argument("--features", action="store_true")
+    parser.add_argument("--workload", choices=("capacity", "sustained"), default="capacity")
+    parser.add_argument("--interval-seconds", type=int, default=60)
+    parser.add_argument("--supervisor-seconds", type=int, default=75)
+    parser.add_argument("--service-seconds", type=int, default=120)
+    parser.add_argument("--reconcile-seconds", type=int)
+    parser.add_argument("--inject-owner-death")
     args = parser.parse_args(namespace=_Arguments())
     if args.faults and (args.public_venue is not None or args.variant != "base"):
         parser.error("burst fault drills require four base fixture sources")
@@ -861,6 +973,12 @@ def main() -> None:
                     recover=args.recover,
                     faults=args.faults,
                     features=args.features,
+                    workload=args.workload,
+                    timings=TrialTimings(
+                        args.interval_seconds, args.supervisor_seconds, args.service_seconds
+                    ),
+                    reconcile_seconds=args.reconcile_seconds,
+                    inject_owner_death=args.inject_owner_death,
                 ).run()
             )
             .decode()
@@ -871,14 +989,20 @@ def main() -> None:
             (args.output / "configuration.json").read_bytes(), PaperServiceConfiguration
         )
         owners = codec.decode_json((args.output / "owners.json").read_bytes(), PaperServiceOwners)
-        workload = CapacityWorkload(
+        workload = trial_workload(
+            args.workload,
             opening_at=config.accounts[0].configuration.opening_at,
             socket_root=Path(config.accounts[0].socket_path).parent,
             public_venue=args.public_venue,
         )
-        # Alert routing is an invocation setting, independent of native fixture identity.
+        # Alert routing and supervisor life are invocation settings, independent of
+        # the prepared selection and native fixture identity.
         transports = workload.fixture_transports(
-            msgspec.structs.replace(config, alert_socket=None),
+            msgspec.structs.replace(
+                config,
+                alert_socket=None,
+                duration_seconds=workload.service_configuration().duration_seconds,
+            ),
             variant=args.variant,
             exclude_venue=args.public_venue,
             epoch_root=args.output / "fixture-epochs",
