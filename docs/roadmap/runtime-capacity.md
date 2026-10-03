@@ -3114,3 +3114,20 @@ limit. No trial ran, and the evidence is kept as `stage2a-rehearsal-4-aborted`.
 - The account service's in-process startup owner check still reads full history.
 - The reconciler's projections and its accepted-market clock are harness behaviour that
   2b must keep.
+
+#### Owner decision: stage 2b sequencing (2026-10-04)
+
+The owner decided on 2026-10-04 to defer the remaining stage-2 work to the last step
+before MR17 (QR onboarding acceptance):
+
+- stage 2b, the 24-hour integrated trial;
+- the 26-hour grants and their short expiry and revocation denial trials;
+- 72-hour native retention;
+- the 4× replay of the 24-hour corpus;
+- the checkpoint percentiles, which need at least 1,000 committed checkpoints per account.
+
+These requirements are unchanged and not waived. The targets, staged plan and owner
+decisions in the [stage-2 design](#stage-2-design-2026-10-02) still apply. MR15 stays
+open until they pass, and the stage-1 and stage-2a results above do not establish MR15
+acceptance. Other work, including MR16, can proceed first. When 2b runs, it needs its
+own declaration, rehearsals and counted attempt against the code current at that time.
