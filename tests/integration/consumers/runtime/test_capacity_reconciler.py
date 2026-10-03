@@ -8,8 +8,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # third party library imports
+import msgspec
 from capacity_reconciler import AccountReconciler
 from capacity_sustained import SustainedWorkload
+from capacity_trial import CapacityTrial
 
 # project library imports
 from accounting import AccountPosting
@@ -104,6 +106,7 @@ class TestCapacityReconciler:
             {_ACCOUNT: _JournalClient(journal)},
             period_seconds=0.05,
             record=lambda kind, values: rows.append((kind, values)),
+            knowledge=lambda _: datetime.now(UTC),
         )
         reconciler.start()
         deadline = time.monotonic() + 5
@@ -130,6 +133,7 @@ class TestCapacityReconciler:
             },
             period_seconds=0.05,
             record=lambda kind, values: rows.append((kind, values)),
+            knowledge=lambda _: datetime.now(UTC),
         )
         reconciler.start()
         deadline = time.monotonic() + 5
@@ -140,3 +144,44 @@ class TestCapacityReconciler:
         assert reconciler.attempts == 1
         assert reconciler.failures == [f"reconciliation mismatch faulted {_ACCOUNT}"]
         assert journal.accounts()[0].fault == "account_break"
+
+    def test_observations_carry_the_accepted_market_clock_not_wall_time(
+        self, tmp_path: Path
+    ) -> None:
+        """The account's knowledge never passes its last accepted market; none yet skips."""
+        journal = _journal(tmp_path / "account.sqlite3")
+        accepted = datetime.now(UTC) - timedelta(seconds=2)
+        clock: dict[str, datetime | None] = {_ACCOUNT: None}
+        rows: list[tuple[str, object]] = []
+        reconciler = AccountReconciler(
+            {_ACCOUNT: _JournalClient(journal)},
+            period_seconds=60,
+            record=lambda kind, values: rows.append((kind, values)),
+            knowledge=clock.get,
+        )
+        assert reconciler.reconcile(_ACCOUNT) and reconciler.attempts == 0
+        assert rows == [("account_reconcile_skipped", {"account": _ACCOUNT})]
+        clock[_ACCOUNT] = accepted
+        assert reconciler.reconcile(_ACCOUNT) and reconciler.attempts == 1
+        assert journal.accounts()[0].reconciled_at == accepted
+
+
+def test_trial_reads_each_accounts_last_applied_market_from_status(tmp_path: Path) -> None:
+    """The reconciliation clock is the supervisor's last applied market for the account."""
+    trial = object.__new__(CapacityTrial)
+    trial.config = _workload(datetime.now(UTC)).service_configuration()
+    trial.service_root = tmp_path
+    at = datetime(2026, 10, 3, 12, tzinfo=UTC)
+    status: dict[str, object] = {
+        "sources": {
+            source.name: {
+                "markets": [{"identity": "m", "at": at.isoformat()}]
+                if source.name == "okx-btc-book"
+                else [None]
+            }
+            for source in trial.config.sources
+        }
+    }
+    (tmp_path / "status.json").write_bytes(msgspec.json.encode(status))
+    assert trial._accepted_market_at("okx-shared") == at
+    assert trial._accepted_market_at("okx-isolated") is None

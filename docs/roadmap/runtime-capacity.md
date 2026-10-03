@@ -2959,3 +2959,41 @@ operation.
   result cap and latency budget do not change.
 
 The full lane passed: 2,382 passed and 2 skipped. Strict mypy is clean.
+
+#### Stage 2a rehearsal 2 (uncounted, 2026-10-03)
+
+**Setup.**
+- Frozen at `650db70` (installed implementation `c870cee1…`), with the projection
+  reconciler, the fenced-owner parity gate and the 15 s telemetry cadence.
+- Evidence is in `logs/runtime-capacity/stage2a-rehearsal-2/`.
+
+**Steps.**
+- **Before phase A:** freeze, build and install, the quiet-host check and the grants all
+  passed.
+- **Phase A:** failed, so the attempt stopped there.
+- **After phase A:** the cleanup audit passed.
+
+**What the rehearsal 1 fixes delivered.**
+- **Dashboard:** all reads succeeded and passed every window.
+- **Reconciliation:** 92 rounds matched, each under 17 ms.
+- **Capture and latency:** everything else held as in rehearsal 1.
+
+**Cause of the failure.** At about 830 s, the `okx-isolated` owner refused a selected
+paper market with `paper market precedes current account knowledge` and faulted the
+account. The reconciler had stamped its observation with the wall clock. A
+reconciliation advances the account's knowledge clock, so a market that was already in
+flight, available before that instant, was refused.
+
+**Knock-on failures.**
+- The supervisor stopped that account's workers, so the driver's liveness probe raised
+  `ProcessLookupError`.
+- The trial then ended before the injected owner death and the post-shutdown facts.
+- That account's deliveries, BBO windows and checkpoints stopped, and one source's
+  feature availability fell below the 1,000-sample window minimum.
+
+Rehearsal 1 ran 19 rounds without hitting the race.
+
+**Fixed.** The reconciler stamps each observation with the account's last applied
+market instant, read from the supervisor's status. Markets reach an account in order, so
+that instant is never later than any market still to arrive. A round with no applied
+market yet is skipped and retained. The full lane passed: 2,384 passed and 2 skipped.

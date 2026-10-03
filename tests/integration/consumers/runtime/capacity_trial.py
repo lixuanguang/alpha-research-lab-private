@@ -78,6 +78,24 @@ class _AccountPhase(msgspec.Struct, frozen=True):
     phase: str | None = None
 
 
+class _AcceptedMarket(msgspec.Struct, frozen=True):
+    """Read the instant of one observer's last applied market."""
+
+    at: datetime
+
+
+class _SourceMarkets(msgspec.Struct, frozen=True):
+    """Read one source's per-account last applied markets."""
+
+    markets: tuple[_AcceptedMarket | None, ...]
+
+
+class _MarketStatus(msgspec.Struct, frozen=True):
+    """Read every source's last applied markets from the supervisor status."""
+
+    sources: dict[str, _SourceMarkets]
+
+
 class _Status(msgspec.Struct, frozen=True):
     """Read only operating signals needed by the diagnostic driver."""
 
@@ -731,6 +749,19 @@ class CapacityTrial:
             if self._health_thread.is_alive():
                 raise TimeoutError("bounded health observer did not stop")
 
+    def _accepted_market_at(self, account_id: str) -> datetime | None:
+        """Return the last market the supervisor applied to one account's single source."""
+        sources = {item.source for item in self.config.instances if item.account_id == account_id}
+        if len(sources) != 1:
+            raise ValueError("reconciliation clock requires one source per account")
+        status = msgspec.json.decode(
+            (self.service_root / "status.json").read_bytes(), type=_MarketStatus
+        )
+        markets = [market for market in status.sources[sources.pop()].markets if market is not None]
+        if len(markets) > 1:
+            raise ValueError("reconciliation clock requires one account per source")
+        return markets[0].at if markets else None
+
     def _stop_reconciler(self) -> None:
         """Join the owned reconciler and keep its first failure."""
         if self.reconciler is None:
@@ -785,7 +816,10 @@ class CapacityTrial:
             self._health_thread.start()
             if self.reconcile_seconds is not None:
                 self.reconciler = AccountReconciler(
-                    self.clients, period_seconds=self.reconcile_seconds, record=self.record
+                    self.clients,
+                    period_seconds=self.reconcile_seconds,
+                    record=self.record,
+                    knowledge=self._accepted_market_at,
                 )
                 self.reconciler.start()
             self.record("steady_started", {"monotonic": start})
