@@ -29,7 +29,11 @@ import msgspec
 
 # project library imports
 from applications.execute.service_inputs import ServiceBookInputs
-from applications.execute.service_monitor import PaperServiceDiagnostics, PaperServiceMonitor
+from applications.execute.service_monitor import (
+    PaperServiceDiagnostics,
+    PaperServiceMonitor,
+    _DiagnosticReceipt,
+)
 from applications.execute.source_service import _ReceivedSourceDelivery, run_source_service
 from configuration import (
     BookRegistryConfiguration,
@@ -1252,13 +1256,24 @@ class PaperServices:
                     "status": "failed",
                     "error": self.monitor.last_error,
                 }
-        # Diagnostic telemetry is retained every pass, or on its own declared cadence.
+        # Diagnostic telemetry is retained every pass, or on its own declared cadence
+        # once every account's latest report was retained. Until then (for example
+        # before a held position has its first mark) it retries every pass.
         if self.diagnostics is not None and (
             self.config.telemetry_seconds is msgspec.UNSET
+            or not self._telemetry_retained()
             or time.monotonic() >= self._next_telemetry
         ):
             self._next_telemetry = time.monotonic() + self.config.telemetry_interval
             self.diagnostics.submit(latest_markets)
+
+    def _telemetry_retained(self) -> bool:
+        """Report whether every account's latest diagnostic report was retained."""
+        return all(
+            isinstance(receipt := self.monitoring.get(account_id), _DiagnosticReceipt)
+            and receipt.status == "retained"
+            for account_id in self.accounts
+        )
 
     def _collect_diagnostics(self) -> None:
         """Keep actual compact report receipts separate from synchronous phase protection."""

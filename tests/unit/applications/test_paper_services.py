@@ -1238,6 +1238,57 @@ class TestPaperServices:
             counts.append(diagnostics.submitted)
         assert counts == [3, 1]
 
+    def test_declared_telemetry_retries_every_pass_until_a_report_is_retained(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed first report, such as a held position before its first mark, retries."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = replace(self._config(self._socket_path()), telemetry_seconds=15)
+        now = datetime.now(UTC)
+
+        class _Unreadable:
+            """Refuse protection reads; the supervisor retains that as a phase failure."""
+
+            def accounts(self) -> tuple[AccountView, ...]:
+                """Fail the synchronous phase read."""
+                raise ValueError("unreadable in this test")
+
+        class _Diagnostics:
+            """Count batches and return one scripted receipt status per batch."""
+
+            def __init__(self, statuses: list[Literal["retained", "failed"]]) -> None:
+                """Bind the receipts the child reports after each batch."""
+                self.statuses, self.submitted, self.pending = statuses, 0, False
+
+            def submit(self, markets: dict[str, tuple[PaperMarket, ...]]) -> None:
+                """Count one batch; its receipt is collected on the next pass."""
+                self.submitted += 1
+                self.pending = True
+
+            def poll(self) -> tuple[_DiagnosticReceipt, ...]:
+                """Return the scripted receipt for the last submitted batch."""
+                if not self.pending:
+                    return ()
+                self.pending = False
+                status = self.statuses[min(self.submitted, len(self.statuses)) - 1]
+                return (
+                    _DiagnosticReceipt(
+                        account_id="shared", requested_at=now, observed_at=now, status=status
+                    ),
+                )
+
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
+        services.accounts.clear()
+        services.accounts["shared"] = cast(SocketPaperAccount, _Unreadable())
+        diagnostics = _Diagnostics(["failed", "failed", "retained"])
+        services.diagnostics = cast(PaperServiceDiagnostics, diagnostics)
+        for _ in range(6):
+            services._sample()
+        # Two failed reports retry at once; the retained third starts the cadence.
+        assert diagnostics.submitted == 3
+
     def test_closing_a_source_releases_each_book_index_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

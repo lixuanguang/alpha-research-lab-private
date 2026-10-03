@@ -2997,3 +2997,56 @@ Rehearsal 1 ran 19 rounds without hitting the race.
 market instant, read from the supervisor's status. Markets reach an account in order, so
 that instant is never later than any market still to arrive. A round with no applied
 market yet is skipped and retained. The full lane passed: 2,384 passed and 2 skipped.
+
+#### Stage 2a rehearsal 3 (uncounted, 2026-10-03)
+
+**Setup.**
+- Frozen at `b3be496` (installed implementation `c870cee1…`).
+- Evidence is in `logs/runtime-capacity/stage2a-rehearsal-3/`.
+
+**Steps.**
+- **Before phase A:** freeze, build and install, the quiet-host check and the grants all
+  passed.
+- **Phase A:** passed every gate, and its cleanup audit passed.
+- **Phase B:** failed before its measured interval.
+- **After phase B:** the cleanup audit passed.
+- Under the owner's instruction, the counted attempt was not started.
+
+**Phase A, which passed every gate.**
+
+| Measure | Result |
+| --- | --- |
+| Checkpoints | 595 per account, all `target_matched`, with no rejections and no order after the opening |
+| Reconciliation | All 116 rounds matched |
+| Capture | Every source rolled into 2 segments with exact replay, and all 49,500 slots per source were retained |
+| Owner death | The injected death of `bitfinex-isolated` was fenced in 0.45 s |
+
+Worst-window p99 values:
+
+| Class | Worst-window p99 |
+| --- | --- |
+| Receipt to durable | 2.9 ms |
+| Durable to BBO | 18.9 ms |
+| Depth/BBO reads | 19.1 ms |
+| Dashboard reads | 59.4 ms |
+| Feature retrieval | 11.3 ms |
+| Feature availability | 181 ms |
+
+**Phase B recovery.** The first four-owner recovery after an owner death succeeded.
+All four owners were stopped, settled, reconciled and claimed. All eight instances
+progressed 10.0 s after the first claim, inside the 40 s budget, with 25.1 s of operator
+time in total.
+
+**Phase B failure.** Phase B then stopped at reader startup: `dashboard reader okx-shared
+did not become ready`. The readers' fixed 5 s startup found no telemetry database. Two
+things combined:
+- The accounts now held positions, so the supervisor's first diagnostic sample ran
+  before any mark existed and failed for every account (`paper report requires complete
+  current position marks`).
+- With the declared 15 s cadence, the next sample came after the readers' deadline. At
+  the stage-1 cadence of 1 s, it would have come a second later.
+
+**Fixed.** Under a declared cadence, the supervisor still samples every pass until every
+account's latest report has been retained, and again after any report fails. Only then
+does it follow the cadence. Undeclared configurations keep sampling every pass,
+unchanged. The full lane passed: 2,385 passed and 2 skipped.
