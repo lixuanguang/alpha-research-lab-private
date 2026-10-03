@@ -9,11 +9,18 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
 
+# third party library imports
+import msgspec
+
 # project library imports
 from financial_units import DecimalGrid, Money, Price, Quantity
 from reference_data.instruments import InstrumentId
 from risk import BudgetPolicy, SpotLimits
 from serialization import WireRecord
+
+# A service life is finite: unset keeps the stage-1 bound; the longest declarable is 25 hours.
+SERVICE_LIFE_DEFAULT_SECONDS = 120
+SERVICE_LIFE_MAXIMUM_SECONDS = 90_000
 
 
 class OpeningAccount(WireRecord, frozen=True):
@@ -106,10 +113,17 @@ class AccountConfiguration(WireRecord, frozen=True):
     # One worst-case fee rate for each configured instrument.
     fee_rates: tuple[InstrumentFeeRate, ...]
     schema_version: Literal["account-runtime"] = "account-runtime"
+    # Omitted from the encoding when unset, so earlier configurations keep their bytes.
+    service_life_seconds: int | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Reject ambiguous ownership, incompatible funding and unsupported products."""
         self._require_utc(self.opening_at, field_name="opening account time")
+        if self.service_life_seconds is not msgspec.UNSET and (
+            type(self.service_life_seconds) is not int
+            or not 1 <= self.service_life_seconds <= SERVICE_LIFE_MAXIMUM_SECONDS
+        ):
+            raise ValueError("account service life must be a finite declared bound")
         if type(self.budgets) is not BudgetPolicy:
             raise TypeError("account configuration requires BudgetPolicy")
         self.budgets.__post_init__()
@@ -161,6 +175,13 @@ class AccountConfiguration(WireRecord, frozen=True):
             )
         ):
             raise ValueError("account budget ownership, funding or instruments differ")
+
+    @property
+    def service_life_limit(self) -> int:
+        """Return the longest owner-service invocation this signed configuration admits."""
+        if self.service_life_seconds is msgspec.UNSET:
+            return SERVICE_LIFE_DEFAULT_SECONDS
+        return self.service_life_seconds
 
     def fee_rate(self, instrument_id: InstrumentId) -> InstrumentFeeRate:
         """Return the configured worst-case fee rate for one instrument."""

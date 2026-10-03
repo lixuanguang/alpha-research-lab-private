@@ -23,7 +23,12 @@ if TYPE_CHECKING:
         DecisionRecord,
         DecisionTransition,
     )
-    from strategies.reference import LiquidityClipPolicy, ReferenceClipPolicy
+    from strategies.reference import (
+        LiquidityClipPolicy,
+        ReferenceClipPolicy,
+        TargetClipPolicy,
+        reference_policy,
+    )
     from strategies.rules import Momentum, NoTrade, Reversal, RuleFactory, RuleRegistry, TargetRule
     from strategies.state import DecisionSession, DecisionState
 
@@ -81,13 +86,20 @@ def __getattr__(name: str) -> object:
             "DecisionState": state.DecisionState,
         }
         return exports[name]
-    if name in {"LiquidityClipPolicy", "ReferenceClipPolicy"}:
+    if name in {
+        "LiquidityClipPolicy",
+        "ReferenceClipPolicy",
+        "TargetClipPolicy",
+        "reference_policy",
+    }:
         # project library imports
         from strategies import reference
 
         exports = {
             "LiquidityClipPolicy": reference.LiquidityClipPolicy,
             "ReferenceClipPolicy": reference.ReferenceClipPolicy,
+            "TargetClipPolicy": reference.TargetClipPolicy,
+            "reference_policy": reference.reference_policy,
         }
         return exports[name]
     raise AttributeError(name)
@@ -118,6 +130,8 @@ __all__ = [
     "RuleFactory",
     "RuleRegistry",
     "StrategyEvent",
+    "TargetClipPolicy",
     "TargetIntent",
     "TargetRule",
+    "reference_policy",
 ]

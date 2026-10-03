@@ -366,6 +366,10 @@ class CapacityWorkload:
     # Observed public Bitfinex ETH R0 reached 84.3 messages/s; 12,000 per 100 s capture
     # leaves 42% headroom. Fixture routes keep the stage-1 5,000-message cap.
     public_bitfinex_max_messages: ClassVar[int] = 12_000
+    # Two selected reference consumers per account: instance role, formula and clip units.
+    instance_policies: ClassVar[
+        tuple[tuple[str, Literal["fixed_clip", "liquidity_clip", "target_clip"], str], ...]
+    ] = (("fixed", "fixed_clip", "2"), ("liquidity", "liquidity_clip", "2"))
 
     def __init__(
         self,
@@ -443,7 +447,7 @@ class CapacityWorkload:
                         maximum=workload.money("5000"),
                         instruments=(dimension.instrument_id,),
                     )
-                    for policy in ("fixed", "liquidity")
+                    for policy, _, _ in self.instance_policies
                 ),
                 max_quote_age_us=30_000_000,
                 max_state_age_us=120_000_000,
@@ -457,10 +461,6 @@ class CapacityWorkload:
         accounts: list[PaperServiceAccount] = []
         sources: list[PaperServiceSource] = []
         instances: list[PaperServiceInstance] = []
-        policies: tuple[tuple[str, Literal["fixed_clip", "liquidity_clip"]], ...] = (
-            ("fixed", "fixed_clip"),
-            ("liquidity", "liquidity_clip"),
-        )
         for venue in self.venues:
             workload = self.venue_workloads[venue]
             roles: tuple[
@@ -500,14 +500,14 @@ class CapacityWorkload:
                         socket_path=str(self.socket_root / f"{account_id}.sock"),
                     )
                 )
-                for name, policy in policies:
+                for name, policy, units in self.instance_policies:
                     instances.append(
                         PaperServiceInstance(
                             instance_id=f"{account_id}-{name}-{asset.lower()}",
                             account_id=account_id,
                             source=source_name,
                             policy=policy,
-                            quantity=workload.quantity("2", dimension),
+                            quantity=workload.quantity(units, dimension),
                             lot=workload.quantity("1", dimension),
                             maximum_fee=workload.money("2"),
                         )

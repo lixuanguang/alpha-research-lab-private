@@ -4,30 +4,42 @@ Copy this consumer alongside capacity_reads. It reads retained public inputs and
 has no account, trading or transport authority. Runtime online access uses the
 existing local versioned store; the isolated Feast boundary is qualified by the
 separate research workload.
+
+One materializer process publishes every source, and one reader process per account
+serves that account's selected instances, so publication work never shares an
+interpreter with lookups. A per-source file lock keeps the consuming cutoff rule
+across processes.
 """
 
 from __future__ import annotations
 
 # standard library imports
+import fcntl
 import hashlib
 import math
+import multiprocessing
+import os
 import sqlite3
 import threading
 import time
 from datetime import UTC, datetime, timedelta
 from fractions import Fraction
+from multiprocessing.connection import Connection
+from multiprocessing.process import BaseProcess
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from types import TracebackType
+from typing import TYPE_CHECKING, Literal, cast
 
 # third party library imports
 import msgspec
+from capacity_deliveries import _IndexedSharedDelivery
 from msgspec.structs import replace
 
 # project library imports
 from configuration import PaperServiceConfiguration
 from financial_units import ExactRatio
 from market_data.books import BookDepth
-from market_data.contracts import BookLookup
+from market_data.contracts import BookLookup, RecordingRequest
 from research.features import (
     FeatureSchema,
     FeatureSession,
@@ -43,7 +55,7 @@ from research.observations import (
     NamedObservation,
     NumericField,
 )
-from runtime import InstalledIdentity, SharedBookDelivery
+from runtime import InstalledIdentity, LiveBookDelivery
 from serialization import DomainCodec
 
 if TYPE_CHECKING:
@@ -66,10 +78,50 @@ class _DurableProbe(msgspec.Struct, frozen=True):
     durable_ns: int
 
 
+class _PublicationLock:
+    """Serialize one source's publication and consuming reads across threads and processes.
+
+    The thread lock comes first: threads of one process share the file lock's open
+    description, so the file lock alone would not exclude them from each other.
+    """
+
+    def __init__(self, path: Path) -> None:
+        """Bind the source's lock file; each process opens its own description."""
+        self.path = path
+        self.thread_lock = threading.Lock()
+        self.descriptor: int | None = None
+
+    def __enter__(self) -> None:
+        """Hold this process's turn, then the source across processes."""
+        self.thread_lock.acquire()
+        try:
+            if self.descriptor is None:
+                self.descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(self.descriptor, fcntl.LOCK_EX)
+        except BaseException:
+            self.thread_lock.release()
+            raise
+
+    def __exit__(
+        self,
+        error_type: type[BaseException] | None,
+        error: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Release the source before this process's turn."""
+        try:
+            if self.descriptor is not None:
+                fcntl.flock(self.descriptor, fcntl.LOCK_UN)
+        finally:
+            self.thread_lock.release()
+
+
 class _FeatureSource:
     """Bind one native source to a two-value exact projection and durable versions."""
 
-    def __init__(self, source: _SourceIndex, freshness_us: int, root: Path) -> None:
+    def __init__(
+        self, source: _SourceIndex, freshness_us: int, root: Path, *, register: bool = True
+    ) -> None:
         """Preserve native entity, currency, source identity and selected freshness."""
         self.source = source
         self.entity = str(source.request.config.instrument_id)
@@ -100,8 +152,11 @@ class _FeatureSource:
             ProjectionFeature(self.definition.schema), instance=source.name, entity=self.entity
         )
         self.store = VersionedFeatureStore.open(root / f"{source.name}.sqlite3")
-        self.store.register(self.definition)
-        self.publication_lock = threading.Lock()
+        if register:
+            self.store.register(self.definition)
+        self.publication_lock: _PublicationLock | threading.Lock = _PublicationLock(
+            root / f"{source.name}.publication.lock"
+        )
         self.causal_source = LiveBookDecisionSource(
             source.request,
             InputRequirement(
@@ -165,13 +220,8 @@ class _FeatureSource:
                 if quote.position >= self.source_cursor
             )
         for encoded in retained:
-            delivery = self.codec.decode_json(encoded, SharedBookDelivery).source
-            if delivery.book.position != self.source_cursor:
-                raise ValueError("feature causal source lost its retained native prefix")
-            self.causal_source.accept(
-                delivery.record, delivery.book, available_at=delivery.available_at
-            )
-            self.source_cursor += 1
+            # Decoding validates the native depth once, as the runtime's source pipe does.
+            self.accept_delivery(self.codec.decode_json(encoded, _IndexedSharedDelivery).source)
         decision = self.causal_source.read(self.entity, at)
         book = self.causal_source.book_at(self.entity, at)
         observation = decision.observations[0]
@@ -190,6 +240,15 @@ class _FeatureSource:
             available_ns=index._unix_ns(observation.available_at),
         )
         return replace(lookup, quote=quote, reason="eligible")
+
+    def accept_delivery(self, delivery: LiveBookDelivery) -> None:
+        """Advance the causal source by the next delivery, already decoded and validated once."""
+        if delivery.book.position != self.source_cursor:
+            raise ValueError("feature causal source lost its retained native prefix")
+        self.causal_source._accept_validated(
+            delivery.record, delivery.book, available_at=delivery.available_at
+        )
+        self.source_cursor += 1
 
     def poll_probes(self, path: Path | None) -> None:
         """Read only a finite complete timing prefix and reject conflicting cursor retries."""
@@ -252,6 +311,8 @@ class CapacityFeatureObserver:
         self.started_ns = 0
         self.stop_ns = 0
         self.initialization_seconds = 0.0
+        self.retrieval_file = "retrieval-samples.jsonl"
+        self.children: dict[str, tuple[BaseProcess, Connection[object, object]]] = {}
 
     def prepare(self) -> None:
         """Initialize and prime the actual stores before the measured interval."""
@@ -310,7 +371,7 @@ class CapacityFeatureObserver:
             return None
         paths = tuple(
             self.measurement_root.glob(
-                f"*/{source.source.name}/{source.source.request.recording_id}.capture.jsonl"
+                f"*/{source.source.name}/{source.source.request.recording_key}.capture.jsonl"
             )
         )
         if len(paths) > 1:
@@ -330,13 +391,13 @@ class CapacityFeatureObserver:
         feature = StoredFeature(
             definition_identity=source.definition.identity,
             vector=vector,
-            source_version=source.source.request.recording_id,
+            source_version=source.source.request.recording_key,
             source_sha256=source.source.request.identity,
-            dataset_version=f"native-book-projection-{source.source.request.recording_id}",
+            dataset_version=f"native-book-projection-{source.source.request.recording_key}",
             dataset_sha256=inputs.identity,
             revision_identity=inputs.identity,
         )
-        version = f"{source.source.request.recording_id}-{slot}"
+        version = f"{source.source.request.recording_key}-{slot}"
         with source.publication_lock:
             previous = source.store.active_version(source.definition)
             source.store.append(source.definition, feature)
@@ -383,19 +444,91 @@ class CapacityFeatureObserver:
             },
         )
 
-    def start(self, started: float, stop: float) -> None:
-        """Share the original finite interval with concurrent depth and dashboard work."""
-        self.started_ns, self.stop_ns = round(started * 1_000_000_000), round(stop * 1_000_000_000)
-        self.threads = [threading.Thread(target=self._materialize, daemon=True)]
-        self.threads.extend(
-            threading.Thread(
-                target=self._read, args=(instance.instance_id, instance.source), daemon=True
+    def launch(self) -> dict[str, int]:
+        """Spawn the materializer and one reader per account, ready before the interval."""
+        context = multiprocessing.get_context("spawn")
+        selected = {
+            item.instance_id: item
+            for item in self.config.instances
+            if item.instance_id in self.config.active
+        }
+        roles: dict[str, tuple[str, ...]] = {"materializer": ()}
+        for account in self.config.accounts:
+            roles[account.account_id] = tuple(
+                instance_id
+                for instance_id, item in selected.items()
+                if item.account_id == account.account_id
             )
-            for instance in self.config.instances
-            if instance.instance_id in self.config.active
+        if sorted(i for instances in roles.values() for i in instances) != sorted(selected):
+            raise ValueError("feature readers must cover every selected instance exactly once")
+        sources = tuple(
+            (
+                name,
+                source.request,
+                str(source.capture_root),
+                str(source.delivery_path),
+            )
+            for name, source in self.index.sources.items()
+        )
+        for role, instances in roles.items():
+            parent, child = cast(
+                "tuple[Connection[object, object], Connection[object, object]]", context.Pipe()
+            )
+            process = context.Process(
+                target=_feature_child,
+                args=(
+                    role,
+                    instances,
+                    str(self.output),
+                    self.config,
+                    sources,
+                    None if self.measurement_root is None else str(self.measurement_root),
+                    child,
+                ),
+                daemon=True,
+            )
+            process.start()
+            child.close()
+            self.children[role] = (process, parent)
+        for role, (_, control) in self.children.items():
+            if not control.poll(60) or control.recv() != "ready":
+                self.close()
+                raise TimeoutError(f"feature {role} process did not become ready")
+        return {role: cast(int, process.pid) for role, (process, _) in self.children.items()}
+
+    def close(self) -> None:
+        """Stop every feature process that has not finished on its own."""
+        for process, control in self.children.values():
+            if process.is_alive():
+                process.terminate()
+                process.join(2)
+            control.close()
+
+    def start(self, started: float, stop: float) -> None:
+        """Share the original finite interval with the launched feature processes."""
+        self.started_ns, self.stop_ns = round(started * 1_000_000_000), round(stop * 1_000_000_000)
+        if not self.children:
+            raise ValueError("feature processes must be launched before the interval")
+        for _, control in self.children.values():
+            control.send((self.started_ns, self.stop_ns))
+
+    def _serve(self, instances: tuple[str, ...]) -> None:
+        """Run this process's role on threads until its schedule ends."""
+        bindings = {item.instance_id: item.source for item in self.config.instances}
+        self.threads = (
+            [threading.Thread(target=self._materialize, daemon=True)]
+            if not instances
+            else [
+                threading.Thread(
+                    target=self._read, args=(instance, bindings[instance]), daemon=True
+                )
+                for instance in instances
+            ]
         )
         for thread in self.threads:
             thread.start()
+        for thread in self.threads:
+            thread.join()
 
     def _materialize(self) -> None:
         """Keep all due one-second versions or retain a failure without stretching time."""
@@ -458,7 +591,7 @@ class CapacityFeatureObserver:
                 completed_ns = time.monotonic_ns()
                 result = {"status": "failed", "error": f"{type(error).__name__}: {error}"}
             self._record(
-                "retrieval-samples.jsonl",
+                self.retrieval_file,
                 {
                     "reader": instance,
                     "source": source_name,
@@ -505,11 +638,23 @@ class CapacityFeatureObserver:
 
     def finish(self, deadline: float) -> dict[str, object]:
         """Join on the shared shutdown deadline and retain all schedules and missingness."""
-        for thread in self.threads:
-            thread.join(max(0.0, deadline - time.monotonic()))
-        self.stop.set()
-        if any(thread.is_alive() for thread in self.threads):
+        overran = False
+        for role, (process, control) in self.children.items():
+            process.join(max(0.0, deadline - time.monotonic()))
+            if process.is_alive():
+                overran = True
+            elif control.poll(0):
+                self.failures.extend(f"{role}: {item}" for item in cast(list[str], control.recv()))
+            if process.exitcode not in (0, None):
+                self.failures.append(f"{role}: feature process exited {process.exitcode}")
+        self.close()
+        if overran:
             self.failures.append("feature worker exceeded shared shutdown deadline")
+        with (self.output / "retrieval-samples.jsonl").open("ab") as merged:
+            for role in sorted(self.children):
+                path = self.output / f"retrieval-samples.{role}.jsonl"
+                if path.is_file():
+                    merged.write(path.read_bytes())
         publications = self._rows("materialization-samples.jsonl")
         reads = self._rows("retrieval-samples.jsonl")
         materializations: dict[str, object] = {}
@@ -582,6 +727,8 @@ class CapacityFeatureObserver:
             "matched_cutoff_parity": all(row.get("parity") is True for row in successes),
             "quality_probes": quality_probes,
             "failures": self.failures,
+            "process_pids": {role: process.pid for role, (process, _) in self.children.items()},
+            "topology": "one_materializer_process_and_one_reader_process_per_account",
             "sampling_plan": str(self.output / "sampling-plan.json"),
         }
         (self.output / "summary.json").write_bytes(self.codec.encode_json(result))
@@ -676,3 +823,56 @@ class CapacityFeatureObserver:
         if type(value) is not int or value < 0:
             raise ValueError(f"invalid feature measurement: {name}")
         return value
+
+
+def _feature_child(
+    role: str,
+    instances: tuple[str, ...],
+    output: str,
+    config: PaperServiceConfiguration,
+    sources: tuple[tuple[str, RecordingRequest, str, str], ...],
+    measurement_root: str | None,
+    control: Connection[object, object],
+) -> None:
+    """Serve one feature role in its own interpreter and report its failures."""
+    # third party library imports
+    from capacity_reads import _RetainedBookIndex, _SourceIndex
+
+    index = _RetainedBookIndex(
+        config,
+        tuple(
+            _SourceIndex(name, request, Path(capture_root), Path(delivery_path), 10_000)
+            for name, request, capture_root, delivery_path in sources
+        ),
+    )
+    observer = CapacityFeatureObserver(
+        Path(output),
+        config,
+        index,
+        measurement_root=None if measurement_root is None else Path(measurement_root),
+    )
+    observer.retrieval_file = f"retrieval-samples.{role}.jsonl"
+    freshness = {source.name: source.freshness_us for source in config.sources}
+    try:
+        for name, source in index.sources.items():
+            observer.sources[name] = _FeatureSource(
+                source, freshness[name], observer.output, register=False
+            )
+        if not instances:
+            # The index hands each delivery it decodes straight to the causal source,
+            # so the materializer decodes every delivery once; this catches up first.
+            for name, feature_source in observer.sources.items():
+                index.sources[name].delivered = feature_source.accept_delivery
+            index.poll()
+            for feature_source in observer.sources.values():
+                feature_source.lookup(index, datetime.now(UTC))
+        control.send("ready")
+        if not control.poll(300):
+            raise TimeoutError("feature process received no interval")
+        observer.started_ns, observer.stop_ns = cast(tuple[int, int], control.recv())
+        observer._serve(instances)
+    except (OSError, ValueError, RuntimeError, AssertionError, sqlite3.Error) as error:
+        observer.failures.append(f"{type(error).__name__}: {error}")
+    finally:
+        control.send(observer.failures)
+        control.close()

@@ -28,10 +28,19 @@ from serialization import DomainCodec, sync_directory
 class CaptureRunJournal:
     """Own the process lock, durable progress and immutable original segment identities."""
 
-    def __init__(self, root: Path, request: CaptureRunRequest) -> None:
-        """Bind a declared run without provisioning files or acquiring process ownership."""
+    def __init__(
+        self, root: Path, request: CaptureRunRequest, *, measure_fsync: bool = False
+    ) -> None:
+        """Bind a declared run without provisioning files or acquiring process ownership.
+
+        Args:
+            root: Run directory holding the request, progress and segment chain.
+            request: Immutable whole-run source, window and implementation binding.
+            measure_fsync: Retain each new segment's record fsync and cursor durations.
+        """
         request.__post_init__()
         self.root, self.request = root, request
+        self.measure_fsync = measure_fsync
         self.codec = DomainCodec()
         self._lock: BinaryIO | None = None
 
@@ -171,7 +180,11 @@ class CaptureRunJournal:
                 previous_sha256=None if cursor is None else cursor.sha256,
             ),
         )
-        journal = CaptureJournal(self.root / "segments" / request.recording_id, request)
+        journal = CaptureJournal(
+            self.root / "segments" / request.recording_id,
+            request,
+            measure_fsync=self.measure_fsync,
+        )
         journal.start()
         return journal
 

@@ -1,7 +1,12 @@
 """Expose the configuration public contract."""
 
 # project library imports
-from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
+from configuration.accounts import (
+    SERVICE_LIFE_MAXIMUM_SECONDS,
+    AccountConfiguration,
+    InstrumentFeeRate,
+    OpeningAccount,
+)
 from configuration.archives import OKXHistoryConfig
 from configuration.book_registry import (
     BookEquivalence,
@@ -46,6 +51,7 @@ from configuration.paper_services import (
     PaperServiceConfiguration,
     PaperServiceInstance,
     PaperServiceSource,
+    PaperSourceChain,
 )
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
 from configuration.venue_execution import (
@@ -63,6 +69,7 @@ from configuration.venue_secrets import (
 )
 
 __all__ = [
+    "SERVICE_LIFE_MAXIMUM_SECONDS",
     "VENUE_SECRET_FILES",
     "AccountConfiguration",
     "BookEquivalence",
@@ -104,6 +111,7 @@ __all__ = [
     "PaperServiceInstance",
     "PaperServiceSource",
     "PaperSourceBinding",
+    "PaperSourceChain",
     "PaperStrategyIdentity",
     "PublicDataJob",
     "ResolvedManifest",

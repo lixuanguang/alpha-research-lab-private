@@ -18,7 +18,7 @@ from msgspec.structs import replace
 # project library imports
 from accounting import AccountLedger
 from applications.execute.service_inputs import ServiceBookInputs
-from configuration import BookRegistryConfiguration, BookSelection
+from configuration import BookRegistryConfiguration, BookSelection, CaptureRunConfig
 from execution import (
     AccountControl,
     AccountExecutionRequest,
@@ -31,7 +31,13 @@ from execution import (
 from financial_units import ExactRatio
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookRegistry
-from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, Level
+from market_data.contracts import (
+    BookObservation,
+    CaptureRecord,
+    CaptureRequest,
+    CaptureRunRequest,
+    Level,
+)
 from research.observations import LiveBookDecisionSource
 from runtime import (
     LiveBookDelivery,
@@ -148,6 +154,103 @@ class TestCapacityParity:
         assert "incomplete" in cast(str, failed["failure"])
         assert failed["signed"] is not None
         assert Path(cast(str, failed["replay_journal"])).is_file()
+
+    def test_unmanaged_replay_reads_a_segment_chain_by_its_run_key(self, tmp_path: Path) -> None:
+        """A chain's stream binds the whole-run request identity and replays every account."""
+        root = tmp_path / "selection"
+        root.mkdir()
+        workload = CapacityWorkload(
+            opening_at=datetime(2026, 9, 27, 12, tzinfo=UTC),
+            socket_root=Path("/private/tmp/capacity-chain-parity-sockets"),
+        )
+        workload.prepare(root / "preparation")
+        service = workload.service_configuration()
+        codec = DomainCodec()
+        trial = root / "trial"
+        trial.mkdir()
+        (trial / "configuration.json").write_bytes(codec.encode_json(service))
+        (trial / "summary.json").write_bytes(codec.encode_json({"implementation": "f" * 64}))
+        run = trial / "operating/runs/single"
+        run.mkdir(parents=True)
+        reconciled_at = datetime(2026, 9, 27, 13, tzinfo=UTC)
+        for account in service.accounts:
+            source = next(
+                source
+                for source in service.sources
+                if any(
+                    instance.account_id == account.account_id and instance.source == source.name
+                    for instance in service.instances
+                )
+            )
+            venue = workload.venue_workload(source.capture.venue)
+            signed_path = trial / f"{account.account_id}.sqlite3"
+            signed = AccountJournal(signed_path, account.configuration)
+            signed.observe(
+                AccountQuote(
+                    price=venue.price("100", source.scenario.adverse.per),
+                    at=reconciled_at - timedelta(microseconds=1),
+                )
+            )
+            assert signed.reconcile(venue.opening_observation(account.account_id, reconciled_at))
+            final = AccountExecutionResult(
+                accounts=signed.accounts(),
+                orders=signed.orders(),
+                net_orders=signed.net_orders(),
+                paper_traces=signed.paper_traces(),
+                journal_path=str(signed_path),
+            )
+            (trial / f"final-{account.account_id}.json").write_bytes(codec.encode_json(final))
+            request = CaptureRunRequest(
+                config=source.capture,
+                window=CaptureRunConfig(
+                    start_at=reconciled_at,
+                    ready_by=reconciled_at + timedelta(seconds=1),
+                    stop_at=reconciled_at + timedelta(minutes=1),
+                    max_messages=100,
+                    max_bytes=64 * 1024**2,
+                    max_segments=8,
+                    max_reconnects=0,
+                ),
+                run_id=str(uuid4()),
+                implementation_identity="f" * 64,
+            )
+            source_directory = run / source.name
+            run_directory = source_directory / request.run_id / request.run_id
+            run_directory.mkdir(parents=True, exist_ok=True)
+            (run_directory / "run-request.json").write_bytes(codec.encode_json(request))
+            available_at = reconciled_at + timedelta(seconds=1)
+            received_ns = int(available_at.timestamp()) * 1_000_000_000
+            delivery = SharedBookDelivery(
+                source=LiveBookDelivery(
+                    record=CaptureRecord(kind="session", epoch=0, received_ns=received_ns),
+                    book=BookObservation(
+                        position=0,
+                        epoch=0,
+                        received_ns=received_ns,
+                        source_time=None,
+                        sequence=None,
+                        outcome="session",
+                        status="recovering",
+                        reason="validated snapshot required",
+                        state_identity="0" * 64,
+                    ),
+                    available_at=available_at,
+                ),
+                inputs=(),
+                coordinated_at=None,
+            )
+            (source_directory / f"{request.run_id}-{account.account_id}.jsonl").write_bytes(
+                codec.encode_json(delivery) + b"\n"
+            )
+
+        report = CapacityEconomicParity(root, trial).write(tmp_path / "comparison.json")
+        accounts = cast(tuple[dict[str, object], ...], report["accounts"])
+        assert len(accounts) == 4
+        for result in accounts:
+            assert result.get("failure") is None
+            assert result["replayed_deliveries"] == 1
+            comparisons = cast(dict[str, dict[str, object]], result["comparisons"])
+            assert all(comparison["equal"] is True for comparison in comparisons.values())
 
     def test_mismatch_retains_complete_signed_and_replay_values(self) -> None:
         """A changed fill and checkpoint must survive as full reviewable evidence."""

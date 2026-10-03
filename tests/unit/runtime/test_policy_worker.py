@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from typing import Literal, cast
 
 # third party library imports
 import pytest
@@ -20,10 +21,14 @@ from research.observations import NumericField
 from runtime import PolicyProcessFailure, ProcessDecisionPolicy
 from strategies import (
     DecisionContext,
+    DecisionSession,
     DecisionTransition,
     LiquidityClipPolicy,
     OrderIntent,
     ReferenceClipPolicy,
+    TargetClipPolicy,
+    TargetIntent,
+    reference_policy,
 )
 from telemetry import HealthMetric
 
@@ -114,6 +119,42 @@ class TestPolicyWorker:
         assert second.intent.limit.value == Decimal("99.99")
         assert second.state == b"2"
         assert policy.identity != self._policy("liquidity" if kind == "fixed" else "fixed").identity
+
+    def test_target_clip_holds_one_constant_target_through_a_session(self) -> None:
+        """Every eligible book requests the same absolute target, under its own identity."""
+        policy = reference_policy(
+            "target_clip",
+            self._quantity("1"),
+            self.currency,
+            self._quantity("1"),
+            tick=self._price("0.01"),
+            implementation="a" * 64,
+        )
+        assert type(policy) is TargetClipPolicy and policy.output == "target"
+        assert policy.identity != self._policy().identity
+        session = DecisionSession(
+            policy,
+            run_identity="sustained",
+            instance="hold-a",
+            entity=str(self.dimension.instrument_id),
+        )
+        for offset in range(3):
+            context = self._context(ask=str(101 + offset), bid=str(100 + offset))
+            at = self.at + timedelta(milliseconds=100 * offset)
+            record = session.evaluate(
+                DecisionContext(features=context.features, prediction=None, evaluated_at=at)
+            )
+            assert record.intent == TargetIntent(quantity=self._quantity("1"))
+        assert policy.decide(self._context(), b"7").state == b"8"
+        with pytest.raises(ValueError, match="unknown reference policy"):
+            reference_policy(
+                cast(Literal["target_clip"], "maker_clip"),
+                self._quantity("1"),
+                self.currency,
+                self._quantity("1"),
+                tick=self._price("0.01"),
+                implementation="a" * 64,
+            )
 
     def test_clip_prices_scale_with_a_low_priced_book(self) -> None:
         """Relative and tick offsets keep prices positive and near the touch below one unit."""

@@ -59,7 +59,7 @@ _INSTALL_COMMAND = re.compile(
 )
 _WORKFLOW_USE = re.compile(r"(?m)^\s*-?\s*uses:\s*([^\s@]+)@([^\s#]+)")
 _ACTION_PINS = {
-    "actions/checkout": "34e114876b0b11c390a56381ad16ebd13914f8d5",
+    "actions/checkout": "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
     "astral-sh/setup-uv": "c771a70e6277c0a99b617c7a806ffedaca235ff9",
 }
 _APPROVED_LICENSES = {

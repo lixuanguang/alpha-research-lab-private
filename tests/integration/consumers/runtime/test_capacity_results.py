@@ -516,3 +516,32 @@ class TestCapacityResults:
         _, cursors = collector._capture_probe(capture_path)
         with pytest.raises(ValueError, match="invalid paper-book measurement"):
             collector._paper_probe(book_path, cursors)
+
+    def test_chain_rollover_rows_are_recorded_facts_beside_their_cursors(
+        self, tmp_path: Path
+    ) -> None:
+        """Each seal's boundary pause is kept; single recordings report no rollover key."""
+        captures, _ = self._boundary_rows(tuple(1_000_000_000 + i * 1_000 for i in range(4)))
+        rollovers = tuple(
+            {
+                "schema_version": "runtime-measurement",
+                "kind": "capture_rollover",
+                "segment": segment,
+                "sealed_records": 2,
+                "sealed_bytes": 300,
+                "cursor": cursor,
+                "rollover_append_ns": pause,
+            }
+            for segment, cursor, pause in ((1, 3, 5_000), (2, 5, 7_000))
+        )
+        chain_path, single_path = tmp_path / "chain.jsonl", tmp_path / "single.jsonl"
+        self._write_rows(chain_path, (*captures[:2], rollovers[0], *captures[2:], rollovers[1]))
+        self._write_rows(single_path, captures)
+        collector = CapacityResultsCollector(tmp_path, tmp_path)
+        chain, chain_cursors = collector._capture_probe(chain_path)
+        single, single_cursors = collector._capture_probe(single_path)
+        assert chain["rollover"] == {"count": 2, "max_append_ns": 7_000, "cursors": (3, 5)}
+        assert "rollover" not in single and chain_cursors == single_cursors
+        self._write_rows(chain_path, (rollovers[1],))
+        with pytest.raises(ValueError, match="invalid capture rollover"):
+            collector._capture_probe(chain_path)

@@ -1,4 +1,4 @@
-"""Run one finite durable public-book capture with an optional canonical observer."""
+"""Run one finite durable public-book capture, or a segment chain, with optional hooks."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -15,20 +15,22 @@ from typing import Protocol
 from websockets.exceptions import WebSocketException
 
 # project library imports
-from configuration import CaptureConfig
+from configuration import CaptureConfig, CaptureRunConfig
 from market_data.books import BookProjection, CaptureReplay, NativeBook
 from market_data.collection.canonical import BookCapture
 from market_data.collection.receipt import CaptureQueue, ReceiptStream
+from market_data.collection.segments import CaptureSegmentWriter
 from market_data.contracts import (
     BookObservation,
     CaptureRecord,
     CaptureRequest,
+    CaptureRunRequest,
     FeedSocket,
     SnapshotTransport,
 )
 from market_data.datasets import DatasetReaders
-from market_data.replay import SavedCapture
-from market_data.storage import CaptureJournal
+from market_data.replay import SavedCapture, SavedCaptureRun
+from market_data.storage import CaptureJournal, CaptureRunJournal
 from serialization import DomainCodec
 from telemetry import HealthMetric, HealthMetrics, RuntimeMeasurementJournal
 
@@ -56,6 +58,76 @@ class CaptureRunResult:
     request: CaptureRequest
     root: Path
     summary: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class CaptureChainResult:
+    """Expose a completed segment-chain run directory and its verified chain summary."""
+
+    request: CaptureRunRequest
+    root: Path
+    summary: dict[str, object]
+
+
+# Offline chain replay is a liveness bound only; the service's stop budget is declared
+# separately. It is the largest envelope SavedCaptureRun admits.
+_CHAIN_VERIFICATION_SECONDS = 7200
+
+
+class _Journal:
+    """Append to one finite recording, exactly as a single-journal capture always has."""
+
+    def __init__(self, journal: CaptureJournal) -> None:
+        """Bind the started recording journal."""
+        self.journal = journal
+
+    @property
+    def count(self) -> int:
+        """Return the recording's durable record count."""
+        return self.journal.count
+
+    async def append(self, record: CaptureRecord) -> None:
+        """Persist one record before any projection or application effect."""
+        await asyncio.to_thread(self.journal.append, record)
+
+
+class _SegmentChain:
+    """Append through the collector's qualified writer, which rotates segments as storage only."""
+
+    def __init__(
+        self, writer: CaptureSegmentWriter, measurements: RuntimeMeasurementJournal | None
+    ) -> None:
+        """Bind the active segment writer and optional rollover timing evidence."""
+        self.writer = writer
+        self._measurements = measurements
+
+    @property
+    def journal(self) -> CaptureJournal:
+        """Return the active segment, whose last append carries the fsync timings."""
+        return self.writer.current
+
+    @property
+    def count(self) -> int:
+        """Return the run-wide durable record count across every segment."""
+        return self.writer.total_records
+
+    async def append(self, record: CaptureRecord) -> None:
+        """Persist one record, retaining the boundary pause whenever it sealed a segment."""
+        sealed = self.writer.current
+        started_ns = time.monotonic_ns()
+        await self.writer.append(record)
+        if self._measurements is not None and self.writer.current is not sealed:
+            segment = self.writer.current.request.segment
+            self._measurements.record(
+                {
+                    "kind": "capture_rollover",
+                    "segment": None if segment is None else segment.ordinal,
+                    "sealed_records": sealed.count,
+                    "sealed_bytes": sealed.size,
+                    "cursor": self.writer.total_records,
+                    "rollover_append_ns": time.monotonic_ns() - started_ns,
+                }
+            )
 
 
 class CaptureRunner:
@@ -141,21 +213,113 @@ class CaptureRunner:
             if self._health is not None:
                 self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
             raise
-        deadline, reason = time.monotonic() + config.duration_seconds, "not_started"
+        reason = await self._capture(
+            _Journal(journal),
+            replay,
+            config,
+            time.monotonic() + config.duration_seconds,
+            config.max_messages,
+            stop_requested,
+        )
+        return await self._finalize(
+            asyncio.to_thread(self._finish, journal, replay, root, request, reason)
+        )
+
+    async def run_chain(
+        self,
+        request: CaptureRunRequest,
+        output: Path,
+        *,
+        stop_requested: Callable[[], bool] | None = None,
+    ) -> CaptureChainResult:
+        """Capture one run through rolled-over segments and verify its exact chain replay.
+
+        Segment limits come from the source configuration; the window bounds the whole
+        run. A rollover adds no native transition, so the socket, session, sequence and
+        reconstruction continue. Observer positions and measurement cursors are
+        run-wide. The window's readiness instant is not used here.
+
+        Args:
+            request: Immutable source, window and implementation for a new run directory.
+            output: Parent directory for the run's new directory, named by its run ID.
+            stop_requested: Optional finite-service stop signal; accepted receipts drain first.
+
+        Returns:
+            Completed chain summary and run directory.
+
+        Raises:
+            ValueError: Source, callback, chain replay or resource admission fails.
+            OSError: Persistence, including sealing or provisioning a segment, fails.
+        """
+        request.__post_init__()
+        if self._snapshot_records is not None:
+            raise ValueError("a segment chain does not support a canonical book prefix")
+        root = output / request.run_id
+        run = CaptureRunJournal(root, request, measure_fsync=self._measurements is not None)
+        replay = CaptureReplay(request.config, book_factory=self._book_factory)
+        try:
+            try:
+                run.open(resume=False)
+                writer = CaptureSegmentWriter(
+                    run, run.start_segment(None), previous_bytes=0, previous_records=0
+                )
+            except OSError, OverflowError:
+                if self._health is not None:
+                    self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
+                raise
+            stop_at_ns = CaptureRunConfig.unix_ns(request.window.stop_at)
+            reason = await self._capture(
+                _SegmentChain(writer, self._measurements),
+                replay,
+                request.config,
+                time.monotonic() + max(0, (stop_at_ns - time.time_ns()) / 1e9),
+                request.window.max_messages,
+                stop_requested,
+            )
+            return await self._finalize(
+                asyncio.to_thread(self._finish_chain, run, writer, replay, root, request, reason)
+            )
+        finally:
+            run.close()
+
+    async def _capture(
+        self,
+        storage: _Journal | _SegmentChain,
+        replay: CaptureReplay,
+        config: CaptureConfig,
+        deadline: float,
+        message_limit: int,
+        stop_requested: Callable[[], bool] | None,
+    ) -> str:
+        """Receive, persist and apply every connection epoch, then retain terminal controls."""
+        reason = "not_started"
         for epoch in range(config.retries + 1):
             if self._health is not None:
                 self._health.set(HealthMetric.RECONNECTS, epoch)
             start = CaptureRecord(kind="session", epoch=epoch, received_ns=time.time_ns())
             try:
-                journal.append(start)
-            except OSError, OverflowError:
+                await storage.append(start)
+            except OverflowError:
+                if self._health is not None:
+                    self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
+                if not isinstance(storage, _SegmentChain) or epoch == 0:
+                    raise
+                # A reconnect refused by the whole-run byte or segment limit opens no
+                # connection; it ends the run as the frame path's storage refusal does.
+                reason = "storage_limit_unknown_tail"
+                gap = CaptureRecord(
+                    kind="gap", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason
+                )
+                await self._append_terminal(storage, replay, gap)
+                break
+            except OSError:
                 if self._health is not None:
                     self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
                 raise
             if self._health is not None:
-                self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
+                self._health.set(HealthMetric.PERSISTED_RECORDS, storage.count)
             outcome = replay.apply(start)
-            self._observe(journal, replay, start, outcome)
+            self._observe(storage, replay, start, outcome)
             socket: FeedSocket | None = None
             reader: asyncio.Task[None] | None = None
             snapshot: asyncio.Task[None] | None = None
@@ -183,7 +347,7 @@ class CaptureRunner:
                             config,
                             epoch,
                             deadline,
-                            config.max_messages - replay.messages - (config.venue == "coinbase"),
+                            message_limit - replay.messages - (config.venue == "coinbase"),
                             self._health,
                             stop_requested,
                         )
@@ -216,7 +380,7 @@ class CaptureRunner:
                             )
                         append_started_ns = time.monotonic_ns()
                         try:
-                            await asyncio.to_thread(journal.append, record)
+                            await storage.append(record)
                         except OSError:
                             if self._health is not None:
                                 self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
@@ -230,7 +394,7 @@ class CaptureRunner:
                         queue.acknowledged()
                         if self._health is not None:
                             self._health.set(HealthMetric.PERSISTENCE, persisted_at_ns)
-                            self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
+                            self._health.set(HealthMetric.PERSISTED_RECORDS, storage.count)
                             if record.kind in ("frame", "snapshot"):
                                 self._health.set(
                                     HealthMetric.RECEIPT_DURABLE_LAG_NS,
@@ -243,7 +407,7 @@ class CaptureRunner:
                         previous_market_ns = replay.quality.last_market_ns
                         outcome = await asyncio.to_thread(replay.apply, record)
                         self._observe(
-                            journal,
+                            storage,
                             replay,
                             record,
                             outcome,
@@ -299,25 +463,25 @@ class CaptureRunner:
                     gap = CaptureRecord(
                         kind="gap", epoch=epoch, received_ns=time.time_ns(), reason=reason
                     )
-                    await asyncio.to_thread(journal.append, gap)
+                    await storage.append(gap)
                     if self._health is not None:
-                        self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
+                        self._health.set(HealthMetric.PERSISTED_RECORDS, storage.count)
                     outcome = await asyncio.to_thread(replay.apply, gap)
                     if self._health is not None:
                         self._health.set(HealthMetric.INVALID, replay.invalid_frames)
                         self._health.set(HealthMetric.GAPS, len(replay.gaps))
-                    self._observe(journal, replay, gap, outcome)
+                    self._observe(storage, replay, gap, outcome)
                 ending = CaptureRecord(
                     kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason
                 )
-                await asyncio.to_thread(journal.append, ending)
+                await storage.append(ending)
                 if self._health is not None:
-                    self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
+                    self._health.set(HealthMetric.PERSISTED_RECORDS, storage.count)
                 outcome = await asyncio.to_thread(replay.apply, ending)
                 if self._health is not None:
                     self._health.set(HealthMetric.INVALID, replay.invalid_frames)
                     self._health.set(HealthMetric.GAPS, len(replay.gaps))
-                self._observe(journal, replay, ending, outcome)
+                self._observe(storage, replay, ending, outcome)
             except OSError, OverflowError:
                 if self._health is not None:
                     self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
@@ -342,18 +506,20 @@ class CaptureRunner:
                     received_ns=time.time_ns(),
                     reason="capture_ended_before_synchronization",
                 )
-                await self._append_terminal(journal, replay, gap)
+                await self._append_terminal(storage, replay, gap)
             end = CaptureRecord(
                 kind="end", epoch=replay.epoch, received_ns=time.time_ns(), reason=reason
             )
-            await self._append_terminal(journal, replay, end)
+            await self._append_terminal(storage, replay, end)
         except OSError, OverflowError:
             if self._health is not None:
                 self._health.set(HealthMetric.PERSISTENCE_FAILED, 1)
             raise
-        finalization = asyncio.create_task(
-            asyncio.to_thread(self._finish, journal, replay, root, request, reason)
-        )
+        return reason
+
+    async def _finalize[T](self, finish: Coroutine[object, object, T]) -> T:
+        """Complete verification even if the caller is cancelled while it runs."""
+        finalization = asyncio.create_task(finish)
         try:
             try:
                 return await asyncio.shield(finalization)
@@ -380,7 +546,7 @@ class CaptureRunner:
 
     def _observe(
         self,
-        journal: CaptureJournal,
+        storage: _Journal | _SegmentChain,
         replay: CaptureReplay,
         record: CaptureRecord,
         outcome: str,
@@ -391,7 +557,7 @@ class CaptureRunner:
     ) -> None:
         """Publish only durably appended canonical rows to the optional observer."""
         if self._observer is not None or self._measurements is not None:
-            row = BookProjection.capture(journal.count - 1, record, outcome, replay)
+            row = BookProjection.capture(storage.count - 1, record, outcome, replay)
             if (
                 self._measurements is not None
                 and record.kind in ("frame", "snapshot")
@@ -403,7 +569,7 @@ class CaptureRunner:
                 self._measurements.record(
                     {
                         "kind": "capture_boundary",
-                        "cursor": journal.count,
+                        "cursor": storage.count,
                         "record_kind": record.kind,
                         "outcome": row.outcome,
                         "raw_bytes": len(record.raw),
@@ -413,8 +579,8 @@ class CaptureRunner:
                         "reconstructed_ns": reconstructed_ns,
                         "receipt_to_durable_ns": max(0, durable_ns - receipt_ns),
                         "append_to_durable_ns": max(0, durable_ns - append_started_ns),
-                        "record_fsync_ns": journal.last_record_fsync_ns,
-                        "cursor_checkpoint_ns": journal.last_cursor_checkpoint_ns,
+                        "record_fsync_ns": storage.journal.last_record_fsync_ns,
+                        "cursor_checkpoint_ns": storage.journal.last_cursor_checkpoint_ns,
                         "durable_to_reconstructed_ns": max(0, reconstructed_ns - durable_ns),
                     }
                 )
@@ -422,17 +588,17 @@ class CaptureRunner:
                 self._observer.observe(record, row)
 
     async def _append_terminal(
-        self, journal: CaptureJournal, replay: CaptureReplay, record: CaptureRecord
+        self, storage: _Journal | _SegmentChain, replay: CaptureReplay, record: CaptureRecord
     ) -> None:
         """Retain a final control before publishing it to the live observer."""
-        await asyncio.to_thread(journal.append, record)
+        await storage.append(record)
         if self._health is not None:
-            self._health.set(HealthMetric.PERSISTED_RECORDS, journal.count)
+            self._health.set(HealthMetric.PERSISTED_RECORDS, storage.count)
         outcome = replay.apply(record)
         if self._health is not None:
             self._health.set(HealthMetric.INVALID, replay.invalid_frames)
             self._health.set(HealthMetric.GAPS, len(replay.gaps))
-        self._observe(journal, replay, record, outcome)
+        self._observe(storage, replay, record, outcome)
 
     def _finish(
         self,
@@ -461,3 +627,35 @@ class CaptureRunner:
         }
         (root / "summary.json").write_bytes(self._codec.encode_json(summary))
         return CaptureRunResult(request=request, root=root, summary=summary)
+
+    def _finish_chain(
+        self,
+        run: CaptureRunJournal,
+        writer: CaptureSegmentWriter,
+        replay: CaptureReplay,
+        root: Path,
+        request: CaptureRunRequest,
+        reason: str,
+    ) -> CaptureChainResult:
+        """Seal the last segment, retain the live summary, then replay the whole chain."""
+        run.sealed(writer.current, writer.first_received_ns or replay.started_ns or 1)
+        segment = writer.current.request.segment
+        live = {
+            **replay.summary(),
+            "run_identity": request.identity,
+            "stop_reason": reason,
+            "saved_bytes": writer.total_bytes,
+            "saved_records": writer.total_records,
+            "segments": 0 if segment is None else segment.ordinal + 1,
+        }
+        run.finish(live)
+        offline = SavedCaptureRun.read(
+            root, book_factory=self._book_factory, max_seconds=_CHAIN_VERIFICATION_SECONDS
+        )
+        summary = {
+            **live,
+            **offline.summary(),
+            "capture_directory": str(root.absolute()),
+            "replay_parity": True,
+        }
+        return CaptureChainResult(request=request, root=root, summary=summary)

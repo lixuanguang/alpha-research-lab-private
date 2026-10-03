@@ -52,6 +52,9 @@ class AccountPaperMatching:
         self.admission = admission
         self.allocation = allocation
         self.owner, self.clock = owner, clock
+        # Per account: last committed trace sequence read, its child fill events and
+        # physical fill identities. Committed traces only grow, by increasing sequence.
+        self._trace_facts: dict[str, tuple[int, tuple[OrderEvent, ...], frozenset[str]]] = {}
 
     def bind(self, account_id: str, scenario: PaperExecutionScenario) -> None:
         """Pin a venue/instrument scenario before its first account order."""
@@ -191,6 +194,43 @@ class AccountPaperMatching:
             raise ValueError(f"account blocked: {failure}")
         return result
 
+    def _committed_trace_facts(
+        self, account_id: str, snapshot: _AccountSnapshot
+    ) -> tuple[tuple[OrderEvent, ...], frozenset[str]]:
+        """Collect committed traces' child fill events and physical fill identities.
+
+        Each trace decodes and validates a whole market, so a read-only snapshot decodes
+        only the traces committed since the previous call. Staged traces in a write
+        transaction are not yet committed, so that case scans every trace once.
+        """
+        if snapshot.state.paper_traces:
+            events: list[OrderEvent] = []
+            identities: set[str] = set()
+            for trace in snapshot.iter_traces(account_id):
+                self._add_trace_facts(trace, events, identities)
+            return tuple(events), frozenset(identities)
+        # Sequences start at zero, so nothing has been read before -1.
+        last, known, seen = self._trace_facts.get(account_id, (-1, (), frozenset()))
+        events, identities = list(known), set(seen)
+        for sequence, trace in snapshot.iter_committed_traces_after(account_id, last):
+            self._add_trace_facts(trace, events, identities)
+            last = sequence
+        facts = (last, tuple(events), frozenset(identities))
+        self._trace_facts[account_id] = facts
+        return facts[1], facts[2]
+
+    @staticmethod
+    def _add_trace_facts(
+        trace: AccountPaperTrace, events: list[OrderEvent], identities: set[str]
+    ) -> None:
+        """Add one committed trace's child fill events and physical fill identities."""
+        if trace.status != "committed":
+            return
+        events.extend(trace.child_fill_events)
+        identities.update(
+            event.fill.identity for event in trace.physical_events if event.fill is not None
+        )
+
     def report_facts(
         self, account_id: str, *, snapshot: _AccountSnapshot | None = None
     ) -> tuple[tuple[AccountPaperFill, ...], tuple[AccountPaperCost, ...]]:
@@ -208,17 +248,7 @@ class AccountPaperMatching:
             posting.identity: posting
             for posting in AccountLedger(account.ledger).effective_postings()
         }
-        # One pass over the traces, each of which decodes and validates a whole
-        # market; lookups use maps built once instead of per-fill scans.
-        trace_events: list[OrderEvent] = []
-        physical_fill_ids: set[str] = set()
-        for trace in snapshot.iter_traces(account_id):
-            if trace.status != "committed":
-                continue
-            trace_events.extend(trace.child_fill_events)
-            physical_fill_ids.update(
-                event.fill.identity for event in trace.physical_events if event.fill is not None
-            )
+        trace_events, physical_fill_ids = self._committed_trace_facts(account_id, snapshot)
         orders = {item.order.identity: item for item in state.orders}
         fills: list[AccountPaperFill] = []
         for event in trace_events:

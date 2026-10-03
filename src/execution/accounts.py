@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from itertools import islice
 from pathlib import Path
 from typing import Literal, NamedTuple
 
@@ -480,8 +481,11 @@ class AccountJournal:
             journal_path=str(self.path),
             paper_activations=state.paper_activations,
             paper_restore_quarantined=state.paper_restore_quarantine,
+            # Monitoring needs only the newest trace clock, not the growing history.
             paper_traces=(
-                tuple(snapshot.iter_traces(request.account_id))
+                tuple(islice(snapshot.iter_traces(request.account_id, newest_first=True), 1))
+                if request.projection == "monitoring"
+                else tuple(snapshot.iter_traces(request.account_id))
                 if request.action == "inspect"
                 else ()
             ),

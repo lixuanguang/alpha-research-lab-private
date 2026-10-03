@@ -16,7 +16,7 @@ import time
 from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
 from multiprocessing.synchronize import Event
@@ -24,13 +24,21 @@ from pathlib import Path
 from typing import Literal, cast
 from uuid import uuid4
 
+# third party library imports
+import msgspec
+
 # project library imports
 from applications.execute.service_inputs import ServiceBookInputs
-from applications.execute.service_monitor import PaperServiceDiagnostics, PaperServiceMonitor
+from applications.execute.service_monitor import (
+    PaperServiceDiagnostics,
+    PaperServiceMonitor,
+    _DiagnosticReceipt,
+)
 from applications.execute.source_service import _ReceivedSourceDelivery, run_source_service
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
+    CaptureRunConfig,
     PaperServiceAccount,
     PaperServiceConfiguration,
     PaperServiceInstance,
@@ -48,7 +56,8 @@ from execution import (
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookAsOfIndex, BookRegistry
 from market_data.collection import CaptureTransport
-from market_data.contracts import CaptureCursor, CaptureRequest
+from market_data.contracts import CaptureRequest, CaptureRunRequest, RecordingRequest
+from market_data.storage import CaptureRecording
 from research.observations import LiveBookDecisionSource
 from runtime import (
     InstalledIdentity,
@@ -59,7 +68,7 @@ from runtime import (
     SharedStrategyBinding,
 )
 from serialization import DomainCodec, WireRecord
-from strategies import DecisionPolicy, LiquidityClipPolicy, ReferenceClipPolicy
+from strategies import DecisionPolicy, reference_policy
 from telemetry import (
     HealthAlert,
     HealthMetric,
@@ -128,7 +137,7 @@ class _SourceChild:
     """Retain the sole process, pipe and freshness owner for one native input."""
 
     definition: PaperServiceSource
-    request: CaptureRequest
+    request: RecordingRequest
     process: BaseProcess
     receiver: Connection[bytes, bytes]
     health: HealthMetrics
@@ -218,8 +227,11 @@ class PaperServices:
         self.is_stopping = False
         self.shutdown_requested = False
         self.run_id = uuid4().hex
+        # The supervisor's own UTC end bounds every segment-chain window it opens.
+        self.stop_at: datetime | None = None
         self._observation_executor: concurrent.futures.ThreadPoolExecutor | None = None
         self._has_disjoint_source_accounts = self._sources_have_disjoint_accounts()
+        self._next_telemetry = 0.0
         self._pending_observations: dict[
             str, concurrent.futures.Future[tuple[tuple[str, Exception], ...]]
         ] = {}
@@ -244,8 +256,8 @@ class PaperServices:
     def policy(self, instance: PaperServiceInstance) -> DecisionPolicy:
         """Resolve the explicitly selected installed reference formula without fallback."""
         source = next(item for item in self.config.sources if item.name == instance.source)
-        factory = ReferenceClipPolicy if instance.policy == "fixed_clip" else LiquidityClipPolicy
-        return factory(
+        return reference_policy(
+            instance.policy,
             instance.quantity,
             source.scenario.adverse.currency,
             instance.lot,
@@ -282,8 +294,11 @@ class PaperServices:
     def preflight(self) -> None:
         """Verify immutable deployed definitions and active owners before scheduling work."""
         for account_id, account in self.accounts.items():
+            # A bounded read: the full trace history outgrows the one MiB socket response.
             state = account.execute(
-                AccountExecutionRequest(action="inspect", account_id=account_id)
+                AccountExecutionRequest(
+                    action="inspect", account_id=account_id, projection="monitoring"
+                )
             )
             activation = next(
                 (
@@ -335,6 +350,7 @@ class PaperServices:
     def run(self) -> dict[str, object]:
         """Hold the local launch fence, supervise children and stop services on completion."""
         service_deadline = time.monotonic() + self.config.duration_seconds
+        self.stop_at = datetime.now(UTC) + timedelta(seconds=self.config.duration_seconds)
         self.root.mkdir(parents=True, exist_ok=True)
         with ExitStack() as stack:
             self.control_socket.parent.mkdir(parents=True, exist_ok=True)
@@ -620,11 +636,7 @@ class PaperServices:
     def _start_source(self, source: PaperServiceSource) -> None:
         """Create a fresh unsynchronized native recording and its independently watched child."""
         self._join_observations()
-        request = CaptureRequest(
-            config=source.capture,
-            recording_id=str(uuid4()),
-            implementation_identity=self.implementation,
-        )
+        request = self._capture_request(source)
         context = multiprocessing.get_context("spawn")
         receiver, sender = cast(
             "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
@@ -632,7 +644,7 @@ class PaperServices:
         )
         health = HealthMetrics()
         stop = context.Event()
-        root = self.root / "runs" / self.run_id / source.name / request.recording_id
+        root = self.root / "runs" / self.run_id / source.name / request.recording_key
         process = context.Process(
             target=run_source_service,
             args=(
@@ -647,7 +659,7 @@ class PaperServices:
                     else self.measurement_root
                     / self.run_id
                     / source.name
-                    / f"{request.recording_id}.capture.jsonl"
+                    / f"{request.recording_key}.capture.jsonl"
                 ),
                 stop,
             ),
@@ -657,6 +669,36 @@ class PaperServices:
         self._refresh_observers(source.name)
         process.start()
         sender.close()
+
+    def _capture_request(self, source: PaperServiceSource) -> RecordingRequest:
+        """Bind a fresh recording: one finite journal, or a chain when the source declares one.
+
+        A chain's window opens now and closes at the supervisor's own end. Paper capture
+        keeps the supervisor's readiness checks, so readiness is the stop instant.
+        """
+        if source.chain is msgspec.UNSET:
+            return CaptureRequest(
+                config=source.capture,
+                recording_id=str(uuid4()),
+                implementation_identity=self.implementation,
+            )
+        now = datetime.now(UTC)
+        planned = self.stop_at or now + timedelta(seconds=self.config.duration_seconds)
+        stop_at = max(planned, now + timedelta(seconds=1))
+        return CaptureRunRequest(
+            config=source.capture,
+            window=CaptureRunConfig(
+                start_at=now,
+                ready_by=stop_at,
+                stop_at=stop_at,
+                max_messages=source.chain.max_messages,
+                max_bytes=source.chain.max_bytes,
+                max_segments=source.chain.max_segments,
+                max_reconnects=source.capture.retries,
+            ),
+            run_id=str(uuid4()),
+            implementation_identity=self.implementation,
+        )
 
     def _refresh_observers(self, source_name: str) -> None:
         """Replace only a cohort selection while retaining each native book and last mark."""
@@ -712,7 +754,7 @@ class PaperServices:
                 / "runs"
                 / self.run_id
                 / source.name
-                / f"{child.request.recording_id}-{account_id}.jsonl"
+                / f"{child.request.recording_key}-{account_id}.jsonl"
             )
             path.parent.mkdir(parents=True, exist_ok=True)
             measurements = (
@@ -722,7 +764,7 @@ class PaperServices:
                     self.measurement_root
                     / self.run_id
                     / source.name
-                    / f"{child.request.recording_id}.{account_id}.paper.jsonl"
+                    / f"{child.request.recording_key}.{account_id}.paper.jsonl"
                 )
             )
             child.observers[account_id] = SharedPaperCaptureObserver(
@@ -842,7 +884,7 @@ class PaperServices:
         self._finish_observations()
         consumed = False
         executor = self._observation_executor if self._has_disjoint_source_accounts else None
-        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery]] = []
+        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery, int]] = []
         self._check_owner_health()
         for name in tuple(sorted(self.active)):
             worker = self.workers[name]
@@ -884,6 +926,7 @@ class PaperServices:
                 if child.receiver.poll():
                     try:
                         payload = child.receiver.recv_bytes(16_777_216)
+                        received_ns = time.monotonic_ns()
                     except EOFError:
                         if self.is_stopping and child.stop is not None:
                             child.pipe_drained = True
@@ -895,7 +938,7 @@ class PaperServices:
                     child.received_count += 1
                     consumed = True
                     if executor is not None:
-                        ready.append((child, delivery))
+                        ready.append((child, delivery, received_ns))
                         continue
                     for account_id, observer in sorted(child.observers.items()):
                         if account_id in self.unavailable_accounts:
@@ -908,7 +951,9 @@ class PaperServices:
                                 child.definition.market_interval_us,
                             )
                         try:
-                            observer._observe_validated(delivery.record, delivery.book)
+                            observer._observe_validated(
+                                delivery.record, delivery.book, received_ns=received_ns
+                            )
                         except Exception as error:
                             self._observer_failed(account_id, error)
             except (OSError, EOFError, ValueError, TimeoutError) as error:
@@ -922,12 +967,12 @@ class PaperServices:
 
     def _observe_ready_sources(
         self,
-        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery]],
+        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery, int]],
         executor: concurrent.futures.ThreadPoolExecutor,
     ) -> None:
         """Own at most one in-flight frame per disjoint source across supervisor turns."""
         try:
-            for child, delivery in ready:
+            for child, delivery, received_ns in ready:
                 observers = []
                 for account_id, observer in sorted(child.observers.items()):
                     if account_id in self.unavailable_accounts:
@@ -938,7 +983,9 @@ class PaperServices:
                         )
                     observers.append((account_id, observer))
                 if observers:
-                    future = executor.submit(self._observe_source_group, delivery, tuple(observers))
+                    future = executor.submit(
+                        self._observe_source_group, delivery, tuple(observers), received_ns
+                    )
                     self._pending_observations[child.definition.name] = future
                     future.add_done_callback(self._notify_observation_completion)
         except BaseException:
@@ -985,12 +1032,13 @@ class PaperServices:
     def _observe_source_group(
         delivery: _ReceivedSourceDelivery,
         observers: tuple[tuple[str, SharedPaperCaptureObserver], ...],
+        received_ns: int | None = None,
     ) -> tuple[tuple[str, Exception], ...]:
         """Preserve a source's account order without mutating supervisor lifecycle state."""
         failures: list[tuple[str, Exception]] = []
         for account_id, observer in observers:
             try:
-                observer._observe_validated(delivery.record, delivery.book)
+                observer._observe_validated(delivery.record, delivery.book, received_ns=received_ns)
             except Exception as error:
                 failures.append((account_id, error))
         return tuple(failures)
@@ -1105,27 +1153,22 @@ class PaperServices:
 
     def _account_source_delivery(self, name: str, child: _SourceChild) -> None:
         """Retain constant-cost native and account counts for exact offline parity review."""
-        capture_root = (
-            self.root
-            / "runs"
-            / self.run_id
-            / name
-            / child.request.recording_id
-            / child.request.recording_id
+        key = child.request.recording_key
+        recording = CaptureRecording(
+            self.root / "runs" / self.run_id / name / key / key, child.request
         )
-        completed = (capture_root / "manifest.json").is_file()
-        result_retained = (capture_root.parent / "source-result.json").is_file()
+        result_retained = (recording.root.parent / "source-result.json").is_file()
+        completed = False
         durable_records: int | None = None
         cursor_sha256: str | None = None
+        segments: int | None = None
         error_name: str | None = None
         try:
-            cursor = self.codec.decode_json(
-                (capture_root / "cursor.json").read_bytes(), CaptureCursor
-            )
-            cursor.__post_init__()
-            if cursor.request_identity != child.request.identity:
-                raise ValueError("source cursor differs from its launched request")
+            # A chain counts run-wide across its segments; its digest is the last segment's.
+            completed = recording.completed
+            cursor = recording.cursor()
             durable_records, cursor_sha256 = cursor.records, cursor.sha256
+            segments = len(cursor.segments)
         except (OSError, ValueError, OverflowError) as error:
             error_name = type(error).__name__
         accounts: dict[str, object] = {}
@@ -1157,7 +1200,7 @@ class PaperServices:
                 isinstance(value, dict) and value["complete"] is True for value in accounts.values()
             )
         )
-        self.delivery_accounting[name] = {
+        accounting: dict[str, object] = {
             "status": "complete" if is_complete else "incomplete",
             "capture_finalization": "completed" if completed else "interrupted_prefix",
             "result_retained": result_retained,
@@ -1169,6 +1212,9 @@ class PaperServices:
             "accounts": accounts,
             "error": error_name,
         }
+        if isinstance(child.request, CaptureRunRequest):
+            accounting["capture_segments"] = segments
+        self.delivery_accounting[name] = accounting
         if not is_complete:
             self._record(
                 "source_delivery_incomplete",
@@ -1210,8 +1256,24 @@ class PaperServices:
                     "status": "failed",
                     "error": self.monitor.last_error,
                 }
-        if self.diagnostics is not None:
+        # Diagnostic telemetry is retained every pass, or on its own declared cadence
+        # once every account's latest report was retained. Until then (for example
+        # before a held position has its first mark) it retries every pass.
+        if self.diagnostics is not None and (
+            self.config.telemetry_seconds is msgspec.UNSET
+            or not self._telemetry_retained()
+            or time.monotonic() >= self._next_telemetry
+        ):
+            self._next_telemetry = time.monotonic() + self.config.telemetry_interval
             self.diagnostics.submit(latest_markets)
+
+    def _telemetry_retained(self) -> bool:
+        """Report whether every account's latest diagnostic report was retained."""
+        return all(
+            isinstance(receipt := self.monitoring.get(account_id), _DiagnosticReceipt)
+            and receipt.status == "retained"
+            for account_id in self.accounts
+        )
 
     def _collect_diagnostics(self) -> None:
         """Keep actual compact report receipts separate from synchronous phase protection."""

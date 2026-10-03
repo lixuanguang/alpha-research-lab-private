@@ -13,20 +13,15 @@ from financial_units import Currency, DecimalGrid, Price, Quantity
 from research.observations import NumericField
 from serialization import DomainCodec
 from strategies.decisions import DecisionContext, DecisionTransition
-from strategies.intents import OrderIntent
+from strategies.intents import OrderIntent, TargetIntent
 
 # The opening clip bids this far through the ask: enough to stay marketable against a
 # modeled adverse execution cost at any price level, inside a 500 bps deviation limit.
 _OPENING_THROUGH = Fraction(200, 10_000)
 
 
-class ReferenceClipPolicy:
-    """Buy one fixed opening clip, then leave nonmarketable book interests.
-
-    Prices scale with the price level: the opening clip bids 200 bps through the ask,
-    rounded up onto the admitted tick grid, and later interests rest one tick below
-    the best bid, or at it when the bid is a single tick.
-    """
+class _ClipParameters:
+    """Bind the exact spot clip, admitted tick and installed implementation of a policy."""
 
     fields = (
         NumericField(name="ask", units="quote/base"),
@@ -87,24 +82,33 @@ class ReferenceClipPolicy:
             )
         ).hexdigest()
 
-    @property
-    def output(self) -> Literal["order"]:
-        """Declare portable order intents for independent account admission."""
-        return "order"
-
     def admit(self, fields: tuple[NumericField, ...], prediction: NumericField | None) -> None:
         """Require the exact named two-sided book signature without prediction."""
         if fields != self.fields or prediction is not None:
             raise ValueError("reference clip requires the named book signature")
 
     def initial_state(self) -> bytes:
-        """Start an independent opening clip count for each instance."""
+        """Start an independent decision count for each instance."""
         return b"0"
 
     def validate_state(self, state: bytes) -> None:
         """Reject foreign, negative or noncanonical counters."""
         if type(state) is not bytes or not state.isdigit() or str(int(state)).encode() != state:
             raise ValueError("invalid reference clip state")
+
+
+class ReferenceClipPolicy(_ClipParameters):
+    """Buy one fixed opening clip, then leave nonmarketable book interests.
+
+    Prices scale with the price level: the opening clip bids 200 bps through the ask,
+    rounded up onto the admitted tick grid, and later interests rest one tick below
+    the best bid, or at it when the bid is a single tick.
+    """
+
+    @property
+    def output(self) -> Literal["order"]:
+        """Declare portable order intents for independent account admission."""
+        return "order"
 
     def decide(self, context: DecisionContext, state: bytes) -> DecisionTransition:
         """Take the first displayed ask and place later bids at or below the touch."""
@@ -164,3 +168,58 @@ class LiquidityClipPolicy(ReferenceClipPolicy):
             value=DecimalGrid.exact_decimal(clipped),
             dimension=self.quantity.dimension,
         )
+
+
+class TargetClipPolicy(_ClipParameters):
+    """Hold one constant long clip as an absolute target position.
+
+    The account lowers an unmet target to one immediate-or-cancel buy at the ask, so
+    the position opens within a few selected books. Every later checkpoint then
+    commits as ``target_matched`` without an order, including after a recovery that
+    retains the position. This engineering workload makes no profitability claim.
+    """
+
+    @property
+    def output(self) -> Literal["target"]:
+        """Declare absolute target-position output."""
+        return "target"
+
+    def decide(self, context: DecisionContext, state: bytes) -> DecisionTransition:
+        """Request the same target at every eligible two-sided book."""
+        context.__post_init__()
+        self.validate_state(state)
+        self.admit(
+            context.features.fields,
+            None if context.prediction is None else context.prediction.field,
+        )
+        ask, bid, _ = context.features.values
+        if ask is None or bid is None:
+            raise ValueError("reference clip requires an eligible two-sided book")
+        return DecisionTransition(
+            intent=TargetIntent(quantity=self.quantity),
+            state=str(int(state) + 1).encode(),
+        )
+
+
+type ReferencePolicyName = Literal["fixed_clip", "liquidity_clip", "target_clip"]
+
+
+def reference_policy(
+    name: ReferencePolicyName,
+    quantity: Quantity,
+    currency: Currency,
+    lot: Quantity,
+    *,
+    tick: Price,
+    implementation: str,
+) -> ReferenceClipPolicy | TargetClipPolicy:
+    """Construct the explicitly named installed reference formula without fallback."""
+    factories: dict[str, type[ReferenceClipPolicy] | type[TargetClipPolicy]] = {
+        "fixed_clip": ReferenceClipPolicy,
+        "liquidity_clip": LiquidityClipPolicy,
+        "target_clip": TargetClipPolicy,
+    }
+    factory = factories.get(name)
+    if factory is None:
+        raise ValueError("unknown reference policy")
+    return factory(quantity, currency, lot, tick=tick, implementation=implementation)

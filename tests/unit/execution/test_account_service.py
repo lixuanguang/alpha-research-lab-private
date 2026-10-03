@@ -13,6 +13,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 # third party library imports
 import msgspec
@@ -67,6 +68,7 @@ class _RecordingAccountApplication:
         telemetry_path: Path | None = None,
         release_identity: str | None = None,
         opened_journal: AccountJournal | None = None,
+        phases: dict[str, int] | None = None,
     ) -> AccountExecutionResult:
         """Read the retained typed request and expose the selected telemetry path."""
         assert request_path is not None and opened_journal is not None
@@ -120,6 +122,151 @@ class TestAccountOwnerService:
         assert application.requests == [(request, None if action == "inspect" else telemetry_path)]
         retained = tuple(service.requests_path.glob("*.json"))
         assert len(retained) == 1 and retained[0].read_bytes() == payload
+
+    def test_service_life_is_bounded_by_its_signed_configuration(self, tmp_path: Path) -> None:
+        """Undeclared configurations keep 120 s; a declared cap admits exactly up to itself."""
+        journal_path = tmp_path / "account.sqlite3"
+        owner = _ActivationFixture._bootstrap(journal_path)[-1]
+        config = _ActivationFixture._config()
+        assert config.service_life_limit == 120
+        assert b"service_life_seconds" not in DomainCodec().encode_json(config)
+        declared = replace(config, service_life_seconds=3000)
+
+        def service(selected: AccountConfiguration, seconds: int) -> AccountOwnerService:
+            """Bind the service without serving."""
+            return AccountOwnerService(
+                application=_RecordingAccountApplication(),
+                config=selected,
+                config_path=tmp_path / "config.json",
+                journal_path=journal_path,
+                telemetry_path=None,
+                release_identity=owner.release_identity,
+                paper_owner=owner,
+                socket_path=tmp_path / "account.sock",
+                duration_seconds=seconds,
+            )
+
+        assert service(config, 120).duration_seconds == 120
+        assert service(declared, 3000).duration_seconds == 3000
+        for selected, seconds in ((config, 121), (declared, 3001)):
+            with pytest.raises(ValueError, match="fixed installed account"):
+                service(selected, seconds)
+        with pytest.raises(ValueError, match="finite declared bound"):
+            replace(config, service_life_seconds=90_001)
+        request = AccountExecutionRequest(
+            action="serve_paper",
+            paper_owner=owner,
+            service_socket=str(tmp_path / "account.sock"),
+            service_seconds=3000,
+        )
+        assert request.service_seconds == 3000
+
+    @pytest.mark.parametrize(
+        ("offset", "seconds", "admitted"),
+        ((13, 17, True), (13, 18, False), (31, 100, True)),
+    )
+    def test_a_current_grant_must_outlast_the_whole_service_life(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        offset: int,
+        seconds: int,
+        admitted: bool,
+    ) -> None:
+        """Refuse a life that would outlive its grant; an expired grant may still settle."""
+        journal_path = tmp_path / "account.sqlite3"
+        owner = _ActivationFixture._bootstrap(journal_path)[-1]
+        config = _ActivationFixture._config()
+        codec = DomainCodec()
+        config_path = tmp_path / "config.json"
+        config_path.write_bytes(codec.encode_json(config))
+        service = AccountOwnerService(
+            application=AccountExecutionApplication(),
+            config=config,
+            config_path=config_path,
+            journal_path=journal_path,
+            telemetry_path=None,
+            release_identity=owner.release_identity,
+            paper_owner=owner,
+            socket_path=tmp_path / "account.sock",
+            duration_seconds=seconds,
+        )
+        # The fixture grant is valid from second 11 until second 30 of its session.
+        at = _ActivationFixture._at(offset)
+
+        class _Clock(datetime):
+            """Read the fixture session's wall clock."""
+
+            @classmethod
+            def now(cls, tz: object = None) -> _Clock:
+                """Return the selected fixture instant."""
+                return cast(_Clock, at)
+
+        monkeypatch.setattr("applications.execute.account_service.datetime", _Clock)
+        if admitted:
+            service._require_current_owner()
+        else:
+            with pytest.raises(ValueError, match="paper_service_life_exceeds_authorization"):
+                service._require_current_owner()
+
+    @pytest.mark.parametrize("opted_in", (True, False))
+    def test_request_timings_are_opt_in_and_ordered(self, tmp_path: Path, opted_in: bool) -> None:
+        """An operator-created timings file receives one ordered row per request."""
+        journal_path = tmp_path / "account.sqlite3"
+        owner = _ActivationFixture._bootstrap(journal_path)[-1]
+        config = _ActivationFixture._config()
+        codec = DomainCodec()
+        config_path = tmp_path / "config.json"
+        config_path.write_bytes(codec.encode_json(config))
+        service = AccountOwnerService(
+            application=AccountExecutionApplication(),
+            config=config,
+            config_path=config_path,
+            journal_path=journal_path,
+            telemetry_path=tmp_path / "telemetry.sqlite3",
+            release_identity=owner.release_identity,
+            paper_owner=owner,
+            socket_path=tmp_path / "account.sock",
+            duration_seconds=10,
+        )
+        if opted_in:
+            service.timings_path.touch()
+        service._enable_timings()
+        service._owner_journal = AccountJournal(journal_path, config, paper_owner=owner)
+        payload = codec.encode_json(
+            AccountExecutionRequest(
+                action="block",
+                account_id=owner.account_id,
+                reason="explicit protection",
+                paper_owner=owner,
+            )
+        )
+        server, client = socket.socketpair()
+        with server, client:
+            client.sendall(struct.pack("!I", len(payload)) + payload)
+            assert service._serve_connection(server) is not None
+        if not opted_in:
+            assert not service.timings_path.exists()
+            return
+        rows = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in service.timings_path.read_bytes().splitlines()
+        ]
+        assert len(rows) == 1 and rows[0]["action"] == "block"
+        order = (
+            "header_ns",
+            "retained_ns",
+            "owner_checked_ns",
+            "journal_ns",
+            "alerts_ns",
+            "snapshot_ns",
+            "monitoring_ns",
+            "telemetry_ns",
+            "sent_ns",
+        )
+        clocks = [rows[0][name] for name in order]
+        assert all(type(clock) is int for clock in clocks)
+        assert clocks == sorted(cast(list[int], clocks))
 
     @pytest.mark.parametrize("mismatch", ("path", "owner"))
     def test_opened_journal_cannot_override_request_binding(
@@ -322,11 +469,13 @@ class TestAccountOwnerService:
     def test_service_request_bounds_and_socket_only_shutdown(self, tmp_path: Path) -> None:
         """Startup rejects unbounded lifetimes; CLI cannot execute socket shutdown."""
         owner = _ActivationFixture._bootstrap(tmp_path / "account.sqlite3")[-1]
+        # The schema admits only finite lives; the signed configuration's cap is enforced
+        # by the service itself (see test_service_life_is_bounded_by_its_signed_configuration).
         with pytest.raises(ValueError, match="bounded lifetime"):
             AccountExecutionRequest(
                 action="serve_paper",
                 service_socket=str(tmp_path / "s.sock"),
-                service_seconds=121,
+                service_seconds=90_001,
                 paper_owner=owner,
             )
         config_path = tmp_path / "config.json"

@@ -1473,3 +1473,1644 @@ Warm dashboard p50 has about 20% margin. It is not MR15 acceptance: checkpoint
 percentiles (deferred to stage 2), filesystem-cold queries, renewed public OKX health,
 integrated feature serving, MR12's installed re-verification, stage 2 and 24-hour
 operation remain open.
+
+#### Public OKX route renewal declaration (approved 2026-10-02)
+
+Approved by the owner on 2026-10-02 after rehearsal 2. The last healthy public OKX route (606 BTC and 608 ETH messages,
+121 health witnesses) ran on candidate 10. Runtime bytes have changed since, so a fresh
+signed route is needed. This cohort renews only that route; nothing else is retested.
+
+The committed driver
+[`capacity_cohort.py`](../../tests/integration/consumers/runtime/capacity_cohort.py)
+gains a `public-okx` sequence: freeze, build, verify and install the four signed `paper`
+targets as in the dashboard cohort, prepare a route root with the same signed account
+inputs, issue fresh ordinary one-hour grants, run the public OKX route trial, then audit
+cleanup. It runs no steady trial or history queries, and the `dashboard` sequence is
+unchanged. Every public route now also requires that exactly the route's venue is
+`live_public` and every other source is `base_fixture` (one gate per source); the
+retained second dashboard attempt's steady and Bitfinex route evidence passes this
+added gate unchanged.
+
+Configuration, state schemas, ephemeral builder key, seven-day policy, fresh journals,
+disabled deployments, one-hour grants and the 5,000-message OKX cap are unchanged. No
+grant, lifetime, budget, risk or authority limit changes.
+
+1. Freeze; fetch, build, verify and install the four targets.
+2. Prepare the public OKX route root and issue its grants.
+3. Public OKX route trial. Pass requires the trial to pass with health covering its
+   60-second measured interval; each public OKX capture to end without a message, byte or
+   frame cap and with complete native delivery parity for its accounts and bounded
+   queues; the Bitfinex fixture sources to meet their unchanged source gates; and only
+   OKX sources to be public. Public latency is reported, not graded.
+4. Cleanup audit, with every observed process absent and all four accounts stopped.
+5. `make check` on the unchanged frozen source.
+
+Uncounted rehearsals ran first; the counted attempt writes to
+`logs/runtime-capacity/public-okx/`, runs once, stops at the first failure and needs the
+owner's go-ahead. It does not qualify checkpoint
+percentiles, filesystem-cold queries, integrated feature serving, stage 2 or 24-hour
+operation.
+
+Uncounted rehearsals (`8883f31`, separate non-editable environment):
+
+1. `public-okx-rehearsal-1` stopped at the first fetch: the harness was given the paper
+   service launcher (`alpha-execute`) instead of the artifact launcher
+   (`alpha-governance-artifacts`). Nothing was built or granted.
+2. `public-okx-rehearsal-2` passed every step. The route met 44/44 gates over a 60.000 s
+   measured interval with 121 health witnesses. Public OKX BTC and ETH delivered 535 and
+   532 native messages (8.7 Hz steady), ended on supervisor stop with complete delivery
+   parity, and peaked at 16 ms oldest queue age and two queued records. The Bitfinex
+   fixture sources met their gates, and the cleanup audit found every observed process
+   absent and all four accounts stopped.
+
+#### Counted public OKX route result (2026-10-02)
+
+**Passed.** The single counted attempt under the approved declaration froze `a906155`
+(installed implementation `39d803b4…`; releases `67963bea…` OKX shared, `13c471a5…` OKX
+isolated, `566ad478…` Bitfinex shared, `17c0e3e8…` Bitfinex isolated) and ran every step
+once, into `logs/runtime-capacity/public-okx/`.
+
+| Step | Result |
+| --- | --- |
+| Freeze, signed candidate, route grants | Pass |
+| Public OKX route | 44/44 gates over a 60.000 s measured interval with 122 health witnesses. Public OKX BTC and ETH delivered 551 and 542 native messages (8.9 and 8.7 Hz steady), ended on supervisor stop with complete delivery parity, and peaked at 13.5 ms oldest queue age. The Bitfinex fixture sources met their gates |
+| Cleanup audit | Pass: every observed process absent and all four accounts stopped |
+| `make check` on the frozen source | Passed (2,289 passed, 2 skipped); HEAD and tree unchanged |
+
+This renews public OKX health for the bounded stage-1 envelope on the current runtime.
+Public latency is reported, not graded, and an observed rate under 9 Hz does not
+qualify the authored load. It is not MR15 acceptance: checkpoint percentiles (deferred
+to stage 2), filesystem-cold queries, integrated feature serving, stage 2 and 24-hour
+operation remain open.
+
+#### Checkpoint yield on the current runtime (2026-10-02)
+
+Offline, from retained evidence only. The
+[2026-09-29 deferral](#stage-1-residual-decisions-and-declaration-2026-09-29) rested on
+two committed checkpoints per account per trial, the rest persisted rejections. That no
+longer holds. Every retained dashboard-era steady trial (the first and second counted
+attempts and rehearsals 3–5) committed all 21 acknowledged checkpoints on all four
+accounts, with no rejection. All 84 commits in the second counted attempt have reason
+`reserved`, meaning each admitted orders: every account ended with 21 net and 42
+physical orders. Selected-book-to-committed-checkpoint durations ranged from 45.1 to
+133.4 ms (84 samples; no percentile claim).
+
+Deferring the percentiles to stage 2 still holds, since fresh stage-1 journals cannot
+reach 1,000 commits per account. Its stated reason changes, though. At the fixture's
+current rate, every commit places orders, so a 24-hour run under the unchanged 80-order
+grant would exhaust that grant within minutes. Stage 2 supplies 1,000 committed
+checkpoints per account without an authority change only if its declared workload
+commits mostly without orders (`target_matched` or `no_intent`) and stays within its
+40-order daily target. The stage-2 design must declare and verify that mix before it
+counts on those checkpoints.
+
+#### Filesystem-cold query declaration (approved 2026-10-02)
+
+Approved by the owner on 2026-10-02 after rehearsal 2. Every 1,000-sample query class so far has been application-cold:
+it opened fresh components, but the operating system's page cache was uncontrolled, and
+the history had just been written. This cohort measures both query boundaries with
+their history read from storage.
+
+**Protocol.** No privilege and no host-wide flush. Before each round,
+[`capacity_page_cache.py`](../../tests/integration/consumers/runtime/capacity_page_cache.py)
+maps every non-empty file a reader can open (each source's capture and delivery
+directories, including the durable as-of index, and the dashboard's telemetry store)
+read-only and shared, and calls `msync(MS_SYNC | MS_INVALIDATE)`. That writes back
+nothing (the files are already durable) and drops only those files' cached pages.
+`mincore` must then report zero resident pages for every file, with up to three
+eviction attempts. A round that stays resident is recorded as failed requests and not
+released. A proved round releases four depth/BBO readers (threads) and four dashboard
+readers (separate processes, as before) together, each on fresh components. Rounds are
+paced at least 200 ms apart. Each round retains its eviction time, attempts and the
+resident pages after the round, which shows that the queries actually read those files.
+Interpreter and library code stay as they are, as in the application-cold class. On a
+2026-10-02 probe of a 256 MiB file, eviction left 0 of 16,384 pages resident, and the
+next full read took 40.5–41.0 ms against 19–20 ms warm.
+
+**Declared cohort.** The committed driver
+[`capacity_cohort.py`](../../tests/integration/consumers/runtime/capacity_cohort.py)
+gains a `filesystem-cold` sequence: freeze (clean checkout, non-editable install,
+consumer hashes), then
+[`capacity_history_queries.py`](../../tests/integration/consumers/runtime/capacity_history_queries.py)
+with `--cache-classes filesystem_cold` on the retained steady trial of the
+[second counted dashboard attempt](#counted-dashboard-cohort-result-second-attempt-2026-10-02),
+with 10,000 authored dashboard events per account and 250 rounds, giving 1,000
+observations per boundary. It builds, signs and grants nothing and uses no network.
+The retained trial is only read; output goes to a fresh directory.
+
+Pass requires all of the following:
+- no failed request and matched-cutoff parity;
+- `pass` for service and scheduled response latency in both filesystem-cold classes
+  against the unchanged cold budgets: depth/BBO 2 s at p99, dashboard 3 s at p99;
+- all 250 rounds proved non-resident before release;
+- expected result identities equal to the counted attempt's `prepared-history.json`.
+
+Scheduled response is measured from each round's release. No budget, authority, risk,
+journal schema or matched-cutoff rule changes.
+
+One uncounted rehearsal precedes the counted attempt. The counted attempt writes to
+`logs/runtime-capacity/filesystem-cold/`, runs once, stops at the first failure, then runs
+`make check` on the unchanged frozen source, and needs the owner's go-ahead. It does not
+qualify checkpoint percentiles, integrated feature serving, stage 2 or 24-hour operation.
+
+Uncounted rehearsals:
+
+1. `filesystem-cold-rehearsal-1` (`2a64239`) completed all 250 rounds and 2,000 requests,
+   then failed while summarizing. A loop variable in the class summary had been renamed in
+   only one of its uses. With only `filesystem_cold` declared it was unbound. In the
+   default two-class run it would silently have labelled and budgeted every class as
+   `warm`. The summary is now its own method, with a test that each declared class keeps
+   its own label and budget. Its retained samples, read offline and not graded: every
+   round proved non-resident on the first attempt (eviction at most 22.1 ms). Depth/BBO
+   service p50/p95/p99 was 8.4/11.3/17.8 ms and dashboard 181.9/207.7/219.1 ms, with no
+   failed request.
+2. `filesystem-cold-rehearsal-2` (`219149c`) passed 9/9 gates. All 250 rounds covered 42
+   files (14,350 pages of 16 KiB) and were proved non-resident on the first attempt, with
+   eviction taking at most 30.1 ms. There were 1,000 requests per boundary with no
+   failure, and results equal the counted attempt's. Depth/BBO service p50/p95/p99 was
+   8.2/10.8/14.6 ms (scheduled response p99 15.4 ms). Dashboard was 183.3/211.1/224.8 ms
+   (scheduled response p99 225.0 ms). The cold budgets are 2 s and 3 s at p99.
+
+#### Counted filesystem-cold query result (2026-10-02)
+
+**Passed.** The single counted attempt under the approved declaration froze `2581b23`
+(installed implementation `39d803b4…`, the same runtime as the counted public OKX route)
+and ran once into `logs/runtime-capacity/filesystem-cold/`.
+
+| Class | Service p50 / p95 / p99 (max) | Scheduled response p50 / p95 / p99 | Budget |
+| --- | --- | --- | --- |
+| Depth/BBO, filesystem-cold | 8.1 / 10.9 / 14.7 (22.0) ms | 8.6 / 11.4 / 15.4 ms | 2 s p99 |
+| Dashboard, filesystem-cold | 180.6 / 210.1 / 229.4 (245.8) ms | 180.7 / 210.2 / 229.5 ms | 3 s p99 |
+
+All 9 gates passed: 1,000 requests per boundary with no failure and matched-cutoff
+parity, all 250 rounds over 42 files (14,350 pages of 16 KiB) proved non-resident on the
+first eviction attempt (at most 30.0 ms), and results equal to the second counted
+dashboard attempt's. `make check` on the frozen source passed (2,308 passed, 2 skipped),
+with HEAD and tree unchanged.
+
+This qualifies both query boundaries filesystem-cold for the bounded stage-1 history. The
+history is the retained 60-second trial plus the authored one-hour dashboard. Longer
+multi-day native history and code-cold process start are not covered. It is not MR15
+acceptance: checkpoint percentiles (deferred to stage 2), integrated feature serving,
+stage 2 and 24-hour operation remain open.
+
+#### Feature-serving diagnostic (uncounted, 2026-10-02)
+
+The record's remaining feature dependency is a focused contention diagnosis before any
+further signed feature cohort. The committed driver gains an uncounted
+`features-diagnostic` sequence:
+- freeze, then build, verify and install the four signed targets as in the dashboard
+  cohort;
+- fresh ordinary one-hour grants;
+- one steady fixture trial with `--features` (eight readers at 4 Hz, one-second
+  materialization);
+- the cleanup audit, which always runs.
+
+The trial's gates are retained but not graded: the step records which gates would fail
+instead of stopping. It is not qualification. One steady interval supplies 1,920 lookups,
+but only 60 materializations per source, and no recovery intervals.
+
+Result (`570010b`, `logs/runtime-capacity/features-diagnostic-1/`, ungraded). The
+signed candidate, grants, trial and cleanup audit all ran; the only failing gate was
+`trial_passed`, for feature latency.
+- **Lookups:** all 1,920 were ready with exact offline/online parity. Service time
+  p50/p95/p99 was 1.6/99.2/172.2 ms; scheduled response 9.5/111.2/184.7 ms, against the
+  20/75/200 ms target. The fifth recovery's 106/207 ms miss therefore reproduces on the
+  current runtime.
+- **Materialization:** every source published all 60 versions from 60 distinct native
+  inputs.
+
+**Attribution.** The tail is not lock contention on a source:
+- 108 of the 109 lookups above 75 ms started inside the once-a-second materialization
+  pass. That pass publishes all four sources serially in one thread, taking 137 ms
+  median, 533 ms p95 and 565 ms max. OKX publications alone take 49–65 ms median (up to
+  291 ms).
+- Only 29 slow lookups overlapped a publication of their own source, and the slow
+  lookups are spread evenly across all four sources.
+- Outside the passes the slowest of 1,507 lookups took 128.9 ms, and only one exceeded
+  75 ms.
+- Within a slow lookup, median lock wait was 26.9 ms and median time inside the lock
+  96.1 ms. A store read that normally takes about 1.6 ms is being starved, not blocked.
+
+The materializer, the eight feature readers and the four depth readers are threads of
+one Python process. CPU-bound publication work holds the interpreter lock, and every
+SQLite call in `retrieve_online` releases it and must wait up to a switch interval to
+take it back: the GIL convoy effect.
+
+An offline reproduction on the retained stores (8 reader threads at 4 Hz, 20 s each, no
+signing or network) confirms the mechanism:
+
+| Condition | p50 | p95 | p99 |
+| --- | --- | --- | --- |
+| No CPU thread | 1.4 ms | 3.3 ms | 5.7 ms |
+| 150 ms/s pure-Python CPU thread, 5 ms switch interval | 1.8 ms | 50.9 ms | 97.7 ms |
+| The same, 0.5 ms switch interval | 1.9 ms | 8.6 ms | 12.0 ms |
+
+Candidate corrections, each needing an owner decision and a declaration before a signed
+feature cohort:
+- (a) cut publication CPU, chiefly the OKX 400-level input path for a two-value touch
+  projection;
+- (b) run materialization in its own process, as a separate service would;
+- (c) lower the reader process's switch interval.
+
+Option (c) changes only the measurement process and would not by itself show that a
+deployed topology meets the target.
+
+**Publication profile and correction (a).** An offline profile of one-shot publication
+over the retained diagnostic history found that OKX publication cost 3.84 ms per native
+delivery and Bitfinex 0.36 ms. Of the OKX cost, 76% went to validating book objects:
+9,152 full 400-level books and 9.05 million level checks for 2,288 deliveries.
+
+The feature consumer decoded each retained delivery with the public `SharedBookDelivery`
+schema and then called the public `accept`. Each public boundary re-validates the nested
+book recursively, by design: the repository's tests mutate decoded rows with
+`force_setattr` and require public constructors to refuse them. So every delivery
+validated its whole book four times. The runtime's own source pipe instead decodes once
+into `_DecodedBookObservation`, checks only new clocks on its observed envelopes, and
+calls `_accept_validated`.
+
+The consumer now uses that path. The validate-once schemas move to
+[`capacity_deliveries.py`](../../tests/integration/consumers/runtime/capacity_deliveries.py),
+shared with the read index. No runtime or contract code changes, and public boundaries
+keep recursive validation. Every level and order is still validated once while
+decoding, and new tests show that a retained level with size or count 0 still stops
+publication and that valid envelopes keep identical bytes.
+
+The same profile now costs 1.35 ms per OKX delivery (2.8× less) and 0.13 ms per Bitfinex
+delivery. An identity-keyed validation cache inside `BookObservation` was tried and
+rejected: it would let a mutated instance pass public boundaries.
+
+A second uncounted diagnostic (`331b701`, `logs/runtime-capacity/features-diagnostic-2/`)
+passed every trial gate, including feature latency, and its cleanup audit passed.
+
+| One steady interval | Diagnostic 1 | Diagnostic 2 | Target |
+| --- | --- | --- | --- |
+| Lookup scheduled response p50/p95/p99 | 9.5/111.2/184.7 ms | 6.7/49.3/108.9 ms | 20/75/200 ms |
+| Lookup service p95/p99 (max) | 99.2/172.2 (188.8) ms | 37.8/76.9 (191.1) ms | — |
+| Four-source pass median/p95/max | 137/533/565 ms | 97/349/356 ms | — |
+| OKX BTC/ETH publication median | 65.3/48.7 ms | 48.4/31.1 ms | — |
+
+All 1,920 lookups were ready with exact parity, and all 240 versions were published. Per-second OKX publication fell
+less than the one-shot profile, so it is now dominated by per-publication costs other
+than decoding. The pass p95 of 349 ms and a 191 ms maximum lookup leave the GIL convoy
+visible in the tail. A single interval does not qualify: the earlier miss appeared only
+in the fifth recovery, and materialization percentiles need the initial interval plus 17
+recoveries.
+
+#### Feature materialization process boundary (design approved, 2026-10-02)
+
+Approved by the owner on 2026-10-02 and implemented in the capacity consumer. The feature path runs only in the
+capacity consumer, not as a runtime service. It currently runs the materializer, eight
+instance readers and four depth readers as threads of one observer process, so
+publication CPU delays lookups through the interpreter lock (see the attribution
+above). Cutting decode cost reduced the tail but cannot remove it, and every added
+feature, instrument or reader would bring it back. This design sets the boundary future
+feature serving follows. It changes the measurement topology only: no runtime, contract,
+budget, authority, risk, journal schema or matched-cutoff rule changes.
+
+**Processes.** Each process is a spawned child of the observer:
+- **One materializer process** owns all four sources' publication at the one-second
+  cadence, as a single local feature service would. It opens its own read-only index
+  over the retained delivery logs and decodes once, as now. It holds no account, trading
+  or transport authority. Split it by source group only when a measured pass p99
+  approaches the one-second cadence: today it is 97 ms median and 356 ms max.
+- **Four reader processes**, one per account, each serve that account's two selected
+  instances at 4 Hz. This mirrors the account services that host the instances, and
+  separates lookups from depth readers and from each other's accounts.
+- **The observer** keeps the depth readers, the native index and the resource sampler.
+
+**Store and cutoff semantics.** Readers and the materializer share each source's
+existing SQLite `VersionedFeatureStore` file. Only the materializer writes. The
+per-source `threading.Lock` becomes a per-source advisory file lock (`fcntl.flock`) with
+the same rule: a reader takes its cutoff while holding the lock, so it never sees an
+in-flight activation as `future`. The wait is still counted in lookup latency. Offline
+parity is still checked by every reader.
+
+**Lifecycle and evidence:**
+- Children start after `prepare()` and receive the shared interval clocks. They join on
+  the existing shared shutdown deadline and are terminated if they overrun, which fails
+  the interval.
+- Each child writes its own sample file, merged at finish into the unchanged
+  `materialization-samples.jsonl` and `retrieval-samples.jsonl` rows.
+- Child PIDs are recorded in the observations, so the cleanup audit covers them, and
+  they join the sampled process tree, so CPU and RSS stay complete.
+
+**Unchanged:** 1,920 lookups and 60 versions per source per interval, the 20/75/200 ms
+lookup and 2 s materialization budgets, TTL, missing/stale/future outcomes and parity.
+The initial-plus-17-recovery cohort plan is also unchanged.
+
+**Verification before any signed cohort:**
+1. Port the existing feature tests, adding a two-process test that the file lock
+   reproduces the cutoff wait.
+2. Run `make check`.
+3. Run one uncounted `features-diagnostic` interval.
+4. Draft the feature cohort declaration.
+
+**Implementation and third diagnostic.** `capacity_features.py` now does the following:
+- `launch()` spawns the materializer and four per-account reader processes before the
+  interval; `start()` sends them the interval clocks; `finish()` joins them on the shared
+  deadline and merges their per-process sample files.
+- The publication lock is a thread lock plus `flock`.
+- Child PIDs are recorded as a `feature_processes` trial observation, so the cleanup
+  audit covers them.
+- The one-second schedule test now runs the real processes. A new two-process test
+  shows that a publisher holding the lock in another process makes the reader wait and
+  then read its new version, with the wait counted.
+
+Diagnostic 3 (`0de2acd`, `logs/runtime-capacity/features-diagnostic-3/`, uncounted)
+passed every trial gate and the cleanup audit, which found all five feature processes
+absent afterwards. All 1,920 lookups were ready with exact parity, and all 240 versions
+were published.
+
+| One steady interval | Diagnostic 2 | Diagnostic 3 | Target |
+| --- | --- | --- | --- |
+| Lookup scheduled response p50/p95/p99 | 6.7/49.3/108.9 ms | 4.6/11.6/26.7 ms | 20/75/200 ms |
+| Lookup service p50/p95/p99 (max) | 2.1/37.8/76.9 (191.1) ms | 0.7/2.3/9.2 (65.4) ms | — |
+| Reader lock wait p50/p99 (max) | — | 0.01/4.8 (62.2) ms | — |
+| Four-source pass median/p95/max | 97/349/356 ms | 124/457/516 ms | 2 s durable-to-available p99 |
+| Trial CPU / peak RSS | — | 1.65 cores / 3.22 GB | 7 cores / 24 GiB |
+
+The remaining lookup tail is the reader waiting while the materializer holds a source's
+lock, as the cutoff rule requires, not interpreter contention. Publication passes are
+somewhat slower in their own process; they remain far inside the one-second cadence
+and the materialization budget. One interval still does not qualify.
+
+#### Integrated feature cohort declaration (approved 2026-10-03)
+
+Approved by the owner on 2026-10-03 after rehearsal 5. This cohort qualifies integrated feature serving for the
+stage-1 envelope on the approved process topology. Earlier feature attempts (v1–v5) and
+the three diagnostics stay as they are and are not pooled.
+
+The committed driver gains a counted `features` sequence:
+- freeze, then build, verify and install the four signed `paper` targets as in the
+  dashboard cohort (same configuration and state schemas, ephemeral builder key,
+  seven-day policy, fresh journals, disabled deployments);
+- one set of ordinary one-hour grants;
+- the initial steady feature interval, then 17 recovery-steady feature intervals on the
+  same targets, each followed at once by its cleanup audit;
+- the 17-interval materialization cohort through
+  [`capacity_feature_results.py`](../../tests/integration/consumers/runtime/capacity_feature_results.py).
+
+No grant, lifetime, budget, risk or authority limit changes. The recovery path still
+refuses to start with less than 120 s of grant headroom, so running out of grant time
+fails the cohort; it is not extended. Diagnostic 3's steady trial took about 131 s of
+wall time; 18 intervals at about 150 s each need roughly 45 of the 60 minutes.
+
+Pass requires every step once, in order:
+1. Freeze, signed candidate and grants.
+2. The initial steady interval passes every trial gate, including its 1,920 ready
+   lookups with parity and the lookup budget. It is reported separately and not pooled.
+3. Each of the 17 recovery intervals passes every trial gate, including recovery
+   preservation and all-eight progress, and independently meets the 20/75/200 ms lookup
+   budget for service and scheduled response over its 1,920 lookups. Each cleanup audit
+   finds every observed process absent, including the five feature processes, and all
+   four accounts stopped.
+4. The cohort aggregate passes: 17 runs, four sources, each with 60 distinct native
+   inputs per interval and 1,020 durable-to-available materializations meeting 2 s at
+   p99.
+5. `make check` on the unchanged frozen source.
+
+One uncounted rehearsal runs first into
+`logs/runtime-capacity/features-cohort-rehearsal-1/`. The counted attempt writes to
+`logs/runtime-capacity/features-cohort/`, runs once, stops at the first failure and needs
+the owner's go-ahead. It does not qualify checkpoint percentiles, stage 2 or 24-hour
+operation.
+
+Uncounted rehearsals:
+
+1. `features-cohort-rehearsal-1` (`9997661`) passed the freeze, candidate, grants and the
+   initial steady interval (lookup response p95/p99 12.0/27.7 ms). It then stopped at
+   recovery-01 on a runtime gate, not a feature gate: Bitfinex BTC durable-to-BBO for
+   `bitfinex-shared` reached p95/p99 148.2/220.2 ms against 20/100/500 ms. That interval's
+   lookups still passed (p95/p99 9.9/18.6 ms). Cleanup was audited.
+   - **Trend.** Moving feature work out of one interpreter shifted its cost onto the
+     runtime. Bitfinex BTC durable-to-BBO p95/p99 was 13/46 ms with no features, 13/64
+     and 21/68 ms in-process (diagnostics 1–2), 35/100 ms with processes (diagnostic 3),
+     39/120 ms in the rehearsal's steady interval, and 148/220 ms in recovery-01.
+   - **Cause.** All 219 slow deliveries fall in seconds 44–48, inside the authored 4×
+     burst (100 messages/s per source, seconds 38–48) that every recovery interval starts
+     with. During the burst the materializer spent 330–705 ms of each second publishing,
+     and host CPU rose from about 2 to 3.4–4.1 of 10 cores. Inside one interpreter the
+     GIL had capped feature work at about one core; as processes it runs alongside
+     runtime book reconstruction.
+   - **Fix.** The split also added a decode. The materializer's index decoded each
+     delivery and its causal source decoded it again, three decodes per delivery across
+     processes against two before. The index poll now hands each decoded delivery to an
+     optional per-source hook, which the materializer uses to advance its causal source.
+     A new test shows that hook-fed and re-decoded causal sources give identical lookups.
+2. `features-cohort-rehearsal-2` (`a70e93f`) passed the initial steady interval and
+   recovery-01 and -02. Recovery-01's Bitfinex BTC durable-to-BBO fell to p95/p99 21/77 ms
+   from rehearsal 1's 148/220 ms, and lookups stayed at about 10/20 ms. It then stopped at
+   recovery-03 on four runtime gates: Bitfinex durable-to-BBO (p95 215–218 ms) and OKX
+   receipt-to-durable (p95 577–820 ms against 250 ms). Cleanup was audited.
+   - **Not storage.** Inside that interval's burst (seconds 39–48), fsync stayed at
+     0.1–0.3 ms p95 and append-to-durable at 7–8 ms. Received messages waited up to
+     0.93 s (OKX) and 0.42 s (Bitfinex) before the capture append began. The capture
+     processes were not scheduled.
+   - **Unattributed.** The sampled process tree used 2.17 cores, as in recovery-02 (2.14
+     cores, receipt-to-append wait p95 23 ms), and the materializer pass median was
+     unchanged (94 ms). The trial samples only its own process tree. The evidence
+     directory sits in the iCloud-synced repository, and iCloud reported a sync up at
+     14:32:56 UTC, just after the interval; the system log yields no attributable
+     entries. Feature-process contention and host background work therefore cannot yet
+     be told apart.
+
+3. `features-cohort-rehearsal-3` (`487d2c6`, evidence outside iCloud, host sampler on)
+   passed the initial steady interval and recoveries 01–04. It stopped at recovery-05 on
+   Bitfinex durable-to-BBO (p95 111–112 ms against 100 ms). Lookups passed in every
+   interval, and cleanup was audited.
+   - **A step after two recoveries.** In both rehearsals 2 and 3, the steady interval
+     and recoveries 01–02 are healthy: Bitfinex durable-to-BBO p95 was 5–38 ms, and
+     receipt-to-durable p95 1–17 ms. From recovery-03 on, both step up and stay up: BBO
+     p95 79–218 ms, and in rehearsal 2's recovery-03 receipt-to-durable reached 186–820
+     ms. Host busy cores (4.7–5.0 average), trial CPU (1.8–2.2 cores), RSS (3.2–3.3 GB)
+     and account state size are flat across the same intervals.
+   - **Desktop load is present but not the step.** During recovery-05's burst the host
+     reached 6–7 busy cores. About 1.5–2.5 of those were outside the trial: an editor
+     helper at up to 1 core, iCloud at up to 1 core, and browser and chat clients. The
+     earlier healthy intervals ran beside the same kind of load.
+   - **Ruled out.** Each account keeps every fsynced request file in
+     `state/service-requests` (1,621 for `bitfinex-shared` after six intervals, about
+     270 per interval). A probe on this disk found write, fsync and directory fsync flat
+     at about 0.1 ms p50 from 60 to 4,860 files, so directory growth alone does not
+     explain the step.
+   - **Unresolved.** Stage-1 cohorts never chained more than one recovery, so this is
+     the first workload to run 17 on one candidate. The cause of the step remains
+     unattributed.
+
+**Recovery-chain diagnostic.** To separate chained recovery from feature serving, the
+driver gains an uncounted `recovery-chain` sequence:
+- fresh signed targets and one-hour grants;
+- the steady interval and four chained recoveries with feature serving off;
+- each interval host-sampled and immediately audited;
+- each interval's gates and its receipt-to-durable and durable-to-BBO p95 retained,
+  ungraded.
+
+If the step at recovery-03 recurs without features, chained recovery in the runtime is
+the cause. If it does not, the feature processes are.
+
+**Recovery-chain result (`01b393a`, `logs/runtime-capacity/recovery-chain-1/`, uncounted).**
+Without feature serving:
+- the steady interval and recoveries 01–02 had Bitfinex durable-to-BBO p95 of 10–22 ms;
+- recovery-03 rose to 87–102 ms and failed the `bitfinex-isolated` gate;
+- recovery-04 was partly back, at 38–40 ms (pass).
+
+Host load in recovery-03 was lower than before (4.4 busy cores on average). The step is
+therefore a chained-recovery runtime effect, not feature serving and not desktop load.
+It has now appeared at the third recovery in all three chained runs.
+
+What is known:
+- **Queueing, not processing.** Slow deliveries wait 120–140 ms between durability and
+  the start of processing; processing itself takes 0.3 ms. 96 of recovery-03's 116 slow
+  Bitfinex ETH deliveries began within 1.5 s after a policy-selected book, so deliveries
+  queue behind the account's serialized checkpoint work.
+- **Nothing visible changes at recovery-03.** Checkpoint durations stay similar across
+  the chain (p50 45–79 ms, max 123–216 ms). Orders stop at 48 after recovery-01, and
+  every interval commits 21 `matched` checkpoints, so the 80-order grant is not reached.
+  The causal source's history is a bounded deque, so reaching its 10,000 cap adds no
+  per-delivery cost.
+
+Attributing the step needs probes inside the paper service's delivery and checkpoint
+loop. It matters for stage 2, whose long runs accumulate the same state, as well as for
+the 17-recovery feature cohort.
+
+**Probed recovery chain (`38f5b9d`, `logs/runtime-capacity/recovery-chain-2/`, uncounted).**
+Opt-in phase clocks now record, for every measured paper delivery:
+- the supervisor's pipe receipt;
+- the end of delivery-log retention;
+- the account `observe` and `match_public_market` calls;
+- the policy and account evaluation.
+
+They are written only when the runtime measurement journal is enabled. Every interval
+passed this time, but recovery-03 again had the highest Bitfinex durable-to-BBO p95
+(48 ms against 3–5 ms in the steady interval and recoveries 01–02).
+
+- **Where the wait is.** Pipe receipt to processing start stayed at 1–3 ms p95 in every
+  interval. The growth is between durability and pipe receipt (Bitfinex p95 2 ms in
+  recovery-02, 46 ms in recovery-03): each source has one in-flight observation, so
+  later deliveries wait in the pipe while it finishes.
+- **What grows.** The per-selection account `observe` request keeps a flat median of
+  6–8 ms, but its slow tail grows along the chain. The worst call per interval was
+  34, 74, 104, 135 and 173 ms, and calls over 50 ms rise from at most one per account
+  (steady, recovery-01) to as many as four from recovery-02 on. Evaluation and matching
+  stay flat apart from isolated outliers.
+- **What persists across the chain.** Per-interval telemetry stores do not grow. Only
+  each account's `accounts.sqlite3` (3.5 MB after five intervals) and its retained
+  request files carry over.
+
+The next probe belongs inside the account service request (retain, owner check, journal
+apply, telemetry) to find which part of the slow `observe` calls grows.
+
+**Root cause: full-history monitoring reads on the serial account path
+(`cdb16de`, `logs/runtime-capacity/recovery-chain-3/`, uncounted).** The account
+service gained opt-in request timings: retain, owner check, journal operation, alerts,
+result snapshot, monitoring and telemetry. They are written only to an
+operator-created file beside the account socket; capacity trials opt in and keep the
+rows. Every interval passed this time. Per action, across the steady interval and
+recoveries 01–04:
+
+| Action (all four accounts) | Per interval | Total p95 / max by interval |
+| --- | --- | --- |
+| `inspect` | about 850 | 43/56, 88/97, 123/146, 157/166, 193/236 ms |
+| `quote` | 84 | flat, about 3–4 ms p95 |
+| `paper_market` | 84 | flat, about 6–10 ms p95 |
+| `coordinate` | 84 | flat, about 16–46 ms p95, apart from a recovery-01 outlier |
+
+All of the growth is in `inspect`'s `result_snapshot` phase (max 50, 91, 139, 158 and
+227 ms). Retained requests show where the slow ones come from. About a fifth of each
+account's inspections use the `full` projection with an account ID, sent by the
+runtime's paper service monitor (`src/applications/execute/service_monitor.py`) through
+the supervisor's diagnostics, roughly once a second per account.
+
+A full projection snapshots the account's entire retained history, so its cost grows
+with every interval on the same journal. Because the account service handles requests
+one at a time, a trading-path `quote`, `paper_market` or `coordinate` request arriving
+behind such a snapshot waits for it. Each source then holds its in-flight observation
+longer, and later deliveries back up in the source pipe. Around recovery-03 the
+snapshots reach 100–150 ms, and Bitfinex durable-to-BBO crosses its 100 ms p95 budget.
+
+The cost grows with history, not with time. Stage 2 would make it much larger: a
+24-hour journal is about 1,400 times longer than one interval.
+
+**Fix: bounded monitoring reads (owner-approved option A, 2026-10-03).**
+- **Monitoring projection.** A new `monitoring` projection on account inspection
+  returns everything the full inspection returns except the trace history, of which it
+  keeps only the newest trace. The monitor uses that trace only to check that no trace
+  postdates its receipt. The paper service monitor now requests this projection. Its
+  retained per-account snapshot file (`monitoring/<account>.json`) therefore carries
+  the newest trace instead of the whole trace history; its report, metrics and
+  economics are unchanged.
+- **Incremental report facts.** Report facts (fills and cost links) were found by
+  decoding every retained trace on each call. Committed traces are append-only with
+  increasing sequence (starting at 0), so a long-lived journal now keeps each account's
+  accumulated child fill events and physical fill identities and decodes only traces
+  committed since its last read. A write transaction holding staged traces still scans
+  everything. New tests show the cached facts equal a fresh journal's full scan after
+  every tick and round trip, that no committed trace is decoded twice, and that the
+  monitoring projection equals the full one apart from its traces. The existing
+  allocation and monitoring tests caught an off-by-one in the first version.
+- **Effect.** On the retained recovery-04 journal, a full inspection costs about
+  94–162 ms; a monitoring inspection costs 9–10 ms, with the same fills and costs.
+
+No journal schema, budget, authority or risk rule changes. The default and operator
+inspections stay complete.
+
+**Confirmation (`a1055b6`, chain 4, `logs/runtime-capacity/recovery-chain-4/`, uncounted).**
+With bounded monitoring reads, the no-feature chain passed every gate. Bitfinex and OKX
+durable-to-BBO p95 stayed at 2–7 ms from the steady interval through recovery-04, and
+`inspect` p95 stayed at 15–25 ms. Inside each measured interval the slowest inspection
+was 30–32 ms in recoveries 03 and 04. The only inspections still growing (up to 162 ms)
+lie outside the interval: the supervisor's startup preflight and the trial's final
+account-facts read, which take complete snapshots by design. They do not delay steady
+trading. At stage-2 history lengths the startup preflight would still grow, so it
+remains a stage-2 item.
+
+4. `features-cohort-rehearsal-4` (`a1055b6`, bounded monitoring reads) passed the
+   initial steady interval and recoveries 01–14, every one on all its gates. Recovery-15
+   then failed before its interval: the supervisor's startup preflight requested a full
+   inspection, and after 15 chained intervals the full trace history passed the account
+   socket's 1 MiB response limit (`socket paper response exceeds one MiB`). Cleanup was
+   audited.
+   - **Same root cause.** This is the full-history read again, in the startup
+     preflight. The preflight uses only activations, account phases and stopped
+     instances, so it now requests the bounded `monitoring` projection. A new test shows
+     the monitoring response stays one size (within identifier lengths) while 190 more
+     traces grow the full response more than fivefold.
+   - **Left as is.** The account service's own in-process startup owner check also
+     reads in full. It is not subject to the socket limit and runs once per start, so it
+     stays a stage-2 item.
+
+5. `features-cohort-rehearsal-5` (`2b66fe0`) passed every step in 39 minutes, inside
+   the one-hour grants. The steady interval and all 17 recoveries passed every trial
+   gate, every cleanup audit passed, and the cohort aggregate passed:
+
+   | Source | Materializations | Durable-to-available p50/p95/p99 |
+   | --- | --- | --- |
+   | Bitfinex BTC | 1,020 | 23/47/77 ms |
+   | Bitfinex ETH | 1,020 | 23/65/78 ms |
+   | OKX BTC | 1,020 | 89/187/214 ms |
+   | OKX ETH | 1,020 | 31/57/71 ms |
+
+   All against a 2 s p99 budget. Across the 17 recoveries, the worst interval's lookup
+   response p99 was 13.0 ms and the worst service p95 1.4 ms (budget 20/75/200 ms).
+   Durable-to-BBO p95 stayed at or below 7 ms in all 18 intervals.
+
+**Host attribution and evidence location (2026-10-02).** Two changes before rehearsal 3:
+- **Host sampler.** The cohort driver now runs
+  [`capacity_host.py`](../../tests/integration/consumers/runtime/capacity_host.py) around
+  every feature trial. Once a second it records host busy cores (`psutil.cpu_times`) and
+  the 12 busiest processes the user may inspect, into `<root>/<trial>.host-resources.jsonl`.
+  It is ungraded and runs in the otherwise idle driver. Root-owned daemons appear only in
+  the host total.
+- **Evidence outside iCloud.** A three-second idle probe after rehearsal 2 already found
+  the host 4.8–6 cores busy: iCloud's `cloudd` at 0.7–1.0 core and `fileproviderd` at
+  0.3–0.9 core, alongside an editor helper at about 1 core. The repository is in
+  iCloud-synced Documents, and each rehearsal writes gigabytes under `logs/`. New cohort
+  outputs therefore go to `~/AlphaResearchEvidence.noindex/runtime-capacity/<name>`, which
+  is outside iCloud and skipped by Spotlight, with a symlink at
+  `logs/runtime-capacity/<name>`. Earlier evidence stays where it is.
+
+Neither change touches runtime code, budgets or gates.
+
+#### Counted feature cohort result (2026-10-03)
+
+**Passed.** The single counted attempt under the approved declaration froze `2b66fe0`
+(installed implementation `ea92d755…`; releases `d195daec…` OKX shared, `fc9e15aa…` OKX
+isolated, `b872acc5…` Bitfinex shared, `31ec532f…` Bitfinex isolated) and ran every step
+once, into `logs/runtime-capacity/features-cohort/` (evidence outside iCloud). It took 40
+minutes from freeze to aggregate, inside the one-hour grants.
+
+| Step | Result |
+| --- | --- |
+| Freeze, signed candidate, grants | Pass |
+| Initial steady interval (reported separately) | Every trial gate passed. 1,920 ready lookups with exact parity; scheduled response p50/p95/p99 5.4/6.8/9.4 ms, service 0.6/1.6/2.4 ms |
+| Recoveries 01–17 | Every trial gate passed in all 17, each with 1,920 ready lookups and matched-cutoff parity. Scheduled response p95 6.5–11.6 ms and p99 7.8–15.5 ms in recoveries 01–16, and 11.4/77.3 ms in recovery-17; service p95 at most 1.7 ms. Budget 20/75/200 ms for both |
+| Cleanup audits (18) | Pass: every observed process absent, including the five feature processes, and all four accounts stopped |
+| Cohort aggregate | Pass, 17 runs × 60 distinct native inputs per source, table below |
+| `make check` on the frozen source | Passed (2,329 passed, 2 skipped); HEAD and tree unchanged |
+
+| Source | Materializations | Durable-to-available p50/p95/p99 (max) |
+| --- | --- | --- |
+| Bitfinex BTC | 1,020 | 26/44/75 (144) ms |
+| Bitfinex ETH | 1,020 | 29/43/67 (126) ms |
+| OKX BTC | 1,020 | 93/190/221 (339) ms |
+| OKX ETH | 1,020 | 33/59/72 (164) ms |
+
+All are against the 2 s p99 budget.
+
+**Recovery-17 tail.** Durable-to-BBO p95 stayed at 1.6–14.1 ms across the steady
+interval and recoveries 01–16 on all four accounts. In recovery-17 it rose to 83.4 ms
+(`bitfinex-shared`), 51.3 ms (`bitfinex-isolated`), 29.0 and 27.5 ms (OKX), all inside the
+100 ms p95 budget. The same interval had the only lookup tail (response max 295.7 ms,
+service max 171.7 ms). The host sampler shows desktop load arriving at the same time.
+Host busy cores peaked at 9.2 of 10, against 5.0–7.3 in every earlier interval. The
+busiest processes outside the trial were Preview at 1.3 cores and the Codex renderer at up
+to 2.1 cores, and their peaks fell inside the authored burst (seconds 38–48). It is
+recorded as a coincidence in time, not a proven cause. No gate failed, and nothing is
+relabeled. Stage 2's quiet-host gate exists for exactly this condition.
+
+This qualifies integrated feature serving for the bounded stage-1 envelope on the
+approved process topology: one materializer process, one reader process per account,
+and 17 chained recoveries on one signed candidate. It is not MR15 acceptance. Checkpoint
+percentiles (deferred to stage 2), stage 2 and 24-hour operation remain open, as do the
+stage-2 items found here: the account service's in-process startup owner check still
+reads full history.
+
+## Stage-2 design (2026-10-02)
+
+The owner agreed the decisions below on 2026-10-02; nothing is implemented, signed or run yet. It turns the stage-2
+requirements above into a staged plan, and records what stage 1 has since established.
+Budgets, risk limits, journal schemas and matched-cutoff rules stay as declared. Every
+authority change below is a separate owner decision, issued as new signed artifacts,
+never a mutation of an existing one.
+
+**Where stage 2 is blocked today:**
+
+| Dependency | Current state | Evidence |
+| --- | --- | --- |
+| Service life | Account services and paper services accept 1–120 s per invocation (`src/applications/execute/account_service.py`, `src/configuration/paper_services.py`), under the signed launcher's independent 180 s outer bound; the supervisor runs 75 s with a drain reserve of at most 5 s. | Stage-1 cohorts |
+| Capture continuity | Paper capture runs one finite segment per invocation (stage-1 caps 5,000 messages, 32 MiB). Gap-aware segment rollover exists and is qualified only in the public-data collector (`src/market_data/collection/rollover.py`; 73-hour bound, five-segment real check), not in signed paper capture. | [Research capacity](research-capacity.md#armed-acquisition-and-continuation) |
+| Authority | Ordinary one-hour grants; recovery refuses under 120 s of headroom. No 26-hour grant has been issued, and denial at expiry or revocation over a long life is unqualified. | Stage-1 cohorts |
+| Account journal growth | Resolved for stage 2: history moved to indexed tables. | [Account journal history](account-journal-history.md) |
+| Checkpoint percentiles | The current fixture commits 21 of 21 checkpoints per account per minute, every one order-bearing (42 physical orders per account per minute). That would exhaust the unchanged 80-order grant within minutes. | [Checkpoint yield](#checkpoint-yield-on-the-current-runtime-2026-10-02) |
+| Feature serving | Qualified for the stage-1 envelope on the approved process topology (one materializer, one reader per account, 17 chained recoveries). | [Counted feature cohort](#counted-feature-cohort-result-2026-10-03) |
+| Host conditions | The declared host also runs iCloud sync, a browser and an editor, measured at 4–6 busy cores when idle. A 24-hour trial needs a declared quiet-host condition and host-wide sampling throughout. | [Host attribution](#integrated-feature-cohort-declaration-approved-2026-10-03) |
+
+**Decision 1 — longer bounded service life, not handoff (recommended).** A handoff keeps
+120 s services but needs about 720 owner handoffs per service per day. Each one needs
+fencing, a fresh claim and proof of uninterrupted capture across processes; the 24-hour
+claim would then rest on roughly 2,900 handoffs being gap-free. A longer bounded life
+keeps one current economic owner per account for the whole trial and reuses the
+qualified recovery path only for injected faults. It changes the signed lifetime
+bounds, which is an authority change:
+- per-invocation limits declared per stage (below), not unbounded;
+- the outer launcher bound scales with them;
+- the service still stops itself before its grant expires and never renews itself.
+
+**Decision 2 — rollover inside signed paper capture.** Compose the collector's qualified
+segment rollover into signed paper capture with the declared 30-minute segments (75,000
+messages, 256 MiB, 2,048-record queue). Segment boundaries must keep one session and
+snapshot, with no gap or duplicate, and exact independent chain replay. A process
+restart remains a declared gap that needs a fresh snapshot; it never counts as
+continuity.
+
+**Decision 3 — authority by stage.** No new grant duration until 2a passes:
+- **2a** uses ordinary one-hour grants.
+- **2b** issues a new, explicitly finite 26-hour grant per account, with the same
+  80-order, 100-units-per-instrument and installed risk limits. It must first be shown to
+  deny use after expiry and after revocation, in short dedicated trials, before the long
+  run.
+
+**Decision 4 — workload with a low-order commit mix.** Stage 2 needs at least 1,000
+committed checkpoints per account inside an 80-order grant and a target of at most 40
+orders per account per day. The stage-2 fixture must therefore be declared so that most
+selections commit without orders (`target_matched` or `no_intent`) after an opening
+position. The declaration must project, and 2a must measure, orders per account per hour
+before 2b runs. Authored 4× bursts stay in the schedule.
+
+**Staged plan:**
+- **2a: one-hour bounded integrated trial** under ordinary one-hour grants. Service life
+  of about 50 minutes, two or more capture segments per source with rollover, full feature
+  serving and query readers, host-wide sampling, and one injected recovery. It qualifies
+  the lifetime change, rollover in paper capture, journal growth, order-mix yield and
+  stability past 60 seconds, without any new authority duration. Checkpoint percentiles
+  could already pass here if the commit mix gives at least 1,000 per account.
+- **2b: 24-hour integrated trial** under 26-hour grants. 9,504,000 authored messages,
+  72-hour native retention and seven-day telemetry budgets, then 4× replay of the
+  24-hour corpus within six hours, with identical economic, checkpoint and feature
+  identities.
+
+**Owner decisions (2026-10-02).** The owner agreed:
+1. **Longer bounded service life** is the stage-2 direction, not handoff.
+2. **Lifetime caps by stage.** 2a declares about 50 minutes, inside an ordinary one-hour
+   grant with about 10 minutes for build, launch, one injected recovery (which needs
+   120 s of headroom) and stop/settle. 2b declares 25 hours inside a 26-hour grant. The
+   launcher's outer bound stays service life plus 60 s, and the supervisor's drain
+   reserve rule (last fifth, at most 5 s) is unchanged.
+3. **Quiet-host gate.** Before start, iCloud Drive syncing is paused, browser and editor
+   are closed and `caffeinate` is held, and a 5-minute idle check must show non-trial
+   host load averaging at most 1 core. The host sampler runs throughout. If non-trial
+   load exceeds the declared ceiling for longer than a declared window, the attempt
+   fails and is recorded with its host attribution; it never passes silently and is
+   never relabeled as a runtime failure. Budgets are not relaxed for desktop load.
+   Moving the repository out of iCloud-synced Documents is recommended to the owner but
+   not assumed.
+
+Implementation starts with 2a after the current feature cohort is settled. Each step
+keeps its own declaration, rehearsal and counted attempt.
+
+### Stage 2a implementation sequence (draft 2026-10-02)
+
+Draft for owner approval. Reading the code shows that 2a is several dependent changes,
+not one. Signed paper capture uses `CaptureRunner` (`src/market_data/collection/runner.py`),
+which writes one recording per source per run and owns the observer, health and
+measurement hooks. Rollover lives in `CaptureRunRunner`
+(`src/market_data/collection/rollover.py`), which has none of those hooks. Paper
+delivery logs, measurement files and recovery paths are keyed by a single
+`recording_id` (`src/applications/execute/services.py`), and six capacity consumers read
+one capture root per source. The 180 s outer bound is a fixed subprocess timeout in the
+artifact launcher (`tools/governance/src/alpha_research_governance/artifact_supply_chain/installation.py`).
+Each step below keeps its own tests, and nothing is signed until S6.
+
+1. **S1 — rollover in paper capture.** Give the paper path a segment chain: on the
+   declared 30-minute, 75,000-message or 256 MiB limit, seal the segment and continue in
+   the next one, on the same socket, session and native positions, with no gap or
+   duplicate. The observer, health and measurement hooks behave exactly as today. A
+   failure during rollover is a declared gap that needs a fresh snapshot. Tests: position
+   continuity across segments, exact chained replay, a failure in the middle of rollover,
+   and unchanged single-segment behaviour.
+2. **S2 — consumers of segment chains.** Paper delivery and measurement files, recovery
+   and suffix replay, the as-of index and the capacity consumers accept a recording made
+   of several segments. Every stage-1 test and consumer test passes unchanged for
+   single-segment runs.
+3. **S3 — declared lifetime bounds.** Replace the fixed 1–120 s service bound and 180 s
+   launcher timeout with per-invocation caps carried in the signed configuration: outer
+   bound equals service life plus 60 s, still finite, still stopping before grant expiry.
+   The stage-1 values are unchanged. This is the authority change the owner approved, and
+   it is issued only through new signed artifacts.
+4. **S4 — stage-2 workload.** An authored fixture for a 50-minute measured window with the
+   declared 25/100 message-per-second schedule and periodic 4× bursts, plus a policy and
+   account opening that commit mostly without orders after an opening position. The
+   declaration projects orders per account per hour against the 80-order grant before any
+   run.
+5. **S5 — 2a harness.** A long trial shape with readers, samplers and feature processes
+   running for the whole window, rolling percentiles, one injected recovery in the middle
+   of the run, and the quiet-host precheck and host gate in the driver.
+6. **S6 — declaration, rehearsal, counted attempt.** As for stage 1.
+
+S1 and S2 are the largest and riskiest: they change capture and replay code that
+qualified stage-1 evidence relies on. Running every stage-1 suite unchanged is their
+acceptance bar.
+
+#### S1 design note: rollover in paper capture (2026-10-03)
+
+The approved sequence says S1 gives the paper path a segment chain while its observer,
+health and measurement hooks behave as today. Two qualified pieces already exist, and
+neither does the whole job:
+- `CaptureRunner` owns the paper semantics: retries and gaps, stop reasons, observer,
+  health, measurements and terminal replay parity. It writes one `CaptureJournal`.
+- The collector's `CaptureSegmentWriter`, `CaptureRunJournal` and `SavedCaptureRun` own
+  rotation, the predecessor-bound chain and independent chain replay. They have none of
+  the paper hooks, and `CaptureRunRunner` has its own UTC-window, readiness and resume
+  semantics.
+
+**Choice.** `CaptureRunner` gains a chain mode that writes through the collector's
+qualified writer and run journal unchanged. The paper semantics stay in one place, and
+nothing qualified for the collector is forked. The alternative, adding paper hooks to
+`CaptureRunRunner`, would put stage-1 paper behaviour on a different session and stop
+model.
+
+**Behaviour:**
+- **Entry point.** A new `run_chain()` takes a `CaptureRunRequest` and returns its own
+  chain result. `run()` and its result type are unchanged, and both share one capture
+  loop. With a run request:
+  - the source configuration's duration, message and byte limits apply per segment
+    (the declared 30 minutes, 75,000 messages and 256 MiB);
+  - the window's `stop_at`, `max_messages`, `max_bytes` and `max_segments` bound the
+    whole run;
+  - `ready_by` is not used by paper capture, which keeps the supervisor's own readiness
+    checks.
+- **Rollover is storage only.** Before an original record would cross a segment limit,
+  the writer seals the segment and provisions its successor, bound to the predecessor's
+  committed digest. Then it appends the record. The socket, session, epoch, native
+  sequence and reconstruction state carry on. No session, gap, end or snapshot is
+  written at the boundary.
+- **Hooks.**
+  - Observer rows and measurement cursors carry the run-wide record position, so for
+    one segment they equal today's values.
+  - Health counts are run-wide.
+  - Each rollover adds one opt-in `capture_rollover` measurement row with its seal and
+    provisioning duration. The boundary pause must be measured, because sealing hashes
+    and publishes the whole segment while receipts wait in the bounded queue.
+- **Limits.** A whole-run byte or segment refusal ends the run as today's storage refusal
+  (`storage_limit_unknown_tail`), with a gap and terminal records.
+- **Rollover failure.** A persistence failure while sealing or provisioning raises, as
+  any capture persistence failure does today. The source child fails and the supervisor
+  starts a fresh recording with a fresh snapshot: a declared gap, never continuity.
+  Sealed segments still verify as an exact chain prefix, and the observer never sees a
+  record that is not durable.
+- **Finish.** The last segment is sealed, the run summary retained, and
+  `SavedCaptureRun` must replay the whole chain to the live summary before the result is
+  returned (`replay_parity`). Its offline deadline is the contract's 7,200 s maximum
+  for now, since S3 and S5 declare the service's stop budget.
+- **Run files.** The run journal writes its progress file as it does for the collector,
+  including the collector's resume instruction. Paper capture never resumes a chain.
+- **Refusals.** Chain mode refuses the canonical-prefix (`snapshot_records`) mode, and,
+  through `CaptureRunRequest`, any venue other than OKX and Bitfinex.
+
+**Out of S1:**
+- `PaperServiceSource` configuration, the supervisor's choice of chain mode, and
+  recording-keyed delivery and measurement paths. These belong to S2 and S3: the signed
+  configuration changes in S3, and consumers must read chains (S2) before the supervisor
+  produces them.
+- The source service child accepts either request type, so S2 can wire it.
+
+**Tests (behavioural):**
+- One socket and one subscription across at least two segments, with every authored
+  frame stored once and in order, and no session or snapshot in a suffix segment.
+- Native sequence continuity across the boundary.
+- Continuous observer positions, each callback only after its record is durable in its
+  own segment.
+- Run-wide measurement cursors and one rollover row per seal.
+- Exact chained replay equal to the live summary.
+- A provisioning failure mid-rollover: the run raises, persistence failure is reported,
+  the sealed prefix verifies and the observer saw only durable records.
+- A segment-limit refusal ending with a gap and a verifiable chain.
+- Every existing single-segment capture, paper and stage-1 test unchanged.
+
+**Review before commit (2026-10-03).** One correctness gap was found and fixed. A
+reconnect's `session` record is an original record, so the writer can roll over on it. In
+the last admitted segment, or at the whole-run byte limit, it was refused with an
+`OverflowError` that escaped `run_chain()` as a persistence failure, with no terminal
+records. That contradicted the limits rule above. Chain mode now retains it as the frame
+path's refusal: a `storage_limit_unknown_tail` gap, then `end`, with exact chained replay.
+No connection is opened for the refused epoch. `run()` is unchanged: a refusal there still
+raises, as before. Test: a disconnect after a full segment, with one admitted segment and
+one retry. Two smaller points are kept as recorded behaviour, for S3 to declare:
+- Paper capture bounds reconnects with the source configuration's `retries`. It does not
+  use the window's `max_reconnects`.
+- The run's `progress.json` is written when the run is opened, at each seal and at finish.
+  It is not refreshed every second during collection, as the collector refreshes it.
+
+#### S2 design note: consumers of segment chains (2026-10-03)
+
+S1 can write a run as a chain of segments. S2 makes every reader accept that chain as
+**one recording**, so S3 only has to switch the supervisor over. Today every consumer
+assumes one `CaptureJournal` at `runs/<run>/<source>/<recording_id>/<recording_id>/`. It
+finds the journal by globbing `*/*/request.json` and keys its delivery, index and
+measurement files by `recording_id`.
+
+**Recording key and source identity.**
+- A chain is one recording, keyed by its `run_id`. Its source identity is the
+  `CaptureRunRequest` identity: the BBO and depth `source_id`, the live-book lineage and
+  the delivery-accounting identity.
+- Segment request identities are storage lineage only. They never reach a consumer, so
+  the source identity cannot change at a rollover.
+- The live decision source's own identity hashes config, implementation, universes and
+  requirement. It is therefore equal for a chain and a single recording of the same
+  source.
+- Both request types expose `recording_key` (`recording_id` or `run_id`) and
+  `recording_max_bytes` (the segment's `max_bytes` or the window's `max_bytes`).
+  Consumers accept either type through one alias.
+
+**Layout.** The existing naming holds with the key in place of `recording_id`:
+
+| Path | Holds |
+| --- | --- |
+| `<key>/<key>/` | A single recording: `request.json`, journal, cursor and manifest. A chain: `run-request.json`, `segments/`, `progress.json` and `run-summary.json` |
+| `<key>/source-result.json` | The source child's summary |
+| `<key>-<account>.jsonl` and `.index.sqlite3` | The delivery log and as-of index |
+| `<key>.capture.jsonl` and `<key>.<account>.paper.jsonl` | Measurements |
+
+**Run-wide positions.**
+- Rollover adds no record, so capture positions, observer rows, delivery positions,
+  as-of index positions and measurement cursors are one contiguous run-wide sequence
+  from 0. They are identical to today's for one segment.
+- A position `p` lies in segment `k` when `C_k <= p < C_(k+1)`, where `C_k` is the sum of
+  the committed record counts of segments before `k`. Its local position is `p - C_k`.
+  Sealed counts are fixed by their manifests. The last segment's count is its durable
+  cursor.
+- Measurement cursors stay `p + 1`. A `capture_rollover` row's cursor is the run-wide
+  count after the first record of the new segment.
+
+**Paper delivery and the as-of index.**
+- There is one delivery log and one as-of index per account per recording, not one per
+  segment. The index's contiguity check holds across a rollover, and a lookup never
+  crosses files.
+- The delivery retention bound becomes four times `recording_max_bytes`. For a single
+  recording that is unchanged. For a chain it is the whole-run byte limit. 2b must size
+  that bound in its declaration.
+
+**Reading a recording.** A new read-only view, `CaptureRecording` (in
+`market_data.storage`), owns discovery, completion, the cursor, records and position
+mapping:
+- **Discovery.** `discover(source_root)` returns every recording under a source
+  directory, single or chain. The directory names must equal the key.
+- **Single recordings** delegate exactly to `CaptureJournal`, so every existing reader
+  gets byte-identical records, cursor and completion.
+- **Chain completion.** A chain is complete only when `run-summary.json` exists and every
+  segment is sealed.
+- **Chain cursor.** Its run-wide record and byte counts are the sums of the segments'
+  committed cursors. Its digest is the last segment's, and the per-segment cursors are
+  kept.
+- **Interrupted chains.**
+  - Only the last segment may be unsealed. An unsealed earlier segment, a fork or a
+    missing predecessor is refused, using `CaptureRunJournal.segments()`.
+  - The view yields the sealed segments, then the last segment's durable prefix, then
+    exactly one `interrupted_persistence_unknown_tail` gap.
+  - That gap carries the last real record's epoch and receipt time, even when the last
+    segment is empty or sealed without a successor.
+- **Position mapping.** `locate(position)` returns the segment ordinal, its recording ID
+  and the local position, by the rule above.
+
+**Supervisor (no wiring).**
+- The source child's request may be either type. Paths use `recording_key`. Observers
+  are bound to the recording's source identity.
+- Delivery accounting reads through `CaptureRecording`. It reports the run-wide durable
+  count and the last segment's digest, and adds a `capture_segments` field for chains
+  only. A single recording's accounting is byte-identical.
+- The request is built in one method, `_capture_request`, which still returns a
+  single-recording `CaptureRequest`. Tests override it to prove that the real supervisor
+  consumes a chain. S3 replaces it with signed configuration.
+
+**Recovery and suffix replay.**
+- A source failure, including a failed rollover, ends that recording as it does today.
+  The replacement is a fresh recording (a new key, session and snapshot), so the change
+  is a declared gap. Chains are never resumed.
+- Parity reads each recording's delivery stream by key and orders streams by their first
+  availability. The suffix replay rebuilds the live source from the retained request of
+  either type, so `source_id` and lineage match the live run.
+
+**Capacity consumers.**
+- `capacity_reads`, `capacity_results`, `capacity_parity`, `capacity_features` and
+  `capacity_history_queries` find recordings through `CaptureRecording.discover`, or by
+  the key. They read records and cursors through the view.
+- `capacity_results` adds segment facts: the count and each segment's records, bytes and
+  digest. From the probe it adds rollover facts: the count and the maximum
+  `rollover_append_ns`. These are recorded facts without a budget. The pause budget is
+  declared with 2a (S6).
+- `capacity_cohort`'s one-recording gate is unchanged, because a chain is one recording.
+- `capacity_source_cases` makes its own single captures and is out of scope.
+
+**Out of S2.** The supervisor producing chains, the signed `PaperServiceSource` and
+window configuration (S3), and any budget for the rollover pause.
+
+**Tests (behavioural):**
+- `CaptureRecording` gives exactly `CaptureJournal`'s records, cursor and completion for
+  a single recording.
+- For a chain it gives run-wide records, cursor and `locate`, an interrupted chain ending
+  in one tail gap with the right clocks, and refusal of an unsealed earlier segment.
+- The real supervisor, with `_capture_request` returning a chain of at least two
+  segments, writes one key-named delivery log and index per account. Their positions are
+  contiguous across the rollover, an as-of lookup on each side of the boundary equals the
+  registry's, and the delivery accounting is complete.
+- `capacity_results` and `capacity_parity` read that chain with complete delivery parity.
+- Every existing stage-1 and consumer test passes unchanged.
+
+**S2 implementation (2026-10-03).** Implemented as designed. Nothing produces a chain
+yet: `_capture_request` still returns a single-recording request, and no signed
+configuration changed.
+
+The full lane passed: 2,346 passed and 2 skipped. Strict mypy is clean over every Python
+path. New behavioural tests:
+- `tests/unit/data/test_capture_recording.py`: single-recording parity, chain reads and
+  positions, interrupted tails, and refusals.
+- `test_chain_is_one_delivery_log_and_index_across_rollover` (public paper).
+- `test_source_start_retains_a_chain_under_its_run_key`: the real source child and
+  delivery accounting.
+- `test_segment_chain_is_read_as_one_recording` (reads and results).
+- `test_unmanaged_replay_reads_a_segment_chain_by_its_run_key` (parity).
+- `test_chain_rollover_rows_are_recorded_facts_beside_their_cursors` (results probe).
+
+Existing tests keep their behaviour. Two assertion lines changed from
+`request.recording_id` to `request.recording_key`, which has the same value for a
+single recording, because strict typing rejects the widened request type: one in
+`test_capacity_reads.py` and one in `test_capacity_features.py`.
+
+`capacity_reads` gained a per-source discovery helper, used unchanged by `_discover`.
+
+For single recordings, consumer outputs add no key. The segment, rollover and
+`capture_segments` facts appear only for chains.
+
+#### S3 design note: declared lifetime bounds and chain capture (approved 2026-10-03)
+
+The owner approved S3 on 2026-10-03. It replaces the fixed service bounds with caps
+carried in signed configuration, and lets the supervisor produce segment chains. Today:
+
+| Bound | Where |
+| --- | --- |
+| Account service life of 1–120 s | `AccountExecutionRequest.service_seconds` and `AccountOwnerService` |
+| Supervisor life of 1–120 s | `PaperServiceConfiguration.duration_seconds` |
+| Outer bound of 180 s for every installed run | The signed launcher's subprocess timeout |
+
+Nothing ties a service's life to its grant's expiry. A one-hour grant has so far always
+outlasted a 120 s service.
+
+**Where the cap lives.**
+- **The cap.** `AccountConfiguration` gains an optional `service_life_seconds` (1–90,000,
+  where 90,000 s is 25 hours).
+  - The account release signs this configuration as `configuration/config.json`.
+  - The paper deployment binds its digest, so a grant authorizes the cap with
+    everything else in the configuration.
+  - The field is omitted from the encoding when unset. Every existing configuration, and
+    therefore every stage-1 release and deployment identity, is byte-identical. Unset
+    means 120 s.
+- **New authority.** A longer life needs a new configuration, which means a new
+  deployment digest, new signed releases and new grants. It is never a mutation of an
+  existing artifact.
+
+**Enforcement.**
+- **Account service.**
+  - `service_seconds` may be 1–90,000 by schema. The account application refuses any
+    value above its signed configuration's cap.
+  - At startup, the service refuses to serve unless its grant is current and its whole
+    life ends by the grant's `expires_at`. It still stops itself at its deadline, and it
+    never renews or extends anything.
+  - Shadow and paper accounts without a deployment keep today's behaviour.
+- **Launcher.**
+  - An installed account run's outer timeout is the signed configuration's cap plus 60
+    s, read from the verified `config.json`. With no cap that is 180 s, as today.
+  - Collector runs and installation steps keep 180 s.
+- **Supervisor.**
+  - `duration_seconds` may be 1–90,000, but it may not exceed any selected account's cap,
+    so the supervisor never outlives its account owners.
+  - With stage-1 configurations that is 120 s, as today. The drain reserve rule is
+    unchanged.
+- **Recovery** still refuses under 120 s of grant headroom.
+
+**Chain capture.**
+- **Declaration.** `PaperServiceSource` gains an optional `chain` with the whole-run
+  `max_messages`, `max_bytes` and `max_segments`.
+  - The source's `capture` then holds the per-segment limits (the declared 30 minutes,
+    75,000 messages, 256 MiB and 2,048-record queue).
+  - The field is omitted when unset, so every stage-1 source is unchanged and captures
+    one recording.
+- **What `_capture_request` builds.** With `chain` set, it returns a `CaptureRunRequest`
+  whose window starts now and stops at the supervisor's own deadline. Paper capture does
+  not use readiness, so `ready_by` equals `stop_at`. `max_reconnects` equals the source's
+  `retries`, which paper capture already uses (S1 review). Everything downstream is S2.
+- **Recovery.** A recovery replacement is a fresh chain with a new key, session and
+  snapshot.
+
+**Out of S3.** The stage-2 fixture and workload (S4), the 2a harness (S5), any signed
+artifact, grant or run (S6), and 26-hour grants (2b).
+
+**Tests (behavioural):**
+- An unset cap encodes stage-1 configurations byte-identically and keeps 120/180 s.
+- A declared cap admits `service_seconds` up to the cap and refuses above it.
+- The account service refuses to start a life that would outlast its grant, and starts
+  one that ends inside it.
+- The launcher's outer bound is the cap plus 60 s for account runs, and 180 s otherwise.
+- The supervisor's duration is bounded by its accounts' caps.
+- With `chain` set, the supervisor produces a chain through `_start_source`. Unset, it
+  produces exactly today's single request.
+
+**S3 implementation (2026-10-03).** Implemented as designed, and nothing has been signed
+or issued.
+
+- **Unchanged identities.** `service_life_seconds` and `chain` are omitted from the
+  encoding when unset, so stage-1 configuration, deployment and release identities are
+  byte-identical (tested).
+- **No chains yet.** No prepared configuration declares `chain` yet, so the capacity
+  harness still captures one recording per source.
+
+The full lane passed: 2,353 passed and 2 skipped. Strict mypy is clean over every Python
+path.
+
+New tests:
+- the launcher's outer bound (the cap plus 60, and 180 when undeclared);
+- the account service cap;
+- the grant-life refusal: refused when the life outlasts a current grant, admitted when
+  it fits, and admitted under an expired grant;
+- the supervisor bounded by account caps;
+- an undeclared chain keeping one journal.
+
+The S2 supervisor chain test now declares `chain` on the source instead of overriding
+`_capture_request`.
+
+Two existing tests changed:
+- `test_service_request_bounds_and_socket_only_shutdown` now checks the schema's finite
+  maximum (90,001 s is refused). 121 s is refused at service startup by an undeclared
+  configuration, as the approved design intends.
+- `test_release_installation.py`'s four `_run` test fakes accept the new `timeout`
+  keyword.
+
+#### S4: stage-2 workload and order mix (2026-10-03)
+
+The owner decided on 2026-10-03:
+- the order mix comes from a target-holding policy, with the stage-2 paper adverse cost
+  at 0;
+- the cadence stays at 3 s, so checkpoint percentiles stay deferred to 2b;
+- held positions are kept fresh by periodic reconciliation, not a larger state-age
+  budget.
+
+**Why the stage-1 workload cannot supply order-free commits.**
+- The reference clip policies emit an order at every checkpoint. A policy declares one
+  output contract, so it cannot open with an order and then hold with targets.
+- A target policy commits without an order only once its target is held
+  (`target_matched`). The account lowers an unmet target to one immediate-or-cancel buy
+  at the ask.
+- The paper model fills at the touch plus the scenario's adverse cost. With the stage-1
+  cost of 0.50, that order can never fill, so the target would place an order every 3
+  s.
+
+**What S4 adds.**
+- **`target_clip` policy** (`strategies.reference.TargetClipPolicy`). It requests a
+  constant target at every eligible book. All three formulas are now built by one named
+  factory, `reference_policy`. The existing clip policies keep their identities.
+- **`SustainedNativeFixture`.** The declared schedule: 25 Hz, with a 10-second 100 Hz
+  burst ending each 300-second period. Ten periods give 82,500 messages in 3,000 s. It
+  is a distinct input identity, and the stage-1 fixture is unchanged.
+- **`SustainedWorkload`.** The four-source, four-owner topology:
+  - **Segments:** 30-minute, 75,000-message, 256 MiB segments, with a 2,048-record queue
+    and one retry.
+  - **Chain:** 100,000 messages, 1 GiB and 4 segments.
+  - **Paper cost:** adverse cost 0.
+  - **Lifetimes:** 3,000 s owner service life and a 2,880 s supervisor.
+  - **Instances:** two `target_clip` instances of one unit per account.
+  - **Freshness:** a declared 60 s reconciliation cadence.
+- **Preparation.** It writes the selection, the owner configurations and an offline
+  projection. The projection replays the authored frames through the installed
+  reconstruction, the shared paper observer, the account journal and the selected
+  policies.
+
+**Measured projection.** Six authored minutes were replayed per account, then scaled
+to a 45-minute measured window.
+
+| Measure | Per source or account |
+| --- | --- |
+| Native messages | 74,250 per source in 45 minutes, in 2 segments. The first segment holds 49,500 messages, under the 75,000 cap |
+| Authored frame sizes | OKX mean 169.5 B, p99 171 B and maximum 18,544 B. Bitfinex mean 25.8 B and maximum 795 B |
+| Checkpoints | 120 in 6 minutes: 1 `reserved`, then 119 `target_matched`, with no rejection. That projects to 900 in 45 minutes, under 1,000, so percentiles stay deferred to 2b |
+| Orders | 2 opening orders per account, both filled to one unit per instance, and 0 after that. Projected 2 per account per run, against the 80-order grant and the 40-per-day target |
+| Reconciliations | 5 in 6 minutes (one every 60 s) |
+
+Two failure modes found while measuring are kept as tests and constraints:
+- **Partial fills.** One account's targets are netted into one parent order. If the
+  touch cannot fill the parent completely (2 + 1 units against 2 offered), the fill is
+  split pro rata and the unfilled children stay open. Every later checkpoint is then
+  rejected as `pending_target`. No further orders are placed, so the grant is safe, but
+  nothing commits order-free. Each account's total target is therefore declared at 2
+  units, which is half the fixture's 4-unit touch and fills in one step.
+- **State age.** Without reconciliation, a held position makes every checkpoint after
+  the unchanged 120 s state age a `stale_firm_account` rejection. S5 must therefore
+  reconcile each account from its own paper facts (settled ledger and open orders)
+  every 60 s, through the existing `reconcile` request, as the recovery path does.
+
+The full lane ran 2,358 passed, 2 skipped and 1 failed. The failure was the engineering-standards check, which rejected an unannotated type suppression in the new policy test. After the fix, that check and the policy test suite passed (46 tests). Strict mypy is clean.
+
+Nothing is signed. The capacity harness's stage-1 selection, fixture and policies are
+unchanged.
+
+#### S5 design note: the 2a harness (2026-10-03)
+
+S5 builds the driver, observers and assessment that S6 declares and runs. Nothing here
+is signed or run.
+
+**Run shape.** 2a is two measured phases inside one ordinary one-hour grant, joined by
+one injected recovery that uses the qualified stage-1 path:
+1. **Phase A.** Launch four owners and the supervisor, then measure a steady interval
+   long enough to roll every source past one 30-minute segment.
+2. **Injected fault.** At the end of phase A, the driver kills one signed account owner
+   (the stage-1 owner-death probe) and must see dependent work fenced within 2 s. It
+   then shuts the supervisor down and waits for the remaining owners.
+3. **Phase B.** The stage-1 four-owner recovery runs: stop, settle, reconcile from
+   complete facts, claim new generations, relaunch. Phase B must reach progress on all
+   eight instances within 40 s of the first claim, then measure a second steady
+   interval.
+
+The fault drills that leave accounts faulted, such as source or policy death, cannot
+continue trading, so they stay stage-1 drills.
+
+**Timing.**
+- Every bound comes from the declaration, never a constant: each phase's interval,
+  supervisor duration and account service seconds.
+- The stage-1 defaults stay as they are: a 60 s interval, a 75 s supervisor and 120 s
+  services.
+- The account service refuses a life that would outlast its grant (S3), so a
+  misdeclared phase B fails at startup and never runs past expiry.
+
+**Driver.**
+- `CapacityTrial` keeps its behaviour and takes the timings and the workload type as
+  class-level declarations.
+- `SustainedTrial` uses `SustainedWorkload`. It sets the supervisor's duration for each
+  phase, which is an invocation setting outside signed authority, and runs readers,
+  samplers and feature processes for the whole interval.
+- The supervised child selects the matching fixture through an explicit workload
+  argument.
+- Recovery's economic oracle for 2a is the target holding: one unit per instance at the
+  opening ask, with the fee of the declared rate. That is cash 99,799.80 and fees 0.20
+  per account.
+
+**Reconciler.**
+- Every 60 s, for each account, the driver reads the account's complete facts through
+  its owner socket. It then reconciles that settled ledger and the open physical orders
+  with a fresh identity.
+- Each attempt is retained (account, clock, duration, matched).
+- A mismatch faults the account (`account_break`), so it fails the attempt at once. It
+  is never retried.
+- A decision computed before a reconciliation instant but committed after it is
+  rejected (`decision_precedes_account_state`). Such rejections are counted and
+  reported, never hidden.
+
+**Host.**
+- **Quiet-host precheck.** Before the grant step, the cohort:
+  - refuses to start while any declared interactive process is running (browsers, editors
+    and the Codex app);
+  - holds `caffeinate -dimsu` for its own life;
+  - records the iCloud pause as an operator attestation, because it cannot be verified
+    programmatically;
+  - samples the host for 5 minutes and requires non-trial load to average at most 1
+    core.
+- **Sampler.** `HostSampler` adds trial and non-trial cores to each row. Trial cores are
+  the cohort process and all its descendants, which include every owner, supervisor,
+  reader and feature process. Everything else, including root daemons counted only in
+  the host total, is non-trial.
+- **Host gate.** The attempt fails, with the busiest non-trial processes as attribution,
+  if non-trial load stays above a declared ceiling for longer than a declared window.
+  Budgets are never relaxed for host load.
+
+**Results.** A separate sustained collector reuses the stage-1 capture, paper, delivery
+and read primitives through `CaptureRecording`. The stage-1 collector and its 60 s
+gates are unchanged. The collector adds:
+- **Fixture proof:** every authored slot is retained exactly, in order and on time, on
+  the sustained schedule.
+- **Segments and replay:** the chain's segment count (at least two per source in phase
+  A) and exact chained replay.
+- **Rolling percentiles:** p50, p95, p99 and the maximum over fixed 300-second windows
+  for:
+  - receipt to durable;
+  - durable to BBO;
+  - selected book to checkpoint;
+  - every query class;
+  - feature lookups.
+
+  The declared budgets apply to every window, so a late tail cannot be averaged away.
+- **Commits:** checkpoint counts and reasons, orders against the grant, and
+  reconciliation outcomes.
+- **Host gate.**
+- **Cleanup audit.** The stage-1 audit.
+
+**Out of S5.** The exact phase lengths, ceilings, window budgets and gate list (S6
+declaration), the uncounted rehearsal, and any counted attempt.
+
+**Tests (behavioural, no signed run):**
+- Driver timing declarations: stage-1 defaults are unchanged, and a sustained phase is
+  bounded by its declaration.
+- The reconciler's matched and mismatched paths against a real account journal.
+- The host gate's sustained excess and attribution.
+- The quiet-host precheck's process and idle refusals.
+- Rolling windows that expose a late tail hidden by whole-run percentiles.
+- The sustained fixture proof on the periodic schedule.
+- The 2a oracle equal to the offline projection's final account facts.
+
+**S5 implementation (2026-10-03).** Implemented as designed. Nothing was signed or run.
+- **`capacity_trial.py`**
+  - Declared `TrialTimings` (stage-1 defaults 60/75/120 s) and an explicit workload
+    (`capacity` or `sustained`).
+  - The supervisor's duration is set per phase.
+  - An optional reconciler.
+  - An optional injected owner death, fenced by the stage-1 probe before shutdown, whose
+    launcher alone may exit nonzero.
+  - Stage-1 invocations are unchanged.
+- **`capacity_reconciler.py`.** The 60 s paper reconciler. It stops at the first
+  mismatch and never retries.
+- **`capacity_host.py`.** Trial and non-trial cores per row when given a trial root, the
+  `HostGate`, and the `QuietHostPrecheck`.
+- **`capacity_sustained_results.py`.**
+  - `RollingPercentiles`, with nearest-rank and a 1,000-sample minimum per window.
+  - Per-source and per-account latency classes.
+  - Checkpoint counts by status and reason, read from a new `checkpoint_reason` field in
+    the opt-in paper probe row.
+  - Reconciliations, recordings and replay parity.
+  - The sustained fixture proof on exact integer slot clocks.
+- **`capacity_sustained_cohort.py`.**
+  - `SustainedDeclaration`, `SustainedGates` and the sequence.
+  - The sequence: freeze, build and install, quiet-host precheck, one-hour grants, then
+    phase A (1,800 s interval, 1,860 s supervisor, 1,920 s owners, and an injected death
+    of `bitfinex-isolated`), then phase B (four-owner recovery, then 600/660/720 s),
+    each followed by a cleanup audit, then the whole-attempt host gate.
+  - Window budgets are the unchanged provisional targets. Selected book to checkpoint is
+    reported, not graded, because percentiles are deferred to 2b.
+  - The host defaults are a 2-core ceiling over 60 s, and a 5-minute idle check at 1
+    core. S6 declares them.
+- **Stage-1 collector.** It skips its 3,250-slot fixture proof for sustained runs.
+
+The full lane ran 2,377 passed, 2 skipped and 2 failed. The two failures were stage-1
+recovery tests that build a trial without its initializer. After the new driver fields
+gained class-level stage-1 defaults, that file passed (17 tests). Strict mypy is clean.
+
+**Not provable without an uncounted rehearsal:**
+- every reader, sampler and feature process over 30 minutes;
+- reconciliation through live owner sockets, and any checkpoints rejected around it;
+- the four-owner recovery after an owner death (stage 1 recovered only after orderly
+  shutdowns);
+- the realistic host-gate thresholds on this host.
+
+The S6 declaration must fix all of these before any counted attempt.
+
+#### Stage 2a declaration (approved 2026-10-03)
+
+The owner approved the following on 2026-10-03. It is uncounted until a rehearsal has
+run and the owner separately approves a counted attempt. A counted attempt runs once and
+stops at its first failure.
+
+**Candidate.**
+- Freeze one clean commit and build, verify and install four signed `paper` owners from
+  `SustainedWorkload`. Each owner declares `service_life_seconds` 3,000 and
+  `target_clip` instances; the stage-1 risk, budget and fee settings are unchanged.
+- Issue ordinary one-hour grants: 80 orders and 100 units per instrument, unchanged.
+- No 26-hour grant is issued.
+
+**Host.**
+- The `quiet-host` step runs after the build and before the grants. It refuses to
+  start while any of these processes runs: Safari, Brave Browser, Google Chrome,
+  Firefox, Arc, Code, Cursor, Codex, ChatGPT, Xcode, Preview, Texifier, GitHub Desktop
+  and `com.docker.backend`.
+- iCloud Drive syncing cannot be paused on this host, so the owner waived that
+  criterion on 2026-10-03 (`--icloud-waived`). The precheck retains it as
+  `waived_by_owner`, never as paused. iCloud load still counts as non-trial load in the
+  idle check and the host gate.
+- `caffeinate -dimsu` is held for the cohort's life.
+- A 5-minute idle check must show non-trial load averaging at most 1 core.
+- From the grant to the end of phase B, non-trial load above 2 cores for longer than 60
+  continuous seconds fails the attempt, with the busiest non-trial processes as
+  attribution.
+
+**Phases.**
+
+| Phase | Interval / supervisor / owners | Shape |
+| --- | --- | --- |
+| A | 1,800 / 1,860 / 1,920 s | Sustained fixture with 30-minute segment chains, readers, samplers and feature processes throughout, and reconciliation every 60 s. It ends with an injected death of the `bitfinex-isolated` owner |
+| B | 600 / 660 / 720 s | Four-owner recovery after that death, then the same shape |
+
+Each phase is followed by the stage-1 cleanup audit.
+
+**Gates, each phase.**
+- **Run:** the trial passed.
+- **Inputs:** every recording completed with chained replay parity, and every
+  fixture slot was retained exactly and on time.
+- **Parity:** the complete native delivery parity held for every account.
+- **Latency:** every 300-second window met the unchanged targets. That covers receipt
+  to durable (per source), durable to BBO (per account), depth/BBO and dashboard
+  queries, feature retrieval and feature availability. A window has at least 1,000
+  samples.
+- **Reads:** no read failed or was missed.
+- **Checkpoints:**
+  - Every acknowledged checkpoint is `committed`, with reason `reserved` or
+    `target_matched`.
+  - At least 95% of the 3 s selections committed per account.
+  - At most 2 `reserved` per account in phase A, and none in phase B.
+- **Reconciliation:** all matched, at least one per minute.
+- **Orders:** post-shutdown child orders stay within the grant.
+- **Phase A:** at least 2 segments per source, and the injected owner death fenced
+  within 2 s.
+- **Phase B:** all eight instances progress within 40 s of the first claim.
+
+**Not graded.** Selected-book-to-checkpoint latency is reported per window. Its
+percentiles stay deferred to 2b.
+
+**Evidence and execution.** The rehearsal runs from a git worktree at the declared
+commit, with its own `--no-editable` environment. Evidence goes to
+`~/AlphaResearchEvidence.noindex/runtime-capacity/stage2a-rehearsal-<n>`, linked under
+`logs/runtime-capacity/`. Passing it is not 2a acceptance, MR15 acceptance or 24-hour
+operation.
+
+#### Stage 2a rehearsal 1 (uncounted, 2026-10-03)
+
+**Setup.**
+- Frozen at `120edde` (installed implementation `b9da3a8a…`).
+- Evidence is in `logs/runtime-capacity/stage2a-rehearsal-1/`, stored outside iCloud.
+
+**Steps.**
+- **Before phase A:** freeze, build and install, the quiet-host check and the grants all
+  passed.
+  - The idle check measured a mean of 0.21 non-trial cores over 300 s.
+  - No declared process was running.
+  - The iCloud criterion was recorded as `waived_by_owner`.
+- **Phase A:** failed six gates, so the attempt stopped there as declared.
+- **After phase A:** the cleanup audit passed.
+
+**What phase A qualified.**
+
+| Measure | Result |
+| --- | --- |
+| Capture | Every source rolled into 2 segments with chained replay parity. All 49,500 authored slots per source were retained exactly and on time |
+| Receipt to durable | p99 1.4–2.6 ms (maximum 63 ms) per source, in every 300-second window |
+| Durable to BBO | p99 11.9–15.9 ms (maximum 341 ms) per account; the worst window p99 was 17 ms |
+| Feature retrieval | p99 11.9 ms over 57,600 lookups |
+| Feature availability | Durable to available p99 171 ms |
+| Depth/BBO reads | Passed every window; the worst window p99 was 210 ms |
+| Selected book to checkpoint | p99 55 ms (2,380 samples, reported only) |
+| Commits | Every committed checkpoint was `target_matched`. The opening orders committed before the interval started. Orders stayed within the grant |
+| Injected owner death | Fenced in 0.72 s; every process ended inside its declared bound |
+| Host, assessed offline | Non-trial load averaged 0.34 cores. The longest continuous stretch above 2 cores was 3 s, so the gate would have passed |
+
+**Failures and causes.**
+1. **Reconciler response size.** The reconciler read each owner through a full
+   `inspect`. That response carries every paper trace, so it grew by about 55 KB a
+   minute. After 19 matched rounds per account, `bitfinex-isolated` crossed the owner
+   socket's 1 MiB response limit. Reconciliation stopped, and about 169 checkpoints per
+   account were then rejected as `stale_firm_account`. This failed `trial_passed`,
+   `accounts_reconciled_on_cadence` and `checkpoints_commit_without_rejection`.
+   **Fixed:** the reconciler now reads the `accounts` (about 3.5 KB) and `net_orders`
+   (about 2.4 KB) projections. Its test client refuses a full inspection.
+2. **Delivery parity for the killed owner.** The killed owner's delivery log stops at
+   its fence while capture continues, so it ends with an exactly matched prefix and an
+   unattributed tail. **Fixed in the gate:** only the injected account may end that way.
+   Any other account's tail, or any mismatch inside the prefix, still fails.
+3. **Dashboard result limit.** From second 282, all 30,360 dashboard reads were refused
+   with `monitoring query exceeds its explicit result limit`. The declared dashboard
+   workload queries a one-hour window capped at 10,000 returned events. At this run's
+   monitoring rate, that window holds more than 10,000 events within five minutes,
+   which a 75-second stage-1 run never reached. This is a query-contract decision for
+   the owner. It is not changed here.
+
+**Owner decision after rehearsal 1 (2026-10-03): telemetry cadence.**
+- **The problem.** Each account retains 36 diagnostic metrics. At one sample a second,
+  a one-hour dashboard window holds about 130,000 events, against its unchanged
+  10,000-event cap.
+- **The change.** `PaperServiceConfiguration` gains an optional `telemetry_seconds`
+  (1–300 s). It is omitted when unset, so the stage-1 selection is byte-identical and
+  keeps submitting diagnostics on every pass.
+- **2a.** `SustainedWorkload` declares 15 s, which is about 8,640 events per account per
+  hour.
+- **Unchanged.** Protection reads stay every second, and the dashboard's one-hour window,
+  result cap and latency budget do not change.
+
+The full lane passed: 2,382 passed and 2 skipped. Strict mypy is clean.
+
+#### Stage 2a rehearsal 2 (uncounted, 2026-10-03)
+
+**Setup.**
+- Frozen at `650db70` (installed implementation `c870cee1…`), with the projection
+  reconciler, the fenced-owner parity gate and the 15 s telemetry cadence.
+- Evidence is in `logs/runtime-capacity/stage2a-rehearsal-2/`.
+
+**Steps.**
+- **Before phase A:** freeze, build and install, the quiet-host check and the grants all
+  passed.
+- **Phase A:** failed, so the attempt stopped there.
+- **After phase A:** the cleanup audit passed.
+
+**What the rehearsal 1 fixes delivered.**
+- **Dashboard:** all reads succeeded and passed every window.
+- **Reconciliation:** 92 rounds matched, each under 17 ms.
+- **Capture and latency:** everything else held as in rehearsal 1.
+
+**Cause of the failure.** At about 830 s, the `okx-isolated` owner refused a selected
+paper market with `paper market precedes current account knowledge` and faulted the
+account. The reconciler had stamped its observation with the wall clock. A
+reconciliation advances the account's knowledge clock, so a market that was already in
+flight, available before that instant, was refused.
+
+**Knock-on failures.**
+- The supervisor stopped that account's workers, so the driver's liveness probe raised
+  `ProcessLookupError`.
+- The trial then ended before the injected owner death and the post-shutdown facts.
+- That account's deliveries, BBO windows and checkpoints stopped, and one source's
+  feature availability fell below the 1,000-sample window minimum.
+
+Rehearsal 1 ran 19 rounds without hitting the race.
+
+**Fixed.** The reconciler stamps each observation with the account's last applied
+market instant, read from the supervisor's status. Markets reach an account in order, so
+that instant is never later than any market still to arrive. A round with no applied
+market yet is skipped and retained. The full lane passed: 2,384 passed and 2 skipped.
+
+#### Stage 2a rehearsal 3 (uncounted, 2026-10-03)
+
+**Setup.**
+- Frozen at `b3be496` (installed implementation `c870cee1…`).
+- Evidence is in `logs/runtime-capacity/stage2a-rehearsal-3/`.
+
+**Steps.**
+- **Before phase A:** freeze, build and install, the quiet-host check and the grants all
+  passed.
+- **Phase A:** passed every gate, and its cleanup audit passed.
+- **Phase B:** failed before its measured interval.
+- **After phase B:** the cleanup audit passed.
+- Under the owner's instruction, the counted attempt was not started.
+
+**Phase A, which passed every gate.**
+
+| Measure | Result |
+| --- | --- |
+| Checkpoints | 595 per account, all `target_matched`, with no rejections and no order after the opening |
+| Reconciliation | All 116 rounds matched |
+| Capture | Every source rolled into 2 segments with exact replay, and all 49,500 slots per source were retained |
+| Owner death | The injected death of `bitfinex-isolated` was fenced in 0.45 s |
+
+Worst-window p99 values:
+
+| Class | Worst-window p99 |
+| --- | --- |
+| Receipt to durable | 2.9 ms |
+| Durable to BBO | 18.9 ms |
+| Depth/BBO reads | 19.1 ms |
+| Dashboard reads | 59.4 ms |
+| Feature retrieval | 11.3 ms |
+| Feature availability | 181 ms |
+
+**Phase B recovery.** The first four-owner recovery after an owner death succeeded.
+All four owners were stopped, settled, reconciled and claimed. All eight instances
+progressed 10.0 s after the first claim, inside the 40 s budget, with 25.1 s of operator
+time in total.
+
+**Phase B failure.** Phase B then stopped at reader startup: `dashboard reader okx-shared
+did not become ready`. The readers' fixed 5 s startup found no telemetry database. Two
+things combined:
+- The accounts now held positions, so the supervisor's first diagnostic sample ran
+  before any mark existed and failed for every account (`paper report requires complete
+  current position marks`).
+- With the declared 15 s cadence, the next sample came after the readers' deadline. At
+  the stage-1 cadence of 1 s, it would have come a second later.
+
+**Fixed.** Under a declared cadence, the supervisor still samples every pass until every
+account's latest report has been retained, and again after any report fails. Only then
+does it follow the cadence. Undeclared configurations keep sampling every pass,
+unchanged. The full lane passed: 2,385 passed and 2 skipped.
+
+#### Stage 2a rehearsals 4–5 and counted attempt (2026-10-03)
+
+**Rehearsal 4.** It was aborted by the operator during the candidate build. The
+background task chaining it to the counted attempt would have exceeded its 2-hour
+limit. No trial ran, and the evidence is kept as `stage2a-rehearsal-4-aborted`.
+
+**Rehearsal 5 (uncounted).**
+- Frozen at `8306063` (installed implementation `17395eb9…`). It passed every step.
+- Phase A worst-window p99 values:
+
+  | Class | Worst-window p99 |
+  | --- | --- |
+  | Receipt to durable | 2.3 ms |
+  | Durable to BBO | 18.4 ms |
+  | Depth/BBO reads | 21.5 ms |
+  | Dashboard reads | 58.3 ms |
+  | Feature retrieval | 12.5 ms |
+  | Feature availability | 190 ms |
+
+- The owner death was fenced in 1.07 s.
+- After the recovery, all instances progressed in 9.65 s, and phase B passed.
+- The host gate's longest excess was 9 s.
+
+**Counted attempt (`stage2a-counted`): passed.**
+- **How it ran.** The owner approved, on 2026-10-03, starting the counted attempt
+  immediately after a fully passing rehearsal. It ran once, from 14:33 to 15:31 UTC,
+  on the same frozen commit and consumers as rehearsal 5. Evidence is in
+  `logs/runtime-capacity/stage2a-counted/`, stored outside iCloud.
+- **Steps.** Every step passed: freeze, candidate, quiet host, grant, phase A, both
+  cleanup audits, phase B and the host gate.
+
+| Measure | Phase A (1,800 s) | Phase B (600 s, after recovery) |
+| --- | --- | --- |
+| Capture | 2 segments per source with chained replay parity; every authored slot retained exactly and on time | 1 segment per source; same proof |
+| Receipt to durable, worst-window p99 | 2.4 ms | 1.2 ms |
+| Durable to BBO, worst-window p99 | 17.6 ms | 14.1 ms |
+| Depth/BBO and dashboard reads, worst-window p99 | 21.7 / 60.4 ms | 19.6 / 28.1 ms |
+| Feature retrieval and availability, worst-window p99 | 12.0 / 161 ms | 11.4 / 124 ms |
+| Selected book to checkpoint (reported only) | 50.4 ms | 48.2 ms |
+| Checkpoints per account | 595, all `target_matched`, no rejection | 198, all `target_matched` |
+| Reconciliation | 29 per account, all matched | 10 per account, all matched |
+| Fault and recovery | Injected death of the `bitfinex-isolated` owner, fenced in 0.16 s | Four-owner recovery: all eight instances progressed 11.06 s after the first claim (25.1 s of operator time) |
+
+- **Host.** The idle check measured a mean of 0.21 non-trial cores. The iCloud criterion
+  was waived by the owner. Across the attempt, the longest continuous stretch of
+  non-trial load above 2 cores was 10 s, against the 60 s window.
+
+**What this qualifies.** Stage 2a, for its declared envelope:
+- about 50 minutes of service life under ordinary one-hour grants;
+- rollover in signed paper capture;
+- an order-light commit mix that held positions inside the unchanged state-age budget
+  through reconciliation;
+- one injected owner death followed by four-owner recovery;
+- every stage-1 latency target in every 300-second window.
+
+**Still open.** It is not MR15 acceptance, not stage 2, and not 24-hour operation.
+- 2b, the 24-hour trial, has not started. It needs 26-hour grants, which must first be
+  shown to deny use after expiry and after revocation.
+- Checkpoint percentiles stay deferred to 2b, because 2a reaches fewer than 1,000
+  checkpoints per account.
+- The account service's in-process startup owner check still reads full history.
+- The reconciler's projections and its accepted-market clock are harness behaviour that
+  2b must keep.

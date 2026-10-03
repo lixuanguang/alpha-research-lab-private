@@ -8,8 +8,11 @@ import re
 from pathlib import Path
 from typing import Literal
 
+# third party library imports
+import msgspec
+
 # project library imports
-from configuration.accounts import AccountConfiguration
+from configuration.accounts import SERVICE_LIFE_MAXIMUM_SECONDS, AccountConfiguration
 from configuration.capture import CaptureConfig
 from configuration.paper import PaperExecutionScenario
 from configuration.paper_activation import PaperDeployment
@@ -40,14 +43,38 @@ class PaperServiceAccount(WireRecord, frozen=True):
             raise ValueError("paper service requires one account and an absolute local socket")
 
 
+class PaperSourceChain(WireRecord, frozen=True):
+    """Bound one source's whole segment-chain recording; the capture bounds each segment."""
+
+    max_messages: int
+    max_bytes: int
+    max_segments: int
+
+    def __post_init__(self) -> None:
+        """Keep the whole run inside the collector's finite run-window ceilings."""
+        for value, minimum, maximum in (
+            (self.max_messages, 1, 100_000_000),
+            (self.max_bytes, 8192, 160 * 1024**3),
+            (self.max_segments, 1, 512),
+        ):
+            if type(value) is not int or not minimum <= value <= maximum:
+                raise ValueError("invalid finite paper source chain limit")
+
+
 class PaperServiceSource(WireRecord, frozen=True):
-    """Bind a native feed, paper matching assumptions and admission cadence."""
+    """Bind a native feed, paper matching assumptions and admission cadence.
+
+    With ``chain`` the source records one rolled-over segment chain per recording;
+    without it, one finite journal, exactly as before.
+    """
 
     name: str
     capture: CaptureConfig
     scenario: PaperExecutionScenario
     freshness_us: int
     market_interval_us: int = 3_000_000
+    # Omitted from the encoding when unset, so earlier selections keep their bytes.
+    chain: PaperSourceChain | msgspec.UnsetType = msgspec.UNSET
 
     def __post_init__(self) -> None:
         """Reject ambiguous venue, instrument, currency and source freshness routing."""
@@ -71,6 +98,16 @@ class PaperServiceSource(WireRecord, frozen=True):
             <= min(self.freshness_us, self.capture.idle_seconds * 1_000_000)
         ):
             raise ValueError("paper source route or freshness is incompatible")
+        if self.chain is not msgspec.UNSET:
+            if type(self.chain) is not PaperSourceChain:
+                raise TypeError("paper source chain requires typed run limits")
+            self.chain.__post_init__()
+            if (
+                self.capture.venue not in ("okx", "bitfinex")
+                or self.capture.retries > 32
+                or self.chain.max_bytes < self.capture.max_frame_bytes * 2 + 8192
+            ):
+                raise ValueError("paper source chain is incompatible with its capture")
 
 
 class PaperServiceInstance(WireRecord, frozen=True):
@@ -79,7 +116,7 @@ class PaperServiceInstance(WireRecord, frozen=True):
     instance_id: str
     account_id: str
     source: str
-    policy: Literal["fixed_clip", "liquidity_clip"]
+    policy: Literal["fixed_clip", "liquidity_clip", "target_clip"]
     quantity: Quantity
     lot: Quantity
     maximum_fee: Money
@@ -100,7 +137,7 @@ class PaperServiceInstance(WireRecord, frozen=True):
                 not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", name)
                 for name in (self.instance_id, self.account_id, self.source)
             )
-            or self.policy not in ("fixed_clip", "liquidity_clip")
+            or self.policy not in ("fixed_clip", "liquidity_clip", "target_clip")
             or self.quantity.dimension != self.lot.dimension
             or self.quantity.value <= 0
             or self.lot.value <= 0
@@ -128,6 +165,14 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
     worker_timeout_seconds: int = 2
     alert_socket: str | None = None
     schema_version: Literal["paper-services"] = "paper-services"
+    # Diagnostic telemetry cadence; protection reads stay every poll. Omitted when
+    # unset, so earlier selections keep their bytes and their one-second cadence.
+    telemetry_seconds: int | msgspec.UnsetType = msgspec.UNSET
+
+    @property
+    def telemetry_interval(self) -> int:
+        """Return the declared diagnostic telemetry cadence, one second when undeclared."""
+        return 1 if self.telemetry_seconds is msgspec.UNSET else self.telemetry_seconds
 
     def __post_init__(self) -> None:
         """Validate all definitions, budgets and scheduling bounds before spawning work."""
@@ -140,9 +185,16 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
             or type(self.revision) is not int
             or self.revision < 1
             or type(self.duration_seconds) is not int
-            or not 1 <= self.duration_seconds <= 120
+            or not 1 <= self.duration_seconds <= SERVICE_LIFE_MAXIMUM_SECONDS
             or self.poll_seconds != 1
             or self.worker_timeout_seconds != 2
+            or (
+                self.telemetry_seconds is not msgspec.UNSET
+                and (
+                    type(self.telemetry_seconds) is not int
+                    or not 1 <= self.telemetry_seconds <= 300
+                )
+            )
         ):
             raise ValueError("invalid bounded paper service selection")
         if self.previous_sha256 is not None:
@@ -157,6 +209,9 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
             if type(account_definition) is not PaperServiceAccount:
                 raise TypeError("paper selection requires typed account services")
             account_definition.__post_init__()
+            # The supervisor never outlives the signed life of an account owner it uses.
+            if self.duration_seconds > account_definition.configuration.service_life_limit:
+                raise ValueError("paper supervisor outlives an account service life")
         for source_definition in self.sources:
             if type(source_definition) is not PaperServiceSource:
                 raise TypeError("paper selection requires typed source services")

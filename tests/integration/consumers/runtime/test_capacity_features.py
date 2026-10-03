@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 # standard library imports
+import multiprocessing
+import os
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from multiprocessing.connection import Connection
 from pathlib import Path
 from types import TracebackType
 from typing import cast
 from uuid import uuid4
 
 # third party library imports
+import msgspec
 import pytest
+from capacity_deliveries import _IndexedSharedDelivery
 from capacity_feature_results import FeatureCohortResults, _Interval, _Publication
-from capacity_features import CapacityFeatureObserver
+from capacity_features import CapacityFeatureObserver, _FeatureSource, _PublicationLock
 from capacity_inputs import CapacityNativeFixture, CapacityWorkload
 from capacity_reads import _RetainedBookIndex, _SourceIndex
 from msgspec.structs import replace
@@ -24,6 +29,7 @@ from market_data.adapters.sources import BookAdapters
 from market_data.books import BookProjection, CaptureReplay
 from market_data.contracts import CaptureRecord, CaptureRequest
 from market_data.storage import CaptureJournal
+from research.features import FeatureStoreDefinition, VersionedFeatureStore
 from runtime import LiveBookDelivery, SharedBookDelivery
 from serialization import DomainCodec
 
@@ -49,6 +55,41 @@ class _SignalledLock:
     ) -> None:
         """Release the same mutex used by the actual reader."""
         self.lock.release()
+
+
+class _SignalledPublicationLock(_PublicationLock):
+    """Signal before blocking on the cross-process publication lock."""
+
+    def __init__(self, path: Path) -> None:
+        """Bind the real lock file."""
+        super().__init__(path)
+        self.waiting = threading.Event()
+
+    def __enter__(self) -> None:
+        """Signal, then wait for the publisher in the other process."""
+        self.waiting.set()
+        super().__enter__()
+
+
+def _publish_while_holding(
+    lock_path: str,
+    store_path: str,
+    definition: FeatureStoreDefinition,
+    entity: str,
+    control: Connection[object, object],
+) -> None:
+    """Hold a source's lock in another process, activate a version on request, release."""
+    store = VersionedFeatureStore.open(Path(store_path))
+    with _PublicationLock(Path(lock_path)):
+        control.send("held")
+        if control.recv() != "publish":
+            return
+        published_at = datetime.now(UTC)
+        previous = store.active_version(definition)
+        store.materialize(definition, "cross-process", published_at, (entity,))
+        store.activate_if_current(definition, "cross-process", expected_version=previous)
+    control.send(published_at)
+    control.close()
 
 
 class TestCapacityFeatures:
@@ -300,9 +341,71 @@ class TestCapacityFeatures:
             assert feature.expires_at - feature.available_at == timedelta(seconds=5)
             assert online.feature is not None
             assert online.feature.source_sha256 == source.source.request.identity
-            assert online.feature.source_version == source.source.request.recording_id
+            assert online.feature.source_version == source.source.request.recording_key
         assert all(row["phase"] == "initialization" for row in rows)
         assert all(row["durable_to_available_ns"] is not None for row in rows)
+
+    def test_index_fed_causal_source_matches_retained_redecoding(self, tmp_path: Path) -> None:
+        """Deliveries handed over by the index poll give the same lookups as re-decoding."""
+        observer = self._observer(tmp_path)
+        streamed = _RetainedBookIndex(
+            observer.config,
+            tuple(
+                _SourceIndex(
+                    name, source.request, source.capture_root, source.delivery_path, 10_000
+                )
+                for name, source in observer.index.sources.items()
+            ),
+        )
+        freshness = {source.name: source.freshness_us for source in observer.config.sources}
+        (tmp_path / "redecoded").mkdir()
+        (tmp_path / "fed").mkdir()
+        fed = {
+            name: _FeatureSource(source, freshness[name], tmp_path / "fed")
+            for name, source in streamed.sources.items()
+        }
+        for name, feature_source in fed.items():
+            streamed.sources[name].delivered = feature_source.accept_delivery
+        assert streamed.poll() == 20
+        at = datetime.now(UTC)
+        for name, source in observer.index.sources.items():
+            redecoded = _FeatureSource(source, freshness[name], tmp_path / "redecoded")
+            assert fed[name].source_cursor == streamed.sources[name].deliveries == 5
+            assert fed[name].lookup(streamed, at) == redecoded.lookup(observer.index, at)
+            assert fed[name].source_cursor == redecoded.source_cursor == 5
+
+    def test_retained_deliveries_decode_once_to_the_public_bytes(self, tmp_path: Path) -> None:
+        """The validate-once schema keeps every retained envelope byte-identical."""
+        observer = self._observer(tmp_path)
+        codec = DomainCodec()
+        for source in observer.index.sources.values():
+            for _, encoded, _ in source.history:
+                fast = codec.decode_json(encoded, _IndexedSharedDelivery)
+                assert codec.encode_json(fast) == codec.encode_json(
+                    codec.decode_json(encoded, SharedBookDelivery)
+                )
+
+    @pytest.mark.parametrize("field", ("size", "order_count"))
+    def test_corrupted_retained_depth_is_still_refused(self, tmp_path: Path, field: str) -> None:
+        """Decoding still validates each native level once, so a bad level stops publication."""
+        observer = self._observer(tmp_path)
+        source = observer.index.sources["okx-btc-book"]
+
+        def bids(delivery: dict[str, object]) -> list[list[object]]:
+            """Reach the encoded book's bid levels."""
+            book = cast(dict[str, object], cast(dict[str, object], delivery["source"])["book"])
+            return cast(list[list[object]], book["bids"])
+
+        decoded = [
+            msgspec.json.decode(encoded, type=dict[str, object]) for _, encoded, _ in source.history
+        ]
+        position = next(index for index, delivery in enumerate(decoded) if bids(delivery))
+        quote, _, length = source.history[position]
+        level = cast(dict[str, object], bids(decoded[position])[0][1])
+        level[field] = "0" if field == "size" else 0
+        source.history[position] = (quote, msgspec.json.encode(decoded[position]), length)
+        with pytest.raises(ValueError, match="aggregate levels"):
+            observer.prepare()
 
     def test_future_source_and_stale_source_stay_missing(self, tmp_path: Path) -> None:
         """A future or source-aged quote cannot become a ready feature by projection."""
@@ -400,17 +503,75 @@ class TestCapacityFeatures:
             <= observer._integer(row, "service_ns")
         )
 
+    def test_cross_process_publication_holds_the_reader_cutoff(self, tmp_path: Path) -> None:
+        """A publisher in another process makes the reader wait and read its new version."""
+        observer = self._observer(tmp_path)
+        observer.prepare()
+        source = next(iter(observer.sources.values()))
+        instance = next(
+            item
+            for item in observer.config.instances
+            if item.source == source.source.name and item.instance_id in observer.config.active
+        )
+        lock_path = tmp_path / "features" / f"{source.source.name}.publication.lock"
+        context = multiprocessing.get_context("spawn")
+        parent, child = cast(
+            "tuple[Connection[object, object], Connection[object, object]]", context.Pipe()
+        )
+        publisher = context.Process(
+            target=_publish_while_holding,
+            args=(
+                str(lock_path),
+                str(tmp_path / "features" / f"{source.source.name}.sqlite3"),
+                source.definition,
+                source.entity,
+                child,
+            ),
+            daemon=True,
+        )
+        publisher.start()
+        assert parent.poll(30) and parent.recv() == "held"
+        gate = _SignalledPublicationLock(lock_path)
+        source.publication_lock = gate
+        reader = threading.Thread(
+            target=observer._read, args=(instance.instance_id, source.source.name), daemon=True
+        )
+        observer.started_ns = time.monotonic_ns()
+        observer.stop_ns = observer.started_ns + 250_000_000
+        reader.start()
+        assert gate.waiting.wait(2)
+        parent.send("publish")
+        assert parent.poll(30)
+        publication_at = cast(datetime, parent.recv())
+        publisher.join(5)
+        reader.join(5)
+        assert not reader.is_alive() and publisher.exitcode == 0
+        row = observer._rows("retrieval-samples.jsonl")[0]
+        assert row["status"] == "ok" and row["quality"] == "ready" and row["parity"] is True
+        assert row["version"] == "cross-process"
+        assert str(row["requested_at"]) < publication_at.isoformat().replace("+00:00", "Z")
+        assert str(row["at"]) >= publication_at.isoformat().replace("+00:00", "Z")
+        assert observer._integer(row, "publication_wait_ns") > 0
+
     def test_one_second_schedule_has_32_reads_and_one_version_per_source(
         self, tmp_path: Path
     ) -> None:
         """Keep scalar counts separate and do not invent tail percentiles for a small sample."""
         observer = self._observer(tmp_path)
         observer.prepare()
-        began = time.monotonic()
+        pids = observer.launch()
+        assert set(pids) == {
+            "materializer",
+            *(item.account_id for item in observer.config.accounts),
+        }
+        assert os.getpid() not in pids.values()
+        began = time.monotonic() + 0.5
         observer.start(began, began + 1)
         threading.Event().wait(max(0.0, began + 1 - time.monotonic()))
         summary = observer.finish(began + 3)
-        assert summary["status"] == "pass_observed_schedule"
+        assert summary["status"] == "pass_observed_schedule", summary["failures"]
+        assert summary["process_pids"] == pids
+        assert all(not process.is_alive() for process, _ in observer.children.values())
         assert summary["observed_retrievals"] == summary["ready_retrievals"] == 32
         assert summary["matched_cutoff_parity"] is True
         timings = cast(dict[str, object], summary["service_latency"])

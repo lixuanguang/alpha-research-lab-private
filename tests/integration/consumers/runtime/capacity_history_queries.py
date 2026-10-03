@@ -3,6 +3,10 @@
 The read-only native history retains its original clocks and identities. A
 separately identified authored telemetry fixture can populate a complete hour
 to the 10,000-event query boundary without changing original evidence.
+
+The filesystem-cold class runs in rounds: every file a reader can touch is evicted
+from the page cache and proved non-resident before four depth/BBO and four dashboard
+requests are released together on fresh components.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from typing import Literal, cast
 
 # third party library imports
 import msgspec
+from capacity_page_cache import PageCache
 from capacity_reads import (
     CapacityReadObserver,
     _DashboardReader,
@@ -37,6 +42,9 @@ from configuration import PaperServiceConfiguration
 from serialization import DomainCodec
 from telemetry import MonitoringQuery, TelemetryStore
 
+CacheClass = Literal["application_cold", "warm", "filesystem_cold"]
+_EVICTION_ATTEMPTS = 3
+
 
 class _Arguments(argparse.Namespace):
     """Select one frozen trial, one fresh output and a predeclared query sample count."""
@@ -45,6 +53,7 @@ class _Arguments(argparse.Namespace):
     output: Path
     samples_per_reader: int
     dashboard_events_per_account: int
+    cache_classes: str
 
 
 class _Interval(msgspec.Struct, frozen=True):
@@ -63,6 +72,7 @@ class CapacityHistoryQueries:
         *,
         samples_per_reader: int,
         dashboard_events_per_account: int,
+        cache_classes: tuple[CacheClass, ...] = ("application_cold", "warm"),
     ) -> None:
         """Declare counts before reading history and keep generated fixtures outside Git."""
         if not trial.is_absolute() or not output.is_absolute() or output.exists():
@@ -71,6 +81,9 @@ class CapacityHistoryQueries:
             raise ValueError("history query sample count must be between 1 and 1000 per reader")
         if not 0 <= dashboard_events_per_account <= 10_000:
             raise ValueError("authored dashboard fixture exceeds the retained query boundary")
+        if not cache_classes or len(set(cache_classes)) != len(cache_classes):
+            raise ValueError("history queries require distinct declared cache classes")
+        self.cache_classes = cache_classes
         self.trial, self.output = trial, output
         self.samples_per_reader = samples_per_reader
         self.dashboard_events_per_account = dashboard_events_per_account
@@ -210,9 +223,14 @@ class CapacityHistoryQueries:
             "cold_budget_p99_ns": {"depth_bbo": 2_000_000_000, "dashboard": 3_000_000_000},
             "warm_budget_ms": {"depth_bbo": (50, 200, 500), "dashboard": (100, 400, 1000)},
             "query_at": self.query_at,
+            "cache_classes": self.cache_classes,
             "application_cold_boundary": "fresh_components_durable_index_open_query_render",
             "process_initialization": "excluded_imports_and_interpreter_are_already_loaded",
             "filesystem_cache": "uncontrolled_reads_after_frozen_history_preparation",
+            "filesystem_cold_protocol": (
+                "per_round_msync_invalidate_of_every_reader_file_then_mincore_zero_resident"
+                "_then_four_depth_and_four_dashboard_requests_released_together"
+            ),
             "native_history_basis": "complete_actual_retained_bounded_trial",
             "longer_native_history": (
                 "remaining_dependency_representative_sustained_retained_history"
@@ -231,7 +249,7 @@ class CapacityHistoryQueries:
                 {
                     "source": name,
                     "request_identity": source.request.identity,
-                    "recording_id": source.request.recording_id,
+                    "recording_id": source.request.recording_key,
                     "delivery_path": str(source.delivery_path),
                     "delivery_sha256": hashlib.sha256(
                         source.delivery_path.read_bytes()
@@ -285,48 +303,67 @@ class CapacityHistoryQueries:
             remaining = due - time.monotonic_ns()
             if remaining > 0:
                 time.sleep(remaining / 1_000_000_000)
-            began = time.monotonic_ns()
-            try:
-                if cache_class == "application_cold":
-                    binding = (
-                        self._depth_reader(self.sources[target])
-                        if boundary == "depth_bbo"
-                        else self._dashboard_reader(target)
-                    )
-                opened = time.monotonic_ns()
-                if isinstance(binding, _RetainedBookIndex):
-                    result = binding.read(target, cutoff_ns=binding._unix_ns(self.query_at))
-                elif isinstance(binding, _DashboardReader):
-                    result = binding.read(self.query_at)
-                else:
-                    raise ValueError("query worker has no application binding")
-                if self._identity(result) != self.expected[target]:
-                    raise ValueError("query cache class changed matched-cutoff result identity")
-                status = "ok"
-            except (OSError, ValueError, TypeError, RuntimeError, sqlite3.Error) as error:
-                opened = time.monotonic_ns()
-                result = {"failure": f"{type(error).__name__}: {error}"}
-                status = "failed"
-            finished = time.monotonic_ns()
-            row = {
-                "boundary": boundary,
-                "cache_class": cache_class,
-                "filesystem_cache": "uncontrolled",
-                "target": target,
-                "slot": slot,
-                "status": status,
-                "scheduled_monotonic_ns": due,
-                "started_monotonic_ns": began,
-                "completed_monotonic_ns": finished,
-                "component_open_ns": opened - began,
-                "service_ns": finished - began,
-                "queue_delay_ns": max(0, began - due),
-                "response_ns": finished - due,
-                "query_at": self.query_at,
-                "result": result,
-            }
-            with self.write_lock, (self.output / "samples.jsonl").open("ab") as stream:
-                stream.write(self.codec.encode_json(row) + b"\n")
+            self._write(self._request(boundary, cache_class, target, slot, due, binding))
+
+    def _write(self, row: dict[str, object]) -> None:
+        """Append one retained sample row under the shared writer lock."""
+        with self.write_lock, (self.output / "samples.jsonl").open("ab") as stream:
+            stream.write(self.codec.encode_json(row) + b"\n")
+
+    def _request(
+        self,
+        boundary: Literal["depth_bbo", "dashboard"],
+        cache_class: CacheClass,
+        target: str,
+        slot: int,
+        due: int,
+        binding: _RetainedBookIndex | _DashboardReader | None,
+    ) -> dict[str, object]:
+        """Run one request, on fresh components unless warm, and retain its exact timing."""
+        began = time.monotonic_ns()
+        try:
+            if cache_class != "warm":
+                binding = (
+                    self._depth_reader(self.sources[target])
+                    if boundary == "depth_bbo"
+                    else self._dashboard_reader(target)
+                )
+            opened = time.monotonic_ns()
+            if isinstance(binding, _RetainedBookIndex):
+                result = binding.read(target, cutoff_ns=binding._unix_ns(self.query_at))
+            elif isinstance(binding, _DashboardReader):
+                result = binding.read(self.query_at)
+            else:
+                raise ValueError("query worker has no application binding")
+            if self._identity(result) != self.expected[target]:
+                raise ValueError("query cache class changed matched-cutoff result identity")
+            status = "ok"
+        except (OSError, ValueError, TypeError, RuntimeError, sqlite3.Error) as error:
+            opened = time.monotonic_ns()
+            result = {"failure": f"{type(error).__name__}: {error}"}
+            status = "failed"
+        finished = time.monotonic_ns()
+        return {
+            "boundary": boundary,
+            "cache_class": cache_class,
+            "filesystem_cache": (
+                "evicted_and_verified_nonresident"
+                if cache_class == "filesystem_cold"
+                else "uncontrolled"
+            ),
+            "target": target,
+            "slot": slot,
+            "status": status,
+            "scheduled_monotonic_ns": due,
+            "started_monotonic_ns": began,
+            "completed_monotonic_ns": finished,
+            "component_open_ns": opened - began,
+            "service_ns": finished - began,
+            "queue_delay_ns": max(0, began - due),
+            "response_ns": finished - due,
+            "query_at": self.query_at,
+            "result": result,
+        }
 
     @staticmethod
     def _dashboard_process(
@@ -362,6 +399,180 @@ class CapacityHistoryQueries:
             child._worker("dashboard", cache_class, account_id, schedule, binding)
         finally:
             control.close()
+
+    @staticmethod
+    def _dashboard_round_process(
+        trial: Path,
+        output: Path,
+        dashboard_root: Path,
+        account_id: str,
+        expected: dict[str, str],
+        control: Connection[object, object],
+    ) -> None:
+        """Serve one fresh-component dashboard request per released filesystem-cold round."""
+        child = CapacityHistoryQueries(
+            trial,
+            output,
+            samples_per_reader=1,
+            dashboard_events_per_account=0,
+        )
+        child.output.mkdir(parents=True, exist_ok=False)
+        child.config = child.codec.decode_json(
+            (trial / "configuration.json").read_bytes(), PaperServiceConfiguration
+        )
+        child.dashboard_root, child.expected = dashboard_root, expected
+        try:
+            control.send("ready")
+            while (release := control.recv()) is not None:
+                if not isinstance(release, tuple) or len(release) != 2:
+                    raise ValueError("filesystem-cold round has no slot and release clock")
+                slot, due = cast(tuple[int, int], release)
+                control.send(
+                    child._request("dashboard", "filesystem_cold", account_id, slot, due, None)
+                )
+        finally:
+            control.close()
+
+    def _cold_files(self) -> dict[str, tuple[Path, ...]]:
+        """Name every non-empty file each reader group can open, grouped by its target."""
+        groups: dict[str, set[Path]] = {}
+        for name, source in self.sources.items():
+            groups[name] = {
+                path
+                for root in (source.capture_root, source.delivery_path.parent)
+                for path in root.rglob("*")
+                if path.is_file() and path.stat().st_size
+            }
+        groups["dashboard"] = {
+            path
+            for path in (self.dashboard_root / "monitoring").rglob("*")
+            if path.is_file() and path.stat().st_size
+        }
+        return {name: tuple(sorted(paths)) for name, paths in groups.items()}
+
+    @staticmethod
+    def _evict_verified(cache: PageCache, files: tuple[Path, ...]) -> tuple[int, dict[Path, int]]:
+        """Evict until no page stays resident, within the declared attempts; keep the residue."""
+        residual: dict[Path, int] = {}
+        for attempt in range(1, _EVICTION_ATTEMPTS + 1):
+            residual = {Path(path): pages for path, pages in cache.evict(files).items() if pages}
+            if not residual:
+                return attempt, residual
+        return _EVICTION_ATTEMPTS, residual
+
+    def _run_filesystem_cold(self) -> dict[str, object]:
+        """Run paced rounds that evict, prove non-residency, then release all eight readers."""
+        cache = PageCache()
+        groups = self._cold_files()
+        files = tuple(sorted({path for paths in groups.values() for path in paths}))
+        context = multiprocessing.get_context("spawn")
+        readers: list[tuple[multiprocessing.process.BaseProcess, Connection[object, object]]] = []
+        for account in self._configuration().accounts:
+            parent, child = cast(
+                "tuple[Connection[object, object], Connection[object, object]]", context.Pipe()
+            )
+            process = context.Process(
+                target=self._dashboard_round_process,
+                args=(
+                    self.trial,
+                    self.output / f"filesystem_cold-{account.account_id}",
+                    self.dashboard_root,
+                    account.account_id,
+                    self.expected,
+                    child,
+                ),
+                daemon=True,
+            )
+            process.start()
+            child.close()
+            readers.append((process, parent))
+        for _, control in readers:
+            if not control.poll(30) or control.recv() != "ready":
+                raise TimeoutError("filesystem-cold dashboard reader did not initialize")
+        accounts = tuple(account.account_id for account in self._configuration().accounts)
+        verified = 0
+        try:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                next_due = time.monotonic_ns() + 1_000_000_000
+                for slot in range(self.samples_per_reader):
+                    remaining = next_due - time.monotonic_ns()
+                    if remaining > 0:
+                        time.sleep(remaining / 1_000_000_000)
+                    began = time.monotonic_ns()
+                    attempt, residual = self._evict_verified(cache, files)
+                    due = time.monotonic_ns()
+                    if residual:
+                        for boundary, targets in (
+                            ("depth_bbo", tuple(self.sources)),
+                            ("dashboard", accounts),
+                        ):
+                            for target in targets:
+                                self._write(
+                                    {
+                                        "boundary": boundary,
+                                        "cache_class": "filesystem_cold",
+                                        "target": target,
+                                        "slot": slot,
+                                        "status": "failed",
+                                        "result": {"failure": "filesystem_cache_not_evicted"},
+                                    }
+                                )
+                    else:
+                        verified += 1
+                        for _, control in readers:
+                            control.send((slot, due))
+                        futures = [
+                            pool.submit(
+                                self._request,
+                                "depth_bbo",
+                                "filesystem_cold",
+                                target,
+                                slot,
+                                due,
+                                None,
+                            )
+                            for target in self.sources
+                        ]
+                        for future in futures:
+                            self._write(future.result())
+                        for _, control in readers:
+                            if not control.poll(3 + 30):
+                                raise TimeoutError(
+                                    "filesystem-cold dashboard reader did not answer"
+                                )
+                            self._write(cast(dict[str, object], control.recv()))
+                    round_row = {
+                        "slot": slot,
+                        "eviction_attempts": attempt,
+                        "eviction_ns": due - began,
+                        "resident_pages_before_release": sum(residual.values()),
+                        "still_resident_files": sorted(str(path) for path in residual),
+                        "resident_pages_after_round": {
+                            name: sum(cache.resident(path) for path in paths)
+                            for name, paths in groups.items()
+                        },
+                    }
+                    with (self.output / "rounds.jsonl").open("ab") as stream:
+                        stream.write(self.codec.encode_json(round_row) + b"\n")
+                    next_due = max(due + 200_000_000, time.monotonic_ns())
+        finally:
+            for reader, control in readers:
+                if reader.is_alive():
+                    control.send(None)
+                control.close()
+                reader.join(5)
+                if reader.is_alive():
+                    reader.terminate()
+                    reader.join(2)
+        return {
+            "status": "measured",
+            "protocol": "per_round_msync_invalidate_then_mincore_zero_resident",
+            "rounds": self.samples_per_reader,
+            "verified_rounds": verified,
+            "files": len(files),
+            "file_pages": sum(cache.pages(path) for path in files),
+            "page_bytes": cache.page,
+        }
 
     @staticmethod
     def _reader_deadline_ns(
@@ -401,9 +612,8 @@ class CapacityHistoryQueries:
     def run(self) -> dict[str, object]:
         """Run four readers per class, preserving bounded native-history and OS-cache limits."""
         prepared = self.prepare()
-        cache_classes: tuple[Literal["application_cold", "warm"], ...] = (
-            "application_cold",
-            "warm",
+        cache_classes = tuple(
+            cache_class for cache_class in self.cache_classes if cache_class != "filesystem_cold"
         )
         context = multiprocessing.get_context("spawn")
         for cache_class in cache_classes:
@@ -468,13 +678,44 @@ class CapacityHistoryQueries:
                     raise RuntimeError("history dashboard reader failed")
                 with (self.output / "samples.jsonl").open("ab") as stream:
                     stream.write((output / "samples.jsonl").read_bytes())
+        filesystem_cold: dict[str, object] = {
+            "status": "unmeasured",
+            "dependency": "declared_filesystem_cold_cache_class",
+        }
+        if "filesystem_cold" in self.cache_classes:
+            filesystem_cold = self._run_filesystem_cold()
         rows = tuple(
             msgspec.json.decode(line, type=dict[str, object])
             for line in (self.output / "samples.jsonl").read_bytes().splitlines()
         )
+        results = self._class_results(
+            rows,
+            {
+                "depth_bbo": tuple(self.sources),
+                "dashboard": tuple(
+                    account.account_id for account in self._configuration().accounts
+                ),
+            },
+        )
+        result: dict[str, object] = {
+            "schema_version": "retained-history-query-results",
+            "evidence_class": "independent_completed_history_query_path",
+            "trial": str(self.trial),
+            "prepared_history": prepared,
+            "results": results,
+            "matched_cutoff_parity": all(row["status"] == "ok" for row in rows),
+            "filesystem_cold": filesystem_cold,
+        }
+        (self.output / "summary.json").write_bytes(self.codec.encode_json(result))
+        return result
+
+    def _class_results(
+        self, rows: tuple[dict[str, object], ...], targets: dict[str, tuple[str, ...]]
+    ) -> tuple[dict[str, object], ...]:
+        """Summarize each boundary and declared cache class against its own budget."""
         results: list[dict[str, object]] = []
         for boundary in ("depth_bbo", "dashboard"):
-            for cache_class in ("application_cold", "warm"):
+            for cache_class in self.cache_classes:
                 selected = tuple(
                     row
                     for row in rows
@@ -483,9 +724,9 @@ class CapacityHistoryQueries:
                 successful = tuple(row for row in selected if row["status"] == "ok")
                 budget = (
                     (2_000_000_000,) * 3
-                    if boundary == "depth_bbo" and cache_class == "application_cold"
+                    if boundary == "depth_bbo" and cache_class != "warm"
                     else (3_000_000_000,) * 3
-                    if cache_class == "application_cold"
+                    if cache_class != "warm"
                     else (50_000_000, 200_000_000, 500_000_000)
                     if boundary == "depth_bbo"
                     else (100_000_000, 400_000_000, 1_000_000_000)
@@ -504,32 +745,11 @@ class CapacityHistoryQueries:
                         ),
                         "per_reader_samples": {
                             target: sum(row["target"] == target for row in successful)
-                            for target in (
-                                tuple(self.sources)
-                                if boundary == "depth_bbo"
-                                else tuple(
-                                    account.account_id for account in self._configuration().accounts
-                                )
-                            )
+                            for target in targets[boundary]
                         },
                     }
                 )
-        result: dict[str, object] = {
-            "schema_version": "retained-history-query-results",
-            "evidence_class": "independent_completed_history_query_path",
-            "trial": str(self.trial),
-            "prepared_history": prepared,
-            "results": tuple(results),
-            "matched_cutoff_parity": all(row["status"] == "ok" for row in rows),
-            "filesystem_cold": {
-                "status": "unmeasured",
-                "dependency": (
-                    "documented_host_cache_control_protocol_and_1000_observations_per_class"
-                ),
-            },
-        }
-        (self.output / "summary.json").write_bytes(self.codec.encode_json(result))
-        return result
+        return tuple(results)
 
     @staticmethod
     def _integer(row: dict[str, object], field: str) -> int:
@@ -547,12 +767,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--samples-per-reader", type=int, default=250)
     parser.add_argument("--dashboard-events-per-account", type=int, default=10_000)
+    parser.add_argument("--cache-classes", default="application_cold,warm")
     args = parser.parse_args(namespace=_Arguments())
+    cache_classes = tuple(args.cache_classes.split(","))
+    if not set(cache_classes) <= {"application_cold", "warm", "filesystem_cold"}:
+        raise SystemExit(f"unknown cache class in {args.cache_classes}")
     result = CapacityHistoryQueries(
         args.trial,
         args.output,
         samples_per_reader=args.samples_per_reader,
         dashboard_events_per_account=args.dashboard_events_per_account,
+        cache_classes=cast(tuple[CacheClass, ...], cache_classes),
     ).run()
     print(
         DomainCodec()

@@ -200,9 +200,11 @@ class SharedPaperCaptureObserver:
         self._last_effect_at: datetime | None = None
         self._codec = DomainCodec()
         self._retained_bytes = 0
-        self._maximum_bytes = request.config.max_bytes * 4
+        self._maximum_bytes = request.recording_max_bytes * 4
         self.decisions: list[PortfolioCommit] = []
         self.processing_ns: int | None = None
+        # Opt-in phase clocks for the delivery being measured; None when unmeasured.
+        self._phases: dict[str, int] | None = None
         self.delivered_count = 0
         self.retained_count = 0
         self._public_faulted = False
@@ -224,9 +226,16 @@ class SharedPaperCaptureObserver:
         """
         return _ProjectedRowObserver(self)
 
-    def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
-        """Consume native invariants checked by public observe or typed pipe decoding."""
+    def _observe_validated(
+        self, record: CaptureRecord, row: BookObservation, *, received_ns: int | None = None
+    ) -> None:
+        """Consume native invariants checked by public observe or typed pipe decoding.
+
+        ``received_ns`` is the supervisor's monotonic pipe receipt, retained only in
+        opt-in measurements.
+        """
         book_started_ns = time.monotonic_ns() if self.measurements is not None else 0
+        self._phases = {} if self.measurements is not None else None
         source = _ObservedLiveBookDelivery(record=record, book=row, available_at=self._now())
         market = self._market(source)
         bbo_observed_ns = time.monotonic_ns() if self.measurements is not None else 0
@@ -248,6 +257,8 @@ class SharedPaperCaptureObserver:
                 raise ValueError("retained delivery has no accepted book boundary")
             self.index.append(*latest, offset=offset, length=length)
         started_ns = time.monotonic_ns()
+        if self._phases is not None:
+            self._phases["retained_ns"] = started_ns
         prior_decisions = len(self.decisions)
         try:
             self._apply(delivery, market)
@@ -267,14 +278,19 @@ class SharedPaperCaptureObserver:
                         "policy_selected": bool(selected),
                         "checkpoint_acknowledged": acknowledged,
                         "checkpoint_status": self.decisions[-1].status if acknowledged else None,
+                        "checkpoint_reason": self.decisions[-1].reason if acknowledged else None,
                         "book_started_ns": book_started_ns,
                         "bbo_observed_ns": bbo_observed_ns,
                         "checkpoint_acknowledged_ns": finished_ns if acknowledged else None,
                         "book_to_checkpoint_ns": (
                             finished_ns - book_started_ns if acknowledged else None
                         ),
+                        "pipe_received_ns": received_ns,
+                        "phase_ns": self._phases,
+                        "finished_ns": finished_ns,
                     }
                 )
+            self._phases = None
 
     def deliver(self, delivery: SharedBookDelivery) -> None:
         """Replay one retained envelope into a fresh source and an existing account journal."""
@@ -366,8 +382,12 @@ class SharedPaperCaptureObserver:
                 raise ValueError("shared decision substituted native quote or input lineage")
         if not self.journal.paper_market_seen(self.account_id, market.identity):
             self.journal.observe(quote)
+        if self._phases is not None:
+            self._phases["observed_ns"] = time.monotonic_ns()
         if self.journal.config.mode == "paper":
             self.journal.match_public_market(self.account_id, market, self.scenario)
+        if self._phases is not None:
+            self._phases["matched_ns"] = time.monotonic_ns()
         self.last_market = market
         self._last_effect_at = market.at
         if delivery.inputs and delivery.coordinated_at is not None:
@@ -378,6 +398,8 @@ class SharedPaperCaptureObserver:
                     inputs=delivery.inputs,
                 )
             )
+            if self._phases is not None:
+                self._phases["evaluated_ns"] = time.monotonic_ns()
 
     def _source_invalidated(self, delivery: SharedBookDelivery) -> bool:
         """Separate loss after a priced book from harmless controls and finite completion."""

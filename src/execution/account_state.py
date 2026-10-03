@@ -683,6 +683,17 @@ class _HistoryTables:
         for row in cast(Iterator[tuple[object, ...]], cursor):
             yield self.codec.decode_json(self._blob(row[0]), AccountPaperTrace)
 
+    def iter_traces_after(
+        self, account_id: str, after_seq: int
+    ) -> Iterator[tuple[int, AccountPaperTrace]]:
+        """Yield one account's committed traces after a sequence, in commit order."""
+        cursor = self.connection.execute(
+            "SELECT seq, payload FROM paper_traces WHERE account_id=? AND seq>? ORDER BY seq ASC",
+            (account_id, after_seq),
+        )
+        for row in cast(Iterator[tuple[object, ...]], cursor):
+            yield cast(int, row[0]), self.codec.decode_json(self._blob(row[1]), AccountPaperTrace)
+
     def append(self, state: _FirmState) -> _HistorySummary:
         """Insert the state's staged history items and return the extended summary."""
         decisions = self._insert(
@@ -787,6 +798,12 @@ class _AccountSnapshot:
         """Retain one immutable state value and its committed history."""
         self.state = state
         self.tables = tables
+
+    def iter_committed_traces_after(
+        self, account_id: str, after_seq: int
+    ) -> Iterator[tuple[int, AccountPaperTrace]]:
+        """Yield one account's committed traces after a sequence; staged items are excluded."""
+        return self.tables.iter_traces_after(account_id, after_seq)
 
     def find_decision(self, instance_id: str, decision_identity: str) -> _SavedDecision | None:
         """Resolve one saved decision by instance and decision identity."""

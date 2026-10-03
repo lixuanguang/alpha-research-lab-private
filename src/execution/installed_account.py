@@ -7,7 +7,7 @@ import hashlib
 import os
 import socket
 import struct
-import subprocess  # nosec B404 [owner=execution; rationale=Bounded signed launcher uses explicit argv without a shell; expires=2027-03-01]
+import subprocess  # nosec B404  # [owner=execution; rationale=Bounded signed launcher uses explicit argv without a shell; expires=2027-03-01]
 from pathlib import Path
 from uuid import uuid4
 
@@ -88,7 +88,7 @@ class InstalledPaperAccount:
         except FileExistsError:
             if request_path.read_bytes() != payload:
                 raise ValueError("retained paper request changed") from None
-        result = subprocess.run(  # nosec B603 [owner=execution; rationale=Caller selects a trusted absolute launcher with fixed operation arguments; expires=2027-03-01]
+        result = subprocess.run(  # nosec B603  # [owner=execution; rationale=Caller selects a trusted absolute launcher with fixed operation arguments; expires=2027-03-01]
             [
                 str(self.launcher),
                 "run",

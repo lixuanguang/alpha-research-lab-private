@@ -552,7 +552,9 @@ class PaperServiceMonitor:
             if owner is None:
                 raise ValueError("monitoring requires an identified account owner")
             state = account.execute(
-                AccountExecutionRequest(action="inspect", account_id=owner.account_id)
+                AccountExecutionRequest(
+                    action="inspect", account_id=owner.account_id, projection="monitoring"
+                )
             )
             view = next(
                 item for item in state.accounts if item.ledger.account_id == owner.account_id

@@ -54,6 +54,7 @@ from configuration import (
     PaperServiceConfiguration,
     PaperServiceInstance,
     PaperServiceSource,
+    PaperSourceChain,
 )
 from configuration.accounts import InstrumentFeeRate
 from execution import (
@@ -75,10 +76,12 @@ from market_data.contracts import (
     BookObservation,
     CaptureRecord,
     CaptureRequest,
+    CaptureRunRequest,
     FeedSocket,
     Level,
     Order,
 )
+from market_data.storage import CaptureRecording
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
@@ -130,6 +133,20 @@ class _ReconnectingBookTransport(VenueTransport):
     async def open(self, timeout: float) -> FeedSocket:
         """Serve the same synchronized session on every connection."""
         return _ScriptedBookSocket((self._ack, self._snapshot))
+
+
+class _SpawnedBookTransport:
+    """Serve the reconnecting script from a spawned source child, which must pickle it."""
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Serve the same synchronized session on every connection."""
+        return _ScriptedBookSocket(
+            (_ReconnectingBookTransport._ack, _ReconnectingBookTransport._snapshot)
+        )
+
+    def snapshot(self) -> bytes:
+        """The OKX book feed carries its own snapshot."""
+        raise AssertionError("OKX capture does not fetch a REST snapshot")
 
 
 class _IndexedObserver(SharedPaperCaptureObserver):
@@ -364,7 +381,9 @@ class _UncertainObserver(SharedPaperCaptureObserver):
         self.calls = 0
         self.policy_failure = policy_failure
 
-    def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
+    def _observe_validated(
+        self, record: CaptureRecord, row: BookObservation, *, received_ns: int | None = None
+    ) -> None:
         """Fail after receipt without claiming whether the account committed."""
         self.calls += 1
         if self.policy_failure:
@@ -463,7 +482,9 @@ class _ObservationGate(SharedPaperCaptureObserver):
         self.measurements = None
         self.index = None
 
-    def _observe_validated(self, record: CaptureRecord, row: BookObservation) -> None:
+    def _observe_validated(
+        self, record: CaptureRecord, row: BookObservation, *, received_ns: int | None = None
+    ) -> None:
         """Require concurrent arrival where declared, then retain the completed native position."""
         self.events.append(f"observe:{self.name}:{row.position}")
         self.callback_threads.append(threading.get_ident())
@@ -1072,6 +1093,201 @@ class TestPaperServices:
             health_path.unlink(missing_ok=True)
             receiver.close()
             sender.close()
+
+    def test_source_start_retains_a_chain_under_its_run_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A chain is one key-named recording, and its accounting counts every segment."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        # One-message segments roll over at every frame; the run ends after four.
+        definition = replace(
+            config.sources[0],
+            capture=replace(config.sources[0].capture, max_messages=1),
+            chain=PaperSourceChain(max_messages=4, max_bytes=64 * 1024**2, max_segments=8),
+        )
+        assert definition.capture.retries >= 1
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
+        services.transports[definition.name] = _SpawnedBookTransport()
+        services.measurement_root = tmp_path / "measurements"
+        services._start_source(definition)
+        child = services.sources[definition.name]
+        assert isinstance(child.request, CaptureRunRequest)
+        assert child.request.config == definition.capture
+        assert child.request.window.max_reconnects == definition.capture.retries
+        key = child.request.run_id
+        deliveries: list[_ReceivedSourceDelivery] = []
+        try:
+            while True:
+                try:
+                    payload = child.receiver.recv_bytes()
+                except EOFError:
+                    break
+                deliveries.append(services.codec.decode_json(payload, _ReceivedSourceDelivery))
+            child.process.join(30)
+        finally:
+            if child.process.is_alive():
+                child.process.kill()
+                child.process.join()
+        assert child.process.exitcode == 0
+        child.pipe_drained, child.received_count = True, len(deliveries)
+
+        source_root = tmp_path / "runs" / services.run_id / definition.name
+        (recording,) = CaptureRecording.discover(source_root)
+        assert recording.root == source_root / key / key and recording.request == child.request
+        assert recording.completed and len(recording.cursor().segments) >= 3
+        records = tuple(recording.records())
+        assert tuple(item.record for item in deliveries) == records
+        assert [item.book.position for item in deliveries] == list(range(len(records)))
+        summary = msgspec.json.decode(
+            (source_root / key / "source-result.json").read_bytes(), type=dict[str, object]
+        )
+        assert summary["replay_parity"] is True
+        assert summary["segments"] == len(recording.cursor().segments)
+        measured = services.measurement_root / services.run_id / definition.name
+        assert (measured / f"{key}.capture.jsonl").is_file()
+
+        services._account_source_delivery(definition.name, child)
+        accounting = cast(dict[str, object], services.delivery_accounting[definition.name])
+        assert accounting["status"] == "complete" and accounting["error"] is None
+        assert accounting["capture_finalization"] == "completed"
+        assert accounting["durable_records"] == len(records)
+        assert accounting["cursor_sha256"] == recording.cursor().sha256
+        assert accounting["capture_segments"] == len(recording.cursor().segments)
+        child.receiver.close()
+
+    def test_an_undeclared_chain_keeps_one_finite_recording(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stage-1 sources encode as before and still capture one journal per recording."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        assert b'"chain"' not in DomainCodec().encode_json(config.sources[0])
+        services = _SupervisorHarness(
+            config, self._owner(), Path("/private/tmp"), self._socket_path()
+        )
+        request = services._capture_request(config.sources[0])
+        assert type(request) is CaptureRequest
+        assert (request.config, request.implementation_identity, request.segment) == (
+            config.sources[0].capture,
+            "b" * 64,
+            None,
+        )
+
+    def test_supervisor_life_is_bounded_by_each_account_service_life(self) -> None:
+        """Undeclared caps keep 120 s; a declared cap admits up to itself and no further."""
+        config = self._config(self._socket_path())
+        with pytest.raises(ValueError, match="outlives an account service life"):
+            replace(config, duration_seconds=121)
+        account = config.accounts[0]
+        declared = replace(
+            config,
+            accounts=(
+                replace(
+                    account,
+                    configuration=replace(account.configuration, service_life_seconds=3000),
+                ),
+            ),
+            duration_seconds=3000,
+        )
+        assert declared.duration_seconds == 3000
+        with pytest.raises(ValueError, match="outlives an account service life"):
+            replace(declared, duration_seconds=3001)
+
+    def test_diagnostic_telemetry_follows_its_declared_cadence(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Undeclared cadence submits every pass; a declared one waits its interval."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        assert b"telemetry_seconds" not in DomainCodec().encode_json(config)
+        assert config.telemetry_interval == 1
+        for invalid in (0, 301):
+            with pytest.raises(ValueError, match="bounded paper service selection"):
+                replace(config, telemetry_seconds=invalid)
+
+        class _Diagnostics:
+            """Count submitted diagnostic batches."""
+
+            def __init__(self) -> None:
+                """Start with none submitted."""
+                self.submitted = 0
+
+            def submit(self, markets: dict[str, tuple[PaperMarket, ...]]) -> None:
+                """Count one batch."""
+                self.submitted += 1
+
+            def poll(self) -> tuple[_DiagnosticReceipt, ...]:
+                """Return no completed receipts."""
+                return ()
+
+        counts: list[int] = []
+        for selected in (config, replace(config, telemetry_seconds=15)):
+            services = _SupervisorHarness(selected, self._owner(), tmp_path, self._socket_path())
+            services.accounts.clear()
+            diagnostics = _Diagnostics()
+            services.diagnostics = cast(PaperServiceDiagnostics, diagnostics)
+            for _ in range(3):
+                services._sample()
+            counts.append(diagnostics.submitted)
+        assert counts == [3, 1]
+
+    def test_declared_telemetry_retries_every_pass_until_a_report_is_retained(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed first report, such as a held position before its first mark, retries."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = replace(self._config(self._socket_path()), telemetry_seconds=15)
+        now = datetime.now(UTC)
+
+        class _Unreadable:
+            """Refuse protection reads; the supervisor retains that as a phase failure."""
+
+            def accounts(self) -> tuple[AccountView, ...]:
+                """Fail the synchronous phase read."""
+                raise ValueError("unreadable in this test")
+
+        class _Diagnostics:
+            """Count batches and return one scripted receipt status per batch."""
+
+            def __init__(self, statuses: list[Literal["retained", "failed"]]) -> None:
+                """Bind the receipts the child reports after each batch."""
+                self.statuses, self.submitted, self.pending = statuses, 0, False
+
+            def submit(self, markets: dict[str, tuple[PaperMarket, ...]]) -> None:
+                """Count one batch; its receipt is collected on the next pass."""
+                self.submitted += 1
+                self.pending = True
+
+            def poll(self) -> tuple[_DiagnosticReceipt, ...]:
+                """Return the scripted receipt for the last submitted batch."""
+                if not self.pending:
+                    return ()
+                self.pending = False
+                status = self.statuses[min(self.submitted, len(self.statuses)) - 1]
+                return (
+                    _DiagnosticReceipt(
+                        account_id="shared", requested_at=now, observed_at=now, status=status
+                    ),
+                )
+
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
+        services.accounts.clear()
+        services.accounts["shared"] = cast(SocketPaperAccount, _Unreadable())
+        diagnostics = _Diagnostics(["failed", "failed", "retained"])
+        services.diagnostics = cast(PaperServiceDiagnostics, diagnostics)
+        for _ in range(6):
+            services._sample()
+        # Two failed reports retry at once; the retained third starts the cadence.
+        assert diagnostics.submitted == 3
 
     def test_closing_a_source_releases_each_book_index_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
