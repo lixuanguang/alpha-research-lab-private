@@ -260,8 +260,14 @@ class QuietHostPrecheck:
             "idle_ceiling_cores": self.ceiling_cores,
         }
 
-    def run(self, output: Path, *, icloud_paused_attested: bool) -> dict[str, object]:
-        """Refuse interactive processes, sample idle load and retain the precheck."""
+    def run(
+        self, output: Path, *, icloud_paused_attested: bool, icloud_waived: bool = False
+    ) -> dict[str, object]:
+        """Refuse interactive processes, sample idle load and retain the precheck.
+
+        The iCloud criterion passes only on the operator's attestation, or is recorded
+        as waived by the owner; a waiver is never reported as a pause.
+        """
         interactive = self.running(self.denied)
         rows_path = output / "quiet-host.idle.jsonl"
         if not interactive:
@@ -273,9 +279,14 @@ class QuietHostPrecheck:
         result = {
             **self.assess(interactive, rows),
             "icloud_paused_attested": icloud_paused_attested,
+            "icloud_criterion": "attested_paused"
+            if icloud_paused_attested
+            else "waived_by_owner"
+            if icloud_waived
+            else "unmet",
             "denied_names": tuple(sorted(self.denied)),
         }
-        if not icloud_paused_attested:
+        if not icloud_paused_attested and not icloud_waived:
             result["status"] = "fail"
         (output / "quiet-host.json").write_bytes(msgspec.json.encode(result))
         return result

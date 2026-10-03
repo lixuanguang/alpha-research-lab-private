@@ -2847,7 +2847,10 @@ stops at its first failure.
   start while any of these processes runs: Safari, Brave Browser, Google Chrome,
   Firefox, Arc, Code, Cursor, Codex, ChatGPT, Xcode, Preview, Texifier, GitHub Desktop
   and `com.docker.backend`.
-- The operator attests that iCloud Drive syncing is paused (`--icloud-paused`).
+- iCloud Drive syncing cannot be paused on this host, so the owner waived that
+  criterion on 2026-10-03 (`--icloud-waived`). The precheck retains it as
+  `waived_by_owner`, never as paused. iCloud load still counts as non-trial load in the
+  idle check and the host gate.
 - `caffeinate -dimsu` is held for the cohort's life.
 - A 5-minute idle check must show non-trial load averaging at most 1 core.
 - From the grant to the end of phase B, non-trial load above 2 cores for longer than 60

@@ -112,6 +112,16 @@ class TestQuietHostPrecheck:
         # A truncated idle sample cannot stand in for the declared duration.
         assert check.assess((), _rows(0.1, 0.1))["status"] == "fail"
 
+    def test_icloud_waiver_is_retained_as_waived_not_paused(self, tmp_path: Path) -> None:
+        """Without an attestation the precheck fails unless the owner waived the criterion."""
+        check = QuietHostPrecheck(frozenset({"no-such-interactive-process"}), idle_seconds=2)
+        waived = check.run(tmp_path, icloud_paused_attested=False, icloud_waived=True)
+        assert waived["icloud_criterion"] == "waived_by_owner"
+        assert waived["icloud_paused_attested"] is False
+        (tmp_path / "quiet-host.idle.jsonl").unlink()
+        unmet = check.run(tmp_path, icloud_paused_attested=False)
+        assert unmet["status"] == "fail" and unmet["icloud_criterion"] == "unmet"
+
     def test_running_matches_exact_declared_names(self) -> None:
         """This interpreter is found by its exact name and nothing else is invented."""
         name = QuietHostPrecheck.running(frozenset({"no-such-interactive-process"}))

@@ -336,6 +336,7 @@ class SustainedCohort(Cohort):
         socket_base: Path,
         label: str,
         icloud_paused_attested: bool,
+        icloud_waived: bool = False,
         declaration: SustainedDeclaration | None = None,
     ) -> None:
         """Bind absolute inputs, the operator's iCloud attestation and the declaration."""
@@ -348,7 +349,7 @@ class SustainedCohort(Cohort):
             socket_base=socket_base,
             label=label,
         )
-        self.icloud_paused_attested = icloud_paused_attested
+        self.icloud_paused_attested, self.icloud_waived = icloud_paused_attested, icloud_waived
         self.declaration = SustainedDeclaration() if declaration is None else declaration
 
     def quiet_host(self) -> tuple[Gate, ...]:
@@ -358,7 +359,11 @@ class SustainedCohort(Cohort):
             declaration.interactive,
             idle_seconds=declaration.idle_seconds,
             ceiling_cores=declaration.idle_ceiling_cores,
-        ).run(self.output, icloud_paused_attested=self.icloud_paused_attested)
+        ).run(
+            self.output,
+            icloud_paused_attested=self.icloud_paused_attested,
+            icloud_waived=self.icloud_waived,
+        )
         return (Gate("quiet_host_precheck", result["status"] == "pass", result),)
 
     def phase(self, name: str, phase: Literal["a", "b"]) -> tuple[Gate, ...]:
@@ -465,6 +470,7 @@ class _Arguments(argparse.Namespace):
     socket_base: Path
     label: str
     icloud_paused: bool
+    icloud_waived: bool
 
 
 def main() -> None:
@@ -481,6 +487,8 @@ def main() -> None:
         parser.add_argument(option, type=Path, required=True)
     parser.add_argument("--label", required=True)
     parser.add_argument("--icloud-paused", action="store_true")
+    # The owner may waive the iCloud pause; it is then retained as waived, never paused.
+    parser.add_argument("--icloud-waived", action="store_true")
     args = parser.parse_args(namespace=_Arguments())
     cohort = SustainedCohort(
         args.output,
@@ -491,6 +499,7 @@ def main() -> None:
         socket_base=args.socket_base,
         label=args.label,
         icloud_paused_attested=args.icloud_paused,
+        icloud_waived=args.icloud_waived,
     )
     try:
         cohort.run()
