@@ -1954,3 +1954,129 @@ Uncounted rehearsals:
   `logs/runtime-capacity/<name>`. Earlier evidence stays where it is.
 
 Neither change touches runtime code, budgets or gates.
+
+## Stage-2 design (2026-10-02)
+
+The owner agreed the decisions below on 2026-10-02; nothing is implemented, signed or run yet. It turns the stage-2
+requirements above into a staged plan, and records what stage 1 has since established.
+Budgets, risk limits, journal schemas and matched-cutoff rules stay as declared. Every
+authority change below is a separate owner decision, issued as new signed artifacts,
+never a mutation of an existing one.
+
+**Where stage 2 is blocked today:**
+
+| Dependency | Current state | Evidence |
+| --- | --- | --- |
+| Service life | Account services and paper services accept 1–120 s per invocation (`src/applications/execute/account_service.py`, `src/configuration/paper_services.py`), under the signed launcher's independent 180 s outer bound; the supervisor runs 75 s with a drain reserve of at most 5 s. | Stage-1 cohorts |
+| Capture continuity | Paper capture runs one finite segment per invocation (stage-1 caps 5,000 messages, 32 MiB). Gap-aware segment rollover exists and is qualified only in the public-data collector (`src/market_data/collection/rollover.py`; 73-hour bound, five-segment real check), not in signed paper capture. | [Research capacity](research-capacity.md#armed-acquisition-and-continuation) |
+| Authority | Ordinary one-hour grants; recovery refuses under 120 s of headroom. No 26-hour grant has been issued, and denial at expiry or revocation over a long life is unqualified. | Stage-1 cohorts |
+| Account journal growth | Resolved for stage 2: history moved to indexed tables. | [Account journal history](account-journal-history.md) |
+| Checkpoint percentiles | The current fixture commits 21 of 21 checkpoints per account per minute, every one order-bearing (42 physical orders per account per minute). That would exhaust the unchanged 80-order grant within minutes. | [Checkpoint yield](#checkpoint-yield-on-the-current-runtime-2026-10-02) |
+| Feature serving | Process topology approved; rehearsal 3 of the 17-recovery cohort in progress. | [Feature cohort declaration](#integrated-feature-cohort-declaration-draft-2026-10-02) |
+| Host conditions | The declared host also runs iCloud sync, a browser and an editor, measured at 4–6 busy cores when idle. A 24-hour trial needs a declared quiet-host condition and host-wide sampling throughout. | [Host attribution](#integrated-feature-cohort-declaration-draft-2026-10-02) |
+
+**Decision 1 — longer bounded service life, not handoff (recommended).** A handoff keeps
+120 s services but needs about 720 owner handoffs per service per day. Each one needs
+fencing, a fresh claim and proof of uninterrupted capture across processes; the 24-hour
+claim would then rest on roughly 2,900 handoffs being gap-free. A longer bounded life
+keeps one current economic owner per account for the whole trial and reuses the
+qualified recovery path only for injected faults. It changes the signed lifetime
+bounds, which is an authority change:
+- per-invocation limits declared per stage (below), not unbounded;
+- the outer launcher bound scales with them;
+- the service still stops itself before its grant expires and never renews itself.
+
+**Decision 2 — rollover inside signed paper capture.** Compose the collector's qualified
+segment rollover into signed paper capture with the declared 30-minute segments (75,000
+messages, 256 MiB, 2,048-record queue). Segment boundaries must keep one session and
+snapshot, with no gap or duplicate, and exact independent chain replay. A process
+restart remains a declared gap that needs a fresh snapshot; it never counts as
+continuity.
+
+**Decision 3 — authority by stage.** No new grant duration until 2a passes:
+- **2a** uses ordinary one-hour grants.
+- **2b** issues a new, explicitly finite 26-hour grant per account, with the same
+  80-order, 100-units-per-instrument and installed risk limits. It must first be shown to
+  deny use after expiry and after revocation, in short dedicated trials, before the long
+  run.
+
+**Decision 4 — workload with a low-order commit mix.** Stage 2 needs at least 1,000
+committed checkpoints per account inside an 80-order grant and a target of at most 40
+orders per account per day. The stage-2 fixture must therefore be declared so that most
+selections commit without orders (`target_matched` or `no_intent`) after an opening
+position. The declaration must project, and 2a must measure, orders per account per hour
+before 2b runs. Authored 4× bursts stay in the schedule.
+
+**Staged plan:**
+- **2a: one-hour bounded integrated trial** under ordinary one-hour grants. Service life
+  of about 50 minutes, two or more capture segments per source with rollover, full feature
+  serving and query readers, host-wide sampling, and one injected recovery. It qualifies
+  the lifetime change, rollover in paper capture, journal growth, order-mix yield and
+  stability past 60 seconds, without any new authority duration. Checkpoint percentiles
+  could already pass here if the commit mix gives at least 1,000 per account.
+- **2b: 24-hour integrated trial** under 26-hour grants. 9,504,000 authored messages,
+  72-hour native retention and seven-day telemetry budgets, then 4× replay of the
+  24-hour corpus within six hours, with identical economic, checkpoint and feature
+  identities.
+
+**Owner decisions (2026-10-02).** The owner agreed:
+1. **Longer bounded service life** is the stage-2 direction, not handoff.
+2. **Lifetime caps by stage.** 2a declares about 50 minutes, inside an ordinary one-hour
+   grant with about 10 minutes for build, launch, one injected recovery (which needs
+   120 s of headroom) and stop/settle. 2b declares 25 hours inside a 26-hour grant. The
+   launcher's outer bound stays service life plus 60 s, and the supervisor's drain
+   reserve rule (last fifth, at most 5 s) is unchanged.
+3. **Quiet-host gate.** Before start, iCloud Drive syncing is paused, browser and editor
+   are closed and `caffeinate` is held, and a 5-minute idle check must show non-trial
+   host load averaging at most 1 core. The host sampler runs throughout. If non-trial
+   load exceeds the declared ceiling for longer than a declared window, the attempt
+   fails and is recorded with its host attribution; it never passes silently and is
+   never relabeled as a runtime failure. Budgets are not relaxed for desktop load.
+   Moving the repository out of iCloud-synced Documents is recommended to the owner but
+   not assumed.
+
+Implementation starts with 2a after the current feature cohort is settled. Each step
+keeps its own declaration, rehearsal and counted attempt.
+
+### Stage 2a implementation sequence (draft 2026-10-02)
+
+Draft for owner approval. Reading the code shows that 2a is several dependent changes,
+not one. Signed paper capture uses `CaptureRunner` (`src/market_data/collection/runner.py`),
+which writes one recording per source per run and owns the observer, health and
+measurement hooks. Rollover lives in `CaptureRunRunner`
+(`src/market_data/collection/rollover.py`), which has none of those hooks. Paper
+delivery logs, measurement files and recovery paths are keyed by a single
+`recording_id` (`src/applications/execute/services.py`), and six capacity consumers read
+one capture root per source. The 180 s outer bound is a fixed subprocess timeout in the
+artifact launcher (`tools/governance/src/alpha_research_governance/artifact_supply_chain/installation.py`).
+Each step below keeps its own tests, and nothing is signed until S6.
+
+1. **S1 — rollover in paper capture.** Give the paper path a segment chain: on the
+   declared 30-minute, 75,000-message or 256 MiB limit, seal the segment and continue in
+   the next one, on the same socket, session and native positions, with no gap or
+   duplicate. The observer, health and measurement hooks behave exactly as today. A
+   failure during rollover is a declared gap that needs a fresh snapshot. Tests: position
+   continuity across segments, exact chained replay, a failure in the middle of rollover,
+   and unchanged single-segment behaviour.
+2. **S2 — consumers of segment chains.** Paper delivery and measurement files, recovery
+   and suffix replay, the as-of index and the capacity consumers accept a recording made
+   of several segments. Every stage-1 test and consumer test passes unchanged for
+   single-segment runs.
+3. **S3 — declared lifetime bounds.** Replace the fixed 1–120 s service bound and 180 s
+   launcher timeout with per-invocation caps carried in the signed configuration: outer
+   bound equals service life plus 60 s, still finite, still stopping before grant expiry.
+   The stage-1 values are unchanged. This is the authority change the owner approved, and
+   it is issued only through new signed artifacts.
+4. **S4 — stage-2 workload.** An authored fixture for a 50-minute measured window with the
+   declared 25/100 message-per-second schedule and periodic 4× bursts, plus a policy and
+   account opening that commit mostly without orders after an opening position. The
+   declaration projects orders per account per hour against the 80-order grant before any
+   run.
+5. **S5 — 2a harness.** A long trial shape with readers, samplers and feature processes
+   running for the whole window, rolling percentiles, one injected recovery in the middle
+   of the run, and the quiet-host precheck and host gate in the driver.
+6. **S6 — declaration, rehearsal, counted attempt.** As for stage 1.
+
+S1 and S2 are the largest and riskiest: they change capture and replay code that
+qualified stage-1 evidence relies on. Running every stage-1 suite unchanged is their
+acceptance bar.
