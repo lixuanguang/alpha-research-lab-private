@@ -1563,3 +1563,93 @@ checkpoints per account without an authority change only if its declared workloa
 commits mostly without orders (`target_matched` or `no_intent`) and stays within its
 40-order daily target. The stage-2 design must declare and verify that mix before it
 counts on those checkpoints.
+
+#### Filesystem-cold query declaration (approved 2026-10-02)
+
+Approved by the owner on 2026-10-02 after rehearsal 2. Every 1,000-sample query class so far has been application-cold:
+it opened fresh components, but the operating system's page cache was uncontrolled, and
+the history had just been written. This cohort measures both query boundaries with
+their history read from storage.
+
+**Protocol.** No privilege and no host-wide flush. Before each round,
+[`capacity_page_cache.py`](../../tests/integration/consumers/runtime/capacity_page_cache.py)
+maps every non-empty file a reader can open (each source's capture and delivery
+directories, including the durable as-of index, and the dashboard's telemetry store)
+read-only and shared, and calls `msync(MS_SYNC | MS_INVALIDATE)`. That writes back
+nothing (the files are already durable) and drops only those files' cached pages.
+`mincore` must then report zero resident pages for every file, with up to three
+eviction attempts. A round that stays resident is recorded as failed requests and not
+released. A proved round releases four depth/BBO readers (threads) and four dashboard
+readers (separate processes, as before) together, each on fresh components. Rounds are
+paced at least 200 ms apart. Each round retains its eviction time, attempts and the
+resident pages after the round, which shows that the queries actually read those files.
+Interpreter and library code stay as they are, as in the application-cold class. On a
+2026-10-02 probe of a 256 MiB file, eviction left 0 of 16,384 pages resident, and the
+next full read took 40.5–41.0 ms against 19–20 ms warm.
+
+**Declared cohort.** The committed driver
+[`capacity_cohort.py`](../../tests/integration/consumers/runtime/capacity_cohort.py)
+gains a `filesystem-cold` sequence: freeze (clean checkout, non-editable install,
+consumer hashes), then
+[`capacity_history_queries.py`](../../tests/integration/consumers/runtime/capacity_history_queries.py)
+with `--cache-classes filesystem_cold` on the retained steady trial of the
+[second counted dashboard attempt](#counted-dashboard-cohort-result-second-attempt-2026-10-02),
+with 10,000 authored dashboard events per account and 250 rounds, giving 1,000
+observations per boundary. It builds, signs and grants nothing and uses no network.
+The retained trial is only read; output goes to a fresh directory.
+
+Pass requires all of the following:
+- no failed request and matched-cutoff parity;
+- `pass` for service and scheduled response latency in both filesystem-cold classes
+  against the unchanged cold budgets: depth/BBO 2 s at p99, dashboard 3 s at p99;
+- all 250 rounds proved non-resident before release;
+- expected result identities equal to the counted attempt's `prepared-history.json`.
+
+Scheduled response is measured from each round's release. No budget, authority, risk,
+journal schema or matched-cutoff rule changes.
+
+One uncounted rehearsal precedes the counted attempt. The counted attempt writes to
+`logs/runtime-capacity/filesystem-cold/`, runs once, stops at the first failure, then runs
+`make check` on the unchanged frozen source, and needs the owner's go-ahead. It does not
+qualify checkpoint percentiles, integrated feature serving, stage 2 or 24-hour operation.
+
+Uncounted rehearsals:
+
+1. `filesystem-cold-rehearsal-1` (`2a64239`) completed all 250 rounds and 2,000 requests,
+   then failed while summarizing. A loop variable in the class summary had been renamed in
+   only one of its uses. With only `filesystem_cold` declared it was unbound. In the
+   default two-class run it would silently have labelled and budgeted every class as
+   `warm`. The summary is now its own method, with a test that each declared class keeps
+   its own label and budget. Its retained samples, read offline and not graded: every
+   round proved non-resident on the first attempt (eviction at most 22.1 ms). Depth/BBO
+   service p50/p95/p99 was 8.4/11.3/17.8 ms and dashboard 181.9/207.7/219.1 ms, with no
+   failed request.
+2. `filesystem-cold-rehearsal-2` (`219149c`) passed 9/9 gates. All 250 rounds covered 42
+   files (14,350 pages of 16 KiB) and were proved non-resident on the first attempt, with
+   eviction taking at most 30.1 ms. There were 1,000 requests per boundary with no
+   failure, and results equal the counted attempt's. Depth/BBO service p50/p95/p99 was
+   8.2/10.8/14.6 ms (scheduled response p99 15.4 ms). Dashboard was 183.3/211.1/224.8 ms
+   (scheduled response p99 225.0 ms). The cold budgets are 2 s and 3 s at p99.
+
+#### Counted filesystem-cold query result (2026-10-02)
+
+**Passed.** The single counted attempt under the approved declaration froze `2581b23`
+(installed implementation `39d803b4…`, the same runtime as the counted public OKX route)
+and ran once into `logs/runtime-capacity/filesystem-cold/`.
+
+| Class | Service p50 / p95 / p99 (max) | Scheduled response p50 / p95 / p99 | Budget |
+| --- | --- | --- | --- |
+| Depth/BBO, filesystem-cold | 8.1 / 10.9 / 14.7 (22.0) ms | 8.6 / 11.4 / 15.4 ms | 2 s p99 |
+| Dashboard, filesystem-cold | 180.6 / 210.1 / 229.4 (245.8) ms | 180.7 / 210.2 / 229.5 ms | 3 s p99 |
+
+All 9 gates passed: 1,000 requests per boundary with no failure and matched-cutoff
+parity, all 250 rounds over 42 files (14,350 pages of 16 KiB) proved non-resident on the
+first eviction attempt (at most 30.0 ms), and results equal to the second counted
+dashboard attempt's. `make check` on the frozen source passed (2,308 passed, 2 skipped),
+with HEAD and tree unchanged.
+
+This qualifies both query boundaries filesystem-cold for the bounded stage-1 history. The
+history is the retained 60-second trial plus the authored one-hour dashboard. Longer
+multi-day native history and code-cold process start are not covered. It is not MR15
+acceptance: checkpoint percentiles (deferred to stage 2), integrated feature serving,
+stage 2 and 24-hour operation remain open.

@@ -5,7 +5,9 @@ interpreter. One invocation owns one fresh output directory; a second invocation
 into the same directory is refused, so a declared single attempt stays single.
 Every step stops the cohort at its first failure and is retained in ``steps.jsonl``.
 The ``dashboard`` sequence runs the steady trial, populated-history queries and the
-public Bitfinex route; the ``public-okx`` sequence runs only the public OKX route.
+public Bitfinex route; the ``public-okx`` sequence runs only the public OKX route; the
+``filesystem-cold`` sequence builds nothing and queries a retained counted trial's
+history with every reader file evicted from the page cache before each round.
 
 The trial gates restate the stage-1 targets the runtime-capacity record keeps
 unchanged: they read the statuses ``CapacityResultsCollector`` derives from the
@@ -40,7 +42,7 @@ from runtime import InstalledIdentity
 from serialization import DomainCodec
 
 PublicVenue = Literal["okx", "bitfinex"] | None
-Sequence = Literal["dashboard", "public-okx"]
+Sequence = Literal["dashboard", "public-okx", "filesystem-cold"]
 _GIB = 1024**3
 # Unchanged stage-1 resource ceilings (budgets_unchanged in the capacity record).
 _AVERAGE_CPU_CORES = 7
@@ -231,7 +233,10 @@ class GateAssessment:
         return tuple(gates)
 
     @staticmethod
-    def history(summary: dict[str, object]) -> tuple[Gate, ...]:
+    def history(
+        summary: dict[str, object],
+        cache_classes: tuple[str, ...] = ("application_cold", "warm"),
+    ) -> tuple[Gate, ...]:
         """Require every class's 1,000 requests to succeed, keep parity and meet its budget."""
         gates = [
             Gate(
@@ -245,7 +250,7 @@ class GateAssessment:
             for row in _Tree.items(summary.get("results"))
         }
         for boundary in ("depth_bbo", "dashboard"):
-            for cache_class in ("application_cold", "warm"):
+            for cache_class in cache_classes:
                 row = classes.get((boundary, cache_class))
                 name = f"{boundary}.{cache_class}"
                 gates.extend(
@@ -270,6 +275,29 @@ class GateAssessment:
                     )
                 )
         return tuple(gates)
+
+    @staticmethod
+    def filesystem_cold(
+        summary: dict[str, object], retained: dict[str, object]
+    ) -> tuple[Gate, ...]:
+        """Require every round proved non-resident and results equal to the counted attempt's."""
+        cold = _Tree.mapping(summary.get("filesystem_cold") or {})
+        rounds = cold.get("rounds")
+        expected = _Tree.get(summary, "prepared_history", "expected_result_identities")
+        counted = retained.get("expected_result_identities")
+        return (
+            *GateAssessment.history(summary, ("filesystem_cold",)),
+            Gate(
+                "filesystem_cold.every_round_verified_nonresident",
+                rounds == _HISTORY_SAMPLES_PER_CLASS // 4 and cold.get("verified_rounds") == rounds,
+                {"rounds": rounds, "verified_rounds": cold.get("verified_rounds")},
+            ),
+            Gate(
+                "results_equal_counted_attempt",
+                isinstance(expected, dict) and bool(expected) and expected == counted,
+                {"expected": expected, "counted": counted},
+            ),
+        )
 
 
 class CleanupAudit:
@@ -324,11 +352,17 @@ class Cohort:
         socket_base: Path,
         label: str,
         sequence: Sequence = "dashboard",
+        history_trial: Path | None = None,
     ) -> None:
         """Bind absolute inputs; nothing runs until ``run``."""
         for path in (output, repository, launcher, python, key_root, socket_base):
             if not path.is_absolute():
                 raise ValueError("cohort paths must be absolute")
+        if (sequence == "filesystem-cold") != (history_trial is not None) or (
+            history_trial is not None and not history_trial.is_absolute()
+        ):
+            raise ValueError("only the filesystem-cold sequence reads an absolute retained trial")
+        self.history_trial = history_trial
         self.output, self.repository, self.launcher = output, repository, launcher
         self.python, self.key_root, self.socket_base, self.label = (
             python,
@@ -639,6 +673,38 @@ class Cohort:
         (output / "assessment.json").write_bytes(self.codec.encode_json(gates))
         return gates
 
+    def filesystem_cold(self) -> tuple[Gate, ...]:
+        """Query the retained trial's history filesystem-cold and compare its results."""
+        trial = cast(Path, self.history_trial)
+        output = self.output / "filesystem-cold"
+        self.command(
+            "filesystem-cold-queries",
+            [
+                str(self.python),
+                str(self.consumers / "capacity_history_queries.py"),
+                "--trial",
+                str(trial),
+                "--output",
+                str(output),
+                "--samples-per-reader",
+                "250",
+                "--dashboard-events-per-account",
+                "10000",
+                "--cache-classes",
+                "filesystem_cold",
+            ],
+        )
+        summary = msgspec.json.decode(
+            (output / "summary.json").read_bytes(), type=dict[str, object]
+        )
+        retained = msgspec.json.decode(
+            (trial.parent / "history-queries/prepared-history.json").read_bytes(),
+            type=dict[str, object],
+        )
+        gates = GateAssessment.filesystem_cold(summary, retained)
+        (output / "assessment.json").write_bytes(self.codec.encode_json(gates))
+        return gates
+
     def audit(self, root: Path, trial: str) -> tuple[Gate, ...]:
         """Re-inspect every account through the signed launcher and check observed pids."""
         output = root / trial
@@ -690,6 +756,9 @@ class Cohort:
         """Run the declared sequence once; ``make check`` stays a separate final step."""
         self.output.mkdir(parents=True, exist_ok=False)
         self.step("freeze", self.freeze)
+        if self.sequence == "filesystem-cold":
+            self.step("filesystem-cold-queries", self.filesystem_cold)
+            return
         self.step("candidate", self.candidate)
         if self.sequence == "dashboard":
             self.step("grant-steady", lambda: self.grant(self.root, None))
@@ -715,6 +784,7 @@ class _Arguments(argparse.Namespace):
     socket_base: Path
     label: str
     sequence: Sequence
+    history_trial: Path | None
 
 
 def main() -> None:
@@ -730,7 +800,10 @@ def main() -> None:
     ):
         parser.add_argument(option, type=Path, required=True)
     parser.add_argument("--label", required=True)
-    parser.add_argument("--sequence", choices=("dashboard", "public-okx"), default="dashboard")
+    parser.add_argument(
+        "--sequence", choices=("dashboard", "public-okx", "filesystem-cold"), default="dashboard"
+    )
+    parser.add_argument("--history-trial", type=Path, default=None)
     args = parser.parse_args(namespace=_Arguments())
     cohort = Cohort(
         args.output,
@@ -741,6 +814,7 @@ def main() -> None:
         socket_base=args.socket_base,
         label=args.label,
         sequence=args.sequence,
+        history_trial=args.history_trial,
     )
     try:
         cohort.run()

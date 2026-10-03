@@ -478,6 +478,10 @@ class _ReportingCohort(Cohort):
         """Audit nothing and pass."""
         return _PASSING
 
+    def filesystem_cold(self) -> tuple[Gate, ...]:
+        """Query nothing and pass."""
+        return _PASSING
+
 
 class TestCohortSequence:
     """Each declared sequence runs exactly its steps, in order, into one fresh output."""
@@ -494,6 +498,7 @@ class TestCohortSequence:
             socket_base=tmp_path / "sockets",
             label="sequence-test",
             sequence=sequence,
+            history_trial=tmp_path / "retained/steady" if sequence == "filesystem-cold" else None,
         ).run()
         rows = [
             msgspec.json.decode(line, type=dict[str, object])
@@ -536,3 +541,103 @@ class TestCohortSequence:
         self._steps(tmp_path, "public-okx")
         with pytest.raises(FileExistsError):
             self._steps(tmp_path, "public-okx")
+
+    def test_filesystem_cold_sequence_builds_nothing(self, tmp_path: pathlib.Path) -> None:
+        """The retained-history sequence freezes the consumers and runs only its queries."""
+        steps = self._steps(tmp_path, "filesystem-cold")
+        assert [name for name, _ in steps] == ["freeze", "filesystem-cold-queries"]
+
+    @pytest.mark.parametrize(
+        ("sequence", "trial"),
+        (("filesystem-cold", None), ("dashboard", "/retained"), ("filesystem-cold", "relative")),
+    )
+    def test_only_filesystem_cold_reads_an_absolute_retained_trial(
+        self, tmp_path: pathlib.Path, sequence: Sequence, trial: str | None
+    ) -> None:
+        """A missing, misplaced or relative retained trial is refused before anything runs."""
+        with pytest.raises(ValueError, match="retained trial"):
+            Cohort(
+                tmp_path / "cohort",
+                repository=tmp_path,
+                launcher=tmp_path / "launcher",
+                python=tmp_path / "python",
+                key_root=tmp_path / "keys",
+                socket_base=tmp_path / "sockets",
+                label="sequence-test",
+                sequence=sequence,
+                history_trial=None if trial is None else pathlib.Path(trial),
+            )
+
+
+class TestFilesystemColdGates:
+    """Grade both cold classes, every round's eviction proof and the counted results."""
+
+    @staticmethod
+    def _summary() -> tuple[dict[str, object], dict[str, object]]:
+        """Return a passing filesystem-cold summary and the counted attempt's identities."""
+        identities = {"okx-btc-book": "a" * 64, "okx-shared": "b" * 64}
+        latency = {"status": "pass"}
+        summary: dict[str, object] = {
+            "matched_cutoff_parity": True,
+            "results": [
+                {
+                    "boundary": boundary,
+                    "cache_class": "filesystem_cold",
+                    "requests": 1000,
+                    "failures": 0,
+                    "service_latency": latency,
+                    "scheduled_response_latency": latency,
+                }
+                for boundary in ("depth_bbo", "dashboard")
+            ],
+            "filesystem_cold": {"rounds": 250, "verified_rounds": 250},
+            "prepared_history": {"expected_result_identities": dict(identities)},
+        }
+        return summary, {"expected_result_identities": identities}
+
+    @staticmethod
+    def _failed(summary: dict[str, object], retained: dict[str, object]) -> set[str]:
+        """Name every failed gate."""
+        return {
+            gate.name
+            for gate in GateAssessment.filesystem_cold(summary, retained)
+            if not gate.passed
+        }
+
+    def test_passing_evidence_passes_and_grades_only_cold_classes(self) -> None:
+        """The application-cold and warm classes are not required of this sequence."""
+        assert not self._failed(*self._summary())
+
+    @pytest.mark.parametrize(
+        ("path", "value", "gate"),
+        (
+            (
+                ("filesystem_cold", "verified_rounds"),
+                249,
+                "filesystem_cold.every_round_verified_nonresident",
+            ),
+            (
+                ("filesystem_cold", "rounds"),
+                200,
+                "filesystem_cold.every_round_verified_nonresident",
+            ),
+            (
+                ("prepared_history", "expected_result_identities"),
+                {},
+                "results_equal_counted_attempt",
+            ),
+            (("matched_cutoff_parity",), False, "matched_cutoff_parity"),
+        ),
+    )
+    def test_each_cold_gate_fails(self, path: Path, value: object, gate: str) -> None:
+        """An unproved round, a short run, changed results or broken parity fails its gate."""
+        summary, retained = self._summary()
+        _set(summary, path, value)
+        assert self._failed(summary, retained) == {gate}
+
+    def test_a_failing_cold_latency_fails(self) -> None:
+        """A cold class over its p99 budget fails even with every round proved."""
+        summary, retained = self._summary()
+        row = cast(list[dict[str, object]], summary["results"])[1]
+        row["service_latency"] = {"status": "fail"}
+        assert self._failed(summary, retained) == {"dashboard.filesystem_cold.service_latency"}
