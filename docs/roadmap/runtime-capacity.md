@@ -2511,3 +2511,106 @@ single recording, because strict typing rejects the widened request type: one in
 
 For single recordings, consumer outputs add no key. The segment, rollover and
 `capture_segments` facts appear only for chains.
+
+#### S3 design note: declared lifetime bounds and chain capture (approved 2026-10-03)
+
+The owner approved S3 on 2026-10-03. It replaces the fixed service bounds with caps
+carried in signed configuration, and lets the supervisor produce segment chains. Today:
+
+| Bound | Where |
+| --- | --- |
+| Account service life of 1–120 s | `AccountExecutionRequest.service_seconds` and `AccountOwnerService` |
+| Supervisor life of 1–120 s | `PaperServiceConfiguration.duration_seconds` |
+| Outer bound of 180 s for every installed run | The signed launcher's subprocess timeout |
+
+Nothing ties a service's life to its grant's expiry. A one-hour grant has so far always
+outlasted a 120 s service.
+
+**Where the cap lives.**
+- **The cap.** `AccountConfiguration` gains an optional `service_life_seconds` (1–90,000,
+  where 90,000 s is 25 hours).
+  - The account release signs this configuration as `configuration/config.json`.
+  - The paper deployment binds its digest, so a grant authorizes the cap with
+    everything else in the configuration.
+  - The field is omitted from the encoding when unset. Every existing configuration, and
+    therefore every stage-1 release and deployment identity, is byte-identical. Unset
+    means 120 s.
+- **New authority.** A longer life needs a new configuration, which means a new
+  deployment digest, new signed releases and new grants. It is never a mutation of an
+  existing artifact.
+
+**Enforcement.**
+- **Account service.**
+  - `service_seconds` may be 1–90,000 by schema. The account application refuses any
+    value above its signed configuration's cap.
+  - At startup, the service refuses to serve unless its grant is current and its whole
+    life ends by the grant's `expires_at`. It still stops itself at its deadline, and it
+    never renews or extends anything.
+  - Shadow and paper accounts without a deployment keep today's behaviour.
+- **Launcher.**
+  - An installed account run's outer timeout is the signed configuration's cap plus 60
+    s, read from the verified `config.json`. With no cap that is 180 s, as today.
+  - Collector runs and installation steps keep 180 s.
+- **Supervisor.**
+  - `duration_seconds` may be 1–90,000, but it may not exceed any selected account's cap,
+    so the supervisor never outlives its account owners.
+  - With stage-1 configurations that is 120 s, as today. The drain reserve rule is
+    unchanged.
+- **Recovery** still refuses under 120 s of grant headroom.
+
+**Chain capture.**
+- **Declaration.** `PaperServiceSource` gains an optional `chain` with the whole-run
+  `max_messages`, `max_bytes` and `max_segments`.
+  - The source's `capture` then holds the per-segment limits (the declared 30 minutes,
+    75,000 messages, 256 MiB and 2,048-record queue).
+  - The field is omitted when unset, so every stage-1 source is unchanged and captures
+    one recording.
+- **What `_capture_request` builds.** With `chain` set, it returns a `CaptureRunRequest`
+  whose window starts now and stops at the supervisor's own deadline. Paper capture does
+  not use readiness, so `ready_by` equals `stop_at`. `max_reconnects` equals the source's
+  `retries`, which paper capture already uses (S1 review). Everything downstream is S2.
+- **Recovery.** A recovery replacement is a fresh chain with a new key, session and
+  snapshot.
+
+**Out of S3.** The stage-2 fixture and workload (S4), the 2a harness (S5), any signed
+artifact, grant or run (S6), and 26-hour grants (2b).
+
+**Tests (behavioural):**
+- An unset cap encodes stage-1 configurations byte-identically and keeps 120/180 s.
+- A declared cap admits `service_seconds` up to the cap and refuses above it.
+- The account service refuses to start a life that would outlast its grant, and starts
+  one that ends inside it.
+- The launcher's outer bound is the cap plus 60 s for account runs, and 180 s otherwise.
+- The supervisor's duration is bounded by its accounts' caps.
+- With `chain` set, the supervisor produces a chain through `_start_source`. Unset, it
+  produces exactly today's single request.
+
+**S3 implementation (2026-10-03).** Implemented as designed, and nothing has been signed
+or issued.
+
+- **Unchanged identities.** `service_life_seconds` and `chain` are omitted from the
+  encoding when unset, so stage-1 configuration, deployment and release identities are
+  byte-identical (tested).
+- **No chains yet.** No prepared configuration declares `chain` yet, so the capacity
+  harness still captures one recording per source.
+
+The full lane passed: 2,353 passed and 2 skipped. Strict mypy is clean over every Python
+path.
+
+New tests:
+- the launcher's outer bound (the cap plus 60, and 180 when undeclared);
+- the account service cap;
+- the grant-life refusal: refused when the life outlasts a current grant, admitted when
+  it fits, and admitted under an expired grant;
+- the supervisor bounded by account caps;
+- an undeclared chain keeping one journal.
+
+The S2 supervisor chain test now declares `chain` on the source instead of overriding
+`_capture_request`.
+
+Two existing tests changed:
+- `test_service_request_bounds_and_socket_only_shutdown` now checks the schema's finite
+  maximum (90,001 s is refused). 121 s is refused at service startup by an undeclared
+  configuration, as the approved design intends.
+- `test_release_installation.py`'s four `_run` test fakes accept the new `timeout`
+  keyword.

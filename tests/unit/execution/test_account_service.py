@@ -123,6 +123,92 @@ class TestAccountOwnerService:
         retained = tuple(service.requests_path.glob("*.json"))
         assert len(retained) == 1 and retained[0].read_bytes() == payload
 
+    def test_service_life_is_bounded_by_its_signed_configuration(self, tmp_path: Path) -> None:
+        """Undeclared configurations keep 120 s; a declared cap admits exactly up to itself."""
+        journal_path = tmp_path / "account.sqlite3"
+        owner = _ActivationFixture._bootstrap(journal_path)[-1]
+        config = _ActivationFixture._config()
+        assert config.service_life_limit == 120
+        assert b"service_life_seconds" not in DomainCodec().encode_json(config)
+        declared = replace(config, service_life_seconds=3000)
+
+        def service(selected: AccountConfiguration, seconds: int) -> AccountOwnerService:
+            """Bind the service without serving."""
+            return AccountOwnerService(
+                application=_RecordingAccountApplication(),
+                config=selected,
+                config_path=tmp_path / "config.json",
+                journal_path=journal_path,
+                telemetry_path=None,
+                release_identity=owner.release_identity,
+                paper_owner=owner,
+                socket_path=tmp_path / "account.sock",
+                duration_seconds=seconds,
+            )
+
+        assert service(config, 120).duration_seconds == 120
+        assert service(declared, 3000).duration_seconds == 3000
+        for selected, seconds in ((config, 121), (declared, 3001)):
+            with pytest.raises(ValueError, match="fixed installed account"):
+                service(selected, seconds)
+        with pytest.raises(ValueError, match="finite declared bound"):
+            replace(config, service_life_seconds=90_001)
+        request = AccountExecutionRequest(
+            action="serve_paper",
+            paper_owner=owner,
+            service_socket=str(tmp_path / "account.sock"),
+            service_seconds=3000,
+        )
+        assert request.service_seconds == 3000
+
+    @pytest.mark.parametrize(
+        ("offset", "seconds", "admitted"),
+        ((13, 17, True), (13, 18, False), (31, 100, True)),
+    )
+    def test_a_current_grant_must_outlast_the_whole_service_life(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        offset: int,
+        seconds: int,
+        admitted: bool,
+    ) -> None:
+        """Refuse a life that would outlive its grant; an expired grant may still settle."""
+        journal_path = tmp_path / "account.sqlite3"
+        owner = _ActivationFixture._bootstrap(journal_path)[-1]
+        config = _ActivationFixture._config()
+        codec = DomainCodec()
+        config_path = tmp_path / "config.json"
+        config_path.write_bytes(codec.encode_json(config))
+        service = AccountOwnerService(
+            application=AccountExecutionApplication(),
+            config=config,
+            config_path=config_path,
+            journal_path=journal_path,
+            telemetry_path=None,
+            release_identity=owner.release_identity,
+            paper_owner=owner,
+            socket_path=tmp_path / "account.sock",
+            duration_seconds=seconds,
+        )
+        # The fixture grant is valid from second 11 until second 30 of its session.
+        at = _ActivationFixture._at(offset)
+
+        class _Clock(datetime):
+            """Read the fixture session's wall clock."""
+
+            @classmethod
+            def now(cls, tz: object = None) -> _Clock:
+                """Return the selected fixture instant."""
+                return cast(_Clock, at)
+
+        monkeypatch.setattr("applications.execute.account_service.datetime", _Clock)
+        if admitted:
+            service._require_current_owner()
+        else:
+            with pytest.raises(ValueError, match="paper_service_life_exceeds_authorization"):
+                service._require_current_owner()
+
     @pytest.mark.parametrize("opted_in", (True, False))
     def test_request_timings_are_opt_in_and_ordered(self, tmp_path: Path, opted_in: bool) -> None:
         """An operator-created timings file receives one ordered row per request."""
@@ -383,11 +469,13 @@ class TestAccountOwnerService:
     def test_service_request_bounds_and_socket_only_shutdown(self, tmp_path: Path) -> None:
         """Startup rejects unbounded lifetimes; CLI cannot execute socket shutdown."""
         owner = _ActivationFixture._bootstrap(tmp_path / "account.sqlite3")[-1]
+        # The schema admits only finite lives; the signed configuration's cap is enforced
+        # by the service itself (see test_service_life_is_bounded_by_its_signed_configuration).
         with pytest.raises(ValueError, match="bounded lifetime"):
             AccountExecutionRequest(
                 action="serve_paper",
                 service_socket=str(tmp_path / "s.sock"),
-                service_seconds=121,
+                service_seconds=90_001,
                 paper_owner=owner,
             )
         config_path = tmp_path / "config.json"

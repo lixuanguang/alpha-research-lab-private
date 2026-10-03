@@ -55,7 +55,10 @@ class AccountOwnerService:
 
     The service retains every request before application. A response lost after a
     commit is an uncertain outcome for the client and is never retried here.
-    The signed launcher provides an independent 180-second outer process bound.
+    The service life is bounded by the signed configuration's cap (120 seconds when
+    undeclared), and a life under a current grant must end by the grant's expiry; the
+    service never renews it. The signed launcher adds an independent outer bound of
+    that cap plus 60 seconds.
     """
 
     _maximum_bytes = 1_048_576
@@ -100,7 +103,7 @@ class AccountOwnerService:
             any(not path.is_absolute() for path in (config_path, journal_path, socket_path))
             or (telemetry_path is not None and not telemetry_path.is_absolute())
             or type(duration_seconds) is not int
-            or not 1 <= duration_seconds <= 120
+            or not 1 <= duration_seconds <= config.service_life_limit
             or paper_owner.release_identity != release_identity
             or len(config.accounts) != 1
             or config.accounts[0].account_id != paper_owner.account_id
@@ -235,6 +238,17 @@ class AccountOwnerService:
         )
         if activation is None or activation.owner != self.paper_owner:
             raise ValueError("paper_owner_stale_or_absent")
+        grant = activation.authorization
+        now = datetime.now(UTC)
+        # An expired or revoked grant already blocks new exposure; the service may still
+        # settle obligations. A current grant must outlast the whole service life.
+        if (
+            grant is not None
+            and grant.identity not in activation.revoked
+            and grant.valid_from <= now < grant.expires_at
+            and (grant.expires_at - now).total_seconds() < self.duration_seconds
+        ):
+            raise ValueError("paper_service_life_exceeds_authorization")
         return result
 
     def _require_current_owner_fast(self) -> None:

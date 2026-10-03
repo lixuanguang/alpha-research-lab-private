@@ -412,7 +412,7 @@ qualification and its precise local operating limits.
 ## Bounded account-owner service
 
 `serve_paper` is an `AccountExecutionRequest` with `service_socket` (absolute local
-Unix socket), `service_seconds` (1–120) and the exact `paper_owner` returned by an
+Unix socket), `service_seconds` and the exact `paper_owner` returned by an
 explicit claim. Run this request through the signed launcher:
 
 ```sh
@@ -425,8 +425,14 @@ serializes the existing typed requests. `SocketPaperAccount` retains requests an
 responses. Owner-generation checks remain inside economic transactions. Service
 startup does not claim, renew or widen authority. Its heartbeat file beside the
 socket exposes actual process PID, liveness and request progress separately.
-The existing launcher bounds commands to 180 seconds; services are deliberately
-limited to 120 seconds and require explicit recovery between invocations.
+`service_seconds` may not exceed the signed account configuration's
+`service_life_seconds`. When that field is absent, the cap is 120 seconds, and the
+declarable maximum is 90,000. While the account's grant is current, the whole service life must end by the grant's
+expiry. An expired or revoked grant already blocks new exposure, so a service may still
+start to settle obligations. The launcher bounds an installed account run to that cap
+plus 60 seconds (180 seconds by default); other installed runs keep 180 seconds.
+Services require explicit recovery between invocations. A paper supervisor's
+`duration_seconds` may not exceed any selected account's cap.
 
 Account requests default to a complete response. Internal `PaperAccount` helpers
 select a typed `projection` for their requested read or operation receipt, so a

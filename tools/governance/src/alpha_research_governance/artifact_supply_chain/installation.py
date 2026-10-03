@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import fcntl
 import hashlib
+import json
 import os
 import platform
 import re
@@ -161,7 +162,28 @@ class LocalInstallation:
                 self.root / "state/accounts.sqlite3",
                 release_identity=receipt.release,
             )
-            return self._run([str(executable), *invocation], cwd=self.root)
+            return self._run(
+                [str(executable), *invocation],
+                cwd=self.root,
+                timeout=self._outer_seconds(receipt.runtime, configuration),
+            )
+
+    @classmethod
+    def _outer_seconds(cls, runtime: ReleaseRuntime, configuration: Path) -> int:
+        """Bound an installed run by its signed account service life plus 60 seconds.
+
+        Only the account contract declares a life; every other run keeps 180 seconds.
+        An undeclared life is 120 seconds, so its outer bound is also 180 seconds.
+        """
+        if not cls._account_runtime(runtime):
+            return 180
+        declared: object = json.loads(ReleaseRegistry.read_regular(configuration, 8_388_608))
+        if not isinstance(declared, dict):
+            raise ValueError("signed account configuration is not an object")
+        life: object = cast(dict[str, object], declared).get("service_life_seconds", 120)
+        if type(life) is not int or not 1 <= life <= 90_000:
+            raise ValueError("signed account service life is not a finite declared bound")
+        return life + 60
 
     def _require_tools(self, runtime: ReleaseRuntime) -> None:
         """Reject target drift before a verifier or installer can execute."""
@@ -632,7 +654,7 @@ class LocalInstallation:
             os.close(descriptor)
 
     @staticmethod
-    def _run(arguments: list[str], *, cwd: Path) -> bytes:
+    def _run(arguments: list[str], *, cwd: Path, timeout: int = 180) -> bytes:
         """Execute bounded shell-free argv without inherited credentials or path injection."""
         environment = {
             "PATH": "/usr/bin:/bin",
@@ -648,7 +670,7 @@ class LocalInstallation:
                 env=environment,
                 check=False,
                 capture_output=True,
-                timeout=180,
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired as error:
             raise ValueError("installation or installed consumer timed out") from error

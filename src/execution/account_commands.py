@@ -10,7 +10,12 @@ from typing import Literal
 
 # project library imports
 from accounting import AccountPosting
-from configuration import PaperAuthorization, PaperDeployment, PaperExecutionScenario
+from configuration import (
+    SERVICE_LIFE_MAXIMUM_SECONDS,
+    PaperAuthorization,
+    PaperDeployment,
+    PaperExecutionScenario,
+)
 from execution.account_records import (
     AccountControl,
     AccountControlResult,
@@ -235,7 +240,8 @@ class AccountExecutionRequest(WireRecord, frozen=True):
                 or self.service_socket is None
                 or not Path(self.service_socket).is_absolute()
                 or type(self.service_seconds) is not int
-                or not 1 <= self.service_seconds <= 120
+                # The installed configuration's own cap is enforced by the account service.
+                or not 1 <= self.service_seconds <= SERVICE_LIFE_MAXIMUM_SECONDS
             ):
                 raise ValueError(
                     "paper service requires an owner, absolute socket and bounded lifetime"

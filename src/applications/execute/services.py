@@ -16,13 +16,16 @@ import time
 from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from multiprocessing.connection import Connection, wait
 from multiprocessing.process import BaseProcess
 from multiprocessing.synchronize import Event
 from pathlib import Path
 from typing import Literal, cast
 from uuid import uuid4
+
+# third party library imports
+import msgspec
 
 # project library imports
 from applications.execute.service_inputs import ServiceBookInputs
@@ -31,6 +34,7 @@ from applications.execute.source_service import _ReceivedSourceDelivery, run_sou
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
+    CaptureRunConfig,
     PaperServiceAccount,
     PaperServiceConfiguration,
     PaperServiceInstance,
@@ -219,6 +223,8 @@ class PaperServices:
         self.is_stopping = False
         self.shutdown_requested = False
         self.run_id = uuid4().hex
+        # The supervisor's own UTC end bounds every segment-chain window it opens.
+        self.stop_at: datetime | None = None
         self._observation_executor: concurrent.futures.ThreadPoolExecutor | None = None
         self._has_disjoint_source_accounts = self._sources_have_disjoint_accounts()
         self._pending_observations: dict[
@@ -339,6 +345,7 @@ class PaperServices:
     def run(self) -> dict[str, object]:
         """Hold the local launch fence, supervise children and stop services on completion."""
         service_deadline = time.monotonic() + self.config.duration_seconds
+        self.stop_at = datetime.now(UTC) + timedelta(seconds=self.config.duration_seconds)
         self.root.mkdir(parents=True, exist_ok=True)
         with ExitStack() as stack:
             self.control_socket.parent.mkdir(parents=True, exist_ok=True)
@@ -659,10 +666,32 @@ class PaperServices:
         sender.close()
 
     def _capture_request(self, source: PaperServiceSource) -> RecordingRequest:
-        """Bind a fresh recording identity; every recording is one finite journal."""
-        return CaptureRequest(
+        """Bind a fresh recording: one finite journal, or a chain when the source declares one.
+
+        A chain's window opens now and closes at the supervisor's own end. Paper capture
+        keeps the supervisor's readiness checks, so readiness is the stop instant.
+        """
+        if source.chain is msgspec.UNSET:
+            return CaptureRequest(
+                config=source.capture,
+                recording_id=str(uuid4()),
+                implementation_identity=self.implementation,
+            )
+        now = datetime.now(UTC)
+        planned = self.stop_at or now + timedelta(seconds=self.config.duration_seconds)
+        stop_at = max(planned, now + timedelta(seconds=1))
+        return CaptureRunRequest(
             config=source.capture,
-            recording_id=str(uuid4()),
+            window=CaptureRunConfig(
+                start_at=now,
+                ready_by=stop_at,
+                stop_at=stop_at,
+                max_messages=source.chain.max_messages,
+                max_bytes=source.chain.max_bytes,
+                max_segments=source.chain.max_segments,
+                max_reconnects=source.capture.retries,
+            ),
+            run_id=str(uuid4()),
             implementation_identity=self.implementation,
         )
 

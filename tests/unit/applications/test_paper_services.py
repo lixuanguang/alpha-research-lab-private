@@ -48,13 +48,13 @@ from applications.execute.source_service import SourceDelivery, _ReceivedSourceD
 from configuration import (
     AccountConfiguration,
     CaptureConfig,
-    CaptureRunConfig,
     OpeningAccount,
     PaperExecutionScenario,
     PaperServiceAccount,
     PaperServiceConfiguration,
     PaperServiceInstance,
     PaperServiceSource,
+    PaperSourceChain,
 )
 from configuration.accounts import InstrumentFeeRate
 from execution import (
@@ -80,7 +80,6 @@ from market_data.contracts import (
     FeedSocket,
     Level,
     Order,
-    RecordingRequest,
 )
 from market_data.storage import CaptureRecording
 from reference_data.instruments import InstrumentId
@@ -432,28 +431,6 @@ class _SupervisorHarness(PaperServices):
     def _refresh_observers(self, source_name: str) -> None:
         """Record cohort refresh after process selection."""
         self.events.append(f"refresh:{source_name}")
-
-
-class _ChainServices(_SupervisorHarness):
-    """Ask the real source start for a segment chain, as S3's configuration will."""
-
-    def _capture_request(self, source: PaperServiceSource) -> RecordingRequest:
-        """Bind one finite run whose one-message segments roll over at every frame."""
-        now = datetime.now(UTC)
-        return CaptureRunRequest(
-            config=replace(source.capture, max_messages=1),
-            window=CaptureRunConfig(
-                start_at=now - timedelta(seconds=1),
-                ready_by=now,
-                stop_at=now + timedelta(seconds=30),
-                max_messages=4,
-                max_bytes=64 * 1024**2,
-                max_segments=8,
-                max_reconnects=1,
-            ),
-            run_id=str(uuid4()),
-            implementation_identity=self.implementation,
-        )
 
 
 class _DrainingServices(_SupervisorHarness):
@@ -1125,14 +1102,21 @@ class TestPaperServices:
             InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
         )
         config = self._config(self._socket_path())
-        definition = config.sources[0]
+        # One-message segments roll over at every frame; the run ends after four.
+        definition = replace(
+            config.sources[0],
+            capture=replace(config.sources[0].capture, max_messages=1),
+            chain=PaperSourceChain(max_messages=4, max_bytes=64 * 1024**2, max_segments=8),
+        )
         assert definition.capture.retries >= 1
-        services = _ChainServices(config, self._owner(), tmp_path, self._socket_path())
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
         services.transports[definition.name] = _SpawnedBookTransport()
         services.measurement_root = tmp_path / "measurements"
         services._start_source(definition)
         child = services.sources[definition.name]
         assert isinstance(child.request, CaptureRunRequest)
+        assert child.request.config == definition.capture
+        assert child.request.window.max_reconnects == definition.capture.retries
         key = child.request.run_id
         deliveries: list[_ReceivedSourceDelivery] = []
         try:
@@ -1173,6 +1157,46 @@ class TestPaperServices:
         assert accounting["cursor_sha256"] == recording.cursor().sha256
         assert accounting["capture_segments"] == len(recording.cursor().segments)
         child.receiver.close()
+
+    def test_an_undeclared_chain_keeps_one_finite_recording(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stage-1 sources encode as before and still capture one journal per recording."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        assert b'"chain"' not in DomainCodec().encode_json(config.sources[0])
+        services = _SupervisorHarness(
+            config, self._owner(), Path("/private/tmp"), self._socket_path()
+        )
+        request = services._capture_request(config.sources[0])
+        assert type(request) is CaptureRequest
+        assert (request.config, request.implementation_identity, request.segment) == (
+            config.sources[0].capture,
+            "b" * 64,
+            None,
+        )
+
+    def test_supervisor_life_is_bounded_by_each_account_service_life(self) -> None:
+        """Undeclared caps keep 120 s; a declared cap admits up to itself and no further."""
+        config = self._config(self._socket_path())
+        with pytest.raises(ValueError, match="outlives an account service life"):
+            replace(config, duration_seconds=121)
+        account = config.accounts[0]
+        declared = replace(
+            config,
+            accounts=(
+                replace(
+                    account,
+                    configuration=replace(account.configuration, service_life_seconds=3000),
+                ),
+            ),
+            duration_seconds=3000,
+        )
+        assert declared.duration_seconds == 3000
+        with pytest.raises(ValueError, match="outlives an account service life"):
+            replace(declared, duration_seconds=3001)
 
     def test_closing_a_source_releases_each_book_index_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

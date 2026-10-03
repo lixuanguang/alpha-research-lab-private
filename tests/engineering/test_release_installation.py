@@ -205,7 +205,7 @@ class BlockingApplication:
         self.started = Event()
         self.release = Event()
 
-    def run(self, arguments: list[str], *, cwd: Path) -> bytes:
+    def run(self, arguments: list[str], *, cwd: Path, timeout: int = 180) -> bytes:
         """Keep a run active until the test attempts a competing installation."""
         assert arguments[-1] == "replay"
         assert cwd.is_dir()
@@ -221,10 +221,12 @@ class RecordedApplication:
     def __init__(self) -> None:
         """Start with no installed invocations."""
         self.calls: list[tuple[list[str], Path]] = []
+        self.timeouts: list[int] = []
 
-    def run(self, arguments: list[str], *, cwd: Path) -> bytes:
+    def run(self, arguments: list[str], *, cwd: Path, timeout: int = 180) -> bytes:
         """Record one invocation without executing a stub wheel entrypoint."""
         self.calls.append((arguments, cwd))
+        self.timeouts.append(timeout)
         return b"accepted\n"
 
 
@@ -234,10 +236,12 @@ class AccountInstalledApplication:
     def __init__(self) -> None:
         """Retain installed invocations for argument-binding assertions."""
         self.calls: list[list[str]] = []
+        self.timeouts: list[int] = []
 
-    def run(self, arguments: list[str], *, cwd: Path) -> bytes:
+    def run(self, arguments: list[str], *, cwd: Path, timeout: int = 180) -> bytes:
         """Apply only the account CLI shape using the real account application."""
         assert cwd.is_dir()
+        self.timeouts.append(timeout)
         assert arguments[0].endswith("/venv/bin/alpha-execute")
         assert arguments[1] == "account"
         self.calls.append(arguments)
@@ -323,7 +327,7 @@ class PinnedToolProbe:
         self.uv_report = b"uv 0.12.7 (fixture build)\n"
         self.calls: list[tuple[list[str], Path]] = []
 
-    def respond(self, arguments: list[str], *, cwd: Path) -> bytes:
+    def respond(self, arguments: list[str], *, cwd: Path, timeout: int = 180) -> bytes:
         """Return selected interpreter or uv facts without executing fixture files."""
         self.calls.append((arguments, cwd))
         if arguments[0] == str(self.python):
@@ -453,6 +457,36 @@ class TestLocalInstallation:
             "--release-identity",
             rolled_back.release,
         ]
+
+    def test_installed_account_outer_bound_follows_its_signed_service_life(
+        self, tmp_path: Path
+    ) -> None:
+        """The signed cap plus 60 seconds bounds account runs; undeclared stays 180."""
+        timeouts: dict[str, int] = {}
+        for name, life in (("undeclared", None), ("declared", 3000)):
+            (tmp_path / name).mkdir()
+            scenario = InstallationScenario(tmp_path / name)
+            configuration = self._account_configuration(_NOW)
+            if life is not None:
+                configuration = replace(configuration, service_life_seconds=life)
+            else:
+                assert b"service_life_seconds" not in DomainCodec().encode_json(configuration)
+            release = scenario.candidate(
+                f"{name}-account",
+                config=DomainCodec().encode_json(configuration),
+                application="execution",
+                mode="paper",
+                config_schema="account-runtime",
+                state_schema="account-journal",
+                initial_state=False,
+            )
+            application = AccountInstalledApplication()
+            with scenario.isolated_installation(inspect_application=True):
+                with patch.object(LocalInstallation, "_run", side_effect=application.run):
+                    scenario.installation.install(release, now=_NOW)
+                    scenario.installation.run(("account",), now=_NOW)
+            timeouts[name] = application.timeouts[-1]
+        assert timeouts == {"undeclared": 180, "declared": 3060}
 
     def test_signed_account_run_rejects_overrides_and_lost_journal(self, tmp_path: Path) -> None:
         """Do not let a request supply another config or silently recreate lost state."""
