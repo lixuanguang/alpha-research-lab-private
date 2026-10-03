@@ -1653,3 +1653,304 @@ history is the retained 60-second trial plus the authored one-hour dashboard. Lo
 multi-day native history and code-cold process start are not covered. It is not MR15
 acceptance: checkpoint percentiles (deferred to stage 2), integrated feature serving,
 stage 2 and 24-hour operation remain open.
+
+#### Feature-serving diagnostic (uncounted, 2026-10-02)
+
+The record's remaining feature dependency is a focused contention diagnosis before any
+further signed feature cohort. The committed driver gains an uncounted
+`features-diagnostic` sequence:
+- freeze, then build, verify and install the four signed targets as in the dashboard
+  cohort;
+- fresh ordinary one-hour grants;
+- one steady fixture trial with `--features` (eight readers at 4 Hz, one-second
+  materialization);
+- the cleanup audit, which always runs.
+
+The trial's gates are retained but not graded: the step records which gates would fail
+instead of stopping. It is not qualification. One steady interval supplies 1,920 lookups,
+but only 60 materializations per source, and no recovery intervals.
+
+Result (`570010b`, `logs/runtime-capacity/features-diagnostic-1/`, ungraded). The
+signed candidate, grants, trial and cleanup audit all ran; the only failing gate was
+`trial_passed`, for feature latency.
+- **Lookups:** all 1,920 were ready with exact offline/online parity. Service time
+  p50/p95/p99 was 1.6/99.2/172.2 ms; scheduled response 9.5/111.2/184.7 ms, against the
+  20/75/200 ms target. The fifth recovery's 106/207 ms miss therefore reproduces on the
+  current runtime.
+- **Materialization:** every source published all 60 versions from 60 distinct native
+  inputs.
+
+**Attribution.** The tail is not lock contention on a source:
+- 108 of the 109 lookups above 75 ms started inside the once-a-second materialization
+  pass. That pass publishes all four sources serially in one thread, taking 137 ms
+  median, 533 ms p95 and 565 ms max. OKX publications alone take 49–65 ms median (up to
+  291 ms).
+- Only 29 slow lookups overlapped a publication of their own source, and the slow
+  lookups are spread evenly across all four sources.
+- Outside the passes the slowest of 1,507 lookups took 128.9 ms, and only one exceeded
+  75 ms.
+- Within a slow lookup, median lock wait was 26.9 ms and median time inside the lock
+  96.1 ms. A store read that normally takes about 1.6 ms is being starved, not blocked.
+
+The materializer, the eight feature readers and the four depth readers are threads of
+one Python process. CPU-bound publication work holds the interpreter lock, and every
+SQLite call in `retrieve_online` releases it and must wait up to a switch interval to
+take it back: the GIL convoy effect.
+
+An offline reproduction on the retained stores (8 reader threads at 4 Hz, 20 s each, no
+signing or network) confirms the mechanism:
+
+| Condition | p50 | p95 | p99 |
+| --- | --- | --- | --- |
+| No CPU thread | 1.4 ms | 3.3 ms | 5.7 ms |
+| 150 ms/s pure-Python CPU thread, 5 ms switch interval | 1.8 ms | 50.9 ms | 97.7 ms |
+| The same, 0.5 ms switch interval | 1.9 ms | 8.6 ms | 12.0 ms |
+
+Candidate corrections, each needing an owner decision and a declaration before a signed
+feature cohort:
+- (a) cut publication CPU, chiefly the OKX 400-level input path for a two-value touch
+  projection;
+- (b) run materialization in its own process, as a separate service would;
+- (c) lower the reader process's switch interval.
+
+Option (c) changes only the measurement process and would not by itself show that a
+deployed topology meets the target.
+
+**Publication profile and correction (a).** An offline profile of one-shot publication
+over the retained diagnostic history found that OKX publication cost 3.84 ms per native
+delivery and Bitfinex 0.36 ms. Of the OKX cost, 76% went to validating book objects:
+9,152 full 400-level books and 9.05 million level checks for 2,288 deliveries.
+
+The feature consumer decoded each retained delivery with the public `SharedBookDelivery`
+schema and then called the public `accept`. Each public boundary re-validates the nested
+book recursively, by design: the repository's tests mutate decoded rows with
+`force_setattr` and require public constructors to refuse them. So every delivery
+validated its whole book four times. The runtime's own source pipe instead decodes once
+into `_DecodedBookObservation`, checks only new clocks on its observed envelopes, and
+calls `_accept_validated`.
+
+The consumer now uses that path. The validate-once schemas move to
+[`capacity_deliveries.py`](../../tests/integration/consumers/runtime/capacity_deliveries.py),
+shared with the read index. No runtime or contract code changes, and public boundaries
+keep recursive validation. Every level and order is still validated once while
+decoding, and new tests show that a retained level with size or count 0 still stops
+publication and that valid envelopes keep identical bytes.
+
+The same profile now costs 1.35 ms per OKX delivery (2.8× less) and 0.13 ms per Bitfinex
+delivery. An identity-keyed validation cache inside `BookObservation` was tried and
+rejected: it would let a mutated instance pass public boundaries.
+
+A second uncounted diagnostic (`331b701`, `logs/runtime-capacity/features-diagnostic-2/`)
+passed every trial gate, including feature latency, and its cleanup audit passed.
+
+| One steady interval | Diagnostic 1 | Diagnostic 2 | Target |
+| --- | --- | --- | --- |
+| Lookup scheduled response p50/p95/p99 | 9.5/111.2/184.7 ms | 6.7/49.3/108.9 ms | 20/75/200 ms |
+| Lookup service p95/p99 (max) | 99.2/172.2 (188.8) ms | 37.8/76.9 (191.1) ms | — |
+| Four-source pass median/p95/max | 137/533/565 ms | 97/349/356 ms | — |
+| OKX BTC/ETH publication median | 65.3/48.7 ms | 48.4/31.1 ms | — |
+
+All 1,920 lookups were ready with exact parity, and all 240 versions were published. Per-second OKX publication fell
+less than the one-shot profile, so it is now dominated by per-publication costs other
+than decoding. The pass p95 of 349 ms and a 191 ms maximum lookup leave the GIL convoy
+visible in the tail. A single interval does not qualify: the earlier miss appeared only
+in the fifth recovery, and materialization percentiles need the initial interval plus 17
+recoveries.
+
+#### Feature materialization process boundary (design approved, 2026-10-02)
+
+Approved by the owner on 2026-10-02 and implemented in the capacity consumer. The feature path runs only in the
+capacity consumer, not as a runtime service. It currently runs the materializer, eight
+instance readers and four depth readers as threads of one observer process, so
+publication CPU delays lookups through the interpreter lock (see the attribution
+above). Cutting decode cost reduced the tail but cannot remove it, and every added
+feature, instrument or reader would bring it back. This design sets the boundary future
+feature serving follows. It changes the measurement topology only: no runtime, contract,
+budget, authority, risk, journal schema or matched-cutoff rule changes.
+
+**Processes.** Each process is a spawned child of the observer:
+- **One materializer process** owns all four sources' publication at the one-second
+  cadence, as a single local feature service would. It opens its own read-only index
+  over the retained delivery logs and decodes once, as now. It holds no account, trading
+  or transport authority. Split it by source group only when a measured pass p99
+  approaches the one-second cadence: today it is 97 ms median and 356 ms max.
+- **Four reader processes**, one per account, each serve that account's two selected
+  instances at 4 Hz. This mirrors the account services that host the instances, and
+  separates lookups from depth readers and from each other's accounts.
+- **The observer** keeps the depth readers, the native index and the resource sampler.
+
+**Store and cutoff semantics.** Readers and the materializer share each source's
+existing SQLite `VersionedFeatureStore` file. Only the materializer writes. The
+per-source `threading.Lock` becomes a per-source advisory file lock (`fcntl.flock`) with
+the same rule: a reader takes its cutoff while holding the lock, so it never sees an
+in-flight activation as `future`. The wait is still counted in lookup latency. Offline
+parity is still checked by every reader.
+
+**Lifecycle and evidence:**
+- Children start after `prepare()` and receive the shared interval clocks. They join on
+  the existing shared shutdown deadline and are terminated if they overrun, which fails
+  the interval.
+- Each child writes its own sample file, merged at finish into the unchanged
+  `materialization-samples.jsonl` and `retrieval-samples.jsonl` rows.
+- Child PIDs are recorded in the observations, so the cleanup audit covers them, and
+  they join the sampled process tree, so CPU and RSS stay complete.
+
+**Unchanged:** 1,920 lookups and 60 versions per source per interval, the 20/75/200 ms
+lookup and 2 s materialization budgets, TTL, missing/stale/future outcomes and parity.
+The initial-plus-17-recovery cohort plan is also unchanged.
+
+**Verification before any signed cohort:**
+1. Port the existing feature tests, adding a two-process test that the file lock
+   reproduces the cutoff wait.
+2. Run `make check`.
+3. Run one uncounted `features-diagnostic` interval.
+4. Draft the feature cohort declaration.
+
+**Implementation and third diagnostic.** `capacity_features.py` now does the following:
+- `launch()` spawns the materializer and four per-account reader processes before the
+  interval; `start()` sends them the interval clocks; `finish()` joins them on the shared
+  deadline and merges their per-process sample files.
+- The publication lock is a thread lock plus `flock`.
+- Child PIDs are recorded as a `feature_processes` trial observation, so the cleanup
+  audit covers them.
+- The one-second schedule test now runs the real processes. A new two-process test
+  shows that a publisher holding the lock in another process makes the reader wait and
+  then read its new version, with the wait counted.
+
+Diagnostic 3 (`0de2acd`, `logs/runtime-capacity/features-diagnostic-3/`, uncounted)
+passed every trial gate and the cleanup audit, which found all five feature processes
+absent afterwards. All 1,920 lookups were ready with exact parity, and all 240 versions
+were published.
+
+| One steady interval | Diagnostic 2 | Diagnostic 3 | Target |
+| --- | --- | --- | --- |
+| Lookup scheduled response p50/p95/p99 | 6.7/49.3/108.9 ms | 4.6/11.6/26.7 ms | 20/75/200 ms |
+| Lookup service p50/p95/p99 (max) | 2.1/37.8/76.9 (191.1) ms | 0.7/2.3/9.2 (65.4) ms | — |
+| Reader lock wait p50/p99 (max) | — | 0.01/4.8 (62.2) ms | — |
+| Four-source pass median/p95/max | 97/349/356 ms | 124/457/516 ms | 2 s durable-to-available p99 |
+| Trial CPU / peak RSS | — | 1.65 cores / 3.22 GB | 7 cores / 24 GiB |
+
+The remaining lookup tail is the reader waiting while the materializer holds a source's
+lock, as the cutoff rule requires, not interpreter contention. Publication passes are
+somewhat slower in their own process; they remain far inside the one-second cadence
+and the materialization budget. One interval still does not qualify.
+
+#### Integrated feature cohort declaration (draft 2026-10-02)
+
+Draft, not yet approved. This cohort qualifies integrated feature serving for the
+stage-1 envelope on the approved process topology. Earlier feature attempts (v1–v5) and
+the three diagnostics stay as they are and are not pooled.
+
+The committed driver gains a counted `features` sequence:
+- freeze, then build, verify and install the four signed `paper` targets as in the
+  dashboard cohort (same configuration and state schemas, ephemeral builder key,
+  seven-day policy, fresh journals, disabled deployments);
+- one set of ordinary one-hour grants;
+- the initial steady feature interval, then 17 recovery-steady feature intervals on the
+  same targets, each followed at once by its cleanup audit;
+- the 17-interval materialization cohort through
+  [`capacity_feature_results.py`](../../tests/integration/consumers/runtime/capacity_feature_results.py).
+
+No grant, lifetime, budget, risk or authority limit changes. The recovery path still
+refuses to start with less than 120 s of grant headroom, so running out of grant time
+fails the cohort; it is not extended. Diagnostic 3's steady trial took about 131 s of
+wall time; 18 intervals at about 150 s each need roughly 45 of the 60 minutes.
+
+Pass requires every step once, in order:
+1. Freeze, signed candidate and grants.
+2. The initial steady interval passes every trial gate, including its 1,920 ready
+   lookups with parity and the lookup budget. It is reported separately and not pooled.
+3. Each of the 17 recovery intervals passes every trial gate, including recovery
+   preservation and all-eight progress, and independently meets the 20/75/200 ms lookup
+   budget for service and scheduled response over its 1,920 lookups. Each cleanup audit
+   finds every observed process absent, including the five feature processes, and all
+   four accounts stopped.
+4. The cohort aggregate passes: 17 runs, four sources, each with 60 distinct native
+   inputs per interval and 1,020 durable-to-available materializations meeting 2 s at
+   p99.
+5. `make check` on the unchanged frozen source.
+
+One uncounted rehearsal runs first into
+`logs/runtime-capacity/features-cohort-rehearsal-1/`. The counted attempt writes to
+`logs/runtime-capacity/features-cohort/`, runs once, stops at the first failure and needs
+the owner's go-ahead. It does not qualify checkpoint percentiles, stage 2 or 24-hour
+operation.
+
+Uncounted rehearsals:
+
+1. `features-cohort-rehearsal-1` (`9997661`) passed the freeze, candidate, grants and the
+   initial steady interval (lookup response p95/p99 12.0/27.7 ms). It then stopped at
+   recovery-01 on a runtime gate, not a feature gate: Bitfinex BTC durable-to-BBO for
+   `bitfinex-shared` reached p95/p99 148.2/220.2 ms against 20/100/500 ms. That interval's
+   lookups still passed (p95/p99 9.9/18.6 ms). Cleanup was audited.
+   - **Trend.** Moving feature work out of one interpreter shifted its cost onto the
+     runtime. Bitfinex BTC durable-to-BBO p95/p99 was 13/46 ms with no features, 13/64
+     and 21/68 ms in-process (diagnostics 1–2), 35/100 ms with processes (diagnostic 3),
+     39/120 ms in the rehearsal's steady interval, and 148/220 ms in recovery-01.
+   - **Cause.** All 219 slow deliveries fall in seconds 44–48, inside the authored 4×
+     burst (100 messages/s per source, seconds 38–48) that every recovery interval starts
+     with. During the burst the materializer spent 330–705 ms of each second publishing,
+     and host CPU rose from about 2 to 3.4–4.1 of 10 cores. Inside one interpreter the
+     GIL had capped feature work at about one core; as processes it runs alongside
+     runtime book reconstruction.
+   - **Fix.** The split also added a decode. The materializer's index decoded each
+     delivery and its causal source decoded it again, three decodes per delivery across
+     processes against two before. The index poll now hands each decoded delivery to an
+     optional per-source hook, which the materializer uses to advance its causal source.
+     A new test shows that hook-fed and re-decoded causal sources give identical lookups.
+2. `features-cohort-rehearsal-2` (`a70e93f`) passed the initial steady interval and
+   recovery-01 and -02. Recovery-01's Bitfinex BTC durable-to-BBO fell to p95/p99 21/77 ms
+   from rehearsal 1's 148/220 ms, and lookups stayed at about 10/20 ms. It then stopped at
+   recovery-03 on four runtime gates: Bitfinex durable-to-BBO (p95 215–218 ms) and OKX
+   receipt-to-durable (p95 577–820 ms against 250 ms). Cleanup was audited.
+   - **Not storage.** Inside that interval's burst (seconds 39–48), fsync stayed at
+     0.1–0.3 ms p95 and append-to-durable at 7–8 ms. Received messages waited up to
+     0.93 s (OKX) and 0.42 s (Bitfinex) before the capture append began. The capture
+     processes were not scheduled.
+   - **Unattributed.** The sampled process tree used 2.17 cores, as in recovery-02 (2.14
+     cores, receipt-to-append wait p95 23 ms), and the materializer pass median was
+     unchanged (94 ms). The trial samples only its own process tree. The evidence
+     directory sits in the iCloud-synced repository, and iCloud reported a sync up at
+     14:32:56 UTC, just after the interval; the system log yields no attributable
+     entries. Feature-process contention and host background work therefore cannot yet
+     be told apart.
+
+3. `features-cohort-rehearsal-3` (`487d2c6`, evidence outside iCloud, host sampler on)
+   passed the initial steady interval and recoveries 01–04. It stopped at recovery-05 on
+   Bitfinex durable-to-BBO (p95 111–112 ms against 100 ms). Lookups passed in every
+   interval, and cleanup was audited.
+   - **A step after two recoveries.** In both rehearsals 2 and 3, the steady interval
+     and recoveries 01–02 are healthy: Bitfinex durable-to-BBO p95 was 5–38 ms, and
+     receipt-to-durable p95 1–17 ms. From recovery-03 on, both step up and stay up: BBO
+     p95 79–218 ms, and in rehearsal 2's recovery-03 receipt-to-durable reached 186–820
+     ms. Host busy cores (4.7–5.0 average), trial CPU (1.8–2.2 cores), RSS (3.2–3.3 GB)
+     and account state size are flat across the same intervals.
+   - **Desktop load is present but not the step.** During recovery-05's burst the host
+     reached 6–7 busy cores. About 1.5–2.5 of those were outside the trial: an editor
+     helper at up to 1 core, iCloud at up to 1 core, and browser and chat clients. The
+     earlier healthy intervals ran beside the same kind of load.
+   - **Ruled out.** Each account keeps every fsynced request file in
+     `state/service-requests` (1,621 for `bitfinex-shared` after six intervals, about
+     270 per interval). A probe on this disk found write, fsync and directory fsync flat
+     at about 0.1 ms p50 from 60 to 4,860 files, so directory growth alone does not
+     explain the step.
+   - **Unresolved.** Stage-1 cohorts never chained more than one recovery, so this is
+     the first workload to run 17 on one candidate. The cause of the step remains
+     unattributed.
+
+**Host attribution and evidence location (2026-10-02).** Two changes before rehearsal 3:
+- **Host sampler.** The cohort driver now runs
+  [`capacity_host.py`](../../tests/integration/consumers/runtime/capacity_host.py) around
+  every feature trial. Once a second it records host busy cores (`psutil.cpu_times`) and
+  the 12 busiest processes the user may inspect, into `<root>/<trial>.host-resources.jsonl`.
+  It is ungraded and runs in the otherwise idle driver. Root-owned daemons appear only in
+  the host total.
+- **Evidence outside iCloud.** A three-second idle probe after rehearsal 2 already found
+  the host 4.8–6 cores busy: iCloud's `cloudd` at 0.7–1.0 core and `fileproviderd` at
+  0.3–0.9 core, alongside an editor helper at about 1 core. The repository is in
+  iCloud-synced Documents, and each rehearsal writes gigabytes under `logs/`. New cohort
+  outputs therefore go to `~/AlphaResearchEvidence.noindex/runtime-capacity/<name>`, which
+  is outside iCloud and skipped by Spotlight, with a symlink at
+  `logs/runtime-capacity/<name>`. Earlier evidence stays where it is.
+
+Neither change touches runtime code, budgets or gates.

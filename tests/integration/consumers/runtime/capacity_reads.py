@@ -27,10 +27,10 @@ from typing import Literal, Protocol, cast
 # third party library imports
 import msgspec
 import psutil  # type: ignore[import-untyped]  # [owner=runtime; rationale=locked diagnostic dependency has no bundled typing stubs; expires=2027-02-01]
+from capacity_deliveries import _IndexedSharedDelivery
 from capacity_features import CapacityFeatureObserver
 
 # project library imports
-from applications.execute.source_service import _DecodedBookObservation
 from configuration import (
     BookKey,
     BookRegistryConfiguration,
@@ -69,26 +69,6 @@ class _ServiceRun(msgspec.Struct, frozen=True):
     """Read only the currently active run identity from the service status."""
 
     run_id: str
-
-
-class _IndexedSourceDelivery(LiveBookDelivery, frozen=True):
-    """Decode complete typed native records before checking their separate delivery clock."""
-
-    book: _DecodedBookObservation
-
-    def __post_init__(self) -> None:
-        """Avoid recursively validating native fields already checked by the typed decoder."""
-        self._require_availability()
-
-
-class _IndexedSharedDelivery(SharedBookDelivery, frozen=True):
-    """Decode a strict complete envelope for the read-only retained index."""
-
-    source: _IndexedSourceDelivery
-
-    def __post_init__(self) -> None:
-        """Check coordination after the decoder validates every nested source and policy field."""
-        self._require_coordination()
 
 
 class _MemorySample(Protocol):
@@ -168,6 +148,8 @@ class _SourceIndex:
         self.offset = 0
         self.deliveries = 0
         self.history: deque[tuple[BookQuote, bytes, int]] = deque(maxlen=history_capacity)
+        # A consumer that needs every delivery decoded can take it here, once.
+        self.delivered: Callable[[LiveBookDelivery], None] | None = None
 
 
 class _RetainedBookIndex:
@@ -278,6 +260,8 @@ class _RetainedBookIndex:
                         source.history.append((quote, line, len(line)))
                         source.deliveries += 1
                         source.offset = stream.tell()
+                    if source.delivered is not None:
+                        source.delivered(delivery.source)
                     count += 1
         return count
 
@@ -1055,7 +1039,12 @@ class CapacityReadObserver:
             "io_unavailable_samples": sampler.io_unavailable_samples,
         }
 
-    def run(self, *, on_interval_complete: Callable[[], None] | None = None) -> dict[str, object]:
+    def run(
+        self,
+        *,
+        on_interval_complete: Callable[[], None] | None = None,
+        on_feature_processes: Callable[[dict[str, int]], None] | None = None,
+    ) -> dict[str, object]:
         """Run the exact eight-reader schedule and retain every observation and refusal.
 
         The caller starts this only after the signed local services are active. The
@@ -1063,7 +1052,8 @@ class CapacityReadObserver:
         An optional callback runs as soon as the steady readers stop, before
         independent raw replay; it can request orderly service shutdown.
         Optional feature serving composes the retained native sources with the
-        existing versioned store during this same finite interval.
+        existing versioned store during this same finite interval; its process ids
+        go to ``on_feature_processes`` as soon as they exist.
         """
         self.output.mkdir(parents=True, exist_ok=False)
         discovery_started = time.perf_counter()
@@ -1106,6 +1096,9 @@ class CapacityReadObserver:
         )
         if feature_observer is not None:
             feature_observer.prepare()
+            feature_pids = feature_observer.launch()
+            if on_feature_processes is not None:
+                on_feature_processes(feature_pids)
         sampler_started = time.perf_counter()
         context = multiprocessing.get_context("spawn")
         parent_control, child_control = cast(
@@ -1176,6 +1169,8 @@ class CapacityReadObserver:
                 reader_control.send((started, stop))
         except Exception as error:
             sampler_stop.set()
+            if feature_observer is not None:
+                feature_observer.close()
             if started_process and sampler_process.is_alive():
                 sampler_process.terminate()
                 sampler_process.join(2)

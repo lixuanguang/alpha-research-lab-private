@@ -450,6 +450,13 @@ _PASSING = (Gate("ok", True, None),)
 class _ReportingCohort(Cohort):
     """Replace every side-effecting action with a report of its inputs."""
 
+    trials: list[tuple[str, bool, bool]]
+
+    def run(self) -> None:
+        """Start each run with an empty trial report."""
+        self.trials = []
+        super().run()
+
     def freeze(self) -> dict[str, object]:
         """Freeze nothing."""
         return {}
@@ -470,8 +477,23 @@ class _ReportingCohort(Cohort):
         """Report the root and public venue the grants would bind."""
         return {"root": root.name, "venue": public_venue}
 
-    def trial(self, root: pathlib.Path, name: str, public_venue: PublicVenue) -> tuple[Gate, ...]:
-        """Run nothing and pass."""
+    def trial(
+        self,
+        root: pathlib.Path,
+        name: str,
+        public_venue: PublicVenue,
+        *,
+        features: bool = False,
+        recover: bool = False,
+    ) -> tuple[Gate, ...]:
+        """Report the trial's flags; a diagnostic feature trial fails one gate."""
+        self.trials.append((name, features, recover))
+        if features and self.sequence == "features-diagnostic":
+            return (*_PASSING, Gate("feature_latency", False, None))
+        return _PASSING
+
+    def feature_cohort(self) -> tuple[Gate, ...]:
+        """Grade nothing and pass."""
         return _PASSING
 
     def audit(self, root: pathlib.Path, trial: str) -> tuple[Gate, ...]:
@@ -567,6 +589,186 @@ class TestCohortSequence:
                 sequence=sequence,
                 history_trial=None if trial is None else pathlib.Path(trial),
             )
+
+    def test_features_diagnostic_retains_failed_gates_and_audits(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """An ungraded feature trial records what it fails and cleanup is still audited."""
+        steps = self._steps(tmp_path, "features-diagnostic")
+        assert [name for name, _ in steps] == [
+            "freeze",
+            "candidate",
+            "grant-steady",
+            "steady-features-diagnostic",
+            "cleanup-audit-steady",
+        ]
+        assert dict(steps)["steady-features-diagnostic"] == {
+            "graded": False,
+            "gates": 2,
+            "failed_gates": ["feature_latency"],
+        }
+
+    def test_a_failed_diagnostic_trial_still_audits_cleanup(self, tmp_path: pathlib.Path) -> None:
+        """A crashed feature trial stops the cohort only after its cleanup audit runs."""
+
+        class _Crashing(_ReportingCohort):
+            """Crash inside the feature trial."""
+
+            def trial(
+                self,
+                root: pathlib.Path,
+                name: str,
+                public_venue: PublicVenue,
+                *,
+                features: bool = False,
+                recover: bool = False,
+            ) -> tuple[Gate, ...]:
+                """Fail as a crashed trial process would."""
+                raise RuntimeError("trial crashed")
+
+        cohort = _Crashing(
+            tmp_path / "cohort",
+            repository=tmp_path,
+            launcher=tmp_path / "launcher",
+            python=tmp_path / "python",
+            key_root=tmp_path / "keys",
+            socket_base=tmp_path / "sockets",
+            label="sequence-test",
+            sequence="features-diagnostic",
+        )
+        with pytest.raises(RuntimeError, match="trial crashed"):
+            cohort.run()
+        rows = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in (tmp_path / "cohort/steps.jsonl").read_bytes().splitlines()
+        ]
+        assert [(row["step"], row["passed"]) for row in rows][-2:] == [
+            ("steady-features-diagnostic", False),
+            ("cleanup-audit-steady", True),
+        ]
+
+    def test_features_sequence_runs_17_recoveries_each_audited(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """The counted feature cohort audits every interval and grades the cohort last."""
+        cohort = _ReportingCohort(
+            tmp_path / "cohort",
+            repository=tmp_path,
+            launcher=tmp_path / "launcher",
+            python=tmp_path / "python",
+            key_root=tmp_path / "keys",
+            socket_base=tmp_path / "sockets",
+            label="sequence-test",
+            sequence="features",
+        )
+        cohort.run()
+        names = [
+            cast(str, msgspec.json.decode(line, type=dict[str, object])["step"])
+            for line in (tmp_path / "cohort/steps.jsonl").read_bytes().splitlines()
+        ]
+        recoveries = [f"recovery-{index:02d}" for index in range(1, 18)]
+        assert names == [
+            "freeze",
+            "candidate",
+            "grant-steady",
+            *(
+                step
+                for trial in ("steady", *recoveries)
+                for step in (f"{trial}-features-trial", f"cleanup-audit-{trial}")
+            ),
+            "feature-cohort",
+        ]
+        assert cohort.trials == [
+            ("steady", True, False),
+            *((name, True, True) for name in recoveries),
+        ]
+
+    def test_a_failed_feature_interval_is_audited_then_stops(self, tmp_path: pathlib.Path) -> None:
+        """A failing recovery interval keeps its audit and ends the counted cohort."""
+
+        class _FailingThird(_ReportingCohort):
+            """Fail the third recovery's gates."""
+
+            def trial(
+                self,
+                root: pathlib.Path,
+                name: str,
+                public_venue: PublicVenue,
+                *,
+                features: bool = False,
+                recover: bool = False,
+            ) -> tuple[Gate, ...]:
+                """Fail one interval as a latency miss would."""
+                super().trial(root, name, public_venue, features=features, recover=recover)
+                return (Gate("trial_passed", name != "recovery-03", None),)
+
+        cohort = _FailingThird(
+            tmp_path / "cohort",
+            repository=tmp_path,
+            launcher=tmp_path / "launcher",
+            python=tmp_path / "python",
+            key_root=tmp_path / "keys",
+            socket_base=tmp_path / "sockets",
+            label="sequence-test",
+            sequence="features",
+        )
+        with pytest.raises(RuntimeError, match="recovery-03-features-trial"):
+            cohort.run()
+        rows = [
+            msgspec.json.decode(line, type=dict[str, object])
+            for line in (tmp_path / "cohort/steps.jsonl").read_bytes().splitlines()
+        ]
+        assert [(row["step"], row["passed"]) for row in rows][-2:] == [
+            ("recovery-03-features-trial", False),
+            ("cleanup-audit-recovery-03", True),
+        ]
+        assert [name for name, _, _ in cohort.trials][-1] == "recovery-03"
+
+
+class TestFeatureCohortGates:
+    """Grade the aggregated 17-interval materialization cohort."""
+
+    @staticmethod
+    def _result() -> dict[str, object]:
+        """Return a passing aggregate for four sources and 17 runs."""
+        return {
+            "status": "pass",
+            "runs": [{} for _ in range(17)],
+            "materialization_per_source": {
+                name: {"status": "pass", "sample_count": 1020}
+                for name in ("okx-btc", "okx-eth", "bitfinex-btc", "bitfinex-eth")
+            },
+        }
+
+    def test_passing_cohort_passes(self) -> None:
+        """Four passing sources over 17 runs pass every gate."""
+        assert all(gate.passed for gate in GateAssessment.feature_cohort(self._result()))
+
+    @pytest.mark.parametrize(
+        ("path", "value", "gate"),
+        (
+            (("status",), "fail", "feature_cohort.status"),
+            (("runs",), [{}] * 16, "feature_cohort.runs"),
+            (
+                ("materialization_per_source", "okx-eth", "status"),
+                "unmeasured",
+                "feature_cohort.okx-eth.materialization",
+            ),
+        ),
+    )
+    def test_each_cohort_gate_fails(self, path: Path, value: object, gate: str) -> None:
+        """A failed aggregate, a short cohort or one unqualified source fails its gate."""
+        result = self._result()
+        _set(result, path, value)
+        assert {g.name for g in GateAssessment.feature_cohort(result) if not g.passed} == {gate}
+
+    def test_a_missing_source_fails(self) -> None:
+        """Three sources cannot stand in for the declared four."""
+        result = self._result()
+        del cast(dict[str, object], result["materialization_per_source"])["okx-eth"]
+        assert "feature_cohort.four_sources" in {
+            g.name for g in GateAssessment.feature_cohort(result) if not g.passed
+        }
 
 
 class TestFilesystemColdGates:

@@ -7,7 +7,11 @@ Every step stops the cohort at its first failure and is retained in ``steps.json
 The ``dashboard`` sequence runs the steady trial, populated-history queries and the
 public Bitfinex route; the ``public-okx`` sequence runs only the public OKX route; the
 ``filesystem-cold`` sequence builds nothing and queries a retained counted trial's
-history with every reader file evicted from the page cache before each round.
+history with every reader file evicted from the page cache before each round; the
+uncounted ``features-diagnostic`` sequence runs one signed steady trial with integrated
+feature serving, retains its gates without grading them, and always audits cleanup;
+the ``features`` sequence runs the initial steady feature interval and 17 recovery
+intervals, auditing each, then grades the 17-interval materialization cohort.
 
 The trial gates restate the stage-1 targets the runtime-capacity record keeps
 unchanged: they read the statuses ``CapacityResultsCollector`` derives from the
@@ -25,12 +29,15 @@ import subprocess  # nosec B404  # [owner=runtime; rationale=declared cohort bui
 import sys
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Literal, cast
 from uuid import uuid4
 
 # third party library imports
 import msgspec
+from capacity_feature_results import FeatureCohortResults
+from capacity_host import HostSampler
 from capacity_inputs import CapacityWorkload
 from capacity_results import CapacityResultsCollector
 
@@ -42,7 +49,8 @@ from runtime import InstalledIdentity
 from serialization import DomainCodec
 
 PublicVenue = Literal["okx", "bitfinex"] | None
-Sequence = Literal["dashboard", "public-okx", "filesystem-cold"]
+Sequence = Literal["dashboard", "public-okx", "filesystem-cold", "features-diagnostic", "features"]
+_FEATURE_RECOVERIES = 17
 _GIB = 1024**3
 # Unchanged stage-1 resource ceilings (budgets_unchanged in the capacity record).
 _AVERAGE_CPU_CORES = 7
@@ -296,6 +304,28 @@ class GateAssessment:
                 "results_equal_counted_attempt",
                 isinstance(expected, dict) and bool(expected) and expected == counted,
                 {"expected": expected, "counted": counted},
+            ),
+        )
+
+    @staticmethod
+    def feature_cohort(result: dict[str, object]) -> tuple[Gate, ...]:
+        """Require 17 graded runs and every source's materializations within the 2 s budget."""
+        sources = _Tree.mapping(result.get("materialization_per_source") or {})
+        runs = len(_Tree.items(result.get("runs")))
+        return (
+            Gate("feature_cohort.status", result.get("status") == "pass", result.get("status")),
+            Gate("feature_cohort.runs", runs == _FEATURE_RECOVERIES, runs),
+            Gate("feature_cohort.four_sources", len(sources) == 4, sorted(sources)),
+            *(
+                Gate(
+                    f"feature_cohort.{name}.materialization",
+                    _Tree.get(source, "status") == "pass",
+                    {
+                        key: _Tree.get(source, key)
+                        for key in ("sample_count", "p50_ns", "p95_ns", "p99_ns", "status")
+                    },
+                )
+                for name, source in sorted(sources.items())
             ),
         )
 
@@ -614,24 +644,42 @@ class Cohort:
             self.install(self.route_root, account.account_id)
         return {"socket_root": str(self.socket_base / "route")}
 
-    def trial(self, root: Path, name: str, public_venue: PublicVenue) -> tuple[Gate, ...]:
+    def trial(
+        self,
+        root: Path,
+        name: str,
+        public_venue: PublicVenue,
+        *,
+        features: bool = False,
+        recover: bool = False,
+    ) -> tuple[Gate, ...]:
         """Run one finite trial, collect its facts and assess its declared gates."""
         output = root / name
-        self.command(
-            f"trial-{root.name}-{name}",
-            [
-                str(self.python),
-                str(self.consumers / "capacity_trial.py"),
-                "run",
-                "--root",
-                str(root),
-                "--output",
-                str(output),
-                "--launcher",
-                str(self.launcher),
-                *(("--public-venue", public_venue) if public_venue else ()),
-            ],
-        )
+        # Feature trials also sample the whole host, ungraded, to attribute contention.
+        host = HostSampler(root / f"{name}.host-resources.jsonl") if features else None
+        if host is not None:
+            host.start()
+        try:
+            self.command(
+                f"trial-{root.name}-{name}",
+                [
+                    str(self.python),
+                    str(self.consumers / "capacity_trial.py"),
+                    "run",
+                    "--root",
+                    str(root),
+                    "--output",
+                    str(output),
+                    "--launcher",
+                    str(self.launcher),
+                    *(("--public-venue", public_venue) if public_venue else ()),
+                    *(("--features",) if features else ()),
+                    *(("--recover",) if recover else ()),
+                ],
+            )
+        finally:
+            if host is not None:
+                host.stop()
         results = CapacityResultsCollector(
             output / "operating", output / "measurements", output / "reads"
         ).write(output / "results.json")
@@ -705,6 +753,26 @@ class Cohort:
         (output / "assessment.json").write_bytes(self.codec.encode_json(gates))
         return gates
 
+    def features_diagnostic(self) -> dict[str, object]:
+        """Run the feature trial and retain, without grading, every gate it would fail."""
+        gates = self.trial(self.root, "steady", None, features=True)
+        return {
+            "graded": False,
+            "gates": len(gates),
+            "failed_gates": [gate.name for gate in gates if not gate.passed],
+        }
+
+    def feature_cohort(self) -> tuple[Gate, ...]:
+        """Grade the 17 recovery intervals' materializations as one declared cohort."""
+        result = FeatureCohortResults(
+            tuple(
+                self.root / f"recovery-{index:02d}" / "reads" / "features"
+                for index in range(1, _FEATURE_RECOVERIES + 1)
+            )
+        ).collect()
+        (self.root / "feature-cohort.json").write_bytes(self.codec.encode_json(result))
+        return GateAssessment.feature_cohort(result)
+
     def audit(self, root: Path, trial: str) -> tuple[Gate, ...]:
         """Re-inspect every account through the signed launcher and check observed pids."""
         output = root / trial
@@ -760,6 +828,29 @@ class Cohort:
             self.step("filesystem-cold-queries", self.filesystem_cold)
             return
         self.step("candidate", self.candidate)
+        if self.sequence == "features":
+            self.step("grant-steady", lambda: self.grant(self.root, None))
+            trials = (
+                ("steady", False),
+                *((f"recovery-{index:02d}", True) for index in range(1, _FEATURE_RECOVERIES + 1)),
+            )
+            for name, recover in trials:
+                try:
+                    self.step(
+                        f"{name}-features-trial",
+                        partial(self.trial, self.root, name, None, features=True, recover=recover),
+                    )
+                finally:
+                    self.step(f"cleanup-audit-{name}", partial(self.audit, self.root, name))
+            self.step("feature-cohort", self.feature_cohort)
+            return
+        if self.sequence == "features-diagnostic":
+            self.step("grant-steady", lambda: self.grant(self.root, None))
+            try:
+                self.step("steady-features-diagnostic", self.features_diagnostic)
+            finally:
+                self.step("cleanup-audit-steady", lambda: self.audit(self.root, "steady"))
+            return
         if self.sequence == "dashboard":
             self.step("grant-steady", lambda: self.grant(self.root, None))
             self.step("steady-trial", lambda: self.trial(self.root, "steady", None))
@@ -801,7 +892,9 @@ def main() -> None:
         parser.add_argument(option, type=Path, required=True)
     parser.add_argument("--label", required=True)
     parser.add_argument(
-        "--sequence", choices=("dashboard", "public-okx", "filesystem-cold"), default="dashboard"
+        "--sequence",
+        choices=("dashboard", "public-okx", "filesystem-cold", "features-diagnostic", "features"),
+        default="dashboard",
     )
     parser.add_argument("--history-trial", type=Path, default=None)
     args = parser.parse_args(namespace=_Arguments())

@@ -700,7 +700,12 @@ class CapacityTrial:
                 duration_seconds=60,
                 features=self.features,
                 feature_cohort="recovery_steady" if self.recover else "initial_steady",
-            ).run(on_interval_complete=self._finish_healthy_interval)
+            ).run(
+                on_interval_complete=self._finish_healthy_interval,
+                on_feature_processes=lambda pids: self.record(
+                    "feature_processes", {"feature_pids": pids}
+                ),
+            )
             result["measurement_and_postprocess_seconds"] = time.monotonic() - start
         except Exception as error:
             self.failures.append(f"{type(error).__name__}: {error}")
