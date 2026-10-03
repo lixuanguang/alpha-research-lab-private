@@ -356,3 +356,20 @@ The owner approved this design on 2026-10-04, with these decisions:
   `DependencyRepository` and `EngineeringStandards`. The package exports those classes
   instead of the functions. The `tests/engineering` test functions, helpers and nested
   doubles are in classes. The ledger shrank from 555 to 464 findings.
+- **Milestones 3–5 (2026-10-04): foundations, configuration and execution.**
+  - `serialization` exports `DurableDirectory` and `SqliteLayout` instead of three
+    functions (callers in 20 files). `strategies` exports `ReferencePolicies.create`
+    instead of `reference_policy`.
+  - The accounting, Coinbase, query-reader and runtime helpers moved into their owning
+    classes; the chunk-read lambdas became `functools.partial`.
+  - `configuration.venue_secrets` splits into `SecretFile` and `CredentialRedaction`.
+    The process-wide registry and lock are now class state with the same copy-on-write
+    and frame-locals behaviour.
+  - The account-admission attribution lambdas became methods. `_Latest.of` does not key
+    on the callback, so behaviour is unchanged.
+  - The journal head, row and summary classes that unit tests need are now public names
+    of `execution.account_state`, but are not exported. The record types carry no wire
+    tags, so the journal format is unchanged. `_AccountTransaction`, `_SavedDecision` and
+    `_SavedPortfolioBatch` stay private pending the capacity-harness decision.
+  - The runtime, accounting, configuration and execution unit tests moved into classes,
+    with callable test doubles. The ledger shrank from 464 to 319 findings.

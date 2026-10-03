@@ -17,7 +17,7 @@ from market_data.adapters.transport import PublicHTTPS
 from market_data.contracts import PublicRequest
 from market_data.storage import RawStore
 from runtime import InstalledIdentity
-from serialization import DomainCodec, sync_directory
+from serialization import DomainCodec, DurableDirectory
 
 
 class _PublicArguments(argparse.Namespace):
@@ -65,7 +65,7 @@ def acquire_public(argv: list[str]) -> int:
         raw_path = args.output / "raw"
         raw_path.mkdir(exist_ok=True)
         for directory in (args.output.parent, args.output):
-            sync_directory(directory)
+            DurableDirectory.sync(directory)
         ingestion = PublicIngestion(sources, RawStore(raw_path))
         state = ingestion.resume(
             job,

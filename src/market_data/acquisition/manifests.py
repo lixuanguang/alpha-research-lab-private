@@ -16,7 +16,7 @@ from msgspec.structs import replace
 from configuration import ResolvedManifest
 from market_data.contracts import RawObject, SourceRequest
 from market_data.storage import RawStore
-from serialization import DomainCodec, sync_directory
+from serialization import DomainCodec, DurableDirectory
 
 
 class AcquisitionManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
@@ -103,7 +103,7 @@ class AcquisitionManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
                 output.flush()
                 os.fsync(output.fileno())
                 os.replace(staging, path)
-                sync_directory(path.parent)
+                DurableDirectory.sync(path.parent)
             finally:
                 staging.unlink(missing_ok=True)
 

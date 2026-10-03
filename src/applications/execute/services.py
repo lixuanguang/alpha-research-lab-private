@@ -68,7 +68,7 @@ from runtime import (
     SharedStrategyBinding,
 )
 from serialization import DomainCodec, WireRecord
-from strategies import DecisionPolicy, reference_policy
+from strategies import DecisionPolicy, ReferencePolicies
 from telemetry import (
     HealthAlert,
     HealthMetric,
@@ -256,7 +256,7 @@ class PaperServices:
     def policy(self, instance: PaperServiceInstance) -> DecisionPolicy:
         """Resolve the explicitly selected installed reference formula without fallback."""
         source = next(item for item in self.config.sources if item.name == instance.source)
-        return reference_policy(
+        return ReferencePolicies.create(
             instance.policy,
             instance.quantity,
             source.scenario.adverse.currency,

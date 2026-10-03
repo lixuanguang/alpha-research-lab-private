@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import NoReturn
 
 # project library imports
-from configuration import VENUE_SECRET_FILES, SecretValue, VenueSecretsError, read_secret_fields
+from configuration import VENUE_SECRET_FILES, SecretFile, SecretValue, VenueSecretsError
 
 _FIELDS = VENUE_SECRET_FILES["coinbase"][1]
 
@@ -38,7 +38,7 @@ class CoinbaseCredentials:
         """
         if any(type(value) is not SecretValue for value in (key, secret, passphrase)):
             raise TypeError("Exchange credentials must be SecretValue wrappers")
-        if not _decoded(secret):
+        if not CoinbaseCredentials._decoded(secret):
             raise CoinbaseAccessError(
                 "Fill API_KEY, API_SECRET (base64), and API_PASSPHRASE in the Exchange secrets file"
             )
@@ -62,7 +62,7 @@ class CoinbaseCredentials:
             CoinbaseAccessError: Exchange credentials are missing, malformed or incompatible.
         """
         try:
-            fields = read_secret_fields(path, _FIELDS)
+            fields = SecretFile.read_fields(path, _FIELDS)
         except VenueSecretsError as error:
             raise CoinbaseAccessError(
                 f"{error}; Exchange L3 access unverified (API_SECRET must be base64)"
@@ -102,13 +102,13 @@ class CoinbaseCredentials:
             "signature": base64.b64encode(signature).decode(),
         }
 
+    @staticmethod
+    def _decoded(secret: SecretValue) -> bytes | None:
+        """Decode a base64 secret, returning None rather than raising.
 
-def _decoded(secret: SecretValue) -> bytes | None:
-    """Decode a base64 secret, returning None rather than raising.
-
-    Returning keeps the raw value out of any traceback frame's locals.
-    """
-    try:
-        return base64.b64decode(secret.reveal(), validate=True)
-    except ValueError:
-        return None
+        Returning keeps the raw value out of any traceback frame's locals.
+        """
+        try:
+            return base64.b64decode(secret.reveal(), validate=True)
+        except ValueError:
+            return None

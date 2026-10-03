@@ -31,6 +31,7 @@ from execution import (
     AccountExecutionResult,
     AccountJournal,
     AccountObservation,
+    PaperOwner,
     SocketPaperAccount,
 )
 from serialization import DomainCodec
@@ -123,6 +124,23 @@ class TestAccountOwnerService:
         retained = tuple(service.requests_path.glob("*.json"))
         assert len(retained) == 1 and retained[0].read_bytes() == payload
 
+    @staticmethod
+    def _service(
+        tmp_path: Path, owner: PaperOwner, selected: AccountConfiguration, seconds: int
+    ) -> AccountOwnerService:
+        """Bind the service without serving."""
+        return AccountOwnerService(
+            application=_RecordingAccountApplication(),
+            config=selected,
+            config_path=tmp_path / "config.json",
+            journal_path=tmp_path / "account.sqlite3",
+            telemetry_path=None,
+            release_identity=owner.release_identity,
+            paper_owner=owner,
+            socket_path=tmp_path / "account.sock",
+            duration_seconds=seconds,
+        )
+
     def test_service_life_is_bounded_by_its_signed_configuration(self, tmp_path: Path) -> None:
         """Undeclared configurations keep 120 s; a declared cap admits exactly up to itself."""
         journal_path = tmp_path / "account.sqlite3"
@@ -132,25 +150,11 @@ class TestAccountOwnerService:
         assert b"service_life_seconds" not in DomainCodec().encode_json(config)
         declared = replace(config, service_life_seconds=3000)
 
-        def service(selected: AccountConfiguration, seconds: int) -> AccountOwnerService:
-            """Bind the service without serving."""
-            return AccountOwnerService(
-                application=_RecordingAccountApplication(),
-                config=selected,
-                config_path=tmp_path / "config.json",
-                journal_path=journal_path,
-                telemetry_path=None,
-                release_identity=owner.release_identity,
-                paper_owner=owner,
-                socket_path=tmp_path / "account.sock",
-                duration_seconds=seconds,
-            )
-
-        assert service(config, 120).duration_seconds == 120
-        assert service(declared, 3000).duration_seconds == 3000
+        assert self._service(tmp_path, owner, config, 120).duration_seconds == 120
+        assert self._service(tmp_path, owner, declared, 3000).duration_seconds == 3000
         for selected, seconds in ((config, 121), (declared, 3001)):
             with pytest.raises(ValueError, match="fixed installed account"):
-                service(selected, seconds)
+                self._service(tmp_path, owner, selected, seconds)
         with pytest.raises(ValueError, match="finite declared bound"):
             replace(config, service_life_seconds=90_001)
         request = AccountExecutionRequest(

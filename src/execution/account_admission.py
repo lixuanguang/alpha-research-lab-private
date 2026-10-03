@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from functools import partial
 from itertools import compress
 from typing import TYPE_CHECKING
 
@@ -53,12 +54,6 @@ if TYPE_CHECKING:
 type _Clocks = tuple[tuple[str, datetime], ...]
 
 
-def _replaced(kept: tuple[object, ...], items: tuple[object, ...]) -> Iterator[int]:
-    """Yield the positions of ``kept`` whose item ``items`` holds a different object."""
-    changed: Iterable[bool] = map(operator.is_not, kept, items)
-    return compress(range(len(kept)), changed)
-
-
 class _Owners:
     """Map order identities to their accounts, extending the map as orders append.
 
@@ -80,7 +75,7 @@ class _Owners:
         if len(orders) >= len(kept) and all(
             (kept[index].order.identity, kept[index].account_id)
             == (orders[index].order.identity, orders[index].account_id)
-            for index in _replaced(kept, orders)
+            for index in _Latest.replaced(kept, orders)
         ):
             appended = orders[len(kept) :]
         else:
@@ -125,7 +120,7 @@ class _Latest[T]:
             and len(items) >= len(kept)
             and all(
                 tuple(pairs(kept[index])) == tuple(pairs(items[index]))
-                for index in _replaced(kept, items)
+                for index in _Latest.replaced(kept, items)
             )
         ):
             latest, appended = dict(self._latest), items[len(kept) :]
@@ -138,6 +133,12 @@ class _Latest[T]:
                     latest[account_id] = at
         self._items, self._context, self._latest = items, context, latest
         return latest
+
+    @staticmethod
+    def replaced(kept: tuple[object, ...], items: tuple[object, ...]) -> Iterator[int]:
+        """Yield the positions of ``kept`` whose item ``items`` holds a different object."""
+        changed: Iterable[bool] = map(operator.is_not, kept, items)
+        return compress(range(len(kept)), changed)
 
 
 class AccountAdmission:
@@ -1103,6 +1104,64 @@ class AccountAdmission:
             clocks.append(postings[-1].known_at)
         return max(clocks)
 
+    def _child_event_pairs(
+        self, orders: dict[str, str], saved: _SavedEvent
+    ) -> tuple[tuple[str, datetime], ...]:
+        """Attribute one saved child-order event to its order's account."""
+        return ((self._owner(orders, saved.event.order_id, "unknown child order"), saved.event.at),)
+
+    def _failed_event_pairs(
+        self, transaction: _AccountTransaction, event: OrderEvent
+    ) -> Iterator[tuple[str, datetime]]:
+        """Attribute one failed child-order event to every account it concerns."""
+        return (
+            (account_id, event.at)
+            for account_id in self.failed_event_account_ids(transaction, event)
+        )
+
+    def _net_event_pairs(
+        self, parents: dict[str, str], saved: _SavedNetEvent
+    ) -> tuple[tuple[str, datetime], ...]:
+        """Attribute one saved physical-order event to its order's account."""
+        return (
+            (self._owner(parents, saved.event.order_id, "unknown physical order"), saved.event.at),
+        )
+
+    def _failed_net_event_pairs(
+        self, transaction: _AccountTransaction, event: OrderEvent
+    ) -> Iterator[tuple[str, datetime]]:
+        """Attribute one failed physical-order event to every account it concerns."""
+        return (
+            (account_id, event.at)
+            for account_id in self.failed_net_event_account_ids(transaction, event)
+        )
+
+    @staticmethod
+    def _failed_native_fill_pairs(
+        orders: dict[str, str], parents: dict[str, str], fill: NativeFill
+    ) -> Iterator[tuple[str, datetime]]:
+        """Attribute one failed native fill to the account of its child or physical order."""
+        return (
+            (owners[fill.order_id], fill.at)
+            for owners in (orders, parents)
+            if fill.order_id in owners
+        )
+
+    def _instance_control_pairs(
+        self, control: _InstanceControl
+    ) -> tuple[tuple[str, datetime], ...]:
+        """Attribute one instance control to the instance's account."""
+        return ((self.instance_account(control.instance_id), control.at),)
+
+    @staticmethod
+    def _account_control_pairs(control: AccountControlResult) -> tuple[tuple[str, datetime], ...]:
+        """Attribute one applied account control to its account; others contribute nothing."""
+        return (
+            ((control.request.account_id, control.request.at),)
+            if control.status == "applied"
+            else ()
+        )
+
     def _history_times(self, transaction: _AccountTransaction) -> dict[str, datetime]:
         """Return every account's latest firm-history clock for the transaction's state.
 
@@ -1117,63 +1176,29 @@ class AccountAdmission:
         fields: tuple[dict[str, datetime], ...] = (
             self._order_clocks.of(state.orders, self._decision_clock),
             self._event_clocks.of(
-                state.events,
-                lambda saved: (
-                    (
-                        self._owner(orders, saved.event.order_id, "unknown child order"),
-                        saved.event.at,
-                    ),
-                ),
-                (orders,),
+                state.events, partial(self._child_event_pairs, orders), (orders,)
             ),
             self._failed_event_clocks.of(
                 state.failed_events,
-                lambda event: (
-                    (account_id, event.at)
-                    for account_id in self.failed_event_account_ids(transaction, event)
-                ),
+                partial(self._failed_event_pairs, transaction),
                 (state.events, orders),
             ),
             self._net_order_clocks.of(state.net_orders, self._decision_clock),
             self._net_event_clocks.of(
-                state.net_events,
-                lambda saved: (
-                    (
-                        self._owner(parents, saved.event.order_id, "unknown physical order"),
-                        saved.event.at,
-                    ),
-                ),
-                (parents,),
+                state.net_events, partial(self._net_event_pairs, parents), (parents,)
             ),
             self._failed_net_event_clocks.of(
                 state.failed_net_events,
-                lambda event: (
-                    (account_id, event.at)
-                    for account_id in self.failed_net_event_account_ids(transaction, event)
-                ),
+                partial(self._failed_net_event_pairs, transaction),
                 (state.net_events, parents),
             ),
             self._failed_native_fill_clocks.of(
                 state.failed_native_fills,
-                lambda fill: (
-                    (owners[fill.order_id], fill.at)
-                    for owners in (orders, parents)
-                    if fill.order_id in owners
-                ),
+                partial(self._failed_native_fill_pairs, orders, parents),
                 (orders, parents),
             ),
-            self._instance_control_clocks.of(
-                state.instance_controls,
-                lambda control: ((self.instance_account(control.instance_id), control.at),),
-            ),
-            self._account_control_clocks.of(
-                state.account_controls,
-                lambda control: (
-                    ((control.request.account_id, control.request.at),)
-                    if control.status == "applied"
-                    else ()
-                ),
-            ),
+            self._instance_control_clocks.of(state.instance_controls, self._instance_control_pairs),
+            self._account_control_clocks.of(state.account_controls, self._account_control_pairs),
         )
         latest: dict[str, datetime] = {}
         for field in fields:

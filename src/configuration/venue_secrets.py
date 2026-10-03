@@ -24,13 +24,11 @@ import traceback
 from collections.abc import Mapping
 from pathlib import Path
 from types import TracebackType
-from typing import Final, NoReturn, Protocol, cast
+from typing import ClassVar, Final, NoReturn, Protocol, cast
 
 _MAXIMUM_FILE_BYTES: Final = 16384
 _REDACTED: Final = "<redacted>"
 _MINIMUM_REDACTED_LENGTH: Final = 6
-_REGISTERED_VALUES: frozenset[str] = frozenset()
-_GUARD_LOCK: Final = threading.Lock()
 
 VENUE_SECRET_FILES: Final[dict[str, tuple[str, frozenset[str]]]] = {
     "alpaca": ("alpaca.secrets", frozenset({"API_KEY", "API_SECRET"})),
@@ -67,7 +65,7 @@ class SecretValue:
                 "ASCII characters, so that logs can redact them"
             )
         self._value = value
-        _register(value)
+        CredentialRedaction.register(value)
 
     def reveal(self) -> str:
         """Return the raw credential for an outbound request; caller must not log it."""
@@ -166,195 +164,238 @@ class VenueSecrets:
         if venue not in VENUE_SECRET_FILES:
             raise VenueSecretsError(f"unknown credential venue: {venue!r}")
         file_name, required = VENUE_SECRET_FILES[venue]
-        return cls(venue, read_secret_fields(directory / file_name, required))
+        return cls(venue, SecretFile.read_fields(directory / file_name, required))
 
 
-def read_secret_fields(path: Path, required: frozenset[str]) -> dict[str, SecretValue]:
-    """Read exactly the required ``KEY=VALUE`` fields from one owner-only file.
+class SecretFile:
+    """Read exactly the required credential fields from one owner-only local file."""
 
-    Blank lines and ``#`` comments are allowed. The file must be a regular,
-    owner-only file (no group or other permission bits). Values are never
-    interpolated, printed or included in exceptions; only the file name and
-    expected field names are reported.
+    @staticmethod
+    def read_fields(path: Path, required: frozenset[str]) -> dict[str, SecretValue]:
+        """Read exactly the required ``KEY=VALUE`` fields from one owner-only file.
 
-    Args:
-        path: Explicit local credential file.
-        required: Exact field names the file must define.
+        Blank lines and ``#`` comments are allowed. The file must be a regular,
+        owner-only file (no group or other permission bits). Values are never
+        interpolated, printed or included in exceptions; only the file name and
+        expected field names are reported.
 
-    Returns:
-        Each required field wrapped as a :class:`SecretValue`.
+        Args:
+            path: Explicit local credential file.
+            required: Exact field names the file must define.
 
-    Raises:
-        VenueSecretsError: The file is missing, unsafe, malformed or incomplete.
-    """
-    file_name = path.name
-    # One descriptor is both checked and read, so the path cannot be swapped in
-    # between. O_NOFOLLOW refuses a link, and O_NONBLOCK keeps a FIFO from blocking.
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except FileNotFoundError:
-        raise VenueSecretsError(f"{file_name} is missing from the secrets directory") from None
-    except OSError as error:
-        if error.errno == errno.ELOOP:
-            raise VenueSecretsError(f"{file_name} must be a regular file, not a link") from None
-        raise VenueSecretsError(f"{file_name} cannot be inspected") from None
-    try:
-        status = os.fstat(descriptor)
-        if not stat.S_ISREG(status.st_mode):
-            raise VenueSecretsError(f"{file_name} must be a regular file, not a link")
-        if status.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-            raise VenueSecretsError(f"{file_name} is accessible by others; run chmod 600 on it")
-        data = _read_bounded(descriptor)
-    finally:
-        os.close(descriptor)
-    if data is None:
-        raise VenueSecretsError(f"{file_name} cannot be read as UTF-8")
-    if len(data) > _MAXIMUM_FILE_BYTES:
-        del data
-        raise VenueSecretsError(f"{file_name} exceeds {_MAXIMUM_FILE_BYTES} bytes")
-    text = _decoded(data)
-    del data
-    if text is None:
-        raise VenueSecretsError(f"{file_name} cannot be read as UTF-8")
-    outcome = _parse_fields(text, required)
-    del text
-    if isinstance(outcome, str):
-        raise VenueSecretsError(f"{file_name} {outcome}")
-    return outcome
+        Returns:
+            Each required field wrapped as a :class:`SecretValue`.
 
-
-def _read_bounded(descriptor: int) -> bytes | None:
-    """Read at most one byte past the size limit, returning None if reading fails.
-
-    Returning rather than raising keeps the bytes read so far out of any
-    exception or traceback frame.
-    """
-    chunks: list[bytes] = []
-    size = 0
-    try:
-        while size <= _MAXIMUM_FILE_BYTES:
-            chunk = os.read(descriptor, _MAXIMUM_FILE_BYTES + 1 - size)
-            if not chunk:
-                break
-            chunks.append(chunk)
-            size += len(chunk)
-    except OSError:
-        return None
-    return b"".join(chunks)
-
-
-def _decoded(data: bytes) -> str | None:
-    """Decode UTF-8, returning None rather than raising.
-
-    A ``UnicodeDecodeError`` holds the whole input in ``.object``, and ``raise
-    ... from None`` still leaves it reachable as ``__context__``; returning keeps
-    the file's bytes out of every exception chain.
-    """
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-
-
-def _parse_fields(text: str, required: frozenset[str]) -> dict[str, SecretValue] | str:
-    """Parse credential lines, returning an error description instead of raising.
-
-    Returning rather than raising means no traceback ever retains this frame's
-    locals, which hold raw credential text.
-    """
-    expected = f"must contain exactly {', '.join(sorted(required))}"
-    fields: dict[str, SecretValue] = {}
-    for line in text.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        name, separator, value = line.partition("=")
-        name = name.strip()
-        if not separator or name in fields or name not in required:
-            return expected
+        Raises:
+            VenueSecretsError: The file is missing, unsafe, malformed or incomplete.
+        """
+        file_name = path.name
+        # One descriptor is both checked and read, so the path cannot be swapped in
+        # between. O_NOFOLLOW refuses a link, and O_NONBLOCK keeps a FIFO from blocking.
         try:
-            fields[name] = SecretValue(value.strip())
-        except VenueSecretsError:
-            return f"has an empty or invalid {name}"
-    if set(fields) != required:
-        return expected
-    return fields
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            raise VenueSecretsError(f"{file_name} is missing from the secrets directory") from None
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise VenueSecretsError(f"{file_name} must be a regular file, not a link") from None
+            raise VenueSecretsError(f"{file_name} cannot be inspected") from None
+        try:
+            status = os.fstat(descriptor)
+            if not stat.S_ISREG(status.st_mode):
+                raise VenueSecretsError(f"{file_name} must be a regular file, not a link")
+            if status.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+                raise VenueSecretsError(f"{file_name} is accessible by others; run chmod 600 on it")
+            data = SecretFile._read_bounded(descriptor)
+        finally:
+            os.close(descriptor)
+        if data is None:
+            raise VenueSecretsError(f"{file_name} cannot be read as UTF-8")
+        if len(data) > _MAXIMUM_FILE_BYTES:
+            del data
+            raise VenueSecretsError(f"{file_name} exceeds {_MAXIMUM_FILE_BYTES} bytes")
+        text = SecretFile._decoded(data)
+        del data
+        if text is None:
+            raise VenueSecretsError(f"{file_name} cannot be read as UTF-8")
+        outcome = SecretFile._parse_fields(text, required)
+        del text
+        if isinstance(outcome, str):
+            raise VenueSecretsError(f"{file_name} {outcome}")
+        return outcome
+
+    @staticmethod
+    def _read_bounded(descriptor: int) -> bytes | None:
+        """Read at most one byte past the size limit, returning None if reading fails.
+
+        Returning rather than raising keeps the bytes read so far out of any
+        exception or traceback frame.
+        """
+        chunks: list[bytes] = []
+        size = 0
+        try:
+            while size <= _MAXIMUM_FILE_BYTES:
+                chunk = os.read(descriptor, _MAXIMUM_FILE_BYTES + 1 - size)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+        except OSError:
+            return None
+        return b"".join(chunks)
+
+    @staticmethod
+    def _decoded(data: bytes) -> str | None:
+        """Decode UTF-8, returning None rather than raising.
+
+        A ``UnicodeDecodeError`` holds the whole input in ``.object``, and ``raise
+        ... from None`` still leaves it reachable as ``__context__``; returning keeps
+        the file's bytes out of every exception chain.
+        """
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+    @staticmethod
+    def _parse_fields(text: str, required: frozenset[str]) -> dict[str, SecretValue] | str:
+        """Parse credential lines, returning an error description instead of raising.
+
+        Returning rather than raising means no traceback ever retains this frame's
+        locals, which hold raw credential text.
+        """
+        expected = f"must contain exactly {', '.join(sorted(required))}"
+        fields: dict[str, SecretValue] = {}
+        for line in text.splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            name, separator, value = line.partition("=")
+            name = name.strip()
+            if not separator or name in fields or name not in required:
+                return expected
+            try:
+                fields[name] = SecretValue(value.strip())
+            except VenueSecretsError:
+                return f"has an empty or invalid {name}"
+        if set(fields) != required:
+            return expected
+        return fields
 
 
-def _register(value: str) -> None:
-    """Record a credential for log redaction and keep the process guards installed."""
-    global _REGISTERED_VALUES
-    with _GUARD_LOCK:
-        if not _REGISTERED_VALUES:
-            _disable_core_dumps()
-        # Copy on write: readers take one immutable snapshot and need no lock.
-        _REGISTERED_VALUES = _REGISTERED_VALUES | {value}
-        _install_log_redaction()
+class CredentialRedaction:
+    """Keep registered credential values out of logs and crash dumps for this process.
 
-
-def redact(text: str) -> str:
-    """Replace every registered credential value in ``text`` with a placeholder.
-
-    Args:
-        text: Arbitrary diagnostic text.
-
-    Returns:
-        The text with registered credential values removed.
+    The registered values and guards are process-wide by design: every logger and
+    the process's core-dump limit are global.
     """
-    for value in sorted(_REGISTERED_VALUES, key=len, reverse=True):
-        text = text.replace(value, _REDACTED)
-    return text
 
+    _registered: ClassVar[frozenset[str]] = frozenset()
+    _LOCK: Final = threading.Lock()
 
-def _contains_secret(text: str) -> bool:
-    """Report whether any registered credential value occurs in ``text``."""
-    values = _REGISTERED_VALUES
-    return any(value in text for value in values)
+    @classmethod
+    def register(cls, value: str) -> None:
+        """Record a credential for log redaction and keep the process guards installed."""
+        with cls._LOCK:
+            if not cls._registered:
+                cls._disable_core_dumps()
+            # Copy on write: readers take one immutable snapshot and need no lock.
+            cls._registered = cls._registered | {value}
+            cls._install_log_redaction()
 
+    @classmethod
+    def redact(cls, text: str) -> str:
+        """Replace every registered credential value in ``text`` with a placeholder.
 
-def _shows_secret(value: object) -> bool:
-    """Report whether a value's text or representation shows a credential."""
-    try:
-        shown = f"{value!s} {value!r}"
-    except Exception:
-        return True
-    return _contains_secret(shown)
+        Args:
+            text: Arbitrary diagnostic text.
 
+        Returns:
+            The text with registered credential values removed.
+        """
+        for value in sorted(cls._registered, key=len, reverse=True):
+            text = text.replace(value, _REDACTED)
+        return text
 
-def _redact_record(record: logging.LogRecord) -> None:
-    """Remove credentials from a new record's fields before any handler sees it.
+    @classmethod
+    def _contains_secret(cls, text: str) -> bool:
+        """Report whether any registered credential value occurs in ``text``."""
+        values = cls._registered
+        return any(value in text for value in values)
 
-    Handlers read more than the rendered message: ``Handler.handleError`` prints
-    the raw ``msg`` and ``args`` and ``HTTPHandler`` sends the record dictionary,
-    so the fields themselves are rewritten. A traceback or stack carrying a
-    credential is pre-rendered redacted; ``logging.Formatter`` uses that text.
-    """
-    try:
-        message: str | None = record.getMessage()
-    except Exception:
-        message = None
-    template: object = record.msg
-    arguments = record.args
-    items = tuple(arguments.values()) if isinstance(arguments, Mapping) else arguments or ()
-    exposed = _shows_secret(template) or any(_shows_secret(item) for item in items)
-    if message is not None:
-        # A credential may sit in an argument the message only partly renders.
-        if exposed or _contains_secret(message):
-            record.msg, record.args = redact(message), ()
-    elif exposed:
-        # Unrenderable, so the handler's error report will print the raw fields.
-        record.msg = _REDACTED if _shows_secret(template) else template
-        if isinstance(arguments, Mapping):
-            record.args = {
-                key: _REDACTED if _shows_secret(item) else item for key, item in arguments.items()
-            }
-        else:
-            record.args = tuple(_REDACTED if _shows_secret(item) else item for item in items)
-    if record.exc_info and record.exc_info[1] is not None and not record.exc_text:
-        rendered = "".join(traceback.format_exception(*record.exc_info)).rstrip("\n")
-        if _contains_secret(rendered):
-            record.exc_text = redact(rendered)
-    if record.stack_info and _contains_secret(record.stack_info):
-        record.stack_info = redact(record.stack_info)
+    @staticmethod
+    def _shows_secret(value: object) -> bool:
+        """Report whether a value's text or representation shows a credential."""
+        try:
+            shown = f"{value!s} {value!r}"
+        except Exception:
+            return True
+        return CredentialRedaction._contains_secret(shown)
+
+    @staticmethod
+    def redact_record(record: logging.LogRecord) -> None:
+        """Remove credentials from a new record's fields before any handler sees it.
+
+        Handlers read more than the rendered message: ``Handler.handleError`` prints
+        the raw ``msg`` and ``args`` and ``HTTPHandler`` sends the record dictionary,
+        so the fields themselves are rewritten. A traceback or stack carrying a
+        credential is pre-rendered redacted; ``logging.Formatter`` uses that text.
+        """
+        try:
+            message: str | None = record.getMessage()
+        except Exception:
+            message = None
+        template: object = record.msg
+        arguments = record.args
+        items = tuple(arguments.values()) if isinstance(arguments, Mapping) else arguments or ()
+        exposed = CredentialRedaction._shows_secret(template) or any(
+            CredentialRedaction._shows_secret(item) for item in items
+        )
+        if message is not None:
+            # A credential may sit in an argument the message only partly renders.
+            if exposed or CredentialRedaction._contains_secret(message):
+                record.msg, record.args = CredentialRedaction.redact(message), ()
+        elif exposed:
+            # Unrenderable, so the handler's error report will print the raw fields.
+            record.msg = _REDACTED if CredentialRedaction._shows_secret(template) else template
+            if isinstance(arguments, Mapping):
+                record.args = {
+                    key: _REDACTED if CredentialRedaction._shows_secret(item) else item
+                    for key, item in arguments.items()
+                }
+            else:
+                record.args = tuple(
+                    _REDACTED if CredentialRedaction._shows_secret(item) else item for item in items
+                )
+        if record.exc_info and record.exc_info[1] is not None and not record.exc_text:
+            rendered = "".join(traceback.format_exception(*record.exc_info)).rstrip("\n")
+            if CredentialRedaction._contains_secret(rendered):
+                record.exc_text = CredentialRedaction.redact(rendered)
+        if record.stack_info and CredentialRedaction._contains_secret(record.stack_info):
+            record.stack_info = CredentialRedaction.redact(record.stack_info)
+
+    @staticmethod
+    def _install_log_redaction() -> None:
+        """Make every logger create records that redact registered credentials.
+
+        This covers third-party HTTP and WebSocket libraries regardless of which
+        handlers are configured later. The current factory is chained, and each new
+        credential re-installs redaction over any factory set since; a factory set
+        after the last credential loads must call the one it replaces.
+        """
+        current: object = logging.getLogRecordFactory()
+        if not isinstance(current, _RedactingFactory):
+            logging.setLogRecordFactory(_RedactingFactory(cast(_RecordFactory, current)))
+
+    @staticmethod
+    def _disable_core_dumps() -> None:
+        """Prevent crash dumps from writing credential-bearing memory to disk."""
+        try:
+            # standard library imports
+            import resource  # POSIX-only module
+
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        except ImportError, ValueError, OSError:
+            return
 
 
 type _RecordArgs = tuple[object, ...] | Mapping[str, object]
@@ -405,29 +446,5 @@ class _RedactingFactory:
     ) -> logging.LogRecord:
         """Build the record as the previous factory does, without credentials."""
         record = self.previous(name, level, pathname, lineno, msg, args, exc_info, func, sinfo)
-        _redact_record(record)
+        CredentialRedaction.redact_record(record)
         return record
-
-
-def _install_log_redaction() -> None:
-    """Make every logger create records that redact registered credentials.
-
-    This covers third-party HTTP and WebSocket libraries regardless of which
-    handlers are configured later. The current factory is chained, and each new
-    credential re-installs redaction over any factory set since; a factory set
-    after the last credential loads must call the one it replaces.
-    """
-    current: object = logging.getLogRecordFactory()
-    if not isinstance(current, _RedactingFactory):
-        logging.setLogRecordFactory(_RedactingFactory(cast(_RecordFactory, current)))
-
-
-def _disable_core_dumps() -> None:
-    """Prevent crash dumps from writing credential-bearing memory to disk."""
-    try:
-        # standard library imports
-        import resource  # POSIX-only module
-
-        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    except ImportError, ValueError, OSError:
-        return

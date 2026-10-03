@@ -19,13 +19,6 @@ from serialization import DomainCodec
 from telemetry import OperationalAlerts, OperationAlert
 
 
-@pytest.fixture()
-def socket_directory() -> Iterator[Path]:
-    """Hold Unix sockets under a short path: AF_UNIX paths are limited to about 104 bytes."""
-    with tempfile.TemporaryDirectory(prefix="sock-", dir="/tmp") as directory:
-        yield Path(directory)
-
-
 class TestOperationalAlerts:
     """Check local delivery semantics, changed retries and interrupted attempts."""
 
@@ -85,3 +78,9 @@ class TestOperationalAlerts:
         with pytest.raises(ValueError, match="invalid"):
             store.send(identity="fault", control_sha256="not-a-digest", address="relative.sock")
         assert not store.path.exists()
+
+    @pytest.fixture()
+    def socket_directory(self) -> Iterator[Path]:
+        """Hold Unix sockets under a short path: AF_UNIX paths are limited to about 104 bytes."""
+        with tempfile.TemporaryDirectory(prefix="sock-", dir="/tmp") as directory:
+            yield Path(directory)

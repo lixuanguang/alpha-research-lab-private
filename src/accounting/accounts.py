@@ -214,11 +214,6 @@ class AccountState(WireRecord, frozen=True):
             identities.add(posting.identity)
 
 
-def _exact_money(value: Fraction, currency: Currency) -> Money:
-    """Create a bounded exact money value without Decimal context rounding."""
-    return Money(value=DecimalGrid.exact_decimal(value), currency=currency)
-
-
 class _AccountReplay:
     """Fold one account's postings, in order, into exact running totals.
 
@@ -339,7 +334,7 @@ class _AccountReplay:
             for code, currency in self.currencies.items():
                 key = (scope, code)
                 for totals in (self.scope_cash, self.fees, self.rebates, self.transfers):
-                    _exact_money(totals.get(key, zero), currency)
+                    _AccountReplay.exact_money(totals.get(key, zero), currency)
                 if self.fees.get(key, zero) < 0 or self.rebates.get(key, zero) < 0:
                     raise ValueError("snapshot has invalid cash or cost totals")
 
@@ -392,6 +387,11 @@ class _AccountReplay:
             price=posting.price,
             asset_change=posting.asset_change,
         )
+
+    @staticmethod
+    def exact_money(value: Fraction, currency: Currency) -> Money:
+        """Create a bounded exact money value without Decimal context rounding."""
+        return Money(value=DecimalGrid.exact_decimal(value), currency=currency)
 
 
 class _AccountReplays:
@@ -735,7 +735,9 @@ class AccountLedger:
             account_id=state.account_id,
             instance_id=instance_id,
             cash=tuple(
-                _exact_money(fold.scope_cash.get((instance_id, currency.code), zero), currency)
+                _AccountReplay.exact_money(
+                    fold.scope_cash.get((instance_id, currency.code), zero), currency
+                )
                 for currency in currencies
             ),
             positions=tuple(
@@ -744,15 +746,21 @@ class AccountLedger:
                 if value
             ),
             fees=tuple(
-                _exact_money(fold.fees.get((instance_id, currency.code), zero), currency)
+                _AccountReplay.exact_money(
+                    fold.fees.get((instance_id, currency.code), zero), currency
+                )
                 for currency in currencies
             ),
             rebates=tuple(
-                _exact_money(fold.rebates.get((instance_id, currency.code), zero), currency)
+                _AccountReplay.exact_money(
+                    fold.rebates.get((instance_id, currency.code), zero), currency
+                )
                 for currency in currencies
             ),
             transfers=tuple(
-                _exact_money(fold.transfers.get((instance_id, currency.code), zero), currency)
+                _AccountReplay.exact_money(
+                    fold.transfers.get((instance_id, currency.code), zero), currency
+                )
                 for currency in currencies
             ),
             fill_ids=tuple(

@@ -10,6 +10,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from functools import partial
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -70,6 +71,16 @@ class TestPaperFeeReserve:
     """Bound every split of a paper order's fees by its admitted reserve."""
 
     @staticmethod
+    def _quantity(dimension: Dimension, value: str) -> Quantity:
+        """Construct an exact quantity of the instrument."""
+        return Quantity(value=Decimal(value), dimension=dimension)
+
+    @staticmethod
+    def _price(currency: Currency, dimension: Dimension, value: str) -> Price:
+        """Construct an exact price of the instrument."""
+        return Price(value=Decimal(value), currency=currency, per=dimension)
+
+    @staticmethod
     def _units(
         currency: Currency,
     ) -> tuple[Dimension, InstrumentFeeRate, Callable[[str], Quantity], Callable[[str], Price]]:
@@ -79,8 +90,8 @@ class TestPaperFeeReserve:
         return (
             dimension,
             rate,
-            lambda value: Quantity(value=Decimal(value), dimension=dimension),
-            lambda value: Price(value=Decimal(value), currency=currency, per=dimension),
+            partial(TestPaperFeeReserve._quantity, dimension),
+            partial(TestPaperFeeReserve._price, currency, dimension),
         )
 
     @pytest.mark.parametrize(

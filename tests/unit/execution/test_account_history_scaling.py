@@ -224,6 +224,36 @@ class _SharedFirmHistory:
         )
 
 
+class _CountingOwner:
+    """Count owner resolutions and resolve each as the original does."""
+
+    def __init__(self, owner: Callable[[dict[str, str], str, str], str]) -> None:
+        """Wrap the original resolver with no resolutions counted."""
+        self._owner = owner
+        self.resolved = 0
+
+    def __call__(self, accounts: dict[str, str], order_id: str, missing: str) -> str:
+        """Count one owner resolution and resolve it as before."""
+        self.resolved += 1
+        return self._owner(accounts, order_id, missing)
+
+
+class _CountingTraceFacts:
+    """Record each trace a journal's reader decodes for report facts."""
+
+    def __init__(
+        self, add: Callable[[AccountPaperTrace, list[OrderEvent], set[str]], None]
+    ) -> None:
+        """Wrap the original fact folder with no traces recorded."""
+        self._add = add
+        self.decoded: list[str] = []
+
+    def __call__(self, trace: AccountPaperTrace, events: list[OrderEvent], ids: set[str]) -> None:
+        """Record the decoded trace and fold it as before."""
+        self.decoded.append(trace.market.identity)
+        self._add(trace, events, ids)
+
+
 class TestAccountHistoryScaling:
     """Bound per-operation growth with another account's retained history."""
 
@@ -232,23 +262,15 @@ class TestAccountHistoryScaling:
     ) -> None:
         """Account time resolves each event's owner once, not on every admission step."""
         history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
-        owner = AccountAdmission._owner
-        resolved = 0
-
-        def counting(accounts: dict[str, str], order_id: str, missing: str) -> str:
-            """Count one owner resolution and resolve it as before."""
-            nonlocal resolved
-            resolved += 1
-            return owner(accounts, order_id, missing)
-
+        counting = _CountingOwner(AccountAdmission._owner)
         monkeypatch.setattr(AccountAdmission, "_owner", staticmethod(counting))
         per_round_trip: list[int] = []
         for orders in (20, 200):
             while history.orders < orders:
                 history.round_trip()
-            resolved = 0
+            counting.resolved = 0
             history.round_trip()
-            per_round_trip.append(resolved)
+            per_round_trip.append(counting.resolved)
         # Re-resolving every retained event on each of about 12 calls grew tenfold here.
         assert per_round_trip[1] <= per_round_trip[0]
 
@@ -320,6 +342,15 @@ class TestAccountHistoryScaling:
         # Re-encoding and fsyncing the whole head grew with every retained fact.
         assert medians[1] < 3 * medians[0]
 
+    @staticmethod
+    def _read_after_commit(history: _SharedFirmHistory, reader: AccountJournal) -> float:
+        """Commit a tick through the first journal and time the second journal's ledgers."""
+        history.busy_tick()
+        started = time.perf_counter()
+        for view in reader.accounts():
+            AccountLedger(view.ledger).snapshot()
+        return time.perf_counter() - started
+
     @pytest.mark.performance
     def test_read_after_another_writer_commits_does_not_replay_ledgers(
         self, tmp_path: Path
@@ -328,21 +359,12 @@ class TestAccountHistoryScaling:
         history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
         # A second journal object keeps its own decoded rows, like another process.
         reader = AccountJournal(tmp_path / "firm.sqlite3", history._config())
-
-        def read_after_commit() -> float:
-            """Commit a tick through the first journal and time the second journal's ledgers."""
-            history.busy_tick()
-            started = time.perf_counter()
-            for view in reader.accounts():
-                AccountLedger(view.ledger).snapshot()
-            return time.perf_counter() - started
-
         medians: list[float] = []
         for orders in (40, 400):
             while history.orders < orders:
                 history.round_trip()
-            read_after_commit()
-            medians.append(sorted(read_after_commit() for _ in range(9))[4])
+            self._read_after_commit(history, reader)
+            medians.append(sorted(self._read_after_commit(history, reader) for _ in range(9))[4])
         print(f"read after commit at 40/400 filled orders: {medians[0]:.6f}s/{medians[1]:.6f}s")
         # Re-validating every posting twice and replaying each ledger grew about tenfold.
         assert medians[1] < 3 * medians[0]
@@ -356,14 +378,8 @@ class TestBoundedMonitoringReads:
     ) -> None:
         """Reads decode each committed trace once and always equal a fresh journal's scan."""
         history = _SharedFirmHistory(tmp_path / "firm.sqlite3")
-        decoded: list[str] = []
-        original = AccountPaperMatching._add_trace_facts
-
-        def counting(trace: AccountPaperTrace, events: list[OrderEvent], ids: set[str]) -> None:
-            """Count each trace this journal's reader decodes for report facts."""
-            decoded.append(trace.market.identity)
-            original(trace, events, ids)
-
+        counting = _CountingTraceFacts(AccountPaperMatching._add_trace_facts)
+        decoded = counting.decoded
         monkeypatch.setattr(AccountPaperMatching, "_add_trace_facts", staticmethod(counting))
         seen: list[str] = []
         for step in range(6):

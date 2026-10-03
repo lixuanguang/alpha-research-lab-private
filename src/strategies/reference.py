@@ -204,22 +204,26 @@ class TargetClipPolicy(_ClipParameters):
 type ReferencePolicyName = Literal["fixed_clip", "liquidity_clip", "target_clip"]
 
 
-def reference_policy(
-    name: ReferencePolicyName,
-    quantity: Quantity,
-    currency: Currency,
-    lot: Quantity,
-    *,
-    tick: Price,
-    implementation: str,
-) -> ReferenceClipPolicy | TargetClipPolicy:
-    """Construct the explicitly named installed reference formula without fallback."""
-    factories: dict[str, type[ReferenceClipPolicy] | type[TargetClipPolicy]] = {
-        "fixed_clip": ReferenceClipPolicy,
-        "liquidity_clip": LiquidityClipPolicy,
-        "target_clip": TargetClipPolicy,
-    }
-    factory = factories.get(name)
-    if factory is None:
-        raise ValueError("unknown reference policy")
-    return factory(quantity, currency, lot, tick=tick, implementation=implementation)
+class ReferencePolicies:
+    """Construct the explicitly named installed reference formulas."""
+
+    @staticmethod
+    def create(
+        name: ReferencePolicyName,
+        quantity: Quantity,
+        currency: Currency,
+        lot: Quantity,
+        *,
+        tick: Price,
+        implementation: str,
+    ) -> ReferenceClipPolicy | TargetClipPolicy:
+        """Construct the explicitly named installed reference formula without fallback."""
+        factories: dict[str, type[ReferenceClipPolicy] | type[TargetClipPolicy]] = {
+            "fixed_clip": ReferenceClipPolicy,
+            "liquidity_clip": LiquidityClipPolicy,
+            "target_clip": TargetClipPolicy,
+        }
+        factory = factories.get(name)
+        if factory is None:
+            raise ValueError("unknown reference policy")
+        return factory(quantity, currency, lot, tick=tick, implementation=implementation)

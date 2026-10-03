@@ -8,6 +8,7 @@ import ssl
 import threading
 import time
 from collections.abc import Callable
+from functools import partial
 from http.client import HTTPConnection
 from ssl import SSLContext
 from typing import cast
@@ -77,43 +78,6 @@ class Loopback:
         return venue
 
 
-@pytest.fixture()
-def loopback(monkeypatch: pytest.MonkeyPatch) -> Loopback:
-    """Route the pinned TLS host to a loopback plain connection."""
-    route = Loopback()
-
-    class LoopbackConnection(HTTPConnection):
-        """Plain HTTP to the local venue; the TLS context is irrelevant here."""
-
-        def __init__(self, host: str, *, timeout: float, context: SSLContext) -> None:
-            """Ignore the pinned host and TLS context."""
-            del host, context
-            super().__init__("127.0.0.1", route.port, timeout=timeout)
-
-        def connect(self) -> None:
-            """Stand in for slow or failing resolution, TCP connection or TLS handshake."""
-            time.sleep(route.delay)
-            if route.failure is not None:
-                raise route.failure
-            super().connect()
-
-    monkeypatch.setattr(transport_module, "HTTPSConnection", LoopbackConnection)
-    return route
-
-
-def _trickle(connection: socket.socket) -> None:
-    """Send headers, then one body byte every 50 ms for three seconds, then close."""
-    connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\nConnection: close\r\n\r\n")
-    for _ in range(60):
-        connection.sendall(b"x")
-        time.sleep(0.05)
-
-
-def _ok(connection: socket.socket) -> None:
-    """Answer at once."""
-    connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")
-
-
 class TestVenueTransport:
     """The whole request, not only each socket operation, fits the dispatch lease."""
 
@@ -123,7 +87,7 @@ class TestVenueTransport:
 
     def test_deadline_passing_before_the_send_writes_nothing(self, loopback: Loopback) -> None:
         """A slow connect past the deadline refuses as unsent before any request byte."""
-        venue = loopback.serve(_ok)
+        venue = loopback.serve(TestVenueTransport.ok)
         loopback.delay = 0.3
         transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
         with pytest.raises(VenueNotSentError):
@@ -135,7 +99,7 @@ class TestVenueTransport:
         self, loopback: Loopback
     ) -> None:
         """A body arriving within each socket timeout still ends at the total deadline."""
-        venue = loopback.serve(_trickle)
+        venue = loopback.serve(TestVenueTransport.trickle)
         transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
         started = time.monotonic()
         with pytest.raises(VenueOutcomeUnknownError):
@@ -146,7 +110,7 @@ class TestVenueTransport:
 
     def test_own_total_bounds_a_request_without_a_deadline(self, loopback: Loopback) -> None:
         """Lookups pass no deadline and stay within the transport's own total."""
-        venue = loopback.serve(_trickle)
+        venue = loopback.serve(TestVenueTransport.trickle)
         transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=1.0)
         started = time.monotonic()
         with pytest.raises(VenueOutcomeUnknownError):
@@ -156,7 +120,7 @@ class TestVenueTransport:
 
     def test_answer_within_the_deadline_is_returned(self, loopback: Loopback) -> None:
         """A prompt venue answer is unaffected by the deadline."""
-        venue = loopback.serve(_ok)
+        venue = loopback.serve(TestVenueTransport.ok)
         transport = TlsVenueHttpTransport("bitfinex")
         response = transport.request(self.request, deadline=time.monotonic() + 5)
         venue.close()
@@ -176,7 +140,7 @@ class TestVenueTransport:
         self, loopback: Loopback, answer: bytes
     ) -> None:
         """A response HTTP cannot complete leaves the sent request's outcome unknown."""
-        venue = loopback.serve(lambda connection: connection.sendall(answer))
+        venue = loopback.serve(partial(self._answer, answer))
         transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
         with pytest.raises(VenueOutcomeUnknownError):
             transport.request(self.request, deadline=time.monotonic() + 5)
@@ -194,7 +158,7 @@ class TestVenueTransport:
     )
     def test_connect_failure_is_not_sent(self, loopback: Loopback, failure: OSError) -> None:
         """Resolution, TCP and TLS failures happen before any request byte is written."""
-        venue = loopback.serve(_ok)
+        venue = loopback.serve(TestVenueTransport.ok)
         loopback.failure = failure
         transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
         with pytest.raises(VenueNotSentError):
@@ -210,3 +174,46 @@ class TestVenueTransport:
         transport = TlsVenueHttpTransport("bitfinex", timeout_seconds=1.0, total_seconds=5.0)
         with pytest.raises(VenueNotSentError):
             transport.request(self.request, deadline=time.monotonic() + 5)
+
+    @pytest.fixture()
+    def loopback(self, monkeypatch: pytest.MonkeyPatch) -> Loopback:
+        """Route the pinned TLS host to a loopback plain connection."""
+        route = Loopback()
+
+        class LoopbackConnection(HTTPConnection):
+            """Plain HTTP to the local venue; the TLS context is irrelevant here."""
+
+            def __init__(self, host: str, *, timeout: float, context: SSLContext) -> None:
+                """Ignore the pinned host and TLS context."""
+                del host, context
+                super().__init__("127.0.0.1", route.port, timeout=timeout)
+
+            def connect(self) -> None:
+                """Stand in for slow or failing resolution, TCP connection or TLS handshake."""
+                time.sleep(route.delay)
+                if route.failure is not None:
+                    raise route.failure
+                super().connect()
+
+        monkeypatch.setattr(transport_module, "HTTPSConnection", LoopbackConnection)
+        return route
+
+    @staticmethod
+    def _answer(answer: bytes, connection: socket.socket) -> None:
+        """Send one fixed response and nothing else."""
+        connection.sendall(answer)
+
+    @staticmethod
+    def trickle(connection: socket.socket) -> None:
+        """Send headers, then one body byte every 50 ms for three seconds, then close."""
+        connection.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\nConnection: close\r\n\r\n"
+        )
+        for _ in range(60):
+            connection.sendall(b"x")
+            time.sleep(0.05)
+
+    @staticmethod
+    def ok(connection: socket.socket) -> None:
+        """Answer at once."""
+        connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}")

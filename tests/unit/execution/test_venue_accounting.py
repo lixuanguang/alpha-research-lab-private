@@ -12,6 +12,7 @@ from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 
 # third party library imports
@@ -40,13 +41,47 @@ from risk.spot import SpotLimits
 from strategies import OrderIntent
 
 
-def _arm_and_die(path: str, order_id: str, at: datetime) -> None:
-    """Arm a dispatch lease in a separate process, then exit without releasing it."""
-    journal = AccountJournal(Path(path), TestVenueAccounting._config())
-    # Keep the guard referenced: collecting it would run its release.
-    guard = journal.execution_guard("venue", order_id, at)
-    guard.__enter__()
-    os._exit(0)
+class _ClientStop:
+    """Run one stop from another client thread and record how it ended."""
+
+    def __init__(self, action: Callable[[], object]) -> None:
+        """Bind the stop with no outcome yet."""
+        self._action = action
+        self.finished = threading.Event()
+        self.errors: list[BaseException] = []
+
+    def __call__(self) -> None:
+        """Issue the stop, keep any failure and signal completion."""
+        try:
+            self._action()
+        except BaseException as error:
+            self.errors.append(error)
+        finally:
+            self.finished.set()
+
+
+class _SteppedClock:
+    """Report wall-clock time shifted by an adjustable step."""
+
+    def __init__(self) -> None:
+        """Start without a step."""
+        self.offset = timedelta(0)
+
+    def __call__(self) -> datetime:
+        """Return the current UTC time plus the step."""
+        return datetime.now(UTC) + self.offset
+
+
+class _SteppedMonotonic:
+    """Report monotonic time shifted by an adjustable step in seconds."""
+
+    def __init__(self) -> None:
+        """Start without a step."""
+        self.offset = 0.0
+
+    def __call__(self) -> float:
+        """Return the monotonic clock plus the step."""
+        return time.monotonic() + self.offset
 
 
 class TestVenueAccounting:
@@ -308,17 +343,15 @@ class TestVenueAccounting:
             permit.require_sendable()
         assert self._leases(journal) == ()
 
-    @pytest.mark.parametrize(
-        "writer", ["block", "invalidate_venue", "control_stop", "stop_instance"]
-    )
-    def test_stop_type_writers_wait_for_a_held_lease(self, tmp_path: Path, writer: str) -> None:
-        """A stop issued during a pending send commits only after the send ends."""
-        journal = self._ready(tmp_path / f"{writer}.sqlite3")
-        order, unknown_at = self._pending_send(journal)
-        stops: dict[str, Callable[[], object]] = {
-            "block": lambda: journal.block("venue", "operator-stop"),
-            "invalidate_venue": lambda: journal.invalidate_venue("venue", "stream-lost"),
-            "control_stop": lambda: journal.control(
+    @staticmethod
+    def _stop(journal: AccountJournal, writer: str) -> None:
+        """Issue one stop-type write to the journal."""
+        if writer == "block":
+            journal.block("venue", "operator-stop")
+        elif writer == "invalidate_venue":
+            journal.invalidate_venue("venue", "stream-lost")
+        elif writer == "control_stop":
+            journal.control(
                 AccountControl(
                     identity="stop-during-send",
                     account_id="venue",
@@ -326,35 +359,37 @@ class TestVenueAccounting:
                     at=datetime.now(UTC),
                     reason="operator",
                 )
-            ),
-            "stop_instance": lambda: journal.stop_instance("alpha", datetime.now(UTC)),
-        }
-        committed: dict[str, Callable[[], bool]] = {
-            "block": lambda: journal.accounts()[0].operator_block is not None,
-            "invalidate_venue": lambda: journal.accounts()[0].fault is not None,
-            "control_stop": lambda: journal.accounts()[0].phase != "running",
-            "stop_instance": lambda: "alpha" in journal.stopped_instances(),
-        }
-        finished = threading.Event()
-        errors: list[BaseException] = []
+            )
+        else:
+            journal.stop_instance("alpha", datetime.now(UTC))
 
-        def stop() -> None:
-            """Issue the stop from another client thread."""
-            try:
-                stops[writer]()
-            except BaseException as error:
-                errors.append(error)
-            finally:
-                finished.set()
+    @staticmethod
+    def _committed(journal: AccountJournal, writer: str) -> bool:
+        """Report whether the stop-type write has committed."""
+        if writer == "block":
+            return journal.accounts()[0].operator_block is not None
+        if writer == "invalidate_venue":
+            return journal.accounts()[0].fault is not None
+        if writer == "control_stop":
+            return journal.accounts()[0].phase != "running"
+        return "alpha" in journal.stopped_instances()
 
+    @pytest.mark.parametrize(
+        "writer", ["block", "invalidate_venue", "control_stop", "stop_instance"]
+    )
+    def test_stop_type_writers_wait_for_a_held_lease(self, tmp_path: Path, writer: str) -> None:
+        """A stop issued during a pending send commits only after the send ends."""
+        journal = self._ready(tmp_path / f"{writer}.sqlite3")
+        order, unknown_at = self._pending_send(journal)
+        stop = _ClientStop(partial(self._stop, journal, writer))
         with journal.execution_guard("venue", order.identity, unknown_at):
             worker = threading.Thread(target=stop)
             worker.start()
-            assert not finished.wait(0.3)
-            assert not committed[writer]()
-        assert finished.wait(5) and not errors
+            assert not stop.finished.wait(0.3)
+            assert not self._committed(journal, writer)
+        assert stop.finished.wait(5) and not stop.errors
         worker.join(5)
-        assert committed[writer]()
+        assert self._committed(journal, writer)
 
     def test_a_dead_sender_frees_its_lease_at_once(self, tmp_path: Path) -> None:
         """A sender killed mid-send stops holding its lease; the order stays unknown."""
@@ -362,21 +397,17 @@ class TestVenueAccounting:
         journal = self._ready(path)
         order, unknown_at = self._pending_send(journal)
         context = multiprocessing.get_context("spawn")
-        sender = context.Process(target=_arm_and_die, args=(str(path), order.identity, unknown_at))
+        sender = context.Process(
+            target=TestVenueAccounting.arm_and_die, args=(str(path), order.identity, unknown_at)
+        )
         sender.start()
         sender.join(30)
         assert sender.exitcode == 0
         assert len(self._leases(journal)) == 1
-        finished = threading.Event()
-
-        def stop() -> None:
-            """Issue the operator stop from another client thread."""
-            journal.block("venue", "operator-stop")
-            finished.set()
-
+        stop = _ClientStop(partial(journal.block, "venue", "operator-stop"))
         threading.Thread(target=stop, daemon=True).start()
         # Before liveness this waited out a 30-second wall-clock deadline.
-        assert finished.wait(5)
+        assert stop.finished.wait(5) and not stop.errors
         assert journal.accounts()[0].operator_block == "operator-stop"
         assert self._leases(journal) == ()
         assert not list(tmp_path.glob("abandoned.sqlite3.lease-*"))
@@ -387,24 +418,16 @@ class TestVenueAccounting:
 
     def test_a_wall_clock_step_cannot_expire_a_live_send(self, tmp_path: Path) -> None:
         """A forward wall-clock jump during a send does not let a stop commit under it."""
-        offset = [timedelta(0)]
-        journal = self._ready(
-            tmp_path / "step.sqlite3", clock=lambda: datetime.now(UTC) + offset[0]
-        )
+        clock = _SteppedClock()
+        journal = self._ready(tmp_path / "step.sqlite3", clock=clock)
         order, unknown_at = self._pending_send(journal)
-        finished = threading.Event()
-
-        def stop() -> None:
-            """Issue the operator stop from another client thread."""
-            journal.block("venue", "operator-stop")
-            finished.set()
-
+        stop = _ClientStop(partial(journal.block, "venue", "operator-stop"))
         with journal.execution_guard("venue", order.identity, unknown_at):
-            offset[0] = timedelta(minutes=5)
+            clock.offset = timedelta(minutes=5)
             threading.Thread(target=stop, daemon=True).start()
-            assert not finished.wait(0.3)
+            assert not stop.finished.wait(0.3)
             assert journal.accounts()[0].operator_block is None
-        assert finished.wait(5)
+        assert stop.finished.wait(5) and not stop.errors
         assert journal.accounts()[0].operator_block == "operator-stop"
 
     def test_a_hung_sender_bounds_the_stop_wait(
@@ -413,36 +436,24 @@ class TestVenueAccounting:
         """A stop never commits under a live lease; past its bound it refuses instead."""
         journal = self._ready(tmp_path / "hung.sqlite3")
         order, unknown_at = self._pending_send(journal)
-        outcome: list[BaseException | None] = []
-        finished = threading.Event()
-
-        def stop() -> None:
-            """Issue the operator stop from another client thread."""
-            try:
-                journal.block("venue", "operator-stop")
-                outcome.append(None)
-            except BaseException as error:
-                outcome.append(error)
-            finally:
-                finished.set()
-
+        stop = _ClientStop(partial(journal.block, "venue", "operator-stop"))
         with journal.execution_guard("venue", order.identity, unknown_at):
             # Shorten only the stop's wait; the armed lease keeps its own bounds.
             monkeypatch.setattr(journal, "_STOP_WAIT_SECONDS", 0.3)
             threading.Thread(target=stop, daemon=True).start()
-            assert finished.wait(5)
-            assert isinstance(outcome[0], ValueError)
-            assert "stop not committed" in str(outcome[0])
+            assert stop.finished.wait(5)
+            assert len(stop.errors) == 1 and isinstance(stop.errors[0], ValueError)
+            assert "stop not committed" in str(stop.errors[0])
             assert journal.accounts()[0].operator_block is None
 
     def test_sender_past_its_send_window_does_not_send(self, tmp_path: Path) -> None:
         """A send that would start too late to finish within its lease is refused."""
         journal = self._ready(tmp_path / "late.sqlite3")
         order, unknown_at = self._pending_send(journal)
-        offset = [0.0]
-        journal._monotonic = lambda: time.monotonic() + offset[0]
+        monotonic = _SteppedMonotonic()
+        journal._monotonic = monotonic
         with journal.execution_guard("venue", order.identity, unknown_at) as permit:
-            offset[0] = 11.0
+            monotonic.offset = 11.0
             with pytest.raises(ValueError, match="send window passed"):
                 permit.require_sendable()
         assert self._leases(journal) == ()
@@ -646,3 +657,12 @@ class TestVenueAccounting:
         assert journal.reconcile_venue(
             self._observation("net-wallet", source_at + timedelta(seconds=1), "600", "3.98")
         )
+
+    @staticmethod
+    def arm_and_die(path: str, order_id: str, at: datetime) -> None:
+        """Arm a dispatch lease in a separate process, then exit without releasing it."""
+        journal = AccountJournal(Path(path), TestVenueAccounting._config())
+        # Keep the guard referenced: collecting it would run its release.
+        guard = journal.execution_guard("venue", order_id, at)
+        guard.__enter__()
+        os._exit(0)

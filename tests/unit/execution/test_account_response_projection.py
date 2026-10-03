@@ -27,6 +27,18 @@ from risk import AccountLimit
 from serialization import DomainCodec
 
 
+class _Constant[T]:
+    """Return one fixed value on every call, standing in for a zero-argument callable."""
+
+    def __init__(self, value: T) -> None:
+        """Bind the value to return."""
+        self.value = value
+
+    def __call__(self) -> T:
+        """Return the bound value."""
+        return self.value
+
+
 class _ProjectedAccount(InstalledPaperAccount):
     """Exercise inherited convenience routing against the actual journal projection."""
 
@@ -183,99 +195,106 @@ class TestAccountMarketMembership:
             )
 
 
-def test_fresh_internal_projections_match_complete_inspection(tmp_path: Path) -> None:
-    """Each internal reader gets current exact data without unrelated history fields."""
-    fixture = _AccountFixture
-    config = fixture._config()
-    at = fixture.opening_at + timedelta(seconds=1)
-    journal = AccountJournal(tmp_path / "account.sqlite3", config, clock=lambda: at)
-    assert journal.reconcile(
-        fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
-    )
-    quote = AccountQuote(price=fixture._price("100"), at=at)
-    journal.observe(quote)
-    committed = journal.admit(fixture._decision("pending", "alpha", at, quantity="1", limit="100"))
-    assert committed.status == "committed"
-    full = journal.result_snapshot(AccountExecutionRequest(action="inspect"))
-    assert len(full.orders) == 1
-    account = _ProjectedAccount(config, journal)
+class TestAccountResponseProjection:
+    """Project account responses without reading or replaying more state than they need."""
 
-    assert account.accounts() == full.accounts
-    assert account.orders() == full.orders
-    assert account.net_orders() == full.net_orders
-    assert account.paper_restore_quarantined() == full.paper_restore_quarantined
-    assert account.paper_activations() == full.paper_activations
-    assert account.paper_reductions() == full.paper_reductions
-    assert account.paper_traces("shared") == full.paper_traces
-    assert account.paper_report_facts("shared") == (full.paper_fills, full.paper_costs)
-    assert account.portfolio_residuals("shared") == full.residuals
-    assert account.checkpoint("alpha") == b"candidate-state"
-    assert account.portfolio_batch("absent") is None
-    assert tuple(request.projection for request in account.seen_requests) == (
-        "accounts",
-        "orders",
-        "net_orders",
-        "quarantine",
-        "paper_activations",
-        "reductions",
-        "traces",
-        "facts",
-        "residuals",
-        "checkpoint",
-        "saved_batch",
-    )
-    assert all(request.action == "inspect" for request in account.seen_requests)
+    def test_fresh_internal_projections_match_complete_inspection(self, tmp_path: Path) -> None:
+        """Each internal reader gets current exact data without unrelated history fields."""
+        fixture = _AccountFixture
+        config = fixture._config()
+        at = fixture.opening_at + timedelta(seconds=1)
+        journal = AccountJournal(tmp_path / "account.sqlite3", config, clock=_Constant(at))
+        assert journal.reconcile(
+            fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+        )
+        quote = AccountQuote(price=fixture._price("100"), at=at)
+        journal.observe(quote)
+        committed = journal.admit(
+            fixture._decision("pending", "alpha", at, quantity="1", limit="100")
+        )
+        assert committed.status == "committed"
+        full = journal.result_snapshot(AccountExecutionRequest(action="inspect"))
+        assert len(full.orders) == 1
+        account = _ProjectedAccount(config, journal)
 
-    selected = journal.result_snapshot(
-        AccountExecutionRequest(action="inspect", projection="orders")
-    )
-    assert selected.orders == full.orders
-    assert selected.accounts == ()
-    assert selected.paper_traces == ()
-    assert selected.paper_fills == ()
+        assert account.accounts() == full.accounts
+        assert account.orders() == full.orders
+        assert account.net_orders() == full.net_orders
+        assert account.paper_restore_quarantined() == full.paper_restore_quarantined
+        assert account.paper_activations() == full.paper_activations
+        assert account.paper_reductions() == full.paper_reductions
+        assert account.paper_traces("shared") == full.paper_traces
+        assert account.paper_report_facts("shared") == (full.paper_fills, full.paper_costs)
+        assert account.portfolio_residuals("shared") == full.residuals
+        assert account.checkpoint("alpha") == b"candidate-state"
+        assert account.portfolio_batch("absent") is None
+        assert tuple(request.projection for request in account.seen_requests) == (
+            "accounts",
+            "orders",
+            "net_orders",
+            "quarantine",
+            "paper_activations",
+            "reductions",
+            "traces",
+            "facts",
+            "residuals",
+            "checkpoint",
+            "saved_batch",
+        )
+        assert all(request.action == "inspect" for request in account.seen_requests)
 
-    account.observe(quote)
-    assert account.seen_requests[-1].projection == "operation"
-    assert account.seen_requests[-1].action == "quote"
+        selected = journal.result_snapshot(
+            AccountExecutionRequest(action="inspect", projection="orders")
+        )
+        assert selected.orders == full.orders
+        assert selected.accounts == ()
+        assert selected.paper_traces == ()
+        assert selected.paper_fills == ()
 
+        account.observe(quote)
+        assert account.seen_requests[-1].projection == "operation"
+        assert account.seen_requests[-1].action == "quote"
 
-def test_operation_projection_skips_state_read_and_default_inspection_stays_full(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An operation receipt needs no second read; operator inspect remains complete."""
-    fixture = _AccountFixture
-    config = fixture._config()
-    journal_path = tmp_path / "account.sqlite3"
-    journal = AccountJournal(journal_path, config)
-    journal.reconcile(
-        fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
-    )
-    config_path = tmp_path / "config.json"
-    request_path = tmp_path / "inspect.json"
-    codec = DomainCodec()
-    config_path.write_bytes(codec.encode_json(config))
-    request_path.write_bytes(codec.encode_json(AccountExecutionRequest(action="inspect")))
-    operator_result = AccountExecutionApplication().run(
-        config_path=config_path, journal_path=journal_path, request_path=request_path
-    )
-    expected = journal.result_snapshot(AccountExecutionRequest(action="inspect"))
-    assert operator_result == expected
-    assert operator_result.accounts == journal.accounts()
-    assert operator_result.journal_path == str(journal_path)
-    assert codec.decode_json(b'{"action":"inspect"}', AccountExecutionRequest).projection == "full"
-
-    def forbidden_read() -> None:
+    @staticmethod
+    def _forbidden_read() -> None:
         """Fail if an operation-only result asks for a second state read."""
         raise AssertionError("operation response read the journal again")
 
-    monkeypatch.setattr(journal._store, "read", forbidden_read)
-    operation = AccountExecutionRequest(
-        action="quote",
-        quote=AccountQuote(
-            price=fixture._price("100"), at=fixture.opening_at + timedelta(seconds=1)
-        ),
-        projection="operation",
-    )
-    assert journal.result_snapshot(operation) == AccountExecutionResult(accounts=(), orders=())
-    with pytest.raises(ValueError, match="inspection requires a state projection"):
-        AccountExecutionRequest(action="inspect", projection="operation")
+    def test_operation_projection_skips_state_read_and_default_inspection_stays_full(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An operation receipt needs no second read; operator inspect remains complete."""
+        fixture = _AccountFixture
+        config = fixture._config()
+        journal_path = tmp_path / "account.sqlite3"
+        journal = AccountJournal(journal_path, config)
+        journal.reconcile(
+            fixture._observation("opening", fixture.opening_at, fixture._opening_snapshot())
+        )
+        config_path = tmp_path / "config.json"
+        request_path = tmp_path / "inspect.json"
+        codec = DomainCodec()
+        config_path.write_bytes(codec.encode_json(config))
+        request_path.write_bytes(codec.encode_json(AccountExecutionRequest(action="inspect")))
+        operator_result = AccountExecutionApplication().run(
+            config_path=config_path, journal_path=journal_path, request_path=request_path
+        )
+        expected = journal.result_snapshot(AccountExecutionRequest(action="inspect"))
+        assert operator_result == expected
+        assert operator_result.accounts == journal.accounts()
+        assert operator_result.journal_path == str(journal_path)
+        assert (
+            codec.decode_json(b'{"action":"inspect"}', AccountExecutionRequest).projection == "full"
+        )
+
+        monkeypatch.setattr(journal._store, "read", self._forbidden_read)
+        operation = AccountExecutionRequest(
+            action="quote",
+            quote=AccountQuote(
+                price=fixture._price("100"), at=fixture.opening_at + timedelta(seconds=1)
+            ),
+            projection="operation",
+        )
+        assert journal.result_snapshot(operation) == AccountExecutionResult(accounts=(), orders=())
+        with pytest.raises(ValueError, match="inspection requires a state projection"):
+            AccountExecutionRequest(action="inspect", projection="operation")

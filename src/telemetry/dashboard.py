@@ -22,7 +22,7 @@ import msgspec
 
 # project library imports
 from financial_units import ExactRatio
-from serialization import DomainCodec, WireRecord, publish_directory
+from serialization import DomainCodec, DurableDirectory, WireRecord
 from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringQuery
 from telemetry.metrics import (
     MetricPoint,
@@ -530,7 +530,7 @@ class DashboardSnapshot(WireRecord, frozen=True):
                     output.write(payload)
                     output.flush()
                     os.fsync(output.fileno())
-            if not publish_directory(staging, directory):
+            if not DurableDirectory.publish(staging, directory):
                 # A publisher outside this lock went first; its view must be this one.
                 return self._verified(directory)
         finally:

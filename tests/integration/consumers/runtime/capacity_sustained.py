@@ -33,7 +33,7 @@ from market_data.contracts import CaptureRecord, CaptureRequest
 from portfolio import PortfolioContext
 from research.observations import LiveBookDecisionSource
 from runtime import SharedDecisionRuntime, SharedPaperCaptureObserver, SharedStrategyBinding
-from strategies import reference_policy
+from strategies import ReferencePolicies
 
 
 class SustainedNativeFixture(CapacityNativeFixture):
@@ -380,7 +380,7 @@ class SustainedWorkload(CapacityWorkload):
                 instance_id=instance.instance_id,
                 account_id=account_id,
                 entity=str(source.scenario.instrument_id),
-                policy=reference_policy(
+                policy=ReferencePolicies.create(
                     instance.policy,
                     instance.quantity,
                     source.scenario.adverse.currency,

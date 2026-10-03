@@ -44,7 +44,7 @@ from runtime import (
     SharedStrategyBinding,
 )
 from serialization import DomainCodec
-from strategies import reference_policy
+from strategies import ReferencePolicies
 
 
 class _TrialSummary(msgspec.Struct):
@@ -159,7 +159,7 @@ class CapacityEconomicParity:
         instance: PaperServiceInstance,
     ) -> SharedStrategyBinding:
         """Use the service's exact policy constructor arguments without a worker."""
-        policy = reference_policy(
+        policy = ReferencePolicies.create(
             instance.policy,
             instance.quantity,
             source.scenario.adverse.currency,

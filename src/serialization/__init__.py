@@ -2,13 +2,7 @@
 
 # project library imports
 from serialization.codec import DomainCodec
-from serialization.durable import publish_directory, require_sqlite_layout, sync_directory
+from serialization.durable import DurableDirectory, SqliteLayout
 from serialization.records import WireRecord
 
-__all__ = [
-    "DomainCodec",
-    "WireRecord",
-    "publish_directory",
-    "require_sqlite_layout",
-    "sync_directory",
-]
+__all__ = ["DomainCodec", "DurableDirectory", "SqliteLayout", "WireRecord"]

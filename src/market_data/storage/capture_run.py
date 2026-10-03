@@ -22,7 +22,7 @@ from market_data.contracts import (
     RawObject,
 )
 from market_data.storage.journal import CaptureJournal
-from serialization import DomainCodec, sync_directory
+from serialization import DomainCodec, DurableDirectory
 
 
 class CaptureRunJournal:
@@ -78,12 +78,12 @@ class CaptureRunJournal:
                     # Provisioning died after the run request committed and before its
                     # segments directory: no segment exists, so nothing was acknowledged.
                     segments.mkdir()
-                    sync_directory(self.root)
+                    DurableDirectory.sync(self.root)
                 self._set_aside_unprovisioned()
             else:
                 self._write(self.root / "run-request.json", self.codec.encode_json(self.request))
                 (self.root / "segments").mkdir()
-                sync_directory(self.root)
+                DurableDirectory.sync(self.root)
             journals = self.segments()
             if not (self.root / "run-summary.json").exists():
                 self.progress(status="owned", segments=len(journals))
@@ -120,9 +120,9 @@ class CaptureRunJournal:
                 raise ValueError("capture segment without a cursor holds unacknowledged data")
             held.mkdir(exist_ok=True)
             os.rename(root, held / root.name)
-            sync_directory(segments)
-            sync_directory(held)
-            sync_directory(self.root)
+            DurableDirectory.sync(segments)
+            DurableDirectory.sync(held)
+            DurableDirectory.sync(self.root)
 
     def segments(self) -> tuple[CaptureJournal, ...]:
         """Read and validate one ordered chain; reject forks and omitted predecessors."""
@@ -266,4 +266,4 @@ class CaptureRunJournal:
             output.flush()
             os.fsync(output.fileno())
         os.replace(pending, path)
-        sync_directory(path.parent)
+        DurableDirectory.sync(path.parent)

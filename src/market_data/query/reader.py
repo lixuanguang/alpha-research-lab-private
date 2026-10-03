@@ -283,17 +283,17 @@ class QueryReader:
         evidence must keep its own bytes and identities.
         """
         shared: dict[tuple[type, bytes], object] = {}
-
-        def one[T](value: T) -> T:
-            """Return the first cached value with this one's type and encoded bytes."""
-            return cast(T, shared.setdefault((type(value), cls._codec.encode_json(value)), value))
-
         evidence: list[QueryEvidence] = []
         for partition in partitions:
             manifest = partition.request.manifest
-            manifest = one(replace(manifest, catalog=one(manifest.catalog)))
+            manifest = cls._shared_value(
+                shared, replace(manifest, catalog=cls._shared_value(shared, manifest.catalog))
+            )
             eligibility = partition.eligibility
-            eligibility = one(replace(eligibility, catalog=one(eligibility.catalog)))
+            eligibility = cls._shared_value(
+                shared,
+                replace(eligibility, catalog=cls._shared_value(shared, eligibility.catalog)),
+            )
             evidence.append(
                 QueryEvidence(
                     replace(partition.request, manifest=manifest),
@@ -304,6 +304,11 @@ class QueryReader:
                 )
             )
         return tuple(evidence)
+
+    @classmethod
+    def _shared_value[T](cls, shared: dict[tuple[type, bytes], object], value: T) -> T:
+        """Return the first value in ``shared`` with this one's type and encoded bytes."""
+        return cast(T, shared.setdefault((type(value), cls._codec.encode_json(value)), value))
 
     @staticmethod
     def _check_cancelled(cancelled: Callable[[], bool] | None) -> None:

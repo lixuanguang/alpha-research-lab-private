@@ -29,7 +29,7 @@ from execution.records import (
 )
 from financial_units import Money, Price, Quantity
 from risk import SpotLimits
-from serialization import DomainCodec, require_sqlite_layout
+from serialization import DomainCodec, SqliteLayout
 from strategies import ExposureIntent, TargetIntent
 
 if TYPE_CHECKING:
@@ -650,7 +650,7 @@ class PaperOrderJournal:
                     "INSERT INTO state(id, checkpoint, blocked_reason) VALUES (1, NULL, NULL)"
                 )
             else:
-                require_sqlite_layout(connection, _LAYOUT, "unsupported paper journal schema")
+                SqliteLayout.require(connection, _LAYOUT, "unsupported paper journal schema")
                 row = self._query_one(connection, "SELECT binding FROM journal WHERE id = 1")
                 if row is None:
                     raise ValueError("paper journal binding is missing")

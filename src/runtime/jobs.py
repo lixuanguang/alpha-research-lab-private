@@ -14,12 +14,13 @@ from collections.abc import Iterator, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from types import TracebackType
 from typing import BinaryIO, Literal, Protocol, Self, cast
 
 # project library imports
-from serialization import DomainCodec, WireRecord, publish_directory, sync_directory
+from serialization import DomainCodec, DurableDirectory, WireRecord
 
 type JobStatus = Literal["queued", "running", "retry", "completed", "failed", "cancelled"]
 
@@ -493,7 +494,7 @@ class JobQueue:
                     raise ValueError("job database specification identity differs")
                 if (self.root / "results" / job_id).is_dir():
                     result = self._verify_result(job_id, None)
-                    sync_directory(self.root / "results")
+                    DurableDirectory.sync(self.root / "results")
                     connection.execute(
                         "UPDATE jobs SET status='completed', result_sha256=? WHERE job_id=?",
                         (hashlib.sha256(result).hexdigest(), job_id),
@@ -614,7 +615,7 @@ class JobQueue:
                 raise ValueError("job outputs exceed bounded file or byte budget")
             digest = hashlib.sha256()
             with path.open("rb") as source:
-                for chunk in iter(lambda: source.read(1_048_576), b""):
+                for chunk in iter(partial(source.read, 1_048_576), b""):
                     digest.update(chunk)
                 os.fsync(source.fileno())
             size = path.stat().st_size
@@ -641,9 +642,9 @@ class JobQueue:
             os.fsync(output.fileno())
         for path in sorted(directory.rglob("*"), reverse=True):
             if path.is_dir():
-                sync_directory(path)
+                DurableDirectory.sync(path)
         destination = self.root / "results" / job_id
-        if not publish_directory(directory, destination):
+        if not DurableDirectory.publish(directory, destination):
             raise FileExistsError("published job result already exists")
         return hashlib.sha256(result).hexdigest()
 
@@ -679,7 +680,7 @@ class JobQueue:
                 raise ValueError("published job output bytes differ")
             digest = hashlib.sha256()
             with path.open("rb") as source:
-                for chunk in iter(lambda: source.read(1_048_576), b""):
+                for chunk in iter(partial(source.read, 1_048_576), b""):
                     digest.update(chunk)
             if digest.hexdigest() != record.sha256:
                 raise ValueError("published job output bytes differ")
@@ -830,7 +831,7 @@ class JobWorkerPool:
                 # A crash or write error after rename must never invoke the
                 # handler again. Verify and adopt the already published bytes.
                 result = self._queue._verify_result(spec.job_id, None)
-                sync_directory(self._queue.root / "results")
+                DurableDirectory.sync(self._queue.root / "results")
                 self._queue._finish(
                     spec.job_id, claimed.attempts, hashlib.sha256(result).hexdigest(), None
                 )

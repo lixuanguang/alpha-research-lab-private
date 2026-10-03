@@ -24,7 +24,7 @@ from market_data.datasets.public_trades import PublicTradeManifest, PublicTradeP
 from market_data.datasets.readers import DatasetReaders
 from market_data.storage import RawStore
 from market_data.validation import QualityReport
-from serialization import DomainCodec, publish_directory, sync_directory
+from serialization import DomainCodec, DurableDirectory
 
 
 class SnapshotStore[
@@ -113,7 +113,9 @@ class SnapshotStore[
                 self._write(staging / "manifest.json", self._codec.encode_json(manifest), max_bytes)
                 self._read(staging, identity, max_bytes)
                 # False: a concurrent publisher won; its snapshot is verified below.
-                published = publish_directory(staging, destination, sync=self._sync_directory)
+                published = DurableDirectory.publish(
+                    staging, destination, sync=self._sync_directory
+                )
         self.read(identity, max_bytes=max_bytes)
         if not published:
             # Another publisher's snapshot must be durably named before acknowledging.
@@ -172,7 +174,7 @@ class SnapshotStore[
             # Reproduce the saved bytes from raw input before they can become visible.
             self._read(staging, identity, max_bytes)
             destination = self._root / identity
-            if not publish_directory(staging, destination, sync=self._sync_directory):
+            if not DurableDirectory.publish(staging, destination, sync=self._sync_directory):
                 # A concurrent publisher won; verify and durably name its snapshot.
                 self.read(identity, max_bytes=max_bytes)
                 self._sync_directory(self._root)
@@ -242,4 +244,4 @@ class SnapshotStore[
             os.fsync(output.fileno())
 
     # Tests substitute this seam to inject directory synchronization failures.
-    _sync_directory = staticmethod(sync_directory)
+    _sync_directory = staticmethod(DurableDirectory.sync)

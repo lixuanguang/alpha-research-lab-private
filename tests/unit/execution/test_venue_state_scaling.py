@@ -14,6 +14,24 @@ import pytest
 from execution.venue_state import VenueStateStore
 
 
+class _HeartbeatReceipt:
+    """Retain one new heartbeat frame per call and time it."""
+
+    def __init__(self, store: VenueStateStore, at: datetime) -> None:
+        """Bind the store and receipt time with nothing retained yet."""
+        self._store = store
+        self._at = at
+        self.retained = 0
+
+    def __call__(self) -> float:
+        """Retain one new heartbeat frame and return how long it took."""
+        payload = b'[0,"hb",%d]' % self.retained
+        started = time.perf_counter()
+        self._store.receipt("private-frame", payload, self._at)
+        self.retained += 1
+        return time.perf_counter() - started
+
+
 class TestVenueStateScaling:
     """Bound per-frame costs by the frame, not by the retained history."""
 
@@ -22,21 +40,12 @@ class TestVenueStateScaling:
         """Retaining one heartbeat stays near flat while retained receipts grow tenfold."""
         store = VenueStateStore(tmp_path / "account.sqlite3", "account", b"scope")
         at = datetime(2026, 10, 1, tzinfo=UTC)
-        retained = 0
-
-        def frame() -> float:
-            """Retain one new heartbeat frame and return how long it took."""
-            nonlocal retained
-            payload = b'[0,"hb",%d]' % retained
-            started = time.perf_counter()
-            store.receipt("private-frame", payload, at)
-            retained += 1
-            return time.perf_counter() - started
+        frame = _HeartbeatReceipt(store, at)
 
         medians: list[float] = []
         with store.claim():
             for size in (500, 5000):
-                while retained < size:
+                while frame.retained < size:
                     frame()
                 medians.append(sorted(frame() for _ in range(21))[10])
         print(f"frame receipt at 500/5000 receipts: {medians[0]:.6f}s/{medians[1]:.6f}s")

@@ -56,6 +56,18 @@ from strategies import OrderIntent
 from telemetry import MonitoringDefinitions, MonitoringEvent, MonitoringQuery, TelemetryStore
 
 
+class _Constant[T]:
+    """Return one fixed value on every call, standing in for a zero-argument callable."""
+
+    def __init__(self, value: T) -> None:
+        """Bind the value to return."""
+        self.value = value
+
+    def __call__(self) -> T:
+        """Return the bound value."""
+        return self.value
+
+
 class TestPaperMonitoring:
     """Reconcile shared attributed economics and real monitoring receipt clocks."""
 
@@ -602,14 +614,14 @@ class TestPaperMonitoring:
         monkeypatch.setattr(
             journal,
             "paper_reductions",
-            lambda: reductions,
+            _Constant(reductions),
         )
         monkeypatch.setattr(
             journal,
             "orders",
-            lambda: (TaggedOrder(account_id="shared", instance_id="alpha", order=terminal),),
+            _Constant((TaggedOrder(account_id="shared", instance_id="alpha", order=terminal),)),
         )
-        monkeypatch.setattr(journal, "paper_restore_quarantined", lambda: True)
+        monkeypatch.setattr(journal, "paper_restore_quarantined", _Constant(True))
         ledger_before = journal.accounts()[0].ledger
 
         cases = (
@@ -646,7 +658,7 @@ class TestPaperMonitoring:
                 ),
                 generation=3,
             )
-            monkeypatch.setattr(journal, "paper_activations", lambda: (activation,))
+            monkeypatch.setattr(journal, "paper_activations", _Constant((activation,)))
             events = PaperMonitoring("monitor-release").account(
                 journal,
                 account_id="shared",
