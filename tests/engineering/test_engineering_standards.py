@@ -11,12 +11,9 @@ import pytest
 
 # project library imports
 from alpha_research_governance.engineering_standards import (
+    EngineeringStandards,
     EngineeringStandardsError,
     main,
-    source_tree_findings,
-    tooling_configuration_findings,
-    validate_repository,
-    validate_suppression_line,
 )
 from alpha_research_governance.engineering_standards.format_compatibility import (
     FormatCompatibilityChecker,
@@ -26,20 +23,30 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 VALIDATION_DATE = date(2026, 9, 7)
 
 
-def _fixture_root(tmp_path: Path, source: str) -> Path:
-    """Create all owned source roots with one Python fixture."""
-    for source_root in ("src", "tests", "tools/governance/src", "tools/typing/stubs", "examples"):
-        (tmp_path / source_root).mkdir(parents=True)
-    (tmp_path / "pyproject.toml").write_text(
-        (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    project = tmp_path / "pyproject.toml"
-    text = project.read_text()
-    start, end = text.index("[project.scripts]"), text.index("[dependency-groups]")
-    project.write_text(text[:start] + text[end:])
-    (tmp_path / "src/fixture.py").write_text(source, encoding="utf-8")
-    return tmp_path
+class StandardsFixtures:
+    """Build minimal repositories with every governed source root."""
+
+    @staticmethod
+    def repository(tmp_path: Path, source: str) -> Path:
+        """Create all owned source roots with one Python fixture."""
+        for source_root in (
+            "src",
+            "tests",
+            "tools/governance/src",
+            "tools/typing/stubs",
+            "examples",
+        ):
+            (tmp_path / source_root).mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text(
+            (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        project = tmp_path / "pyproject.toml"
+        text = project.read_text()
+        start, end = text.index("[project.scripts]"), text.index("[dependency-groups]")
+        project.write_text(text[:start] + text[end:])
+        (tmp_path / "src/fixture.py").write_text(source, encoding="utf-8")
+        return tmp_path
 
 
 class TestEngineeringStandards:
@@ -48,13 +55,13 @@ class TestEngineeringStandards:
     def test_tooling_configuration_reports_malformed_toml(self, tmp_path: Path) -> None:
         """Report malformed TOML through the controlled configuration boundary."""
         (tmp_path / "pyproject.toml").write_text("[tool", encoding="utf-8")
-        findings = tooling_configuration_findings(tmp_path)
+        findings = EngineeringStandards.tooling_configuration_findings(tmp_path)
         assert len(findings) == 1
         assert findings[0].startswith("Python tooling configuration:")
 
     def test_source_accepts_unparenthesized_exception_types(self, tmp_path: Path) -> None:
         """Parse Python 3.14 exception syntax emitted by the pinned formatter."""
-        root = _fixture_root(
+        root = StandardsFixtures.repository(
             tmp_path,
             '"""Exercise exception syntax."""\n\n'
             "def _parse(value: str) -> int:\n"
@@ -64,20 +71,20 @@ class TestEngineeringStandards:
             "    except TypeError, ValueError:\n"
             "        return -1\n",
         )
-        assert source_tree_findings(root) == ()
+        assert EngineeringStandards.source_tree_findings(root) == ()
 
     def test_repository_source_passes_without_policy_or_evidence_files(self) -> None:
         """Validate the retained source contract without repository policy records."""
-        assert validate_repository(REPOSITORY_ROOT) == ()
+        assert EngineeringStandards.validate_repository(REPOSITORY_ROOT) == ()
 
     def test_source_findings_include_untracked_fixture_diagnostics(self, tmp_path: Path) -> None:
         """Report clarity findings from a newly created Python file."""
-        root = _fixture_root(
+        root = StandardsFixtures.repository(
             tmp_path,
             '"""Fixture module."""\n\nfrom typing import Any\n\nvalue: Any\n',
         )
 
-        findings = source_tree_findings(root)
+        findings = EngineeringStandards.source_tree_findings(root)
 
         assert any("src/fixture.py" in finding and "PYI001" in finding for finding in findings)
 
@@ -132,19 +139,19 @@ class TestEngineeringStandards:
         assert old in content
         path.write_text(content.replace(old, new, 1), encoding="utf-8")
 
-        findings = tooling_configuration_findings(tmp_path)
+        findings = EngineeringStandards.tooling_configuration_findings(tmp_path)
 
         assert any(expected in finding for finding in findings)
 
     def test_validate_repository_raises_for_source_findings(self, tmp_path: Path) -> None:
         """Turn direct findings into one controlled standards error."""
-        root = _fixture_root(
+        root = StandardsFixtures.repository(
             tmp_path,
             '"""Fixture module."""\n\nfrom typing import Any\n\nvalue: Any\n',
         )
 
         with pytest.raises(EngineeringStandardsError) as error:
-            validate_repository(root)
+            EngineeringStandards.validate_repository(root)
 
         assert "PYT001" in str(error.value)
 
@@ -166,7 +173,9 @@ class TestEngineeringStandards:
     )
     def test_suppression_annotations_fail_closed(self, line: str, expected: str) -> None:
         """Require local owner, rationale, and bounded expiry metadata."""
-        findings = validate_suppression_line(line, validation_date=VALIDATION_DATE)
+        findings = EngineeringStandards.validate_suppression_line(
+            line, validation_date=VALIDATION_DATE
+        )
 
         assert any(expected in finding for finding in findings)
 
@@ -177,13 +186,18 @@ class TestEngineeringStandards:
             "rationale=keep behavior while boundary is simplified; expires=2026-12-01]"
         )
 
-        assert validate_suppression_line(line, validation_date=VALIDATION_DATE) == ()
+        assert (
+            EngineeringStandards.validate_suppression_line(line, validation_date=VALIDATION_DATE)
+            == ()
+        )
 
     def test_cli_reports_success_usage_error_and_missing_root(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Keep command statuses and diagnostics stable at the CLI boundary."""
-        valid_root = _fixture_root(tmp_path / "valid", '"""Fixture module."""\n\nvalue: int = 1\n')
+        valid_root = StandardsFixtures.repository(
+            tmp_path / "valid", '"""Fixture module."""\n\nvalue: int = 1\n'
+        )
         assert main([str(valid_root)]) == 0
         assert "Python clarity standards passed" in capsys.readouterr().out
 
@@ -274,9 +288,9 @@ class TestFormatCompatibilityChecker:
 
     def test_validate_repository_reports_compatibility_wording(self, tmp_path: Path) -> None:
         """The engineering command fails closed on the wording finding."""
-        root = _fixture_root(tmp_path, '"""Keep the legacy reader."""\n')
+        root = StandardsFixtures.repository(tmp_path, '"""Keep the legacy reader."""\n')
         with pytest.raises(EngineeringStandardsError, match="format changes replace in place"):
-            validate_repository(root, validation_date=VALIDATION_DATE)
+            EngineeringStandards.validate_repository(root, validation_date=VALIDATION_DATE)
 
 
 if __name__ == "__main__":

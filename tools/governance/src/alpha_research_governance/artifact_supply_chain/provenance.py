@@ -20,7 +20,7 @@ from pydantic import TypeAdapter
 from alpha_research_governance._models import ImmutableModel
 from alpha_research_governance.artifact_supply_chain.bundles import VerifiedRelease
 from alpha_research_governance.artifact_supply_chain.records import ReleaseFile
-from alpha_research_governance.dependency_admission import assess_pip_audit_report, load_policy
+from alpha_research_governance.dependency_admission import DependencyPolicy, PipAuditReport
 from alpha_research_governance.dependency_admission.selected_closure import (
     SelectedClosureAdmission,
     SelectedClosureFacts,
@@ -93,12 +93,12 @@ class ReleaseProvenance:
             directory = Path(temporary)
             policy_path = directory / "dependency-admission.toml"
             policy_path.write_bytes(release.content("provenance/dependency-admission.toml"))
-            policy = load_policy(policy_path)
+            policy = DependencyPolicy.load(policy_path)
             if policy.review_due_on != facts.review_due_on or now.date() > policy.review_due_on:
                 raise ValueError("retained dependency policy is expired")
             audit = directory / "audit.json"
             audit.write_bytes(release.content("provenance/audit.json"))
-            assess_pip_audit_report(audit, policy)
+            PipAuditReport.assess(audit, policy)
             disallowed = {item.name for item in policy.wheel_only_allowances}
             if disallowed.intersection(wheel.name for wheel in facts.wheels):
                 raise ValueError("release includes a development-only dependency")

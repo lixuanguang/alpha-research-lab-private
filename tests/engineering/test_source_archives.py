@@ -18,12 +18,11 @@ from unittest.mock import patch
 import pytest
 
 # project library imports
-from alpha_research_governance.dependency_admission import load_policy, validate_repository
+from alpha_research_governance.dependency_admission import DependencyPolicy, DependencyRepository
 from alpha_research_governance.dependency_admission.models import (
     DependencyAdmissionError,
     SourceArchiveAdmission,
 )
-from alpha_research_governance.dependency_admission.policy import _python_lock_findings
 from alpha_research_governance.dependency_admission.source_archives import SourceArchiveVerifier
 
 _ROOT = Path(__file__).parents[2]
@@ -196,7 +195,7 @@ class TestSourceArchives:
             SourceArchiveVerifier, "verify", side_effect=DependencyAdmissionError(["mismatch"])
         ):
             with pytest.raises(DependencyAdmissionError, match="mismatch"):
-                validate_repository(_ROOT, validation_date=date(2026, 10, 1))
+                DependencyRepository.validate(_ROOT, validation_date=date(2026, 10, 1))
 
     @pytest.mark.parametrize(
         ("old", "new"),
@@ -220,7 +219,7 @@ class TestSourceArchives:
         path = tmp_path / "policy.toml"
         path.write_text(_POLICY.read_text().replace(old, new, 1))
         with pytest.raises(DependencyAdmissionError):
-            load_policy(path)
+            DependencyPolicy.load(path)
 
     def test_duplicate_source_bindings_are_rejected(self, tmp_path: Path) -> None:
         """Refuse ambiguous source authorizations."""
@@ -231,15 +230,15 @@ class TestSourceArchives:
         path = tmp_path / "policy.toml"
         path.write_text(content + "\n[[source_archives]]" + binding)
         with pytest.raises(DependencyAdmissionError, match="duplicate source"):
-            load_policy(path)
+            DependencyPolicy.load(path)
 
     def test_archive_binding_cannot_override_lock(self, tmp_path: Path) -> None:
         """Reject changed wheel hashes even when the upstream archive still matches its pin."""
         lock = (_ROOT / "uv.lock").read_text()
-        binding = load_policy(_POLICY).source_archives[0]
+        binding = DependencyPolicy.load(_POLICY).source_archives[0]
         (tmp_path / "uv.lock").write_text(lock.replace(binding.wheel_sha256, "b" * 64))
-        findings = _python_lock_findings(
-            tmp_path, load_policy(_POLICY), validation_date=date(2026, 10, 1)
+        findings = DependencyRepository.lock_findings(
+            tmp_path, DependencyPolicy.load(_POLICY), validation_date=date(2026, 10, 1)
         )
         assert any("source archive must bind the exact locked wheel" in item for item in findings)
 
@@ -248,8 +247,8 @@ class TestSourceArchives:
         before, _ = _POLICY.read_text().split("[[source_archives]]", 1)
         path = tmp_path / "policy.toml"
         path.write_text("source_archives = []\n" + before)
-        findings = _python_lock_findings(
-            _ROOT, load_policy(path), validation_date=date(2026, 10, 1)
+        findings = DependencyRepository.lock_findings(
+            _ROOT, DependencyPolicy.load(path), validation_date=date(2026, 10, 1)
         )
         assert "clearml lacks a digest-bound source distribution" in findings
 
@@ -262,7 +261,7 @@ class TestSourceArchives:
             )
         )
         with pytest.raises(DependencyAdmissionError, match="exact pure package"):
-            load_policy(path)
+            DependencyPolicy.load(path)
 
     @pytest.mark.parametrize("status", [302, 404])
     def test_redirects_and_failed_http_statuses_are_not_followed(

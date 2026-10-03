@@ -26,7 +26,7 @@ from alpha_research_governance.artifact_supply_chain.records import (
     StateEnvelope,
 )
 from alpha_research_governance.artifact_supply_chain.signatures import ReleaseSignatures
-from alpha_research_governance.dependency_admission import validate_repository
+from alpha_research_governance.dependency_admission import DependencyRepository
 from alpha_research_governance.dependency_admission.selected_closure import SelectedClosureAdmission
 
 
@@ -80,7 +80,7 @@ class ReleaseBuilder:
             OSError: Required inputs or build tools are unavailable.
         """
         request = ReleaseBuild.model_validate(request)
-        policy = validate_repository(self.repository)
+        policy = DependencyRepository.validate(self.repository)
         # Pinned tools and target are checked before any build process runs.
         LocalInstallation(registry, self.policy)._require_tools(request.runtime)
         backend = self._run(

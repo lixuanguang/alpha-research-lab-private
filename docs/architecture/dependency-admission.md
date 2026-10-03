@@ -56,7 +56,7 @@ accepted upstream archive origin is `clearml/clearml` on GitHub, addressed by a
 package, change the locked wheel, or create an implicit wheel-only exception.
 An absent binding restores the ordinary source-distribution requirement.
 
-`validate_repository` invokes the owned `SourceArchiveVerifier` before returning
+`DependencyRepository.validate` invokes the owned `SourceArchiveVerifier` before returning
 success, so the existing dependency command, audit and `make check` all enforce
 the comparison. On a cold cache it downloads the reviewed archives over HTTPS,
 with no redirects, a 32 MiB transfer limit, 15-second socket timeouts and a

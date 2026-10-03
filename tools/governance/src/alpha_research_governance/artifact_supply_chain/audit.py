@@ -10,7 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 # project library imports
-from alpha_research_governance.dependency_admission import assess_pip_audit_report
+from alpha_research_governance.dependency_admission import PipAuditReport
 from alpha_research_governance.dependency_admission.models import DependencyAdmission
 
 
@@ -75,5 +75,5 @@ class ReleaseAudit:
             output.with_suffix(".scanner.log").write_bytes(result.stdout + result.stderr)
             if result.returncode != 0 or not output.is_file():
                 raise ValueError("release vulnerability audit failed; see retained scanner log")
-            assess_pip_audit_report(output, policy)
+            PipAuditReport.assess(output, policy)
             return output.read_bytes()

@@ -350,3 +350,9 @@ The owner approved this design on 2026-10-04, with these decisions:
   under 504 entries: 293 module-level functions, 77 nested functions, 85 lambdas, 3
   native calls, 3 native imports in applications, 35 private, 52 deep and 2 unexported
   imports, and 5 `sys.path` mutations. These match the inventory above.
+- **Milestone 2 (2026-10-04): governance tooling.** The governance package's 31
+  module-level functions are now methods of `ArchitectureGovernanceService`,
+  `SecretScanner`, `SecretScanCommand`, `DependencyPolicy`, `PipAuditReport`,
+  `DependencyRepository` and `EngineeringStandards`. The package exports those classes
+  instead of the functions. The `tests/engineering` test functions, helpers and nested
+  doubles are in classes. The ledger shrank from 555 to 464 findings.
