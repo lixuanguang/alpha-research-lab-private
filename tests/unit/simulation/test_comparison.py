@@ -39,6 +39,22 @@ from serialization import DomainCodec
 _RETAIN = AttemptStore.retain
 
 
+class TestComparisonLimits:
+    """Bound comparison configuration size and refuse unrepresentable objectives."""
+
+    def test_comparison_configuration_byte_limit(self, tmp_path: Path) -> None:
+        """Refuse oversized configuration before decoding for CLI and pipeline consumers."""
+        path = tmp_path / "comparison.json"
+        path.write_bytes(b" " * 1_048_577)
+        with pytest.raises(ValueError, match="exceeds one MiB"):
+            ComparisonStudy.read(path)
+
+    def test_unrepresentable_objective_fails_before_terminal_success(self) -> None:
+        """An exact but oversized return cannot become a completed Optuna objective."""
+        with pytest.raises(ValueError, match="finite Optuna projection"):
+            TrialEvaluation(net_return=ExactRatio(numerator="1" + "0" * 400, denominator="1"))
+
+
 class _RetentionFailure:
     """Fail one post-start artifact boundary while leaving terminal retention writable."""
 
@@ -372,17 +388,3 @@ class TestParameterComparison:
             )
             assert len(resumed) == 2
             assert all("clearml-destination" in store.artifacts(item) for item in resumed)
-
-
-def test_comparison_configuration_byte_limit(tmp_path: Path) -> None:
-    """Refuse oversized configuration before decoding for CLI and pipeline consumers."""
-    path = tmp_path / "comparison.json"
-    path.write_bytes(b" " * 1_048_577)
-    with pytest.raises(ValueError, match="exceeds one MiB"):
-        ComparisonStudy.read(path)
-
-
-def test_unrepresentable_objective_fails_before_terminal_success() -> None:
-    """An exact but oversized return cannot become a completed Optuna objective."""
-    with pytest.raises(ValueError, match="finite Optuna projection"):
-        TrialEvaluation(net_return=ExactRatio(numerator="1" + "0" * 400, denominator="1"))

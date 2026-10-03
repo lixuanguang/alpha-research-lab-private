@@ -36,9 +36,20 @@ from telemetry import (
     SeriesMetric,
     TelemetryStore,
 )
-from telemetry.dashboard import POINT_LIMIT, _Selection
+from telemetry.dashboard import POINT_LIMIT, DashboardViewSelection
 
 Aggregation = Literal["last", "sum", "mean", "maximum"]
+
+
+class DashboardSelection:
+    """Build bounded dashboard selections."""
+
+    @staticmethod
+    def selection(
+        query: MonitoringQuery, events: tuple[MonitoringEvent, ...], renderer: DashboardRenderer
+    ) -> DashboardViewSelection:
+        """Share the renderer's decode cache with a directly built view."""
+        return DashboardViewSelection.of(query, events, renderer.codec, renderer._events)
 
 
 class _Opaque:
@@ -331,7 +342,7 @@ class TestBoundedDashboard:
         expected = renderer.render(query, events)
         view = DashboardBuilder._build(
             config,
-            _selection(query, events, renderer),
+            DashboardSelection.selection(query, events, renderer),
             registry,
             None,
         )
@@ -375,10 +386,3 @@ class TestBoundedDashboard:
         assert (result.value, result.point_count) == (direct.value, len(direct.points))
         assert result.points == direct.points[-POINT_LIMIT:]
         assert result.input_count == len(predictions) + len(outcomes)
-
-
-def _selection(
-    query: MonitoringQuery, events: tuple[MonitoringEvent, ...], renderer: DashboardRenderer
-) -> _Selection:
-    """Share the renderer's decode cache with a directly built view."""
-    return _Selection.of(query, events, renderer.codec, renderer._events)

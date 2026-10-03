@@ -26,13 +26,13 @@ from reference_data.calendars.core import (
     VenueCalendarError as VenueCalendarError,
 )
 from reference_data.calendars.core import (
+    VenueCalendarModel as VenueCalendarModel,
+)
+from reference_data.calendars.core import (
     VenueCalendarValidationError as VenueCalendarValidationError,
 )
 from reference_data.calendars.core import (
     VenueId as VenueId,
-)
-from reference_data.calendars.core import (
-    _VenueCalendarModel as _VenueCalendarModel,
 )
 from reference_data.calendars.market_state import (
     InterruptionKind as InterruptionKind,

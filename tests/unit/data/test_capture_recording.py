@@ -29,63 +29,66 @@ _RUN_ID = "00000000-0000-4000-8000-000000000051"
 _OPEN: list[CaptureRunJournal] = []
 
 
-@pytest.fixture(autouse=True)
-def _release_runs() -> Iterator[None]:
-    """Release each run's ownership lock once its test ends."""
-    yield
-    while _OPEN:
-        _OPEN.pop().close()
+class CaptureRecordingFixture:
+    """Build capture runs, records and chained recordings."""
 
+    @staticmethod
+    def records(count: int) -> tuple[CaptureRecord, ...]:
+        """Author a session followed by native heartbeat frames with increasing receipt."""
+        frames = tuple(
+            CaptureRecord(kind="frame", epoch=0, received_ns=1_000 + index, raw=b'[7,"hb"]')
+            for index in range(count)
+        )
+        return (CaptureRecord(kind="session", epoch=0, received_ns=999), *frames)
 
-def _records(count: int) -> tuple[CaptureRecord, ...]:
-    """Author a session followed by native heartbeat frames with increasing receipt."""
-    frames = tuple(
-        CaptureRecord(kind="frame", epoch=0, received_ns=1_000 + index, raw=b'[7,"hb"]')
-        for index in range(count)
-    )
-    return (CaptureRecord(kind="session", epoch=0, received_ns=999), *frames)
+    @staticmethod
+    def run_request() -> CaptureRunRequest:
+        """Declare a finite chain whose three-message segments roll over often."""
+        now = datetime.now(UTC)
+        return CaptureRunRequest(
+            config=_CONFIG,
+            window=CaptureRunConfig(
+                start_at=now - timedelta(seconds=1),
+                ready_by=now,
+                stop_at=now + timedelta(minutes=1),
+                max_messages=100,
+                max_bytes=1_048_576,
+                max_segments=8,
+                max_reconnects=0,
+            ),
+            run_id=_RUN_ID,
+            implementation_identity="a" * 64,
+        )
 
-
-def _run_request() -> CaptureRunRequest:
-    """Declare a finite chain whose three-message segments roll over often."""
-    now = datetime.now(UTC)
-    return CaptureRunRequest(
-        config=_CONFIG,
-        window=CaptureRunConfig(
-            start_at=now - timedelta(seconds=1),
-            ready_by=now,
-            stop_at=now + timedelta(minutes=1),
-            max_messages=100,
-            max_bytes=1_048_576,
-            max_segments=8,
-            max_reconnects=0,
-        ),
-        run_id=_RUN_ID,
-        implementation_identity="a" * 64,
-    )
-
-
-def _chain(
-    output: Path, records: tuple[CaptureRecord, ...], *, finish: bool
-) -> tuple[CaptureRunJournal, CaptureSegmentWriter]:
-    """Write records through the collector's writer; optionally seal and summarize the run."""
-    request = _run_request()
-    run = CaptureRunJournal(output / request.run_id / request.run_id, request)
-    run.open(resume=False)
-    _OPEN.append(run)
-    writer = CaptureSegmentWriter(
-        run, run.start_segment(None), previous_bytes=0, previous_records=0
-    )
-    for record in records:
-        asyncio.run(writer.append(record))
-    if finish:
-        run.sealed(writer.current, writer.first_received_ns or 1)
-        run.finish({"run_identity": request.identity})
-    return run, writer
+    @staticmethod
+    def chain(
+        output: Path, records: tuple[CaptureRecord, ...], *, finish: bool
+    ) -> tuple[CaptureRunJournal, CaptureSegmentWriter]:
+        """Write records through the collector's writer; optionally seal and summarize the run."""
+        request = CaptureRecordingFixture.run_request()
+        run = CaptureRunJournal(output / request.run_id / request.run_id, request)
+        run.open(resume=False)
+        _OPEN.append(run)
+        writer = CaptureSegmentWriter(
+            run, run.start_segment(None), previous_bytes=0, previous_records=0
+        )
+        for record in records:
+            asyncio.run(writer.append(record))
+        if finish:
+            run.sealed(writer.current, writer.first_received_ns or 1)
+            run.finish({"run_identity": request.identity})
+        return run, writer
 
 
 class TestCaptureRecording:
     """Keep single recordings exact and read chains by run-wide position."""
+
+    @pytest.fixture(autouse=True)
+    def _release_runs(self) -> Iterator[None]:
+        """Release each run's ownership lock once its test ends."""
+        yield
+        while _OPEN:
+            _OPEN.pop().close()
 
     def test_single_recording_delegates_exactly_to_its_journal(self, tmp_path: Path) -> None:
         """Records, cursor and completion equal the journal's, interrupted and completed."""
@@ -97,7 +100,7 @@ class TestCaptureRecording:
         root = tmp_path / request.recording_id / request.recording_id
         journal = CaptureJournal(root, request)
         journal.start()
-        for record in _records(4):
+        for record in CaptureRecordingFixture.records(4):
             journal.append(record)
         recording = CaptureRecording.read(root)
         assert recording.key == request.recording_id and recording.identity == request.identity
@@ -115,8 +118,8 @@ class TestCaptureRecording:
 
     def test_chain_reads_run_wide_records_cursor_and_positions(self, tmp_path: Path) -> None:
         """Every segment's records follow in order; positions map to their own segment."""
-        records = _records(7)
-        run, writer = _chain(tmp_path, records, finish=True)
+        records = CaptureRecordingFixture.records(7)
+        run, writer = CaptureRecordingFixture.chain(tmp_path, records, finish=True)
         recording = CaptureRecording.read(run.root)
         assert recording.key == _RUN_ID and recording.identity == run.request.identity
         assert recording.completed
@@ -140,8 +143,8 @@ class TestCaptureRecording:
         self, tmp_path: Path
     ) -> None:
         """An unsealed or empty last segment never resets the tail gap's epoch or receipt."""
-        records = _records(6)
-        run, writer = _chain(tmp_path, records, finish=False)
+        records = CaptureRecordingFixture.records(6)
+        run, writer = CaptureRecordingFixture.chain(tmp_path, records, finish=False)
         recording = CaptureRecording.read(run.root)
         assert not recording.completed
         with pytest.raises(ValueError, match="not complete"):
@@ -163,14 +166,18 @@ class TestCaptureRecording:
 
     def test_chain_refuses_an_unsealed_earlier_segment(self, tmp_path: Path) -> None:
         """Only the last segment may be an interrupted prefix."""
-        run, writer = _chain(tmp_path, _records(2), finish=False)
+        run, writer = CaptureRecordingFixture.chain(
+            tmp_path, CaptureRecordingFixture.records(2), finish=False
+        )
         run.start_segment(writer.current)
         with pytest.raises(ValueError, match="unsealed earlier segment"):
             tuple(CaptureRecording.read(run.root).records(completed=False))
 
     def test_recording_directories_must_be_named_by_their_key(self, tmp_path: Path) -> None:
         """A chain or journal moved under another name is not silently adopted."""
-        run, _ = _chain(tmp_path, _records(2), finish=True)
+        run, _ = CaptureRecordingFixture.chain(
+            tmp_path, CaptureRecordingFixture.records(2), finish=True
+        )
         moved = tmp_path / "other" / "00000000-0000-4000-8000-000000000053"
         moved.parent.mkdir()
         run.root.rename(moved)

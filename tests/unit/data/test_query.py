@@ -15,7 +15,7 @@ from test_asof import TestAsOfSelector as _Scenario
 
 # project library imports
 from market_data.adapters.sources import SourceAdapters
-from market_data.contracts import Occurrence, Trade
+from market_data.contracts import Occurrence, SourceRequest, Trade
 from market_data.query import AsOfSelector, QueryBatch, QueryColumn, QueryMarketRow, QueryReader
 from market_data.validation import TradeRevision
 
@@ -285,6 +285,22 @@ class TestQueryReader:
         force_setattr(evidence.eligibility.assertions[0], "state", "excluded")
         assert list(self._batches(reader)) == expected
 
+    @staticmethod
+    def _both_partitions(
+        reader: QueryReader, requests: tuple[SourceRequest, ...]
+    ) -> list[QueryBatch]:
+        """Select both BTC partitions at a cutoff after both."""
+        return list(
+            reader.batches(
+                (requests[0].instrument.instrument_id,),
+                start=requests[0].start,
+                end=requests[1].end,
+                known_at=requests[1].end,
+                columns=("price",),
+                batch_size=10,
+            )
+        )
+
     def test_partitions_of_one_result_share_isolated_evidence_copies(self) -> None:
         """Equal evidence is copied once per result, never shared with the cache or others."""
         fixture = _Scenario()
@@ -304,21 +320,8 @@ class TestQueryReader:
         selector = AsOfSelector(
             payloads, readers=SourceAdapters(), precedence=(fixture._binding(requests[0]),)
         )
-
-        def query() -> list[QueryBatch]:
-            """Select both BTC partitions at a cutoff after both."""
-            return list(
-                reader.batches(
-                    (requests[0].instrument.instrument_id,),
-                    start=requests[0].start,
-                    end=requests[1].end,
-                    known_at=requests[1].end,
-                    columns=("price",),
-                    batch_size=10,
-                )
-            )
-
-        first, expected = query(), query()
+        first = self._both_partitions(reader, requests)
+        expected = self._both_partitions(reader, requests)
         evidence = first[0].evidence
         # Values are exactly the admitted partitions' evidence.
         assert evidence == tuple(
@@ -330,4 +333,4 @@ class TestQueryReader:
         force_setattr(evidence[1].eligibility.assertions[0], "state", "excluded")
         force_setattr(evidence[1].request.manifest, "implementation_identity", "0" * 64)
         force_setattr(evidence[1].policy, "max_gap", timedelta(0))
-        assert query() == expected
+        assert self._both_partitions(reader, requests) == expected

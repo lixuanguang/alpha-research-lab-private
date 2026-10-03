@@ -21,9 +21,9 @@ from financial_units.models import (
     DecimalGrid,
     Duration,
     EvaluationContext,
+    FinancialUnitModel,
     Rounding,
     UnitError,
-    _FinancialUnitModel,
 )
 from reference_data.calendars import SettlementCalendar
 
@@ -42,7 +42,7 @@ class BusinessDayConvention(StrEnum):
     MODIFIED_PRECEDING = "modified_preceding"
 
 
-class DayCountResult(_FinancialUnitModel):
+class DayCountResult(FinancialUnitModel):
     """Retain the explicit evaluation and interval inputs with the exact result."""
 
     _validation_error_type: ClassVar[type[UnitError]] = ConventionError
@@ -50,7 +50,7 @@ class DayCountResult(_FinancialUnitModel):
     context: Annotated[
         EvaluationContext,
         BeforeValidator(
-            partial(_FinancialUnitModel._require_type, expected=EvaluationContext, name="context")
+            partial(FinancialUnitModel._require_type, expected=EvaluationContext, name="context")
         ),
     ]
     start: date
@@ -58,7 +58,7 @@ class DayCountResult(_FinancialUnitModel):
     duration: Annotated[
         Duration,
         BeforeValidator(
-            partial(_FinancialUnitModel._require_type, expected=Duration, name="duration")
+            partial(FinancialUnitModel._require_type, expected=Duration, name="duration")
         ),
     ]
 
@@ -72,10 +72,10 @@ class DayCountResult(_FinancialUnitModel):
             UnitError: Context, dates, or duration have an unexpected concrete type.
             ConventionError: The interval is reversed.
         """
-        _FinancialUnitModel._require_type(self.context, EvaluationContext, "context")
-        _FinancialUnitModel._require_type(self.start, date, "start")
-        _FinancialUnitModel._require_type(self.end, date, "end")
-        _FinancialUnitModel._require_type(self.duration, Duration, "duration")
+        FinancialUnitModel._require_type(self.context, EvaluationContext, "context")
+        FinancialUnitModel._require_type(self.start, date, "start")
+        FinancialUnitModel._require_type(self.end, date, "end")
+        FinancialUnitModel._require_type(self.duration, Duration, "duration")
         if self.end < self.start:
             raise ConventionError("invalid result interval")
 
@@ -123,10 +123,10 @@ class DayCountConventions:
                 result exceeds the owned Decimal bounds.
             ConventionError: The interval is reversed.
         """
-        _FinancialUnitModel._require_type(context, EvaluationContext, "context")
-        _FinancialUnitModel._require_type(day_count, DayCount, "day count")
+        FinancialUnitModel._require_type(context, EvaluationContext, "context")
+        FinancialUnitModel._require_type(day_count, DayCount, "day count")
         for value in (start, end, context.evaluation_date):
-            _FinancialUnitModel._require_type(value, date, "date")
+            FinancialUnitModel._require_type(value, date, "date")
         if end < start:
             raise ConventionError("end cannot precede start")
         fraction = DecimalGrid.round_fraction(
@@ -158,7 +158,7 @@ class DayCountConventions:
                 result exceeds the owned Decimal bounds.
             ConventionError: The interval is reversed.
         """
-        _FinancialUnitModel._require_type(context, EvaluationContext, "context")
+        FinancialUnitModel._require_type(context, EvaluationContext, "context")
         return self.year_fraction(
             context=context, start=context.evaluation_date, end=end, day_count=day_count
         )
@@ -219,7 +219,7 @@ class SettlementConventions:
             UnitError: ``calendar`` is not an exact ``SettlementCalendar`` instance.
             ConventionError: The supplied calendar instance fails revalidation.
         """
-        _FinancialUnitModel._require_type(calendar, SettlementCalendar, "settlement calendar")
+        FinancialUnitModel._require_type(calendar, SettlementCalendar, "settlement calendar")
         try:
             self._calendar = SettlementCalendar.model_validate(calendar)
         except ValueError as error:
@@ -245,8 +245,8 @@ class SettlementConventions:
             ConventionError: The candidate is outside coverage, or the required
                 directional search has no eligible date within coverage.
         """
-        _FinancialUnitModel._require_type(candidate, date, "candidate")
-        _FinancialUnitModel._require_type(
+        FinancialUnitModel._require_type(candidate, date, "candidate")
+        FinancialUnitModel._require_type(
             convention, BusinessDayConvention, "business-day convention"
         )
         calendar = self._calendar

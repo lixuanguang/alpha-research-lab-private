@@ -28,7 +28,7 @@ from research.features import (
     ScheduledFeatureSpec,
     ScheduledFeatureValue,
 )
-from research.features.scheduled import _BatchClose
+from research.features.scheduled import BatchClose
 from research.observations import Observations
 from serialization import DomainCodec
 
@@ -108,7 +108,7 @@ class TestScheduledFeatures:
         expected: list[ScheduledFeatureValue] = []
         previous = None
         for at in closes:
-            observation, has_current_gap = _BatchClose(reader, definition, at, 1).read()
+            observation, has_current_gap = BatchClose(reader, definition, at, 1).read()
             expected.append(
                 ScheduledFeatureValue(
                     observation=observation,

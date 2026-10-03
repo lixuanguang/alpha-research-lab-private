@@ -11,8 +11,8 @@ from pydantic import field_validator
 
 # project library imports
 from reference_data.calendars.core import (
+    VenueCalendarModel,
     VenueCalendarValidationError,
-    _VenueCalendarModel,
 )
 
 
@@ -33,7 +33,7 @@ class AuctionKind(StrEnum):
     INTRADAY = "intraday"
 
 
-class AuctionWindow(_VenueCalendarModel):
+class AuctionWindow(VenueCalendarModel):
     """Describe one half-open auction interval within a trading session.
 
     The window validates its own UTC bounds; TradingSession checks containment
@@ -58,10 +58,10 @@ class AuctionWindow(_VenueCalendarModel):
         """
         if not isinstance(self.kind, AuctionKind):
             raise VenueCalendarValidationError("auction kind must be an AuctionKind")
-        start = _VenueCalendarModel._require_utc_datetime(
+        start = VenueCalendarModel._require_utc_datetime(
             self.starts_at, field_name="auction starts_at"
         )
-        end = _VenueCalendarModel._require_utc_datetime(self.ends_at, field_name="auction ends_at")
+        end = VenueCalendarModel._require_utc_datetime(self.ends_at, field_name="auction ends_at")
         if end <= start:
             raise VenueCalendarValidationError("auction ends_at must be after starts_at")
 
@@ -79,11 +79,11 @@ class AuctionWindow(_VenueCalendarModel):
             VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
                 offset.
         """
-        checked = _VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
+        checked = VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
         return self.starts_at <= checked < self.ends_at
 
 
-class TradingSession(_VenueCalendarModel):
+class TradingSession(VenueCalendarModel):
     """Describe one venue session with optional break and auction windows.
 
     The label is an explicit date, not derived from UTC bounds. Sessions may
@@ -139,11 +139,11 @@ class TradingSession(_VenueCalendarModel):
                 unpaired or not strictly internal; or auctions are unordered, overlapping or
                 outside the session.
         """
-        _VenueCalendarModel._require_date(self.session_label, field_name="session_label")
-        opens_at = _VenueCalendarModel._require_utc_datetime(
+        VenueCalendarModel._require_date(self.session_label, field_name="session_label")
+        opens_at = VenueCalendarModel._require_utc_datetime(
             self.opens_at, field_name="session opens_at"
         )
-        closes_at = _VenueCalendarModel._require_utc_datetime(
+        closes_at = VenueCalendarModel._require_utc_datetime(
             self.closes_at, field_name="session closes_at"
         )
         if closes_at <= opens_at:
@@ -155,10 +155,10 @@ class TradingSession(_VenueCalendarModel):
                 "session break_starts_at and break_ends_at must be provided together"
             )
         if self.break_starts_at is not None and self.break_ends_at is not None:
-            break_start = _VenueCalendarModel._require_utc_datetime(
+            break_start = VenueCalendarModel._require_utc_datetime(
                 self.break_starts_at, field_name="session break_starts_at"
             )
-            break_end = _VenueCalendarModel._require_utc_datetime(
+            break_end = VenueCalendarModel._require_utc_datetime(
                 self.break_ends_at, field_name="session break_ends_at"
             )
             if not opens_at < break_start < break_end < closes_at:
@@ -198,7 +198,7 @@ class TradingSession(_VenueCalendarModel):
             VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
                 offset.
         """
-        checked = _VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
+        checked = VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
         return self.opens_at <= checked < self.closes_at
 
 
@@ -209,7 +209,7 @@ class ClosureKind(StrEnum):
     AD_HOC = "ad_hoc"
 
 
-class CalendarClosure(_VenueCalendarModel):
+class CalendarClosure(VenueCalendarModel):
     """Name one source-attributed date on which no session exists.
 
     The snapshot checks date coverage and absence of a session with that label.
@@ -235,13 +235,13 @@ class CalendarClosure(_VenueCalendarModel):
             VenueCalendarValidationError: The date, closure kind, bounded name or attribution
                 token is invalid.
         """
-        _VenueCalendarModel._require_date(self.calendar_date, field_name="calendar closure date")
+        VenueCalendarModel._require_date(self.calendar_date, field_name="calendar closure date")
         if not isinstance(self.kind, ClosureKind):
             raise VenueCalendarValidationError("closure kind must be a ClosureKind")
-        _VenueCalendarModel._require_bounded_text(
+        VenueCalendarModel._require_bounded_text(
             self.name, field_name="closure name", maximum_length=128
         )
-        _VenueCalendarModel._require_stable_token(self.source, field_name="closure source")
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(self.source, field_name="closure source")
+        VenueCalendarModel._require_stable_token(
             self.source_revision, field_name="closure source_revision"
         )

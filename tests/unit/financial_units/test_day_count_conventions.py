@@ -26,6 +26,19 @@ from financial_units import (
 )
 
 
+class DayCountFixture:
+    """Round year fractions for comparisons."""
+
+    @staticmethod
+    def rounded(numerator: int, denominator: int) -> Decimal:
+        """Round a rational year count half-even to 1e-15 years, independently of the code."""
+        with localcontext() as context:
+            context.prec = 60
+            return (Decimal(numerator) / Decimal(denominator)).quantize(
+                Decimal("1e-15"), rounding=ROUND_HALF_EVEN
+            )
+
+
 class _IntervalGiven(Protocol):
     """Type the three-argument Hypothesis decorator used by day-count tests."""
 
@@ -43,15 +56,6 @@ class _IntervalGiven(Protocol):
 _given_interval: _IntervalGiven = given
 
 
-def _rounded(numerator: int, denominator: int) -> Decimal:
-    """Round a rational year count half-even to 1e-15 years, independently of the code."""
-    with localcontext() as context:
-        context.prec = 60
-        return (Decimal(numerator) / Decimal(denominator)).quantize(
-            Decimal("1e-15"), rounding=ROUND_HALF_EVEN
-        )
-
-
 class TestDayCountConventions:
     """Match hand-calculated rational goldens exactly."""
 
@@ -65,7 +69,9 @@ class TestDayCountConventions:
                 end=date.fromisoformat(case["end"]),
                 day_count=DayCount(case["basis"]),
             )
-            assert result.duration.value == _rounded(case["numerator"], case["denominator"])
+            assert result.duration.value == DayCountFixture.rounded(
+                case["numerator"], case["denominator"]
+            )
             assert result.context == CONTEXT
             assert result.duration.day_count == DayCount(case["basis"])
 
@@ -83,30 +89,30 @@ class TestDayCountConventions:
 class TestDayCountEvaluationContracts:
     """Verify explicit evaluation dates stay isolated across concurrent calls."""
 
+    @staticmethod
+    def _to_january_fourth(context: EvaluationContext) -> Decimal:
+        """Calculate a context-specific year fraction ending on January 4, 2024.
+
+        Args:
+            context: Explicit evaluation date and convention revision.
+
+        Returns:
+            Actual/360 duration from the evaluation date, rounded to 1e-15 years.
+        """
+        return (
+            DayCountConventions()
+            .time_to(context=context, end=date(2024, 1, 4), day_count=DayCount.ACTUAL_360)
+            .duration.value
+        )
+
     def test_explicit_context_isolated_across_concurrent_calls(self) -> None:
         """Each call measures from its own evaluation date, with no shared state."""
         contexts = [
             CONTEXT.model_copy(update={"evaluation_date": date(2024, 1, day)}) for day in (1, 2, 3)
         ]
-
-        def evaluate(context: EvaluationContext) -> Decimal:
-            """Calculate a context-specific year fraction ending on January 4, 2024.
-
-            Args:
-                context: Explicit evaluation date and convention revision.
-
-            Returns:
-                Actual/360 duration from the evaluation date, rounded to 1e-15 years.
-            """
-            return (
-                DayCountConventions()
-                .time_to(context=context, end=date(2024, 1, 4), day_count=DayCount.ACTUAL_360)
-                .duration.value
-            )
-
         with ThreadPoolExecutor(max_workers=3) as pool:
-            results = list(pool.map(evaluate, contexts))
-        assert results == [_rounded(days, 360) for days in (3, 2, 1)]
+            results = list(pool.map(self._to_january_fourth, contexts))
+        assert results == [DayCountFixture.rounded(days, 360) for days in (3, 2, 1)]
 
 
 class TestDayCountValidationContracts:
@@ -144,6 +150,23 @@ class TestDayCountProperties:
     """Verify generated interval additivity."""
 
     @staticmethod
+    def _years(adapter: DayCountConventions, begin: date, end: date, basis: DayCount) -> Decimal:
+        """Extract the decimal duration of one interval.
+
+        Args:
+            adapter: Day-count conventions under test.
+            begin: Inclusive interval start.
+            end: Interval end, at or after begin.
+            basis: Actual day-count convention under test.
+
+        Returns:
+            Duration rounded to 1e-15 years.
+        """
+        return adapter.year_fraction(
+            context=CONTEXT, start=begin, end=end, day_count=basis
+        ).duration.value
+
+    @staticmethod
     @settings(max_examples=100, derandomize=True, database=None)
     @_given_interval(
         start=st.integers(0, 3650), first=st.integers(0, 800), second=st.integers(0, 800)
@@ -155,22 +178,11 @@ class TestDayCountProperties:
         middle = left + timedelta(days=first)
         right = middle + timedelta(days=second)
         for basis in (DayCount.ACTUAL_360, DayCount.ACTUAL_365_FIXED, DayCount.ACTUAL_ACTUAL_ISDA):
-
-            def years(begin: date, end: date, basis: DayCount = basis) -> Decimal:
-                """Extract the decimal duration of one interval.
-
-                Args:
-                    begin: Inclusive interval start.
-                    end: Interval end, at or after begin.
-                    basis: Actual day-count convention under test.
-
-                Returns:
-                    Duration rounded to 1e-15 years.
-                """
-                return adapter.year_fraction(
-                    context=CONTEXT, start=begin, end=end, day_count=basis
-                ).duration.value
-
             # Three 1e-15 roundings permit at most 1.5e-15 years of accumulated error.
-            total = years(left, middle) + years(middle, right) - years(left, right)
+            years = TestDayCountProperties._years
+            total = (
+                years(adapter, left, middle, basis)
+                + years(adapter, middle, right, basis)
+                - years(adapter, left, right, basis)
+            )
             assert abs(total) <= D("1.5e-15")

@@ -168,7 +168,7 @@ class ScheduledFeatureCheckpoint(WireRecord, frozen=True):
                 raise ValueError("scheduled checkpoint cursor or compact observation state differs")
 
 
-class _BatchClose:
+class BatchClose:
     """Reconstruct a cutoff window through shared replay and scoped observation admission."""
 
     def __init__(

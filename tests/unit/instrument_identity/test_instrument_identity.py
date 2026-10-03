@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from time import perf_counter
 from typing import NotRequired, Protocol, TypedDict
@@ -32,7 +33,7 @@ from reference_data.instruments import (
     UnknownIdentifierError,
     UnknownInstrumentError,
 )
-from reference_data.instruments.models import _InstrumentIdentityModel
+from reference_data.instruments.models import InstrumentIdentityModel
 
 
 class _ExactIdentifierGiven(Protocol):
@@ -420,19 +421,19 @@ class TestInstrumentIdentityBoundaryContracts:
         ("invalid_value_factory", "expected_error_message"),
         [
             (
-                lambda: InstrumentId.from_canonical_text("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
+                partial(InstrumentId.from_canonical_text, "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"),
                 "canonical UUID",
             ),
             (
-                lambda: ExternalIdentifier(IdentifierScheme.VENDOR, "symbol", None),
+                partial(ExternalIdentifier, IdentifierScheme.VENDOR, "symbol", None),
                 "namespace is required",
             ),
             (
-                lambda: ExternalIdentifier(IdentifierScheme.TICKER, " symbol ", "xnas"),
+                partial(ExternalIdentifier, IdentifierScheme.TICKER, " symbol ", "xnas"),
                 "surrounding whitespace",
             ),
             (
-                lambda: ExternalIdentifier(IdentifierScheme.ISIN, "US0378331005", "vendor-a"),
+                partial(ExternalIdentifier, IdentifierScheme.ISIN, "US0378331005", "vendor-a"),
                 "cannot carry a provider namespace",
             ),
         ],
@@ -455,7 +456,7 @@ class TestInstrumentIdentityBoundaryContracts:
             SymbologyMapping,
             SymbologyCatalog,
         )
-        assert all(issubclass(model_type, _InstrumentIdentityModel) for model_type in model_types)
+        assert all(issubclass(model_type, InstrumentIdentityModel) for model_type in model_types)
 
         instrument_id = InstrumentId(UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"))
         invalid_uuid_payload: dict[str, object] = {"uuid_value": str(instrument_id.uuid_value)}
@@ -499,7 +500,7 @@ class TestInstrumentIdentityBoundaryContracts:
     ) -> None:
         """Preserve field locations for ordinary errors and messages for owned errors."""
         monkeypatch.setattr(
-            _InstrumentIdentityModel,
+            InstrumentIdentityModel,
             "_require_bounded_text",
             staticmethod(self._ordinary_field_failure),
         )
@@ -509,7 +510,7 @@ class TestInstrumentIdentityBoundaryContracts:
         assert isinstance(ordinary_error.value.__cause__, ValidationError)
 
         monkeypatch.setattr(
-            _InstrumentIdentityModel,
+            InstrumentIdentityModel,
             "_require_bounded_text",
             staticmethod(self._owned_field_failure),
         )
@@ -681,108 +682,6 @@ class TestSymbologyCatalogValidationContracts:
                 )
 
 
-@settings(max_examples=50, derandomize=True, deadline=None, database=None)
-@_given_exact_identifier(
-    identifier_namespace=strategies.from_regex(r"[a-z][a-z0-9]{0,12}", fullmatch=True),
-    identifier_value=strategies.from_regex(r"[A-Z0-9][A-Z0-9./_-]{0,31}", fullmatch=True),
-    days_after_valid_from=strategies.integers(min_value=1, max_value=10_000),
-)
-def test_property_exact_identifier_round_trip_is_stable(
-    identifier_namespace: str,
-    identifier_value: str,
-    days_after_valid_from: int,
-) -> None:
-    """Resolve generated vendor identifiers consistently through exact and instrument lookup."""
-    instrument_identities = _InstrumentIdentityGoldenFixture.build_economic_instrument_and_listing()
-    vendor_mapping = SymbologyMapping(
-        mapping_id=MappingId(UUID(int=1)),
-        instrument_id=instrument_identities[1].instrument_id,
-        external_identifier=ExternalIdentifier(
-            IdentifierScheme.VENDOR,
-            identifier_value,
-            identifier_namespace,
-        ),
-        valid_from=datetime(2000, 1, 1, tzinfo=UTC),
-        valid_to=None,
-        source="fixture.property",
-        source_revision="property-001",
-    )
-    symbology_catalog = SymbologyCatalog(
-        identities=instrument_identities, mappings=(vendor_mapping,)
-    )
-    valid_at = vendor_mapping.valid_from + timedelta(days=days_after_valid_from)
-
-    resolved_mapping = symbology_catalog.resolve_identifier_at(
-        IdentifierQuery.for_exact_identifier(vendor_mapping.external_identifier),
-        valid_at=valid_at,
-    )
-
-    assert resolved_mapping == vendor_mapping
-    assert symbology_catalog.get_identifier_mappings_for_instrument(
-        vendor_mapping.instrument_id, valid_at=valid_at
-    ) == (vendor_mapping,)
-
-
-@settings(max_examples=50, derandomize=True, deadline=None, database=None)
-@_given_symbol_reuse(days_until_symbol_reuse=strategies.integers(min_value=1, max_value=20_000))
-def test_property_symbol_reuse_obeys_half_open_boundaries(
-    days_until_symbol_reuse: int,
-) -> None:
-    """Switch symbol ownership exactly at the prior mapping's exclusive validity end."""
-    first_economic_instrument, first_listing = (
-        _InstrumentIdentityGoldenFixture.build_economic_instrument_and_listing()
-    )
-    second_economic_instrument_id = InstrumentId(UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"))
-    second_listing_instrument_id = InstrumentId(UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2"))
-    second_economic_instrument = InstrumentIdentity(
-        second_economic_instrument_id,
-        InstrumentKind.ECONOMIC_INSTRUMENT,
-        second_economic_instrument_id,
-    )
-    second_listing = InstrumentIdentity(
-        second_listing_instrument_id,
-        InstrumentKind.LISTING,
-        second_economic_instrument_id,
-    )
-    validity_start = datetime(2000, 1, 1, tzinfo=UTC)
-    symbol_reuse_boundary = validity_start + timedelta(days=days_until_symbol_reuse)
-    original_symbol_mapping = _InstrumentIdentityGoldenFixture.build_venue_symbol_mapping(
-        1,
-        first_listing.instrument_id,
-        valid_from=validity_start,
-        valid_to=symbol_reuse_boundary,
-    )
-    reused_symbol_mapping = _InstrumentIdentityGoldenFixture.build_venue_symbol_mapping(
-        2,
-        second_listing.instrument_id,
-        valid_from=symbol_reuse_boundary,
-    )
-    symbology_catalog = SymbologyCatalog(
-        identities=(
-            first_economic_instrument,
-            first_listing,
-            second_economic_instrument,
-            second_listing,
-        ),
-        mappings=(original_symbol_mapping, reused_symbol_mapping),
-    )
-    identifier_query = IdentifierQuery.for_exact_identifier(
-        original_symbol_mapping.external_identifier
-    )
-
-    assert (
-        symbology_catalog.resolve_identifier_at(
-            identifier_query,
-            valid_at=symbol_reuse_boundary - timedelta(microseconds=1),
-        )
-        == original_symbol_mapping
-    )
-    assert (
-        symbology_catalog.resolve_identifier_at(identifier_query, valid_at=symbol_reuse_boundary)
-        == reused_symbol_mapping
-    )
-
-
 if __name__ == "__main__":
     raise SystemExit(
         pytest.main(
@@ -799,3 +698,113 @@ if __name__ == "__main__":
             ]
         )
     )
+
+
+class TestInstrumentIdentityProperties:
+    """Keep identifier round trips and symbol reuse stable under generated inputs."""
+
+    @staticmethod
+    @settings(max_examples=50, derandomize=True, deadline=None, database=None)
+    @_given_exact_identifier(
+        identifier_namespace=strategies.from_regex(r"[a-z][a-z0-9]{0,12}", fullmatch=True),
+        identifier_value=strategies.from_regex(r"[A-Z0-9][A-Z0-9./_-]{0,31}", fullmatch=True),
+        days_after_valid_from=strategies.integers(min_value=1, max_value=10_000),
+    )
+    def test_property_exact_identifier_round_trip_is_stable(
+        identifier_namespace: str,
+        identifier_value: str,
+        days_after_valid_from: int,
+    ) -> None:
+        """Resolve generated vendor identifiers consistently through exact and instrument lookup."""
+        instrument_identities = (
+            _InstrumentIdentityGoldenFixture.build_economic_instrument_and_listing()
+        )
+        vendor_mapping = SymbologyMapping(
+            mapping_id=MappingId(UUID(int=1)),
+            instrument_id=instrument_identities[1].instrument_id,
+            external_identifier=ExternalIdentifier(
+                IdentifierScheme.VENDOR,
+                identifier_value,
+                identifier_namespace,
+            ),
+            valid_from=datetime(2000, 1, 1, tzinfo=UTC),
+            valid_to=None,
+            source="fixture.property",
+            source_revision="property-001",
+        )
+        symbology_catalog = SymbologyCatalog(
+            identities=instrument_identities, mappings=(vendor_mapping,)
+        )
+        valid_at = vendor_mapping.valid_from + timedelta(days=days_after_valid_from)
+
+        resolved_mapping = symbology_catalog.resolve_identifier_at(
+            IdentifierQuery.for_exact_identifier(vendor_mapping.external_identifier),
+            valid_at=valid_at,
+        )
+
+        assert resolved_mapping == vendor_mapping
+        assert symbology_catalog.get_identifier_mappings_for_instrument(
+            vendor_mapping.instrument_id, valid_at=valid_at
+        ) == (vendor_mapping,)
+
+    @staticmethod
+    @settings(max_examples=50, derandomize=True, deadline=None, database=None)
+    @_given_symbol_reuse(days_until_symbol_reuse=strategies.integers(min_value=1, max_value=20_000))
+    def test_property_symbol_reuse_obeys_half_open_boundaries(
+        days_until_symbol_reuse: int,
+    ) -> None:
+        """Switch symbol ownership exactly at the prior mapping's exclusive validity end."""
+        first_economic_instrument, first_listing = (
+            _InstrumentIdentityGoldenFixture.build_economic_instrument_and_listing()
+        )
+        second_economic_instrument_id = InstrumentId(UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"))
+        second_listing_instrument_id = InstrumentId(UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2"))
+        second_economic_instrument = InstrumentIdentity(
+            second_economic_instrument_id,
+            InstrumentKind.ECONOMIC_INSTRUMENT,
+            second_economic_instrument_id,
+        )
+        second_listing = InstrumentIdentity(
+            second_listing_instrument_id,
+            InstrumentKind.LISTING,
+            second_economic_instrument_id,
+        )
+        validity_start = datetime(2000, 1, 1, tzinfo=UTC)
+        symbol_reuse_boundary = validity_start + timedelta(days=days_until_symbol_reuse)
+        original_symbol_mapping = _InstrumentIdentityGoldenFixture.build_venue_symbol_mapping(
+            1,
+            first_listing.instrument_id,
+            valid_from=validity_start,
+            valid_to=symbol_reuse_boundary,
+        )
+        reused_symbol_mapping = _InstrumentIdentityGoldenFixture.build_venue_symbol_mapping(
+            2,
+            second_listing.instrument_id,
+            valid_from=symbol_reuse_boundary,
+        )
+        symbology_catalog = SymbologyCatalog(
+            identities=(
+                first_economic_instrument,
+                first_listing,
+                second_economic_instrument,
+                second_listing,
+            ),
+            mappings=(original_symbol_mapping, reused_symbol_mapping),
+        )
+        identifier_query = IdentifierQuery.for_exact_identifier(
+            original_symbol_mapping.external_identifier
+        )
+
+        assert (
+            symbology_catalog.resolve_identifier_at(
+                identifier_query,
+                valid_at=symbol_reuse_boundary - timedelta(microseconds=1),
+            )
+            == original_symbol_mapping
+        )
+        assert (
+            symbology_catalog.resolve_identifier_at(
+                identifier_query, valid_at=symbol_reuse_boundary
+            )
+            == reused_symbol_mapping
+        )

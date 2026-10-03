@@ -13,7 +13,7 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting.accounts import (
-    _ACCOUNT_REPLAYS,
+    ACCOUNT_REPLAYS,
     AccountLedger,
     AccountPosting,
     AccountSnapshot,
@@ -682,10 +682,10 @@ class TestAccountLedger:
         for second in range(40):
             ledger.post(self._transfer(f"deposit-{second}", seconds=second, value="1"))
             states.append(ledger.state)
-        remembered = [state for state in states if _ACCOUNT_REPLAYS.find(state) is not None]
+        remembered = [state for state in states if ACCOUNT_REPLAYS.find(state) is not None]
         # Each fold is as large as its history; 64 of them per account made memory quadratic.
         assert remembered == states[-4:]
-        assert _ACCOUNT_REPLAYS.find(quiet) is not None
+        assert ACCOUNT_REPLAYS.find(quiet) is not None
 
     def test_exact_balances_survive_low_decimal_precision(self) -> None:
         """Avoid ambient Decimal rounding in cumulative multi-posting balances."""

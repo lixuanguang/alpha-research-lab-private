@@ -40,7 +40,7 @@ from reference_data.calendars import (
     VenueCalendarValidationError,
     VenueId,
 )
-from reference_data.calendars.models import _VenueCalendarModel
+from reference_data.calendars.models import VenueCalendarModel
 
 
 class TestVenueCalendarBoundaryContracts(_CalendarTestData):
@@ -86,7 +86,7 @@ class TestVenueCalendarBoundaryContracts(_CalendarTestData):
     def test_venue_calendar_models_are_strict_frozen_pydantic_boundaries(self) -> None:
         """Reject coercion, mutable collections, frozen assignment and invalid nested copies."""
         pydantic_model_type: type[object] = BaseModel
-        model_types: tuple[type[_VenueCalendarModel], ...] = (
+        model_types: tuple[type[VenueCalendarModel], ...] = (
             VenueId,
             MarketIdentifierCode,
             Venue,

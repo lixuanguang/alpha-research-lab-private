@@ -14,7 +14,7 @@ from msgspec.structs import replace
 
 # project library imports
 from financial_units import Currency
-from financial_units.models import _FinancialUnitModel
+from financial_units.models import FinancialUnitModel
 from reference_data.catalogs import CatalogSnapshot, SpotInstrument
 from serialization import DomainCodec
 
@@ -36,7 +36,7 @@ class _ReferenceCatalogFixture:
     @staticmethod
     def _unsafe_currency_copy(model: Currency, update: Mapping[str, object]) -> Currency:
         """Apply the inherited unchecked Pydantic copy for reference-boundary testing."""
-        return super(_FinancialUnitModel, model).model_copy(update=update)
+        return super(FinancialUnitModel, model).model_copy(update=update)
 
     @staticmethod
     def _with_quote_currency(instrument: SpotInstrument, currency: Currency) -> SpotInstrument:

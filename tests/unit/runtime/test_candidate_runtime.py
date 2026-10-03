@@ -83,7 +83,7 @@ from runtime import (
     PaperCheckpoint,
 )
 from runtime.paper import PaperFaultEvidence
-from runtime.shared_paper import _ObservedLiveBookDelivery
+from runtime.shared_paper import ObservedLiveBookDelivery
 from serialization import DomainCodec, WireRecord
 from strategies import (
     DecisionContext,
@@ -1020,7 +1020,7 @@ class TestPaperCandidateRuntime:
         )
         observer = PaperCaptureObserver(source, runtime, books=books)
         received_ns = int(_AT.timestamp()) * 1_000_000_000
-        delivery = _ObservedLiveBookDelivery(
+        delivery = ObservedLiveBookDelivery(
             record=CaptureRecord(kind="session", epoch=0, received_ns=received_ns),
             book=BookObservation(
                 position=0,

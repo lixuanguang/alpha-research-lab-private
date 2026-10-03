@@ -392,3 +392,15 @@ The owner approved this design on 2026-10-04, with these decisions:
   - **Held for the capacity-harness decision:** `execution.account_state`
     (`AccountStateStore` and the private transaction records) and
     `source_service._DecodedBookObservation`. The ledger shrank from 319 to 245 findings.
+- **Milestone 7 (2026-10-04): unit tests.**
+  - The remaining module-level unit tests, fixtures and helpers moved into test classes
+    and fixture classes; property tests stay static methods under hypothesis.
+  - Nested doubles became callable classes. A double installed on a class implements
+    `__get__`, so it binds like the method it replaces.
+  - Constructor lambdas became `functools.partial`.
+  - The base models and records the unit tests need (`FinancialUnitModel`,
+    `InstrumentIdentityModel`, `VenueCalendarModel`, `BatchClose`, the shared-paper
+    delivery records, `DashboardViewSelection` and `ACCOUNT_REPLAYS`) are now public
+    module names that are not exported.
+  - `tests/unit` keeps only the three private imports held for the capacity-harness
+    decision. The ledger shrank from 245 to 113 findings.

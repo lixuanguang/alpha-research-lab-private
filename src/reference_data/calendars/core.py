@@ -43,7 +43,7 @@ class CalendarCoverageError(VenueCalendarError):
     """Report a query that lies outside explicit snapshot coverage."""
 
 
-class _VenueCalendarModel(BaseModel):
+class VenueCalendarModel(BaseModel):
     """Preserve strict immutable value semantics at the C02 boundary.
 
     Normal construction validates defaults and nested instances, rejects extra
@@ -96,7 +96,7 @@ class _VenueCalendarModel(BaseModel):
     @staticmethod
     def _require_stable_token(candidate: object, *, field_name: str) -> str:
         """Require a 128-character ASCII token starting with a letter or digit and using ._:/+-."""
-        identifier_text = _VenueCalendarModel._require_bounded_text(
+        identifier_text = VenueCalendarModel._require_bounded_text(
             candidate, field_name=field_name, maximum_length=128
         )
         if _STABLE_TOKEN_PATTERN.fullmatch(identifier_text) is None:
@@ -134,7 +134,7 @@ class _VenueCalendarModel(BaseModel):
     @staticmethod
     def _require_timezone_name(candidate: object, *, field_name: str) -> str:
         """Validate a bounded timezone name against the available IANA timezone database."""
-        timezone_name = _VenueCalendarModel._require_bounded_text(
+        timezone_name = VenueCalendarModel._require_bounded_text(
             candidate, field_name=field_name, maximum_length=128
         )
         try:
@@ -150,7 +150,7 @@ _STABLE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$")
 _MIC_PATTERN = re.compile(r"^[A-Z0-9]{4}$")
 
 
-class VenueId(_VenueCalendarModel):
+class VenueId(VenueCalendarModel):
     """Hold one opaque repository-issued stable venue identifier.
 
     Attributes:
@@ -208,7 +208,7 @@ class VenueId(_VenueCalendarModel):
         return candidate
 
 
-class MarketIdentifierCode(_VenueCalendarModel):
+class MarketIdentifierCode(VenueCalendarModel):
     """Represent one exact ISO 10383 MIC-shaped identifier.
 
     Validation checks four uppercase ASCII letters or digits; it does not verify
@@ -241,7 +241,7 @@ class MarketIdentifierCode(_VenueCalendarModel):
         return self.value
 
 
-class Venue(_VenueCalendarModel):
+class Venue(VenueCalendarModel):
     """Bind one stable venue identity to exact MIC and timezone metadata.
 
     Attributes:
@@ -295,10 +295,10 @@ class Venue(_VenueCalendarModel):
             raise VenueCalendarValidationError("mic must be a MarketIdentifierCode")
         if not isinstance(self.operating_mic, MarketIdentifierCode):
             raise VenueCalendarValidationError("operating_mic must be a MarketIdentifierCode")
-        _VenueCalendarModel._require_bounded_text(
+        VenueCalendarModel._require_bounded_text(
             self.name, field_name="venue name", maximum_length=128
         )
-        _VenueCalendarModel._require_timezone_name(
+        VenueCalendarModel._require_timezone_name(
             self.timezone_name, field_name="venue timezone_name"
         )
 
@@ -315,7 +315,7 @@ class Venue(_VenueCalendarModel):
             VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
                 offset.
         """
-        return _VenueCalendarModel._require_utc_datetime(instant, field_name="instant").astimezone(
+        return VenueCalendarModel._require_utc_datetime(instant, field_name="instant").astimezone(
             ZoneInfo(self.timezone_name)
         )
 
@@ -327,7 +327,7 @@ class CalendarAuthority(StrEnum):
     SYNTHETIC_FIXTURE = "synthetic_fixture"
 
 
-class CalendarSourceVersion(_VenueCalendarModel):
+class CalendarSourceVersion(VenueCalendarModel):
     """Identify a deterministic base source and optional override revision.
 
     Attributes:
@@ -357,17 +357,15 @@ class CalendarSourceVersion(_VenueCalendarModel):
             VenueCalendarValidationError: A source token or authority is invalid, or override
                 source and revision are unpaired.
         """
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(
             self.calendar_version, field_name="calendar_version"
         )
-        _VenueCalendarModel._require_stable_token(self.base_source, field_name="base_source")
-        _VenueCalendarModel._require_stable_token(
+        VenueCalendarModel._require_stable_token(self.base_source, field_name="base_source")
+        VenueCalendarModel._require_stable_token(
             self.base_source_revision, field_name="base_source_revision"
         )
-        _VenueCalendarModel._require_stable_token(self.adapter_name, field_name="adapter_name")
-        _VenueCalendarModel._require_stable_token(
-            self.adapter_version, field_name="adapter_version"
-        )
+        VenueCalendarModel._require_stable_token(self.adapter_name, field_name="adapter_name")
+        VenueCalendarModel._require_stable_token(self.adapter_version, field_name="adapter_version")
         if not isinstance(self.authority, CalendarAuthority):
             raise VenueCalendarValidationError("authority must be a CalendarAuthority")
         if (self.override_source is None) != (self.override_revision is None):
@@ -375,9 +373,9 @@ class CalendarSourceVersion(_VenueCalendarModel):
                 "override_source and override_revision must be provided together"
             )
         if self.override_source is not None:
-            _VenueCalendarModel._require_stable_token(
+            VenueCalendarModel._require_stable_token(
                 self.override_source, field_name="override_source"
             )
-            _VenueCalendarModel._require_stable_token(
+            VenueCalendarModel._require_stable_token(
                 self.override_revision, field_name="override_revision"
             )

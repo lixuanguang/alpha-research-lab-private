@@ -76,10 +76,10 @@ from runtime import (
 )
 from runtime.live_paper import LiveBookDelivery
 from runtime.shared_paper import (
-    _ObservedLiveBookDelivery,
-    _ObservedSharedBookDelivery,
-    _RetainedLiveBookDelivery,
-    _RetainedSharedBookDelivery,
+    ObservedLiveBookDelivery,
+    ObservedSharedBookDelivery,
+    RetainedLiveBookDelivery,
+    RetainedSharedBookDelivery,
 )
 from serialization import DomainCodec
 from strategies import ConfirmedSignal, DecisionContext, OrderIntent
@@ -617,10 +617,10 @@ class TestSharedPublicPaper:
         assert any(item.source.book.bids for item in decoded)
         assert [codec.encode_json(item) for item in decoded] == lines
         # The retention envelopes must keep exactly the retained schemas' fields.
-        assert {field.name for field in msgspec.structs.fields(_RetainedSharedBookDelivery)} == {
+        assert {field.name for field in msgspec.structs.fields(RetainedSharedBookDelivery)} == {
             field.name for field in msgspec.structs.fields(SharedBookDelivery)
         }
-        assert {field.name for field in msgspec.structs.fields(_RetainedLiveBookDelivery)} == {
+        assert {field.name for field in msgspec.structs.fields(RetainedLiveBookDelivery)} == {
             field.name for field in msgspec.structs.fields(LiveBookDelivery)
         }
 
@@ -777,12 +777,12 @@ class TestSharedPublicPaper:
         retained = tuple(codec.decode_json(line, SharedBookDelivery) for line in retained_bytes)
         assert len(retained) == len(deliveries)
         for payload, delivery in zip(retained_bytes, retained, strict=True):
-            observed_source = _ObservedLiveBookDelivery(
+            observed_source = ObservedLiveBookDelivery(
                 record=delivery.source.record,
                 book=delivery.source.book,
                 available_at=delivery.source.available_at,
             )
-            observed = _ObservedSharedBookDelivery(
+            observed = ObservedSharedBookDelivery(
                 source=observed_source,
                 inputs=delivery.inputs,
                 coordinated_at=delivery.coordinated_at,
@@ -1076,8 +1076,8 @@ class TestSharedPublicPaper:
             0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
         )
         if is_private_wire:
-            delivery = _ObservedSharedBookDelivery(
-                source=_ObservedLiveBookDelivery(
+            delivery = ObservedSharedBookDelivery(
+                source=ObservedLiveBookDelivery(
                     record=delivery.source.record,
                     book=delivery.source.book,
                     available_at=delivery.source.available_at,

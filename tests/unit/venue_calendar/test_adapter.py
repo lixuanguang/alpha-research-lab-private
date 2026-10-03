@@ -5,7 +5,9 @@ from __future__ import annotations
 # standard library imports
 import os
 import time
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 
 # third party library imports
 import pytest
@@ -97,26 +99,46 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
                 ),
             )
 
+    @staticmethod
+    def _incompatible_version(distribution_name: str) -> str:
+        """Return a deliberately incompatible installed distribution version.
+
+        Args:
+            distribution_name: Distribution queried by the adapter; retained for callback
+                compatibility and intentionally ignored.
+
+        Returns:
+            A version that differs from the pinned exchange-calendars contract.
+        """
+        del distribution_name
+        return "4.13.1"
+
+    @staticmethod
+    def _source_from(
+        factory: Callable[[], object], *, calendar_name: str, start: date, end: date
+    ) -> object:
+        """Return a synthetic source calendar, ignoring the requested name and range.
+
+        Args:
+            factory: Constructor of the synthetic calendar.
+            calendar_name: Requested source calendar name, intentionally ignored.
+            start: Inclusive requested start date, intentionally ignored.
+            end: Inclusive requested end date, intentionally ignored.
+
+        Returns:
+            A new synthetic calendar.
+        """
+        del calendar_name, start, end
+        return factory()
+
     def test_incompatible_calendar_library_version_fails_before_source_use(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Reject a calendar dependency version that differs from the exact adapter pin."""
-
-        def incompatible_version(distribution_name: str) -> str:
-            """Return a deliberately incompatible installed distribution version.
-
-            Args:
-                distribution_name: Distribution queried by the adapter; retained for callback
-                    compatibility and intentionally ignored.
-
-            Returns:
-                A version that differs from the pinned exchange-calendars contract.
-            """
-            del distribution_name
-            return "4.13.1"
-
-        monkeypatch.setattr(calendar_adapter_module, "installed_version", incompatible_version)
+        monkeypatch.setattr(
+            calendar_adapter_module, "installed_version", self._incompatible_version
+        )
 
         with pytest.raises(IncompatibleCalendarLibraryError, match=r"must be exactly 4\.13\.2"):
             ExchangeCalendarsAdapter().build_snapshot(
@@ -232,24 +254,8 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
                 """
                 return None
 
-        def failing_calendar_loader(
-            *, calendar_name: str, start: date, end: date
-        ) -> FailingCalendar:
-            """Return the synthetic source whose opening query always fails.
-
-            Args:
-                calendar_name: Requested source calendar name, intentionally ignored.
-                start: Inclusive requested start date, intentionally ignored.
-                end: Inclusive requested end date, intentionally ignored.
-
-            Returns:
-                A synthetic calendar whose opening query raises a controlled failure.
-            """
-            del calendar_name, start, end
-            return FailingCalendar()
-
         adapter = ExchangeCalendarsAdapter()
-        monkeypatch.setattr(adapter, "_load_calendar", failing_calendar_loader)
+        monkeypatch.setattr(adapter, "_load_calendar", partial(self._source_from, FailingCalendar))
         with pytest.raises(CalendarAdapterError, match="source failed to query session"):
             adapter.build_snapshot(
                 venue=self._venue(),
@@ -364,54 +370,58 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
         assert elapsed_seconds < 1.0
 
 
-@settings(max_examples=50, derandomize=True, database=None)
-@_given_market_state(offset_seconds=st.integers(min_value=-1, max_value=23_401))
-def test_market_state_projection_is_deterministic_for_every_boundary_offset(
-    offset_seconds: int,
-) -> None:
-    """Repeat generated boundary queries and enforce the inclusive-open, exclusive-close rule."""
-    session = TradingSession(
-        session_label=date(2024, 1, 2),
-        opens_at=datetime(2024, 1, 2, 14, 30, tzinfo=UTC),
-        closes_at=datetime(2024, 1, 2, 21, 0, tzinfo=UTC),
+class TestVenueCalendarRoundTrips:
+    """Round-trip venue timezones and project market states deterministically."""
+
+    @staticmethod
+    @settings(max_examples=50, derandomize=True, database=None)
+    @_given_market_state(offset_seconds=st.integers(min_value=-1, max_value=23_401))
+    def test_market_state_projection_is_deterministic_for_every_boundary_offset(
+        offset_seconds: int,
+    ) -> None:
+        """Repeat generated boundary queries; sessions open inclusively and close exclusively."""
+        session = TradingSession(
+            session_label=date(2024, 1, 2),
+            opens_at=datetime(2024, 1, 2, 14, 30, tzinfo=UTC),
+            closes_at=datetime(2024, 1, 2, 21, 0, tzinfo=UTC),
+        )
+        snapshot = VenueCalendarSnapshot(
+            venue=_CalendarTestData._venue(),
+            version=_CalendarTestData._version(),
+            covered_from=date(2024, 1, 1),
+            covered_through=date(2024, 1, 3),
+            sessions=tuple(
+                TradingSession(
+                    session_label=session.session_label + timedelta(days=offset),
+                    opens_at=session.opens_at + timedelta(days=offset),
+                    closes_at=session.closes_at + timedelta(days=offset),
+                )
+                for offset in (-1, 0, 1)
+            ),
+        )
+        instant = session.opens_at + timedelta(seconds=offset_seconds)
+
+        first = snapshot.market_state_at(instant)
+        second = snapshot.market_state_at(instant)
+
+        assert first == second
+        assert first.status is (
+            MarketStatus.CONTINUOUS if 0 <= offset_seconds < 23_400 else MarketStatus.CLOSED
+        )
+
+    @staticmethod
+    @settings(max_examples=50, derandomize=True, database=None)
+    @_given_venue_timezone(
+        instant=st.datetimes(
+            min_value=datetime(2024, 1, 1),
+            max_value=datetime(2025, 12, 31, 23, 59, 59),
+            timezones=st.just(UTC),
+        )
     )
-    snapshot = VenueCalendarSnapshot(
-        venue=_CalendarTestData._venue(),
-        version=_CalendarTestData._version(),
-        covered_from=date(2024, 1, 1),
-        covered_through=date(2024, 1, 3),
-        sessions=tuple(
-            TradingSession(
-                session_label=session.session_label + timedelta(days=offset),
-                opens_at=session.opens_at + timedelta(days=offset),
-                closes_at=session.closes_at + timedelta(days=offset),
-            )
-            for offset in (-1, 0, 1)
-        ),
-    )
-    instant = session.opens_at + timedelta(seconds=offset_seconds)
+    def test_explicit_venue_timezone_round_trip_preserves_instant(
+        instant: datetime,
+    ) -> None:
+        """Recover each generated UTC instant after conversion through the venue timezone."""
+        venue = _CalendarTestData._venue()
 
-    first = snapshot.market_state_at(instant)
-    second = snapshot.market_state_at(instant)
-
-    assert first == second
-    assert first.status is (
-        MarketStatus.CONTINUOUS if 0 <= offset_seconds < 23_400 else MarketStatus.CLOSED
-    )
-
-
-@settings(max_examples=50, derandomize=True, database=None)
-@_given_venue_timezone(
-    instant=st.datetimes(
-        min_value=datetime(2024, 1, 1),
-        max_value=datetime(2025, 12, 31, 23, 59, 59),
-        timezones=st.just(UTC),
-    )
-)
-def test_explicit_venue_timezone_round_trip_preserves_instant(
-    instant: datetime,
-) -> None:
-    """Recover each generated UTC instant after conversion through the venue timezone."""
-    venue = _CalendarTestData._venue()
-
-    assert venue.local_time(instant).astimezone(UTC) == instant
+        assert venue.local_time(instant).astimezone(UTC) == instant
