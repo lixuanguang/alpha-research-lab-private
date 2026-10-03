@@ -514,10 +514,12 @@ class LocalInstallation:
             for entry in schema:
                 digest.update(repr(entry).encode())
                 if entry[0] == "table":
-                    table = str(entry[1]).replace('"', '""')
+                    # One string constant on the suppressed line: Bandit checks each one.
+                    quoted = '"' + str(entry[1]).replace('"', '""') + '"'
+                    query = f"SELECT * FROM {quoted}"  # nosec B608  # [owner=platform; rationale=quoted table name read from sqlite_master of a private copy; expires=2027-03-01]
                     contents = cast(
                         list[tuple[object, ...]],
-                        connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall(),  # nosec B608  # [owner=platform; rationale=quoted table name read from sqlite_master of a private copy; expires=2027-03-01]
+                        connection.execute(query + " ORDER BY rowid").fetchall(),
                     )
                     for content in contents:
                         digest.update(repr(content).encode())
