@@ -17,7 +17,7 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountLedger
-from applications.execute.service_inputs import ServiceBookInputs
+from applications.execute import ServiceBookInputs
 from configuration import BookRegistryConfiguration, BookSelection, CaptureRunConfig
 from execution import (
     AccountControl,

@@ -67,7 +67,7 @@ def compare_offline_features(
     """
     request.__post_init__()
     split.__post_init__()
-    _validate_source_identity(source_attempt, source_sha256)
+    OfflineFeatureSource.validate_identity(source_attempt, source_sha256)
     if split.fit_mode != "none":
         raise ValueError("offline feature comparison requires a validation-only split")
     if any(not split.validation.contains(decision) for decision in request.decisions):
@@ -101,13 +101,13 @@ def compare_offline_features(
                 request=request_bytes,
             )
         except ValueError:
-            _publish_new_rejections(store, before, tracking)
+            OfflineFeatureSource.publish_rejections(store, before, tracking)
             raise
         publication = ClearMLPublication(store, tracking)
         publication.enqueue(start.attempt_id)
         try:
             source = store.read(source_attempt)
-            payload = _source_payload(source, source_sha256, family, split)
+            payload = OfflineFeatureSource.payload(source, source_sha256, family, split)
             store.retain(start.attempt_id, "offline-feature-request", request_bytes)
             store.retain(start.attempt_id, "mr3-feature-result", payload)
             retained = FeatureStudyResult.decode(payload)
@@ -180,50 +180,54 @@ def compare_offline_features(
         return store.read(start.attempt_id)
 
 
-def _validate_source_identity(source_attempt: str, source_sha256: str) -> None:
-    """Validate the retained source identifiers before building an experiment spec."""
-    if type(source_attempt) is not str or _ATTEMPT_ID.fullmatch(source_attempt) is None:
-        raise ValueError("offline feature comparison requires a canonical source attempt")
-    if type(source_sha256) is not str or _DIGEST.fullmatch(source_sha256) is None:
-        raise ValueError("offline feature comparison requires a lowercase source digest")
+class OfflineFeatureSource:
+    """Verify a pinned offline feature source and publish its comparison's start-time rejections."""
 
+    @staticmethod
+    def validate_identity(source_attempt: str, source_sha256: str) -> None:
+        """Validate the retained source identifiers before building an experiment spec."""
+        if type(source_attempt) is not str or _ATTEMPT_ID.fullmatch(source_attempt) is None:
+            raise ValueError("offline feature comparison requires a canonical source attempt")
+        if type(source_sha256) is not str or _DIGEST.fullmatch(source_sha256) is None:
+            raise ValueError("offline feature comparison requires a lowercase source digest")
 
-def _source_payload(
-    source: AttemptHistory,
-    source_sha256: str,
-    family: str,
-    split: TemporalSplit,
-) -> bytes:
-    """Verify one completed MR3 result and its validation-only retained boundary."""
-    if source.start.spec.family != family or source.start.spec.split != split:
-        raise ValueError("offline feature source differs from the requested family or split")
-    if source.status != "completed" or any(
-        event.status == "holdout_consumed" for event in source.events
-    ):
-        raise ValueError("offline feature source must be completed without holdout access")
-    result = source.events[-1].result if source.events else None
-    if type(result) is not bytes or not result:
-        raise ValueError("offline feature source has no completed result bytes")
-    if hashlib.sha256(result).hexdigest() != source_sha256:
-        raise ValueError("offline feature source bytes differ from the pinned digest")
-    payload = FeatureStudyResult.decode(result)
-    if payload.split_identity != split.identity:
-        raise ValueError("offline feature source split differs from the requested split")
-    if any(
-        not split.validation.contains(sample.decision_at)
-        or sample.information_end >= split.holdout.start
-        for sample in payload.samples
-    ):
-        raise ValueError("offline feature source reaches outside validation")
-    return result
+    @staticmethod
+    def payload(
+        source: AttemptHistory,
+        source_sha256: str,
+        family: str,
+        split: TemporalSplit,
+    ) -> bytes:
+        """Verify one completed MR3 result and its validation-only retained boundary."""
+        if source.start.spec.family != family or source.start.spec.split != split:
+            raise ValueError("offline feature source differs from the requested family or split")
+        if source.status != "completed" or any(
+            event.status == "holdout_consumed" for event in source.events
+        ):
+            raise ValueError("offline feature source must be completed without holdout access")
+        result = source.events[-1].result if source.events else None
+        if type(result) is not bytes or not result:
+            raise ValueError("offline feature source has no completed result bytes")
+        if hashlib.sha256(result).hexdigest() != source_sha256:
+            raise ValueError("offline feature source bytes differ from the pinned digest")
+        payload = FeatureStudyResult.decode(result)
+        if payload.split_identity != split.identity:
+            raise ValueError("offline feature source split differs from the requested split")
+        if any(
+            not split.validation.contains(sample.decision_at)
+            or sample.information_end >= split.holdout.start
+            for sample in payload.samples
+        ):
+            raise ValueError("offline feature source reaches outside validation")
+        return result
 
-
-def _publish_new_rejections(
-    store: AttemptStore, before: set[str], tracking: ClearMLDestination
-) -> None:
-    """Publish a start-time rejected attempt while preserving the original exception."""
-    publication = ClearMLPublication(store, tracking)
-    for history in store.histories():
-        if history.start.attempt_id not in before:
-            publication.enqueue(history.start.attempt_id)
-            publication.publish(history.start.attempt_id)
+    @staticmethod
+    def publish_rejections(
+        store: AttemptStore, before: set[str], tracking: ClearMLDestination
+    ) -> None:
+        """Publish a start-time rejected attempt while preserving the original exception."""
+        publication = ClearMLPublication(store, tracking)
+        for history in store.histories():
+            if history.start.attempt_id not in before:
+                publication.enqueue(history.start.attempt_id)
+                publication.publish(history.start.attempt_id)

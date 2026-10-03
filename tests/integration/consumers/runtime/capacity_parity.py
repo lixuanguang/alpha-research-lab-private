@@ -20,7 +20,7 @@ from capacity_inputs import CapacityWorkload
 
 # project library imports
 from accounting import AccountLedger, AccountState
-from applications.execute.service_inputs import ServiceBookInputs
+from applications.execute import ServiceBookInputs
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,

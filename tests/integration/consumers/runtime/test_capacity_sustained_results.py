@@ -17,7 +17,7 @@ from capacity_sustained_results import RollingPercentiles, SustainedResults, Win
 
 # project library imports
 from configuration import CaptureRunConfig
-from market_data.collection.segments import CaptureSegmentWriter
+from market_data.collection import CaptureSegmentWriter
 from market_data.contracts import CaptureRecord, CaptureRunRequest
 from market_data.storage import CaptureRunJournal
 

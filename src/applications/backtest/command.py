@@ -8,13 +8,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# third party library imports
-from lakefs_sdk import ApiClient
-
 # project library imports
 from applications.backtest.books import run_books
 from applications.backtest.comparison import compare_parameters
-from applications.backtest.configured import _StorageAccess, run_configured, run_worker
+from applications.backtest.configured import run_configured, run_worker
 from applications.backtest.features import qualify_scheduled_features
 from market_data.adapters.sources import SourceAdapters
 from market_data.query import QueryReader
@@ -119,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     args = parser.parse_args(argv, namespace=_Arguments())
     codec = DomainCodec()
-    client: ApiClient | None = None
+    storage: LakeFSStorage | None = None
     try:
         if args.action == "books":
             book_output = run_books(
@@ -187,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.lakefs_endpoint is None or args.lakefs_credentials is None:
                     raise ValueError("versioned inputs require an endpoint and private credentials")
                 version = codec.decode_json(args.dataset_version.read_bytes(), DatasetVersion)
-                client = _StorageAccess.open(args.lakefs_endpoint, args.lakefs_credentials)
+                storage = LakeFSStorage.connect(args.lakefs_endpoint, args.lakefs_credentials)
             elif args.lakefs_endpoint is not None or args.lakefs_credentials is not None:
                 raise ValueError("lakeFS options require a pinned dataset version")
             history = run_configured(
@@ -202,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
                 stage="inputs" if args.action == "prepare" else "complete",
                 upstream=args.upstream,
                 version=version,
-                storage=None if client is None else LakeFSStorage(client),
+                storage=storage,
             )
             print(
                 codec.encode_json(
@@ -239,5 +236,5 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{type(error).__name__}: {error}", file=sys.stderr)
         return 4
     finally:
-        if client is not None:
-            client.close()
+        if storage is not None:
+            storage.close()

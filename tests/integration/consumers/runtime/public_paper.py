@@ -40,13 +40,11 @@ from configuration import (
     AccountConfiguration,
     BookRegistryConfiguration,
     CaptureConfig,
+    InstrumentFeeRate,
     OpeningAccount,
-    PaperExecutionScenario,
-)
-from configuration.accounts import InstrumentFeeRate
-from configuration.paper_activation import (
     PaperAuthorization,
     PaperDeployment,
+    PaperExecutionScenario,
     PaperStrategyIdentity,
 )
 from execution import (

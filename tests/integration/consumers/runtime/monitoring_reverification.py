@@ -30,7 +30,7 @@ import msgspec
 
 # project library imports
 from applications.paper import PaperMonitoringResult
-from runtime.identity import RuntimeFiles
+from runtime import RuntimeFiles
 from serialization import DomainCodec
 from telemetry import DashboardSnapshot
 

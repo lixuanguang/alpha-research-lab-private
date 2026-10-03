@@ -14,10 +14,11 @@ from typing import ClassVar, Literal
 
 # project library imports
 from accounting import AccountSnapshot
-from applications.execute.service_inputs import ServiceBookInputs
+from applications.execute import ServiceBookInputs
 from configuration import (
     AccountConfiguration,
     CaptureConfig,
+    InstrumentFeeRate,
     OpeningAccount,
     PaperAuthorization,
     PaperDeployment,
@@ -29,7 +30,6 @@ from configuration import (
     PaperSourceBinding,
     PaperStrategyIdentity,
 )
-from configuration.accounts import InstrumentFeeRate
 from execution import (
     AccountControl,
     AccountExecutionRequest,

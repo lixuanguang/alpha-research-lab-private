@@ -373,3 +373,22 @@ The owner approved this design on 2026-10-04, with these decisions:
     `_SavedPortfolioBatch` stay private pending the capacity-harness decision.
   - The runtime, accounting, configuration and execution unit tests moved into classes,
     with callable test doubles. The ledger shrank from 464 to 319 findings.
+- **Milestone 6 (2026-10-04): applications and supported imports.**
+  - **Orchestrator review.** All 42 public module-level functions in `src/applications`
+    were reviewed as workflow orchestrators: each composes, resumes, sequences or retains
+    a workflow over library owners. The private helpers became the subcommand
+    orchestrator `run_archive`, the `OfflineFeatureSource` checks, and
+    `StudyComponents.evaluate`.
+  - **Native libraries.** lakeFS client construction moved into
+    `LakeFSStorage.connect`/`close`, and the ClearML worker task into
+    `research.studies.PipelineStepTask`. Applications no longer import native libraries.
+  - **New exports.**
+    - `applications.execute` lazily exports `ServiceBookInputs`, `PaperServiceControl`,
+      `PaperServiceOwners` and `run_paper_services`; the lazy form keeps the independent
+      execution distribution importable.
+    - `market_data.collection` exports `CaptureSegmentWriter`.
+  - **Reference workflows** now import those names, and every other already-exported
+    name, through owner APIs.
+  - **Held for the capacity-harness decision:** `execution.account_state`
+    (`AccountStateStore` and the private transaction records) and
+    `source_service._DecodedBookObservation`. The ledger shrank from 319 to 245 findings.

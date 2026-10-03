@@ -16,20 +16,25 @@ from typing import Literal
 import msgspec
 
 # project library imports
-from accounting import Fill
-from accounting.accounts import AccountLedger, AccountPosting, AccountSnapshot
-from applications.execute.accounts import (
+from accounting import AccountLedger, AccountPosting, AccountSnapshot, Fill
+from applications.execute import (
     AccountExecutionApplication,
     AccountExecutionRequest,
     AccountExecutionResult,
 )
-from configuration.accounts import AccountConfiguration, InstrumentFeeRate, OpeningAccount
-from execution.accounts import AccountDecision, AccountObservation, AccountQuote
-from execution.records import OrderDecision, OrderEvent, OrderState, StepCommit
+from configuration import AccountConfiguration, InstrumentFeeRate, OpeningAccount
+from execution import (
+    AccountDecision,
+    AccountObservation,
+    AccountQuote,
+    OrderDecision,
+    OrderEvent,
+    OrderState,
+    StepCommit,
+)
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
-from risk.budgets import AccountLimit, BudgetPolicy, InstanceLimit
-from risk.spot import SpotLimits
+from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from serialization import DomainCodec
 from strategies import OrderIntent, TargetIntent
 

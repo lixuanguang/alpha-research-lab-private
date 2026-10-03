@@ -42,7 +42,7 @@ from market_data.books import (
     BookRegistry,
     CaptureReplay,
 )
-from market_data.collection.segments import CaptureSegmentWriter
+from market_data.collection import CaptureSegmentWriter
 from market_data.contracts import CaptureRecord, CaptureRequest, CaptureRunRequest
 from market_data.storage import CaptureJournal, CaptureRecording, CaptureRunJournal
 from runtime import LiveBookDelivery, SharedBookDelivery

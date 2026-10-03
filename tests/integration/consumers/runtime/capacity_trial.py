@@ -36,11 +36,7 @@ from capacity_sustained import SustainedWorkload
 
 # project library imports
 from accounting import AccountLedger
-from applications.execute.services import (
-    PaperServiceControl,
-    PaperServiceOwners,
-    run_paper_services,
-)
+from applications.execute import PaperServiceControl, PaperServiceOwners, run_paper_services
 from configuration import PaperAuthorization, PaperDeployment, PaperServiceConfiguration
 from execution import (
     AccountControl,

@@ -25,8 +25,12 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountSnapshot
-from configuration import AccountConfiguration, OpeningAccount, PaperExecutionScenario
-from configuration.accounts import InstrumentFeeRate
+from configuration import (
+    AccountConfiguration,
+    InstrumentFeeRate,
+    OpeningAccount,
+    PaperExecutionScenario,
+)
 from execution import (
     AccountDecision,
     AccountJournal,

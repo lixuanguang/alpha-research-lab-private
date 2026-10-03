@@ -384,7 +384,7 @@ class ArchiveArguments(argparse.Namespace):
     archive: Path
 
 
-def _archive(argv: list[str]) -> int:
+def run_archive(argv: list[str]) -> int:
     """Run foreground public history discovery, single-day acquisition or offline replay.
 
     Args:
@@ -457,7 +457,7 @@ def main(argv: list[str] | None = None) -> int:
     """
     arguments = sys.argv[1:] if argv is None else argv
     if arguments[:1] == ["archive"]:
-        return _archive(arguments[1:])
+        return run_archive(arguments[1:])
     if arguments[:1] == ["public"]:
         return acquire_public(arguments[1:])
     parser = argparse.ArgumentParser(

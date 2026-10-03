@@ -52,7 +52,7 @@ class _DecodedBookObservation(BookObservation, frozen=True):
         self._require_unique_state()
 
 
-class _ReceivedSourceDelivery(WireRecord, frozen=True):
+class ReceivedSourceDelivery(WireRecord, frozen=True):
     """Decode the closed source pipe once, including both nested source invariants.
 
     Only typed decoding at the supervisor pipe boundary constructs this schema.

@@ -32,19 +32,19 @@ from accounting import AccountLedger, AccountPosting, AccountState, Fill, PaperA
 from applications.collect import collect
 from applications.execute.service_inputs import ServiceBookInputs
 from applications.execute.service_monitor import (
+    DiagnosticReceipt,
     PaperServiceDiagnostics,
     PaperServiceMonitor,
-    _DiagnosticReceipt,
-    _ReadOnlyPaperAccount,
+    ReadOnlyPaperAccount,
 )
 from applications.execute.services import (
+    AccountHealth,
     PaperServiceControl,
     PaperServiceOwners,
     PaperServices,
-    _AccountHealth,
-    _SourceChild,
+    SourceChild,
 )
-from applications.execute.source_service import SourceDelivery, _ReceivedSourceDelivery
+from applications.execute.source_service import ReceivedSourceDelivery, SourceDelivery
 from configuration import (
     AccountConfiguration,
     CaptureConfig,
@@ -95,6 +95,18 @@ from telemetry import HealthMetric, HealthMetrics, RuntimeMeasurementJournal
 
 # A short existing root keeps AF_UNIX paths in limits on macOS and Linux.
 _SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
+
+
+class _Constant[T]:
+    """Return one fixed value on every call, standing in for a zero-argument callable."""
+
+    def __init__(self, value: T) -> None:
+        """Bind the value to return."""
+        self.value = value
+
+    def __call__(self) -> T:
+        """Return the bound value."""
+        return self.value
 
 
 class _ScriptedBookSocket:
@@ -959,7 +971,7 @@ class TestPaperServices:
                     for instance in config.instances
                     if instance.source == source_definition.name
                 )
-                services.sources[source_definition.name] = _SourceChild(
+                services.sources[source_definition.name] = SourceChild(
                     definition=source_definition,
                     request=CaptureRequest(
                         config=source_definition.capture,
@@ -986,9 +998,9 @@ class TestPaperServices:
         )
 
     @staticmethod
-    def _owner_health(owner: PaperOwner, at_ns: int) -> _AccountHealth:
+    def _owner_health(owner: PaperOwner, at_ns: int) -> AccountHealth:
         """Create a fresh complete heartbeat for identity and process-liveness fencing."""
-        return _AccountHealth(
+        return AccountHealth(
             pid=os.getpid(),
             owner_id=owner.owner_id,
             generation=owner.generation,
@@ -1076,7 +1088,7 @@ class TestPaperServices:
             health_path.write_bytes(
                 services.codec.encode_json(self._owner_health(owner, time.monotonic_ns()))
             )
-            services.sources[definition.name] = _SourceChild(
+            services.sources[definition.name] = SourceChild(
                 definition=definition,
                 request=CaptureRequest(
                     config=capture, recording_id=str(uuid4()), implementation_identity="b" * 64
@@ -1118,14 +1130,14 @@ class TestPaperServices:
         assert child.request.config == definition.capture
         assert child.request.window.max_reconnects == definition.capture.retries
         key = child.request.run_id
-        deliveries: list[_ReceivedSourceDelivery] = []
+        deliveries: list[ReceivedSourceDelivery] = []
         try:
             while True:
                 try:
                     payload = child.receiver.recv_bytes()
                 except EOFError:
                     break
-                deliveries.append(services.codec.decode_json(payload, _ReceivedSourceDelivery))
+                deliveries.append(services.codec.decode_json(payload, ReceivedSourceDelivery))
             child.process.join(30)
         finally:
             if child.process.is_alive():
@@ -1223,7 +1235,7 @@ class TestPaperServices:
                 """Count one batch."""
                 self.submitted += 1
 
-            def poll(self) -> tuple[_DiagnosticReceipt, ...]:
+            def poll(self) -> tuple[DiagnosticReceipt, ...]:
                 """Return no completed receipts."""
                 return ()
 
@@ -1267,14 +1279,14 @@ class TestPaperServices:
                 self.submitted += 1
                 self.pending = True
 
-            def poll(self) -> tuple[_DiagnosticReceipt, ...]:
+            def poll(self) -> tuple[DiagnosticReceipt, ...]:
                 """Return the scripted receipt for the last submitted batch."""
                 if not self.pending:
                     return ()
                 self.pending = False
                 status = self.statuses[min(self.submitted, len(self.statuses)) - 1]
                 return (
-                    _DiagnosticReceipt(
+                    DiagnosticReceipt(
                         account_id="shared", requested_at=now, observed_at=now, status=status
                     ),
                 )
@@ -1308,7 +1320,7 @@ class TestPaperServices:
         )
         try:
             services._close_source(
-                _SourceChild(
+                SourceChild(
                     definition=config.sources[0],
                     request=CaptureRequest(
                         config=config.sources[0].capture,
@@ -1462,7 +1474,7 @@ class TestPaperServices:
                 connections.extend((receiver, sender))
                 for position in range(2):
                     sender.send_bytes(DomainCodec().encode_json(self._delivery(position)))
-                services.sources[name] = _SourceChild(
+                services.sources[name] = SourceChild(
                     definition=config.sources[0],
                     request=CaptureRequest(
                         config=config.sources[0].capture,
@@ -1807,7 +1819,7 @@ class TestPaperServices:
                         thread.join(3)
                     services._join_observations()
 
-    @pytest.mark.parametrize("target", (SourceDelivery, _ReceivedSourceDelivery))
+    @pytest.mark.parametrize("target", (SourceDelivery, ReceivedSourceDelivery))
     @pytest.mark.parametrize(
         ("before", "after", "reason"),
         (
@@ -1818,7 +1830,7 @@ class TestPaperServices:
     )
     def test_source_pipe_decode_validates_nested_book(
         self,
-        target: type[SourceDelivery] | type[_ReceivedSourceDelivery],
+        target: type[SourceDelivery] | type[ReceivedSourceDelivery],
         before: bytes,
         after: bytes,
         reason: str,
@@ -1877,7 +1889,7 @@ class TestPaperServices:
         )
         payloads = tuple(codec.encode_json(delivery) for delivery in (l2, l3))
         for payload in payloads:
-            received = codec.decode_json(payload, _ReceivedSourceDelivery)
+            received = codec.decode_json(payload, ReceivedSourceDelivery)
             assert codec.encode_json(received) == payload
             public = codec.decode_json(codec.encode_json(received), SourceDelivery)
             assert type(public.book) is BookObservation
@@ -1925,7 +1937,7 @@ class TestPaperServices:
         corrupted = payload.replace(before, after)
         assert corrupted != payload
         with pytest.raises(ValueError, match=reason):
-            codec.decode_json(corrupted, _ReceivedSourceDelivery)
+            codec.decode_json(corrupted, ReceivedSourceDelivery)
 
     @pytest.mark.parametrize("kind", ("level", "order"))
     def test_public_delivery_revalidates_received_nested_native_values(self, kind: str) -> None:
@@ -1942,7 +1954,7 @@ class TestPaperServices:
         )
         received = codec.decode_json(
             codec.encode_json(SourceDelivery(record=original.record, book=book)),
-            _ReceivedSourceDelivery,
+            ReceivedSourceDelivery,
         )
         if kind == "level":
             force_setattr(received.book.bids[0][1], "size", Decimal("0"))
@@ -2008,7 +2020,7 @@ class TestPaperServices:
         assert flat_report.account.currencies[0].nav.value == Decimal("1000")
         assert [request.action for request in flat.seen_requests] == ["inspect"]
 
-        receipt = _DiagnosticReceipt(
+        receipt = DiagnosticReceipt(
             account_id=owner.account_id,
             requested_at=now,
             observed_at=cast(datetime, flat_sample["observed_at"]),
@@ -2020,7 +2032,7 @@ class TestPaperServices:
             instances=Raw(DomainCodec().encode_json(flat_sample["instances"])),
         )
         codec = DomainCodec()
-        round_trip = codec.decode_json(codec.encode_json(receipt), _DiagnosticReceipt)
+        round_trip = codec.decode_json(codec.encode_json(receipt), DiagnosticReceipt)
         projected = msgspec.json.decode(codec.encode_json(round_trip), type=dict[str, Raw])
         for field in ("account", "activation", "report", "instances"):
             assert bytes(projected[field]) == codec.encode_json(flat_sample[field])
@@ -2090,6 +2102,29 @@ class TestPaperServices:
         with pytest.raises(ValueError):
             codec.decode_json(b'{"owners":[{"owner_id":"incomplete"}]}', PaperServiceOwners)
 
+    @classmethod
+    def _restart_harness(
+        cls,
+        root: Path,
+        config: PaperServiceConfiguration,
+        owners: tuple[PaperOwner, PaperOwner],
+        *,
+        accepts: bool,
+    ) -> tuple[_SupervisorHarness, list[str]]:
+        """Retain independent account and scheduler calls for one restart attempt."""
+        events: list[str] = []
+        root.mkdir()
+        services = _SupervisorHarness(config, owners, root, cls._socket_path(), events)
+        services.active.remove("first")
+        services.workers["other"] = _StableWorker()
+        services.accounts["shared"] = _RestartAccount(
+            config.accounts[0].configuration, owners[0], events, accepts_observation=accepts
+        )
+        services.accounts["isolated"] = _RestartAccount(
+            config.accounts[1].configuration, owners[1], events, accepts_observation=True
+        )
+        return services, events
+
     def test_restart_observation_precedes_restart_and_preserves_other_account(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2101,23 +2136,6 @@ class TestPaperServices:
         owners = (self._owner(), self._owner("isolated"))
         codec = DomainCodec()
 
-        def harness(label: str, *, accepts: bool) -> tuple[_SupervisorHarness, list[str]]:
-            """Retain independent account and scheduler calls for one restart attempt."""
-            events: list[str] = []
-            (tmp_path / label).mkdir()
-            services = _SupervisorHarness(
-                config, owners, tmp_path / label, self._socket_path(), events
-            )
-            services.active.remove("first")
-            services.workers["other"] = _StableWorker()
-            services.accounts["shared"] = _RestartAccount(
-                config.accounts[0].configuration, owners[0], events, accepts_observation=accepts
-            )
-            services.accounts["isolated"] = _RestartAccount(
-                config.accounts[1].configuration, owners[1], events, accepts_observation=True
-            )
-            return services, events
-
         observation = self._observation("shared", config.accounts[0].configuration)
         control = PaperServiceControl(
             action="restart_instance",
@@ -2126,7 +2144,9 @@ class TestPaperServices:
             observation=observation,
         )
         assert codec.decode_json(codec.encode_json(control), PaperServiceControl) == control
-        accepted, accepted_events = harness("accepted", accepts=True)
+        accepted, accepted_events = self._restart_harness(
+            tmp_path / "accepted", config, owners, accepts=True
+        )
         accepted.apply(control)
         assert accepted_events == [
             "shared:reconcile",
@@ -2146,7 +2166,9 @@ class TestPaperServices:
                 observation=observation,
             )
 
-        mismatch, mismatch_events = harness("mismatch", accepts=True)
+        mismatch, mismatch_events = self._restart_harness(
+            tmp_path / "mismatch", config, owners, accepts=True
+        )
         with pytest.raises(ValueError, match="another account"):
             mismatch.apply(
                 PaperServiceControl(
@@ -2160,7 +2182,9 @@ class TestPaperServices:
         assert mismatch.active == {"other"}
         assert mismatch.faulted_accounts == set()
 
-        rejected, rejected_events = harness("rejected", accepts=False)
+        rejected, rejected_events = self._restart_harness(
+            tmp_path / "rejected", config, owners, accepts=False
+        )
         with pytest.raises(ValueError, match="instance_restart_requires_reconciliation"):
             rejected.apply(
                 PaperServiceControl(
@@ -2179,7 +2203,7 @@ class TestPaperServices:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy_failure: bool
     ) -> None:
         """Only a typed pre-commit policy failure permits selective cohort continuation."""
-        monkeypatch.setattr(InstalledIdentity, "sha256", staticmethod(lambda: "b" * 64))
+        monkeypatch.setattr(InstalledIdentity, "sha256", staticmethod(_Constant("b" * 64)))
         socket_path = self._socket_path()
         config, owner = self._config(socket_path), self._owner()
         services = _SupervisorHarness(config, owner, tmp_path, self._socket_path())
@@ -2212,7 +2236,7 @@ class TestPaperServices:
                 implementation_identity="b" * 64,
             )
             services.workers["first"] = worker
-            services.sources["book"] = _SourceChild(
+            services.sources["book"] = SourceChild(
                 definition=config.sources[0],
                 request=request,
                 process=cast(BaseProcess, _AliveSource()),
@@ -2256,7 +2280,7 @@ class TestPaperServices:
             )
             receivers.append(receiver)
             senders.append(sender)
-            services.sources[name] = _SourceChild(
+            services.sources[name] = SourceChild(
                 definition=config.sources[0],
                 request=CaptureRequest(
                     config=config.sources[0].capture,
@@ -2310,7 +2334,7 @@ class TestPaperServices:
             multiprocessing.get_context("spawn").Pipe(duplex=False),
         )
         stop = multiprocessing.get_context("spawn").Event()
-        services.sources["book"] = _SourceChild(
+        services.sources["book"] = SourceChild(
             definition=config.sources[0],
             request=CaptureRequest(
                 config=config.sources[0].capture,
@@ -2417,7 +2441,7 @@ class TestPaperServices:
             assert diagnostics.status()["pending_batches"] == 1
             (diagnostics.root / "allow-reports").touch()
             deadline = time.monotonic() + 5
-            receipts: tuple[_DiagnosticReceipt, ...] = ()
+            receipts: tuple[DiagnosticReceipt, ...] = ()
             while not receipts:
                 receipts = diagnostics.poll()
                 assert time.monotonic() < deadline
@@ -2460,7 +2484,7 @@ class TestPaperServices:
         """An economic control cannot cross the read-only diagnostic client boundary."""
         config, owner = self._config(self._socket_path()), self._owner()
         requests = tmp_path / "requests"
-        account = _ReadOnlyPaperAccount(
+        account = ReadOnlyPaperAccount(
             config=config.accounts[0].configuration,
             socket_path=Path(config.accounts[0].socket_path),
             requests=requests,
@@ -2497,7 +2521,7 @@ class TestPaperServices:
             multiprocessing.get_context("spawn").Pipe(duplex=False),
         )
         stop = multiprocessing.get_context("spawn").Event()
-        services.sources["book"] = _SourceChild(
+        services.sources["book"] = SourceChild(
             definition=config.sources[0],
             request=CaptureRequest(
                 config=config.sources[0].capture,

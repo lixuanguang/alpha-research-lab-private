@@ -30,11 +30,11 @@ import msgspec
 # project library imports
 from applications.execute.service_inputs import ServiceBookInputs
 from applications.execute.service_monitor import (
+    DiagnosticReceipt,
     PaperServiceDiagnostics,
     PaperServiceMonitor,
-    _DiagnosticReceipt,
 )
-from applications.execute.source_service import _ReceivedSourceDelivery, run_source_service
+from applications.execute.source_service import ReceivedSourceDelivery, run_source_service
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
@@ -119,7 +119,7 @@ class PaperServiceOwners(WireRecord, frozen=True):
     owners: tuple[PaperOwner, ...]
 
 
-class _AccountHealth(WireRecord, frozen=True):
+class AccountHealth(WireRecord, frozen=True):
     """Decode the account service's separate liveness and completed-request clocks."""
 
     pid: int
@@ -133,7 +133,7 @@ class _AccountHealth(WireRecord, frozen=True):
 
 
 @dataclass
-class _SourceChild:
+class SourceChild:
     """Retain the sole process, pipe and freshness owner for one native input."""
 
     definition: PaperServiceSource
@@ -215,7 +215,7 @@ class PaperServices:
         self.instances = {item.instance_id: item for item in configuration.instances}
         self.active = set(configuration.active)
         self.workers: dict[str, ProcessDecisionPolicy] = {}
-        self.sources: dict[str, _SourceChild] = {}
+        self.sources: dict[str, SourceChild] = {}
         self.faulted_accounts: set[str] = set()
         self.unavailable_accounts: set[str] = set()
         self.failures: list[dict[str, object]] = []
@@ -664,7 +664,7 @@ class PaperServices:
                 stop,
             ),
         )
-        child = _SourceChild(source, request, process, receiver, health, {}, stop)
+        child = SourceChild(source, request, process, receiver, health, {}, stop)
         self.sources[source.name] = child
         self._refresh_observers(source.name)
         process.start()
@@ -858,7 +858,7 @@ class PaperServices:
             try:
                 health = self.codec.decode_json(
                     Path(definition.socket_path).with_suffix(".health.json").read_bytes(),
-                    _AccountHealth,
+                    AccountHealth,
                 )
                 heartbeat = health.heartbeat_ns
                 owner = next(
@@ -884,7 +884,7 @@ class PaperServices:
         self._finish_observations()
         consumed = False
         executor = self._observation_executor if self._has_disjoint_source_accounts else None
-        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery, int]] = []
+        ready: list[tuple[SourceChild, ReceivedSourceDelivery, int]] = []
         self._check_owner_health()
         for name in tuple(sorted(self.active)):
             worker = self.workers[name]
@@ -932,7 +932,7 @@ class PaperServices:
                             child.pipe_drained = True
                             continue
                         raise
-                    delivery = self.codec.decode_json(payload, _ReceivedSourceDelivery)
+                    delivery = self.codec.decode_json(payload, ReceivedSourceDelivery)
                     if delivery.book.position != child.received_count:
                         raise ValueError("source pipe delivery position differs from durable order")
                     child.received_count += 1
@@ -967,7 +967,7 @@ class PaperServices:
 
     def _observe_ready_sources(
         self,
-        ready: list[tuple[_SourceChild, _ReceivedSourceDelivery, int]],
+        ready: list[tuple[SourceChild, ReceivedSourceDelivery, int]],
         executor: concurrent.futures.ThreadPoolExecutor,
     ) -> None:
         """Own at most one in-flight frame per disjoint source across supervisor turns."""
@@ -1030,7 +1030,7 @@ class PaperServices:
 
     @staticmethod
     def _observe_source_group(
-        delivery: _ReceivedSourceDelivery,
+        delivery: ReceivedSourceDelivery,
         observers: tuple[tuple[str, SharedPaperCaptureObserver], ...],
         received_ns: int | None = None,
     ) -> tuple[tuple[str, Exception], ...]:
@@ -1151,7 +1151,7 @@ class PaperServices:
             self.monitor.failures += 1
             self.monitor.last_error = f"event_retention:{type(error).__name__}"
 
-    def _account_source_delivery(self, name: str, child: _SourceChild) -> None:
+    def _account_source_delivery(self, name: str, child: SourceChild) -> None:
         """Retain constant-cost native and account counts for exact offline parity review."""
         key = child.request.recording_key
         recording = CaptureRecording(
@@ -1270,7 +1270,7 @@ class PaperServices:
     def _telemetry_retained(self) -> bool:
         """Report whether every account's latest diagnostic report was retained."""
         return all(
-            isinstance(receipt := self.monitoring.get(account_id), _DiagnosticReceipt)
+            isinstance(receipt := self.monitoring.get(account_id), DiagnosticReceipt)
             and receipt.status == "retained"
             for account_id in self.accounts
         )
@@ -1390,7 +1390,7 @@ class PaperServices:
             reason=reason,
         )
 
-    def _close_source(self, child: _SourceChild, *, deadline: float | None = None) -> None:
+    def _close_source(self, child: SourceChild, *, deadline: float | None = None) -> None:
         """Fence a source before releasing its receiver or starting a replacement."""
         self._join_observations()
         if child.process.pid is not None:

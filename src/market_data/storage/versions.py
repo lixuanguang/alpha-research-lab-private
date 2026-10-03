@@ -9,9 +9,11 @@ import re
 from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile
 from typing import Literal
+from urllib.parse import urlsplit
 
 # third party library imports
-from lakefs_sdk import ApiClient
+import msgspec
+from lakefs_sdk import ApiClient, Configuration
 from lakefs_sdk.api.branches_api import BranchesApi
 from lakefs_sdk.api.commits_api import CommitsApi
 from lakefs_sdk.api.objects_api import ObjectsApi
@@ -97,10 +99,56 @@ class LakeFSStorage:
         Args:
             client: Caller-owned lakeFS client; caller closes its connection pool.
         """
+        self._owned_client: ApiClient | None = None
         self._branches = BranchesApi(client)
         self._tags = TagsApi(client)
         self._commits = CommitsApi(client)
         self._objects = ObjectsApi(client)
+
+    @classmethod
+    def connect(cls, endpoint: str, credentials: Path) -> LakeFSStorage:
+        """Open an explicitly selected private lakeFS connection that this storage owns.
+
+        The credentials are read from the selected file and never copied into research
+        records; :meth:`close` releases the connection pool.
+
+        Args:
+            endpoint: Non-secret HTTP(S) API endpoint without user information, query or
+                fragment.
+            credentials: JSON file holding ``access_key_id`` and ``secret_access_key``.
+
+        Returns:
+            Storage bound to a client it closes.
+
+        Raises:
+            ValueError: The endpoint is not an explicit non-secret HTTP(S) API endpoint.
+        """
+        parsed = urlsplit(endpoint)
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("lakeFS requires an explicit non-secret HTTP(S) API endpoint")
+        fields = msgspec.json.decode(credentials.read_bytes(), type=dict[str, msgspec.Raw])
+        client = ApiClient(
+            Configuration(
+                host=endpoint,
+                username=msgspec.json.decode(fields["access_key_id"], type=str),
+                password=msgspec.json.decode(fields["secret_access_key"], type=str),
+            )
+        )
+        storage = cls(client)
+        storage._owned_client = client
+        return storage
+
+    def close(self) -> None:
+        """Close the connection pool of a client opened by :meth:`connect`; others are kept."""
+        if self._owned_client is not None:
+            self._owned_client.close()
 
     def resolve(
         self,
