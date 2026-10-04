@@ -2988,6 +2988,49 @@ A first run failed strict mypy. The diagnostics test doubles in
 signature, which also stopped `make check` before its unit tests. They now take the
 run directory and candidates. The run above is the rerun.
 
+## M3f-1 result (2026-10-05)
+
+Guide coverage and shadow dashboards: the first of three M3f commits. M3f-2 adds the
+driver's J6, and M3f-3 its J7.
+
+**Guide coverage.**
+- **Before.** Against the current QR workspace, 29 imported names were in none of
+  the 18 documents reachable from the declared entry guides.
+- **The QR API map.** `examples/qr-api.md`, linked from the quickstart's extension
+  section, lists every supported name a component, study, replay or feature-store
+  call needs, grouped by task, each with its import package and purpose.
+  - It closes the rehearsal finding that no guide shows replaying a bundle, with a
+    six-step replay recipe: capability profiles, deployment, loader and executor.
+  - It states that each decision replaces working orders, and how a policy abstains.
+- **ClearML keys.** The quickstart now links the ClearML local-services guide. That
+  guide already named `CLEARML_LOCAL_ACCESS_KEY` and `CLEARML_LOCAL_SECRET_KEY` but
+  was unreachable from the entry guides; this closes rehearsal 6's J3 finding.
+- **Stale quickstart text corrected.**
+  - The extension identity is the code inventory, not the whole `RECORD`.
+  - A policy may abstain, which replaces the "a policy must decide at every
+    decision" paragraph.
+- **After.** The driver's own `GuideCoverage` finds 0 uncovered names.
+
+**Shadow dashboards.**
+- `MonitoringConfiguration.paper` is replaced by `account`, for paper or shadow
+  accounts.
+- Its metric specs take the query's mode, and its title names the mode.
+- The diagnostics now render shadow accounts' pages too, so J6's "custom metric on
+  each account's dashboard" covers the shadow phase.
+- Its callers and the telemetry guide are updated.
+
+**Tests.** A shadow-mode exporter's metric forms a shadow page with its band rule,
+and a research-mode view is refused.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,549 passed, 4 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 707 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design

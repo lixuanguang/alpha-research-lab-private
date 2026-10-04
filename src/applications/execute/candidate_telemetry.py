@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 # project library imports
 from applications.execute.service_candidates import PaperServiceCandidates
@@ -43,7 +44,7 @@ class CandidateTelemetry:
     every instance's runtime metrics over its attributed fills, each newly decided
     instant's decision delay from the supervisor's fsynced delivery logs, and each
     newly committed learned prediction from the instance's continuation. At most
-    every ``dashboard_seconds`` it renders the account's paper dashboard pages with
+    every ``dashboard_seconds`` it renders the account's paper or shadow pages with
     the installed defaults, one panel per exported series and one alert rule per
     declared candidate warning band, delivered to ``alert_socket``. It holds no
     account authority: its only account call is a checkpoint inspection.
@@ -117,9 +118,10 @@ class CandidateTelemetry:
             )
             TelemetryStore(self.root / "telemetry.sqlite3").append(events)
             due = self._next_dashboard.get(account_id, 0.0)
-            if time.monotonic() >= due and account.config.mode == "paper":
+            mode = account.config.mode
+            if time.monotonic() >= due and (mode == "paper" or mode == "shadow"):
                 self._next_dashboard[account_id] = time.monotonic() + self._dashboard_seconds
-                self._dashboards(account_id, observed_at)
+                self._dashboards(account_id, mode, observed_at)
         except Exception as error:
             self.failures += 1
             self.last_error = f"candidate_telemetry:{type(error).__name__}: {error}"
@@ -226,14 +228,16 @@ class CandidateTelemetry:
                         )
         return tuple(events)
 
-    def _dashboards(self, account_id: str, observed_at: datetime) -> None:
-        """Render the account's paper pages, delivering any breached alert rule."""
+    def _dashboards(
+        self, account_id: str, mode: Literal["paper", "shadow"], observed_at: datetime
+    ) -> None:
+        """Render the account's pages, delivering any breached alert rule."""
         store = TelemetryStore(self.root / "telemetry.sqlite3")
         # Queries select [start, end); the observation's own facts are at its clock.
         end = observed_at + timedelta(microseconds=1)
         query = MonitoringQuery(
             scope=f"account:{account_id}",
-            mode="paper",
+            mode=mode,
             start=max(self.started_at, observed_at - self._dashboard_window),
             end=end,
             as_of=end,
@@ -245,7 +249,7 @@ class CandidateTelemetry:
         thresholds = tuple(
             edge for name in self._instances(account_id) for edge in self.exporters[name].thresholds
         )
-        configurations = MonitoringConfiguration.paper(
+        configurations = MonitoringConfiguration.account(
             query,
             events,
             alert_socket=self.configuration.alert_socket,

@@ -87,7 +87,7 @@ class MonitoringConfiguration(WireRecord, frozen=True):
         )
 
     @classmethod
-    def paper(
+    def account(
         cls,
         query: MonitoringQuery,
         events: tuple[MonitoringEvent, ...],
@@ -95,7 +95,7 @@ class MonitoringConfiguration(WireRecord, frozen=True):
         alert_socket: str | None = None,
         thresholds: tuple[MetricThreshold, ...] = (),
     ) -> tuple[MonitoringConfiguration, ...]:
-        """Select dimensioned cumulative last values and optional diagnostic routes.
+        """Select a paper or shadow account's dimensioned last values and diagnostic routes.
 
         Separate strategy scopes and currencies remain separate series. Up to 32
         panels per retained page keep the existing renderer's bounds. Lifecycle
@@ -106,8 +106,8 @@ class MonitoringConfiguration(WireRecord, frozen=True):
         ``thresholds`` add declared band edges, such as a candidate metric's
         warning bands, on the page holding their series.
         """
-        if query.mode != "paper":
-            raise ValueError("paper views require paper mode")
+        if query.mode not in ("paper", "shadow"):
+            raise ValueError("account views require paper or shadow mode")
         selected: dict[str, str] = {}
         for event in events:
             if event.context.scope != query.scope or event.context.mode != query.mode:
@@ -118,7 +118,7 @@ class MonitoringConfiguration(WireRecord, frozen=True):
                 raise ValueError("paper series has conflicting units")
             selected[event.name] = event.units
         if not selected:
-            raise ValueError("paper view requires declared input series")
+            raise ValueError("account view requires declared input series")
         specs = tuple(
             MetricSpec(
                 name=name,
@@ -126,7 +126,7 @@ class MonitoringConfiguration(WireRecord, frozen=True):
                 implementation_sha256=MonitoringDefinitions.code_identity(),
                 inputs=(MetricInput(name=name, version="1", units=units),),
                 units=units,
-                modes=("paper",),
+                modes=(query.mode,),
                 aggregation="last",
                 missingness="propagate",
                 stale_after_seconds=60,
@@ -151,7 +151,8 @@ class MonitoringConfiguration(WireRecord, frozen=True):
                     query=query,
                     metrics=page,
                     dashboard=DashboardConfig(
-                        title=f"Paper observations · {query.scope} · {offset // 32 + 1}",
+                        title=f"{query.mode.capitalize()} observations · {query.scope} · "
+                        f"{offset // 32 + 1}",
                         panels=tuple(
                             DashboardPanel(
                                 title=spec.name.replace(".", " / "),

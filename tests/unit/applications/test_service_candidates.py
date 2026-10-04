@@ -776,7 +776,7 @@ class TestPaperServiceCandidates:
         )
         store = TelemetryStore(tmp_path / "telemetry.sqlite3")
         store.append((metric, delay))
-        (view,) = MonitoringConfiguration.paper(
+        (view,) = MonitoringConfiguration.account(
             query,
             store.query(query),
             alert_socket="/private/tmp/m3e-unbound.sock",
@@ -795,6 +795,39 @@ class TestPaperServiceCandidates:
         assert evaluation.state == "triggered"
         (attempt,) = OperationalAlerts(tmp_path / "alerts.sqlite3").read()
         assert attempt.status == "failed"
+
+    def test_shadow_accounts_get_the_same_candidate_view(self, tmp_path: Path) -> None:
+        """A shadow account's candidate series and band rule form a shadow page."""
+        definition = self._publish(tmp_path, runtime=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        configuration = self._configuration(packaged)
+        loaded = PaperServiceCandidates(configuration, tmp_path / "candidates").candidate(
+            configuration.instances[1]
+        )
+        exporter = CandidateMonitoringExporter(
+            loaded,
+            scope="account:shared",
+            account="shared",
+            mode="shadow",
+            clock_quality="observed",
+            study=loaded.definition.identity,
+        )
+        _, evidence = self._bought()
+        events = exporter.runtime_metrics(evidence, recorded_at=evidence.cutoff)
+        end = evidence.cutoff + timedelta(seconds=1)
+        query = MonitoringQuery(
+            scope="account:shared", mode="shadow", start=_ORIGIN, end=end, as_of=end
+        )
+        (view,) = MonitoringConfiguration.account(
+            query, events, alert_socket="/private/tmp/m3f.sock", thresholds=exporter.thresholds
+        )
+        assert view.dashboard.title.startswith("Shadow observations")
+        assert [spec.modes for spec in view.metrics] == [("shadow",)]
+        assert [rule.identity for rule in view.dashboard.alerts] == ["threshold:fold-net:<"]
+        with pytest.raises(ValueError, match="paper or shadow"):
+            MonitoringConfiguration.account(replace(query, mode="research"), events)
 
     def test_candidate_telemetry_exports_and_alerts_from_the_diagnostics(
         self, tmp_path: Path

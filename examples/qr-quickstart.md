@@ -41,7 +41,9 @@ describes.
 ## 2. Lay out an extension package
 
 Your components live in your own project, outside this repository. Start from the
-maintained template, [`extensions/engineering-candidates`](../extensions/engineering-candidates/):
+maintained template, [`extensions/engineering-candidates`](../extensions/engineering-candidates/).
+The [QR API map](qr-api.md) lists every supported name a component, study or replay
+needs, grouped by task.
 
 ```text
 qr-signals/
@@ -178,19 +180,25 @@ record = InstalledExtensions().artifact("qr-signals")
 # components.artifacts includes record; study.extensions includes record.fingerprint
 ```
 
-The artifact is your extension's installed `RECORD`. Its fingerprint is the identity
-the packaged candidate will name, so the study pins exactly the code you will
-deploy. Use `PublicationPolicy(mode="local")` for a first run, or deferred
-publication to ClearML once the local services are up, then
+The artifact is your installed extension's code inventory: the `RECORD` entries of
+its package files plus its `METADATA` and entry points, without installer files or
+bytecode caches. Its fingerprint is the identity the packaged candidate will name,
+so the study pins exactly the code you will deploy, wherever it is installed from. Use `PublicationPolicy(mode="local")` for a first run, or deferred
+publication to ClearML once the
+[local services](../configs/development/clearml/README.md) are up (its private
+credentials file names `CLEARML_LOCAL_ACCESS_KEY` and `CLEARML_LOCAL_SECRET_KEY`),
+then
 `applications.explore.publish_experiments`. The study, its fold results, report
 and fitted state stay in the attempt store; `research.studies.StudyResult` and
 `StudyReportReader` reopen them. The
 [study guide](../src/research/studies/README.md#generalized-decision-studies) covers
 search (`compare_studies`) and every configuration rule.
 
-**A policy must decide at every decision.** There is no "no intent" result. A target
-policy can go flat; the example's quote policy refuses a missing touch instead of
-inventing a price, so give it a book requirement fresh enough for your cadence.
+**Every decision replaces the instance's working orders,** in research and in paper.
+A policy that cannot price returns `DecisionTransition(intent=None, state=...)`: it
+abstains, its resting orders are cancelled after the cancel delay, and its state
+still advances. A target policy can also go flat, which is an intent. Give a quote
+policy a book requirement fresh enough for your cadence.
 
 ## 5. Package a candidate
 
