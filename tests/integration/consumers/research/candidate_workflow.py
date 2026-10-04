@@ -458,7 +458,7 @@ def main() -> None:
             source_step=first_replay,
             decision_second=30 if learned else 10,
         )
-        paper_proof, paper_checkpoint, paper_step = _PaperCandidateAcceptance.exercise(
+        paper_proof, _, paper_step = _PaperCandidateAcceptance.exercise(
             root=output,
             name=name,
             bundle=bundle,
@@ -475,9 +475,9 @@ def main() -> None:
             paper_config = _PaperCandidateAcceptance._config(name, "paper", scenario)
             exporter = CandidateMonitoringExporter(
                 loaded_runtime,
-                paper_config,
-                paper_checkpoint,
                 scope=f"{name}-paper-candidate",
+                account=paper_config.account,
+                mode="paper",
                 clock_quality="modeled",
                 study=manifest.dataset.sha256,
             )

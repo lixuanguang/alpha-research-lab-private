@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import socket
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -17,8 +18,11 @@ from engineering_candidates import FoldNetChart, FoldNetMetric, ImbalanceTarget
 from msgspec.structs import replace
 
 # project library imports
+from accounting import Fill
 from applications.execute import FeaturePublisher
+from applications.execute.candidate_telemetry import CandidateTelemetry
 from applications.execute.service_candidates import PaperServiceCandidates
+from applications.execute.service_monitor import InspectedPaperAccount
 from configuration import (
     AccountConfiguration,
     CapabilityField,
@@ -37,6 +41,7 @@ from configuration import (
     ReferenceCandidate,
 )
 from configuration.accounts import InstrumentFeeRate
+from execution import AccountExecutionResult, AccountPaperFill, PaperMarket, PaperOwner
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from market_data.contracts import CaptureRequest
 from market_data.storage import CaptureJournal
@@ -54,8 +59,24 @@ from research.features import FeatureSchema, FeatureStoreDefinition, VersionedFe
 from research.observations import DecisionInputs, InputRequirement, NamedObservation, NumericField
 from research.studies import ResultManifest
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
-from runtime import ImplementationIdentity, InstalledExtensions, LocalCandidateExecutor
+from runtime import (
+    CandidateEvidence,
+    CandidateMonitoringExporter,
+    ImplementationIdentity,
+    InstalledExtensions,
+    LocalCandidateExecutor,
+)
 from serialization import DomainCodec
+from telemetry import (
+    DashboardBuilder,
+    MetricRegistry,
+    MetricThreshold,
+    MonitoringConfiguration,
+    MonitoringDefinitions,
+    MonitoringQuery,
+    OperationalAlerts,
+    TelemetryStore,
+)
 
 _ORIGIN = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -242,7 +263,7 @@ class TestPaperServiceCandidates:
 
     @classmethod
     def _publish(
-        cls, root: Path, *, trades: bool = False, served: bool = False
+        cls, root: Path, *, trades: bool = False, served: bool = False, runtime: bool = False
     ) -> CandidateDefinition:
         """Publish one packaged candidate with authored completed-study provenance.
 
@@ -412,7 +433,8 @@ class TestPaperServiceCandidates:
                     component_key="fold-net",
                     version="1",
                     units="USDT",
-                    applies_to=("research",),
+                    applies_to=("research", "runtime") if runtime else ("research",),
+                    warning_below=ExactRatio(numerator="0", denominator="1") if runtime else None,
                 ),
                 CandidateMetricContract(
                     name="fold-net-path",
@@ -681,6 +703,175 @@ class TestPaperServiceCandidates:
             publisher.run()
         with pytest.raises(ValueError, match="declares no feature publisher"):
             FeaturePublisher(replace(configuration, features=None), tmp_path / "candidates", root)
+
+    @classmethod
+    def _bought(cls) -> tuple[Fill, CandidateEvidence]:
+        """Author one bought unit at 100 with a 1/10 fee, marked at a 99 bid."""
+        dimension = Dimension(
+            instrument_id=cls._capture().instrument_id, kind=QuantityKind.BASE_UNIT
+        )
+        currency = Currency.from_code("USDT")
+        price = Price(value=Decimal("100"), currency=currency, per=dimension)
+        fill = Fill(
+            identity="bought",
+            decision_at=_ORIGIN + timedelta(seconds=5),
+            filled_at=_ORIGIN + timedelta(seconds=6),
+            quantity=Quantity(value=Decimal("1"), dimension=dimension),
+            reference=price,
+            effective=price,
+            fee=Money(value=Decimal("0.1"), currency=currency),
+        )
+        return fill, CandidateEvidence(
+            fills=(fill,),
+            initial_cash=Money(value=Decimal("1000"), currency=currency),
+            mark=Price(value=Decimal("99"), currency=currency, per=dimension),
+            start=_ORIGIN,
+            cutoff=_ORIGIN + timedelta(seconds=10),
+        )
+
+    def test_runtime_metrics_delays_and_bands_reach_the_dashboard_alert(
+        self, tmp_path: Path
+    ) -> None:
+        """A runtime metric is the bundle's own over the paper fold; its band alerts."""
+        definition = self._publish(tmp_path, runtime=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        configuration = self._configuration(packaged)
+        loaded = PaperServiceCandidates(configuration, tmp_path / "candidates").candidate(
+            configuration.instances[1]
+        )
+        exporter = CandidateMonitoringExporter(
+            loaded,
+            scope="account:shared",
+            account="shared",
+            mode="paper",
+            clock_quality="observed",
+            study=loaded.definition.identity,
+        )
+        assert exporter.thresholds == (
+            MetricThreshold(
+                name="fold-net", operator="<", threshold=ExactRatio(numerator="0", denominator="1")
+            ),
+        )
+        _, evidence = self._bought()
+        (metric,) = exporter.runtime_metrics(evidence, recorded_at=evidence.cutoff)
+        assert (metric.name, metric.units, metric.at) == ("fold-net", "USDT", evidence.cutoff)
+        assert metric.value == ExactRatio.from_fraction(Fraction(-11, 10))
+        delay = exporter.decision_delay(
+            _ORIGIN + timedelta(seconds=3),
+            _ORIGIN + timedelta(seconds=4, microseconds=500_000),
+            recorded_at=evidence.cutoff,
+        )
+        assert (delay.name, delay.units) == ("runtime.decision-delay", "seconds")
+        assert delay.value == ExactRatio.from_fraction(Fraction(3, 2))
+        with pytest.raises(ValueError, match="coordination after its instant"):
+            exporter.decision_delay(_ORIGIN, _ORIGIN, recorded_at=evidence.cutoff)
+        query = MonitoringQuery(
+            scope="account:shared",
+            mode="paper",
+            start=_ORIGIN,
+            end=evidence.cutoff + timedelta(seconds=1),
+            as_of=evidence.cutoff + timedelta(seconds=1),
+        )
+        store = TelemetryStore(tmp_path / "telemetry.sqlite3")
+        store.append((metric, delay))
+        (view,) = MonitoringConfiguration.paper(
+            query,
+            store.query(query),
+            alert_socket="/private/tmp/m3e-unbound.sock",
+            thresholds=exporter.thresholds,
+        )
+        (rule,) = view.dashboard.alerts
+        assert (rule.identity, rule.operator) == ("threshold:fold-net:<", "<")
+        snapshot = DashboardBuilder.build(
+            view.dashboard,
+            view.query,
+            store.select(view.query),
+            MetricRegistry(MonitoringDefinitions.resolve(view.metrics)),
+            OperationalAlerts(tmp_path / "alerts.sqlite3"),
+        )
+        (evaluation,) = snapshot.alert_results
+        assert evaluation.state == "triggered"
+        (attempt,) = OperationalAlerts(tmp_path / "alerts.sqlite3").read()
+        assert attempt.status == "failed"
+
+    def test_candidate_telemetry_exports_and_alerts_from_the_diagnostics(
+        self, tmp_path: Path
+    ) -> None:
+        """An account sample exports the candidate's metric and its band reaches a receiver."""
+        definition = self._publish(tmp_path, runtime=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        address = Path(f"/private/tmp/m3e-{uuid4().hex[:8]}.sock")
+        configuration = replace(self._configuration(packaged), alert_socket=str(address))
+        owner = PaperOwner(
+            account_id="shared",
+            deployment_sha256="a" * 64,
+            authorization_id="authorization",
+            release_identity="b" * 64,
+            owner_id="owner",
+            generation=1,
+        )
+        root = tmp_path / "monitoring"
+        telemetry = CandidateTelemetry(
+            configuration,
+            (owner,),
+            candidates=tmp_path / "candidates",
+            runs=tmp_path / "runs",
+            root=root,
+            started_at=_ORIGIN,
+        )
+        fill, evidence = self._bought()
+        state = AccountExecutionResult(
+            accounts=(),
+            orders=(),
+            paper_fills=(AccountPaperFill(instance_id="packaged", order_id="order", fill=fill),),
+        )
+        market = PaperMarket(
+            identity="market",
+            at=evidence.cutoff,
+            bid=evidence.mark if evidence.mark is not None else fill.reference,
+            ask=fill.reference,
+            bid_quantity=fill.quantity,
+            ask_quantity=fill.quantity,
+        )
+        receiver = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            receiver.bind(str(address))
+            receiver.settimeout(2)
+            telemetry.sample(
+                InspectedPaperAccount(configuration.accounts[0].configuration, owner, state),
+                state,
+                (market,),
+                observed_at=evidence.cutoff,
+            )
+            assert telemetry.failures == 0, telemetry.last_error
+            assert b"account-control" in receiver.recv(4096)
+        finally:
+            receiver.close()
+            address.unlink(missing_ok=True)
+        query = MonitoringQuery(
+            scope="account:shared",
+            mode="paper",
+            start=_ORIGIN,
+            end=evidence.cutoff + timedelta(seconds=1),
+            as_of=evidence.cutoff + timedelta(seconds=1),
+        )
+        events = TelemetryStore(root / "telemetry.sqlite3").query(query)
+        assert [(item.name, item.value) for item in events] == [
+            ("fold-net", ExactRatio.from_fraction(Fraction(-11, 10)))
+        ]
+        pages = tuple(
+            path
+            for path in (root / "dashboards" / "shared").iterdir()
+            if not path.name.startswith(".")
+        )
+        assert len(pages) == 1 and (pages[0] / "dashboard.html").is_file()
+        assert [item.status for item in OperationalAlerts(root / "alerts.sqlite3").read()] == [
+            "delivered"
+        ]
 
     def test_feature_publisher_lag_is_bounded(self) -> None:
         """The publisher's lag is a whole number of seconds from 1 to 300."""

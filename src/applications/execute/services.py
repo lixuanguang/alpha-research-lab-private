@@ -469,6 +469,8 @@ class PaperServices:
                     self.owners,
                     root=self.root / "monitoring",
                     deadline=service_deadline,
+                    runs=self.root / "runs" / self.run_id,
+                    candidates=self.resolved.candidates,
                 )
                 self.diagnostics.start()
                 for name in sorted(self.active):

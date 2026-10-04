@@ -378,7 +378,14 @@ retains the full observation, so changed reuse of its identity is rejected.
 The root retains immutable configuration revisions, native captures, fsynced
 delivery envelopes, socket requests/results, operational events and `status.json`.
 `monitoring/<account>.json` contains the account and strategy cost/valuation report;
-`monitoring/telemetry.sqlite3` uses the existing telemetry query/dashboard APIs.
+`monitoring/telemetry.sqlite3` uses the existing telemetry query/dashboard APIs. It
+also holds each deployed candidate's runtime metrics (its packaged metric component
+over the instance's attributed fills, opening and terminal marks), its decision
+delays from the delivery logs and a learned candidate's predictions. Every 60 s the
+diagnostics process renders each paper account's pages under
+`monitoring/dashboards/<account>/`, with one alert rule per declared candidate
+warning band. A breach is delivered to `alert_socket` through the `alerts.sqlite3`
+journal and repeats once per rendering while it lasts.
 Liveness, source quality and economic progress have separate observations. Failed
 or stale monitoring does not establish healthy execution and does not retry it.
 The [MR14 record](../../../docs/roadmap/multi-instance-paper.md) separates numerical

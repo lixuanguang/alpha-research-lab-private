@@ -2804,6 +2804,190 @@ the production expiry rule is unchanged.
 passed as shown. The other three rows are from the second run. The repository's own
 dependency policy review falls due on 2026-10-31.
 
+## M3e design note: the candidate monitoring exporter (approved 2026-10-05)
+
+M-1 (approved) chose one exporter, run from the supervisor's diagnostic process. It
+writes each packaged candidate's runtime metrics to `monitoring/telemetry.sqlite3`
+at the telemetry cadence, revises delayed labels as they mature, and sends threshold
+alerts to `alert_socket`. S-1 added the decision-delay distribution. This note fixes
+the specifics.
+
+**What the code shows.**
+- **The exporter is single-candidate only.** `runtime.CandidateMonitoringExporter`
+  takes the older dedicated `PaperConfiguration` and continuation. It emits only a
+  learned candidate's prediction and its outcome. Its only caller is a test consumer.
+- **The diagnostics process already does most of the work.** It inspects each
+  account read-only, builds per-instance P&L (`PaperScopeReport`) with attributed
+  fills, and appends account events to the telemetry store. It neither loads
+  candidates nor evaluates their metric components.
+- **Metric components need fold evidence.** They read a `ReportContext` of
+  `FoldSummary` rows: a ledger of `accounting.Fill`s, a terminal mark and a mark
+  curve. Paper fills are the same `Fill` type.
+- **Contracts already carry the declarations.** `CandidateMetricContract` declares
+  `applies_to=("runtime", ...)`, units and `warning_below`/`warning_above`.
+- **Alerts exist only for account controls.** `OperationalAlerts` journals alerts
+  for those controls; `HealthAlert.deliver` is the generic local datagram.
+- **Labels need data from after the decision.** A label adapter needs the base
+  observation at the instant and a future one at the horizon.
+
+**Design.** Everything replaces code in place.
+1. **One exporter.** `CandidateMonitoringExporter` is rebuilt around a
+   `CandidateEvidence` record: the loaded candidate, its instance and account, the
+   instance's attributed paper fills, marks and decided steps. From that it emits:
+   - **runtime metrics:** each runtime metric contract, evaluated by the bundle's
+     own metric component over one paper fold;
+   - **decision delay:** `runtime.decision-delay`, coordination − instant, per
+     decided step;
+   - **predictions:** `research.prediction` for learned candidates;
+   - **labels:** `research.outcome`, revised as each matures.
+
+   The old dedicated-path caller (a test consumer) moves to the new record.
+2. **Paper fold — choice D1.**
+   - The ledger is the instance's attributed fills, with the instance's budget limit
+     as its initial cash.
+   - Marks and the curve come from the supervisor's own book recording, at each of
+     the candidate's grid instants. The diagnostics process follows it read-only
+     with `RecordingFollower`/`FollowedFeed`, on receipt clocks as the publisher
+     does.
+   - So the curve is deterministic and survives a diagnostics restart.
+   - The alternative is to keep marks in memory from each diagnostic sample. That is
+     simpler, but a restart loses the curve.
+3. **Labels — choice D2.**
+   - For a learned candidate, the bundle's label adapter is evaluated from the same
+     followed book source: the base at the instant, the future at instant + horizon.
+   - An event is `pending` until the horizon has passed on that source, then
+     revised with its value.
+   - The alternative is to defer labels until after MR17: J6 does not require them,
+     but M-1 did.
+4. **Alerts — choice D3.**
+   - A new `CandidateMetricAlerts` journal in `monitoring/` alerts once each time a
+     metric crosses from inside its warning band to outside it, and records each
+     attempt.
+   - The alert identity is `candidate-metric:<instance>:<metric>:<sample>`. The
+     message is bounded and sent through `HealthAlert.deliver` to the configured
+     `alert_socket`.
+   - The account-control `OperationAlert` schema is untouched. The alternative is to
+     generalize it, which changes a retained schema.
+5. **Wiring — choice D4.**
+   - `PaperServiceDiagnostics` receives the release's candidates directory, so it
+     loads candidates through `PaperServiceCandidates`, read-only and with no
+     account authority.
+   - It reads decided steps from the supervisor's fsynced delivery logs, tailed
+     incrementally.
+   - Candidate events go into the same telemetry store under each account's
+     monitoring identity, so they appear on that account's dashboard.
+   - The dashboard renders candidate metric events as their own panel.
+
+**Tests.**
+- **Exporter:**
+  - metric values equal the component evaluated over a hand-built fold;
+  - decision delays;
+  - pending-then-revised labels;
+  - band-crossing alerts sent exactly once and journaled;
+  - an unwritable socket recorded as failed and never retried silently.
+- **Diagnostics:** an integration test with authored recordings, a packaged
+  candidate and an account, checking that the dashboard shows the metric and a
+  local receiver gets the alert.
+- **Migration:** the dedicated-path consumer migrated.
+
+**Recommendation.** D1 (curve from recordings), D2 (labels now, as M-1 approved),
+D3 (separate candidate alert journal) and D4 as written.
+
+**R1 replaces D3 (approved 2026-10-05).**
+- **Why.** A generic dashboard and alert path already exists. `MonitoringConfiguration`
+  holds metric specs, dashboard panels and exact `AlertRule`s, and
+  `DashboardBuilder` delivers through the existing `OperationalAlerts` journal to a
+  local socket. A separate candidate alert journal would be a second alert path.
+- **Rendering.** At a bounded cadence (60 s), the diagnostics process renders each
+  account's dashboard with the existing builder.
+- **Configuration.** The installed defaults, plus one panel per runtime metric
+  contract, plus one `AlertRule` per declared warning band, addressed to
+  `alert_socket`.
+- **Alerts.** One alert path for all monitoring, live during the run, with no new
+  schema. Existing alert semantics apply: a breach repeats once per dashboard
+  cadence.
+
+## M3e result (2026-10-05)
+
+The candidate monitoring exporter (M-1), with D1, D2 and D4, and R1 in place of D3.
+Nothing has been signed or run live.
+
+**What changed.**
+- **The exporter (rebuilt in place).** `runtime.CandidateMonitoringExporter` takes a
+  loaded candidate, the account scope, mode and study, and no longer the older
+  dedicated configuration. It emits:
+  - **runtime metrics:** each runtime metric contract, evaluated by the bundle's own
+    metric component over one paper fold (`CandidateEvidence`);
+  - **decision delays:** `runtime.decision-delay`, in seconds;
+  - **predictions:** `research.prediction`;
+  - **outcomes:** `research.outcome` for labels the caller computes.
+
+  `thresholds` turns each contract's warning band into a `MetricThreshold`.
+- **Telemetry.** `MetricThreshold`, and `MonitoringConfiguration.paper(...,
+  thresholds=...)` places an `AlertRule` for each declared band edge on the page
+  that holds its series.
+- **Diagnostics.** `CandidateTelemetry` runs inside the diagnostics process. The
+  supervisor now passes it the run directory and the release's candidates.
+  - **Each account sample:** it exports the account's instances' runtime metrics
+    from the fills that sample already holds. It tails the account's fsynced
+    delivery logs for newly decided instants' delays. For each learned instance it
+    exports the newly committed prediction from that instance's latest continuation.
+  - **Every 60 s:** it renders the account's paper pages under
+    `monitoring/dashboards/<account>/<clock>-<page>/`, delivering breaches to
+    `alert_socket` through `monitoring/alerts.sqlite3`.
+  - **Failures** are counted in the diagnostics' failures and never reach an
+    account.
+- **Supporting changes.**
+  - The read-only `InspectedPaperAccount` is now public.
+  - The only consumer of the old exporter is migrated.
+  - The quickstart and paper guide describe candidate metrics on supervised
+    dashboards.
+
+**Departures from the note.**
+- **D1, simplified to research's own convention.** A study fold's curve is its
+  opening mark and terminal mark. The paper fold is built the same way: the
+  instance's attributed fills, its budget limit as capital, and a terminal mark at
+  the latest bid in the account's sample. So the curve needs neither the recording
+  nor any retained history, and it survives a restart.
+- **D2, not implemented: an owner decision.** A candidate bundle has no label
+  component: its roles are feature, transform, estimator, policy, metric and chart.
+  Computing labels at runtime would first need the study's label component packaged
+  as a new bundle role. The exporter keeps `outcome()` for labels computed
+  elsewhere.
+- **Predictions are sampled.** They come from each instance's latest continuation at
+  each telemetry sample, so a step superseded between two samples is not exported.
+  Decision delays come from the complete delivery logs.
+- **Shadow accounts.** They export candidate events, but dashboards are rendered for
+  paper accounts only: the paper view is paper-mode only.
+- **Alert text.** Metric alerts use the existing alert journal, whose datagram text
+  is `account-control:<digest>`.
+- **Untested here.** Delivery-log tailing is not unit-tested; J6 exercises it.
+
+**Tests (`tests/unit/applications/test_service_candidates.py`).**
+- **Exporter:**
+  - the runtime metric equals the packaged `fold-net` component over the paper fold
+    (−11/10 USDT);
+  - the band threshold;
+  - the decision delay and its refusal;
+  - the band's rule triggers and is journaled through the existing builder.
+- **Diagnostics sample:** an account sample exports the metric, renders a dashboard
+  page, and delivers the alert to a bound local datagram receiver, journaled as
+  `delivered`.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,548 passed, 4 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 707 files |
+
+A first run failed strict mypy. The diagnostics test doubles in
+`tests/unit/applications/test_paper_services.py` still overrode `_serve` with the old
+signature, which also stopped `make check` before its unit tests. They now take the
+run directory and candidates. The run above is the rerun.
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design

@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     )
     from runtime.live_inputs import FollowedFeed, LiveInputs
     from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
-    from runtime.monitoring import CandidateMonitoringExporter
+    from runtime.monitoring import CandidateEvidence, CandidateMonitoringExporter
     from runtime.packaging import CandidatePackager, ComponentSelection
     from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
     from runtime.paper_capabilities import PaperCapabilities
@@ -196,11 +196,12 @@ def __getattr__(name: str) -> object:
             "ServedFeatures": feature_feed.ServedFeatures,
         }
         return exports[name]
-    if name in {"CandidateMonitoringExporter"}:
+    if name in {"CandidateEvidence", "CandidateMonitoringExporter"}:
         # project library imports
         from runtime import monitoring
 
         exports = {
+            "CandidateEvidence": monitoring.CandidateEvidence,
             "CandidateMonitoringExporter": monitoring.CandidateMonitoringExporter,
         }
         return exports[name]
@@ -287,6 +288,7 @@ __all__ = [
     "AuthoredCandidates",
     "CandidateCheckpoint",
     "CandidateComponents",
+    "CandidateEvidence",
     "CandidateExecutor",
     "CandidateFeatureFeed",
     "CandidateLoader",

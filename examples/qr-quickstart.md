@@ -263,6 +263,11 @@ deployment from those identities, activates it, and runs the supervisor under it
 grants. The [operations runbook](../docs/governance/operations.md#take-a-packaged-candidate-to-signed-paper)
 lists the exact steps.
 
-Your custom metric and chart reach paper dashboards through the candidate's metric
-contracts, with `applies_to` including `runtime`, and
-`runtime.CandidateMonitoringExporter`.
+Your custom metric reaches paper dashboards through the candidate's metric
+contracts: declare `applies_to` including `runtime`. During a supervised run the
+diagnostics process evaluates your packaged metric component over each instance's
+attributed paper fills, exactly as a study evaluates a fold, and writes it to the
+account's telemetry beside the decision delay and, for a learned candidate, its
+predictions (`runtime.CandidateMonitoringExporter`). A declared `warning_below` or
+`warning_above` becomes an alert rule on the account's dashboard, delivered to the
+configuration's `alert_socket`.

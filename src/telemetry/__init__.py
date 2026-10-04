@@ -1,7 +1,7 @@
 """Expose the telemetry public contract."""
 
 # project library imports
-from telemetry.configuration import MonitoringConfiguration
+from telemetry.configuration import MetricThreshold, MonitoringConfiguration
 from telemetry.dashboard import (
     AlertEvaluation,
     AlertRule,
@@ -51,6 +51,7 @@ __all__ = [
     "MetricRegistry",
     "MetricResult",
     "MetricSpec",
+    "MetricThreshold",
     "MonitoringConfiguration",
     "MonitoringDefinitions",
     "MonitoringEvent",

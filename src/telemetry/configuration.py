@@ -9,10 +9,29 @@ from typing import Literal
 # project library imports
 from financial_units import ExactRatio
 from serialization import WireRecord
-from telemetry.dashboard import AlertRule, DashboardConfig, DashboardPanel
+from telemetry.dashboard import AlertOperator, AlertRule, DashboardConfig, DashboardPanel
 from telemetry.defaults import MonitoringDefinitions
-from telemetry.events import MonitoringEvent, MonitoringQuery
+from telemetry.events import MonitoringEvent, MonitoringIdentity, MonitoringQuery
 from telemetry.metrics import MetricInput, MetricSpec
+
+
+class MetricThreshold(WireRecord, frozen=True):
+    """Declare one exact diagnostic band edge for a named series, such as a candidate's.
+
+    Missing or stale values are unavailable, never a breach: a declared band
+    diagnoses the value, not the series' freshness.
+    """
+
+    name: str
+    operator: AlertOperator
+    threshold: ExactRatio
+
+    def __post_init__(self) -> None:
+        """Require a bounded name, an exact comparison and an exact threshold."""
+        MonitoringIdentity.check_text(self.name)
+        if self.operator not in ("<", ">") or type(self.threshold) is not ExactRatio:
+            raise ValueError("invalid metric threshold")
+        self.threshold.__post_init__()
 
 
 class MonitoringConfiguration(WireRecord, frozen=True):
@@ -74,6 +93,7 @@ class MonitoringConfiguration(WireRecord, frozen=True):
         events: tuple[MonitoringEvent, ...],
         *,
         alert_socket: str | None = None,
+        thresholds: tuple[MetricThreshold, ...] = (),
     ) -> tuple[MonitoringConfiguration, ...]:
         """Select dimensioned cumulative last values and optional diagnostic routes.
 
@@ -83,6 +103,8 @@ class MonitoringConfiguration(WireRecord, frozen=True):
         Thresholds diagnose blocks, uncertainty, failed reconciliation and source
         failure; they do not implement hard controls. Missing/stale facts trigger
         the configured diagnostic route rather than silently appearing healthy.
+        ``thresholds`` add declared band edges, such as a candidate metric's
+        warning bands, on the page holding their series.
         """
         if query.mode != "paper":
             raise ValueError("paper views require paper mode")
@@ -151,6 +173,19 @@ class MonitoringConfiguration(WireRecord, frozen=True):
                             )
                             for spec in page
                             if spec.name in diagnostics and alert_socket is not None
+                        )
+                        + tuple(
+                            AlertRule(
+                                identity=f"threshold:{spec.name}:{edge.operator}",
+                                metric_identity=spec.identity,
+                                operator=edge.operator,
+                                threshold=edge.threshold,
+                                units=spec.units,
+                                address=alert_socket,
+                            )
+                            for spec in page
+                            for edge in thresholds
+                            if edge.name == spec.name and alert_socket is not None
                         ),
                     ),
                 )

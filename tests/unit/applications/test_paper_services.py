@@ -721,13 +721,15 @@ class _DelayedDiagnostics(PaperServiceDiagnostics):
         root: Path,
         deadline: float,
         stopped: Event,
+        runs: Path,
+        candidates: Path | None,
     ) -> None:
         """Wait for an explicit test release before using the production reporting loop."""
         (root / "diagnostic-ready").touch()
         while not (root / "allow-reports").exists():
             if stopped.wait(0.01) or time.monotonic() >= deadline:
                 return
-        super()._serve(configuration, owners, root, deadline, stopped)
+        super()._serve(configuration, owners, root, deadline, stopped, runs, candidates)
 
 
 class _StalledDiagnostics(PaperServiceDiagnostics):
@@ -741,6 +743,8 @@ class _StalledDiagnostics(PaperServiceDiagnostics):
         root: Path,
         deadline: float,
         stopped: Event,
+        runs: Path,
+        candidates: Path | None,
     ) -> None:
         """Expose startup, then ignore the stop signal until the finite deadline."""
         (root / "diagnostic-ready").touch()
@@ -758,6 +762,8 @@ class _CrashAfterStopDiagnostics(PaperServiceDiagnostics):
         root: Path,
         deadline: float,
         stopped: Event,
+        runs: Path,
+        candidates: Path | None,
     ) -> None:
         """Expose startup, observe stop, and fail while retaining the last report."""
         (root / "diagnostic-ready").touch()
@@ -2565,7 +2571,11 @@ class TestPaperServices:
         services.accounts[owner.account_id] = account
         services.workers["first"] = _StableWorker()
         diagnostics = _DelayedDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         services.diagnostics = diagnostics
         diagnostics.start()
@@ -2592,7 +2602,11 @@ class TestPaperServices:
         """Three waiting requests become one report with two explicitly coalesced batches."""
         config, owner = self._config(self._socket_path()), self._owner()
         diagnostics = _DelayedDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         diagnostics.start()
         try:
@@ -2626,7 +2640,11 @@ class TestPaperServices:
         """A stuck report is terminated and its PID remains visible after bounded cleanup."""
         config, owner = self._config(self._socket_path()), self._owner()
         diagnostics = _StalledDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         diagnostics.start()
         try:
@@ -2697,7 +2715,11 @@ class TestPaperServices:
         )
         services.accounts[owner.account_id] = _ClosingAccount(events)
         diagnostics = _StalledDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         services.diagnostics = diagnostics
         diagnostics.start()
@@ -2726,7 +2748,11 @@ class TestPaperServices:
         """A final retention failure remains visible after stop and is never counted as a fence."""
         config, owner = self._config(self._socket_path()), self._owner()
         diagnostics = _CrashAfterStopDiagnostics(
-            config, (owner,), root=tmp_path / "monitoring", deadline=time.monotonic() + 10
+            config,
+            (owner,),
+            root=tmp_path / "monitoring",
+            deadline=time.monotonic() + 10,
+            runs=tmp_path / "runs",
         )
         diagnostics.start()
         try:
