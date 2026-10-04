@@ -53,6 +53,7 @@ class JourneyFixture:
             "temporary_root": str(root / "t"),
             "uv": "/usr/bin/true",
             "local_services_env": str(root / "local-services.env"),
+            "lakefs_credentials": str(root / "lakefs-access.json"),
             "lakefs_repository": "mr17-rehearsal-1",
             "feeds": ("okx-btc-usdt-books", "okx-btc-usdt-trades"),
             "window": cls.window(),

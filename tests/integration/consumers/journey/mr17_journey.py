@@ -92,6 +92,7 @@ class JourneyDeclaration(msgspec.Struct, frozen=True, forbid_unknown_fields=True
     temporary_root: str
     uv: str
     local_services_env: str
+    lakefs_credentials: str
     lakefs_repository: str
     feeds: tuple[str, ...]
     window: CaptureWindow
@@ -115,6 +116,7 @@ class JourneyDeclaration(msgspec.Struct, frozen=True, forbid_unknown_fields=True
             self.temporary_root,
             self.uv,
             self.local_services_env,
+            self.lakefs_credentials,
             *self.capacity_records,
         ):
             if not Path(path).is_absolute():
@@ -477,6 +479,8 @@ class Journey:
                 "--result",
                 str(result),
             ),
+            # Only the path: the QR script opens the private lakeFS keys itself.
+            environment={"ALPHA_LAKEFS_CREDENTIALS": self.declaration.lakefs_credentials},
             timeout=timeout,
         )
         reported = msgspec.json.decode(result.read_bytes(), type=QRResult)

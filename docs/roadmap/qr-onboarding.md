@@ -1595,6 +1595,45 @@ captured snapshot together.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 696 files |
 
+## Rehearsal 1 preparation (2026-10-04)
+
+**Driver change.** The declaration gains `lakefs_credentials`, the path of the
+private lakeFS keys. The driver passes only that path to QR scripts, as
+`ALPHA_LAKEFS_CREDENTIALS`; it never reads the file.
+
+**Findings while authoring the QR workspace.** These were found before any run and
+are recorded in the workspace's `SOURCES.md`.
+1. **Study authoring has no guide.** The study guide shows no complete
+   `DecisionStudy`, transform, estimator, label or order/quote policy; it links
+   test consumers instead (finding 2 of the gap inventory).
+2. **No supported lakeFS publication.** `LakeFSStorage` only resolves, reads and
+   materializes. The guide's only upload example is a test consumer that calls
+   lakeFS's REST API directly.
+3. **`DatasetVersion` requires derived `features/` bytes**, so J2's "lakeFS publish
+   and reopen" of a dataset with no features cannot pass as declared.
+4. **No guide for new instrument identities.** Nothing says how to assign an
+   instrument identity to a new listing, such as Bitfinex `tETHUSD`.
+5. **`CapturedStudyMarket` reads a capture through `CaptureInput.admit`**, which is
+   capped at 10,000 records. A 30-minute OKX book capture exceeds that.
+6. **`SavedDecisionSource` re-reads its whole selection at every decision**, so
+   study cost grows with decisions × records. That is workable for 30 minutes and
+   not for the counted six-hour window.
+
+Findings 3, 5 and 6 block J2's last command and J3. Rehearsal 1 therefore runs
+through J2 only. It still exercises everything before them: the first signed
+collector build, eight concurrent live captures with trades and universes,
+`capture-publish`, discovery and reopening. The lakeFS step is expected to fail on
+finding 3, and that failure is recorded as run.
+
+**Validation of the driver change (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,516 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; strict mypy (696 files), standards, admission, link and secret checks; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 696 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
