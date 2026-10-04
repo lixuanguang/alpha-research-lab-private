@@ -1007,7 +1007,9 @@ class ReleaseInputs:
         """Write the collector release policy, request and capture configuration."""
         root.mkdir(parents=True, exist_ok=True)
         journey = self.journey
-        python = (journey.temporary / "build/bin/python").resolve()
+        # The build environment's own interpreter path, not its resolved base: the
+        # builder checks the admitted hatchling installed in that environment.
+        python = journey.temporary / "build/bin/python"
         uv = Path(journey.declaration.uv)
         keygen = Path("/usr/bin/ssh-keygen")
         now = datetime.now(UTC)

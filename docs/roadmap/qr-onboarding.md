@@ -1671,6 +1671,50 @@ environment criteria.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 696 files |
 
+## Rehearsal 2 (uncounted, 2026-10-04)
+
+**Setup.** Declared through J2 at commit `c146192`, with QR workspace `316802c` and
+a 30-minute capture window. Evidence is in `logs/mr17/rehearsal-2/`.
+
+**Result: failed in J1** at `collector-build`. Everything before it passed: the
+freeze, the environments, the extension install, the Feast worker, the local
+services, the import audit, the environment check and the collector fetch.
+
+**Cause: a driver defect.** The collector release policy pinned the build
+environment's interpreter after resolving its symlink. That resolves to uv's base
+CPython, which has no `hatchling`, so the builder's admitted-hatchling check
+failed. The 2a driver deliberately pins the environment's own `bin/python`.
+
+**Fix (commit below).** The policy pins `<build environment>/bin/python` without
+resolving it.
+
+**Probes after the fix, to avoid a long rehearsal stopping on another small defect.**
+These are uncounted engineering checks, not rehearsals, run in
+`/private/tmp/m17` with rehearsal 2's environments.
+- **Signed collector release.** Built, verified and installed with the corrected
+  policy (release `302e1124…`).
+- **Live captures.** A two-minute `capture-run` with universes for OKX BTC-USDT
+  books, OKX BTC-USDT trades and Bitfinex tBTCUSD trades. All three replay
+  verifications passed.
+- **Publication.** `capture-publish` produced one book snapshot and one trades
+  snapshot per venue.
+- **Reopening.** OKX had 90 trades over 95 boundaries; Bitfinex had 77 trades
+  over 109 boundaries. Uncovered boundaries (4 and 6) are each feed's session
+  start before synchronization and the capture end. The probe deliberately
+  selected no lakeFS keys.
+
+**QR workspace fix.** `j2_publish.py` now creates its result directory before
+writing `published.json` beside the result. It is at workspace commit `e653872`.
+
+**Validation of the fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,516 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 696 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
