@@ -23,6 +23,9 @@ from runtime import ExtensionFactories
 from serialization import DomainCodec, WireRecord
 from strategies import DecisionContext, DecisionTransition, TargetIntent
 
+# project library imports
+from .learning import CenterScale, LeastSquares, NamedProjection, PredictionTarget, TouchQuote
+
 if TYPE_CHECKING:
     # project library imports
     from research.studies import ChartSpec, MetricValue, ReportContext
@@ -286,8 +289,17 @@ class ComponentProvider:
     def factories(self) -> ExtensionFactories:
         """Return the feature and policy constructors by registered key."""
         return ExtensionFactories(
-            features={"smoothed-imbalance": SmoothedImbalance.create},
-            policies={"imbalance-target": ImbalanceTarget.create},
+            features={
+                "smoothed-imbalance": SmoothedImbalance.create,
+                "projection": NamedProjection.create,
+            },
+            policies={
+                "imbalance-target": ImbalanceTarget.create,
+                "touch-quote": TouchQuote.create,
+                "prediction-target": PredictionTarget.create,
+            },
+            transforms={"center-scale": CenterScale.create},
+            estimators={"least-squares": LeastSquares.create},
             metrics={"fold-net": FoldNetMetric.create},
             charts={"fold-net-path": FoldNetChart.create},
         )

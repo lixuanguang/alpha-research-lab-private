@@ -479,8 +479,11 @@ class Journey:
                 "--result",
                 str(result),
             ),
-            # Only the path: the QR script opens the private lakeFS keys itself.
-            environment={"ALPHA_LAKEFS_CREDENTIALS": self.declaration.lakefs_credentials},
+            # Only paths: the QR script opens the private lakeFS and ClearML keys itself.
+            environment={
+                "ALPHA_LAKEFS_CREDENTIALS": self.declaration.lakefs_credentials,
+                "ALPHA_CLEARML_LOCAL_ENV": self.declaration.local_services_env,
+            },
             timeout=timeout,
         )
         reported = msgspec.json.decode(result.read_bytes(), type=QRResult)

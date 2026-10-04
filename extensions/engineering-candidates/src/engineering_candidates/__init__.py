@@ -8,11 +8,25 @@ from .components import (
     ImbalanceTarget,
     SmoothedImbalance,
 )
+from .learning import (
+    CenterScale,
+    ForwardMidReturn,
+    LeastSquares,
+    NamedProjection,
+    PredictionTarget,
+    TouchQuote,
+)
 
 __all__ = [
+    "CenterScale",
     "ComponentProvider",
     "FoldNetChart",
     "FoldNetMetric",
+    "ForwardMidReturn",
     "ImbalanceTarget",
+    "LeastSquares",
+    "NamedProjection",
+    "PredictionTarget",
     "SmoothedImbalance",
+    "TouchQuote",
 ]

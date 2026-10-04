@@ -129,11 +129,14 @@ Import only the supported API: the names each package lists in its
 `__init__.py` `__all__`, as the
 [platform design](../docs/architecture/platform-design.md#functional-apis-and-application-entrypoints)
 defines. Deep modules and private names can change without notice.
-Quant development maintains the [installed reference consumer](../tests/integration/consumers/research/decision_study.py),
-[captured-source consumer](../tests/integration/consumers/research/captured_study.py)
-and [packaging consumer](../tests/integration/consumers/research/candidate_packaging.py)
-as executable engineering acceptance. Your own components belong in your own
-extension package, not under `tests/`. Their losing/no-trade and queue-sensitivity
+Start from the [QR quickstart](qr-quickstart.md) and its maintained
+[study example](qr_study.py), which runs a rule-only order/quote study and a learned
+target study (fitted transform, exact estimator, forward label) over published
+captures and packages the result. Its components come from the
+[`engineering-candidates` template](../extensions/engineering-candidates/), which
+has a maintained example of every component role. Quant development's own test
+consumers under `tests/` are engineering acceptance, not templates. Your own
+components belong in your own extension package, not under `tests/`. Their losing/no-trade and queue-sensitivity
 cases are not QR deliverables or empirical strategy evidence. Formal QR research
 still starts only after all infrastructure and MR17/G5 acceptance.
 

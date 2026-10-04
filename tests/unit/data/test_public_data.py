@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from msgspec.structs import force_setattr, replace
 from test_book_datasets import TestBookDatasets as _Books
+from test_captured_market import CapturedMarketFixture as _Market
 from test_captured_trades import CapturedTradesFixture as _Captured
 
 # project library imports
@@ -898,9 +899,10 @@ class TestPublicData:
                 normalization_identity="b" * 64,
             )
 
-    def test_polling_revisions_remain_causal_and_restartable(self, tmp_path: Path) -> None:
-        """A later changed value cannot alter an earlier cutoff or backdate repeated values."""
-        job = replace(self._job(), mode="capture", end=_START + timedelta(seconds=15))
+    @classmethod
+    def _revised(cls, tmp_path: Path) -> tuple[PublicDataJob, Path, RawStore, str]:
+        """Publish a polled snapshot whose second poll revises trade 20's price."""
+        job = replace(cls._job(), mode="capture", end=_START + timedelta(seconds=15))
         raw_path, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw_path.mkdir()
         snapshots.mkdir()
@@ -932,6 +934,11 @@ class TestPublicData:
         identity = SnapshotStore(
             snapshots, raw, readers=SourceAdapters(), manifest_type=PublicTradeManifest
         ).publish(manifest, (payload,), max_bytes=1_000_000)
+        return job, snapshots, raw, identity
+
+    def test_polling_revisions_remain_causal_and_restartable(self, tmp_path: Path) -> None:
+        """A later changed value cannot alter an earlier cutoff or backdate repeated values."""
+        job, snapshots, raw, identity = self._revised(tmp_path)
         query = PublicTradeQuery(
             snapshot_id=identity,
             instruments=job.universes.research,
@@ -952,6 +959,102 @@ class TestPublicData:
         assert later.duplicate_observations == 1
         assert next(r.ts_knowledge for r in later.rows if r.trade.trade_id == "19") == _START
         assert reader.read(query) == earlier
+
+    def test_indexed_saved_source_equals_a_fresh_read_at_every_cutoff(self, tmp_path: Path) -> None:
+        """One read indexed once answers each cutoff exactly as a read pinned at it would.
+
+        The selection mixes REST trades with a later price revision, a captured trades
+        feed with a gap and reconnect, and a captured book, so every index path runs.
+        """
+        job, snapshots, raw, rest = self._revised(tmp_path)
+        trades = _Captured.capture(tmp_path / "captured", "okx")
+        book = _Market.capture(tmp_path / "book", updates=400, spacing_ns=25_000_000)
+        published = DatasetPublication(SourceAdapters(), "b" * 64).publish_captures(
+            (book, trades), raw, snapshots, max_records=20_000, max_bytes=256_000_000
+        )
+        book_input = CaptureInput.read(book, max_records=20_000)
+        okx = book_input.request.config.instrument_id
+        captured = _Captured.request("okx").config.instrument_id
+        known = _START + timedelta(seconds=15)
+        around = (_START - timedelta(minutes=1), _START + timedelta(minutes=1))
+        selection = ResearchSelection(
+            inputs=(
+                PublicTradeSelection(
+                    name="rest",
+                    query=PublicTradeQuery(
+                        snapshot_id=rest,
+                        instruments=job.universes.research,
+                        start=job.start,
+                        end=job.end,
+                        known_at=known,
+                        max_bytes=1_000_000,
+                    ),
+                ),
+                PublicTradeSelection(
+                    name="captured",
+                    query=PublicTradeQuery(
+                        snapshot_id=published.trades[0],
+                        instruments=(captured,),
+                        start=around[0],
+                        end=around[1],
+                        known_at=known,
+                        max_bytes=4_000_000,
+                    ),
+                ),
+                BookSelection(
+                    name="book",
+                    query=BookQuery(
+                        snapshot_id=published.book,
+                        request_identity=book_input.request.identity,
+                        instrument=okx,
+                        start=around[0],
+                        end=around[1],
+                        known_at=known,
+                        columns=("bids", "asks"),
+                        batch_size=1000,
+                        max_bytes=256_000_000,
+                    ),
+                ),
+            )
+        )
+        requirements = (
+            *(
+                InputRequirement(
+                    name=name,
+                    family="trade",
+                    clock="event",
+                    field=NumericField(name=field, units=units),
+                    max_age_us=age,
+                )
+                for name, age in (("rest", 3_000_000), ("captured", 10_000_000))
+                for field, units in (("price", "USDT/BTC"), ("signed_flow", "BTC"))
+            ),
+            InputRequirement(
+                name="book",
+                family="book",
+                clock="receipt",
+                field=NumericField(name="imbalance", units="dimensionless"),
+                max_age_us=1_000_000,
+            ),
+        )
+        reader = ResearchReader(snapshots, raw, readers=SourceAdapters())
+        indexed = SavedDecisionSource(reader, selection, requirements)
+        present = 0
+        for step in range(61):
+            at = _START + timedelta(milliseconds=250 * step)
+            pinned = ResearchSelection(
+                inputs=tuple(
+                    replace(item, query=replace(item.query, known_at=at))
+                    for item in selection.inputs
+                    if isinstance(item, (PublicTradeSelection, BookSelection))
+                )
+            )
+            fresh = SavedDecisionSource(reader, pinned, requirements)
+            for entity in (str(okx), str(captured)):
+                expected = fresh.read(entity, at)
+                assert indexed.read(entity, at) == expected, (entity, at)
+                present += sum(row.value is not None for row in expected.observations)
+        assert present > 60
 
     def test_new_compatible_listing_needs_only_configuration(self, tmp_path: Path) -> None:
         """Onboard the authored ETH listing without modifying shared ingestion or source logic."""

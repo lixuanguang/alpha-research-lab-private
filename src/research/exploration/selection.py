@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal, NamedTuple
 
 # project library imports
-from market_data.datasets import DatasetReaders
+from market_data.datasets import DatasetReaders, PublicTradeObservation
 from market_data.query import (
     BookQuery,
     BookQueryBatch,
@@ -252,6 +252,23 @@ class ResearchReader:
             readers: Explicit source adapters selected by application composition.
         """
         self._snapshots, self._raw, self._readers = snapshots, raw, readers
+
+    def public_trade_versions(
+        self, selection: PublicTradeSelection
+    ) -> tuple[PublicTradeObservation, ...]:
+        """Return every observed version of the selected trades known by the query cutoff.
+
+        Versions come in local knowledge order, including repeats and later
+        corrections, so a caller can resolve each trade at any earlier cutoff exactly
+        as a read at that cutoff would.
+        """
+        selection.__post_init__()
+        return tuple(
+            row
+            for _, row in PublicTradeReader(
+                self._snapshots, self._raw, readers=self._readers
+            ).replay(selection.query)
+        )
 
     def read(self, selection: ResearchSelection, *, recoveries: bool = False) -> ResearchDataset:
         """Verify every named input before returning the complete research assembly.

@@ -86,8 +86,14 @@ rules to them, and orders the latest trade the same way (venue time, knowledge,
 message position, index within the message).
 
 `research.exploration.SavedDecisionSource` composes the existing MR01
-`ResearchReader`. Every decision reopens the pinned selection with its own
-knowledge cutoff, within the selection's observation envelope:
+`ResearchReader`. It reads and verifies the pinned selection once, at the
+selection's cutoff, on the first decision, and indexes what it read. Each decision
+is then answered as a read pinned at that decision's own cutoff would answer it,
+lineage included: the last book row known by the cutoff, each trade's effective
+version at the cutoff (every observed version is kept, so later corrections never
+reach earlier cutoffs), captured trade boundaries and reference history. Cost no
+longer grows with decisions times records. Within the selection's observation
+envelope:
 
 - Public trade `price`, `quantity` and `signed_quantity` use exchange event time and
   **local durable availability**, preserving unknown original historical receipt.
@@ -96,7 +102,10 @@ knowledge cutoff, within the selection's observation envelope:
   wins; equal event/knowledge times use retained request ordinal and native row
   position. Distinct same-millisecond trades are not mistaken for conflicting revisions.
 - Book `imbalance` accepts L2 bid/ask levels or native visible orders. It calculates
-  `(bid_size - ask_size) / (bid_size + ask_size)` exactly. Missing/crossed sides and
+  `(bid_size - ask_size) / (bid_size + ask_size)` exactly. The touch fields `ask`,
+  `bid` (units `quote/base`), `ask_size` and `bid_size` (units `base`) come from the
+  same book, with native orders aggregated by price, exactly as
+  `LiveBookDecisionSource` projects them. Missing/crossed sides and
   later invalidation controls stay missing. It does not infer queues or fills.
   Receipt projections explicitly use receipt age; event projections require a
   native source timestamp. Bitfinex R0 has no source timestamp and therefore uses

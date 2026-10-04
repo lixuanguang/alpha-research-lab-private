@@ -160,6 +160,25 @@ class BookQueryReader:
         )
         return tuple(reader.batches(query))
 
+    @staticmethod
+    def identity(query: BookQuery) -> str:
+        """Identify a query's batches: snapshot, request, interval, cutoff and columns."""
+        return hashlib.sha256(
+            DomainCodec().encode_json(
+                (
+                    "book-query",
+                    query.snapshot_id,
+                    query.request_identity,
+                    query.instrument,
+                    query.start,
+                    query.end,
+                    query.known_at,
+                    query.columns,
+                    query.clock,
+                )
+            )
+        ).hexdigest()
+
     def batches(self, query: BookQuery) -> Iterator[BookQueryBatch]:
         """Stream fresh, isolated projections with at most one selected batch in memory.
 
@@ -187,21 +206,7 @@ class BookQueryReader:
         supported = ("orders",) if is_l3 else ("bids", "asks")
         if any(column not in supported for column in query.columns):
             raise ValueError("book fields incompatible with native L2/L3 representation")
-        identity = hashlib.sha256(
-            DomainCodec().encode_json(
-                (
-                    "book-query",
-                    query.snapshot_id,
-                    query.request_identity,
-                    query.instrument,
-                    query.start,
-                    query.end,
-                    query.known_at,
-                    query.columns,
-                    query.clock,
-                )
-            )
-        ).hexdigest()
+        identity = self.identity(query)
         reasons = ["visible depth only; coverage and historical eligibility unproven"]
         if selected.archive is not None:
             reasons.append("original book availability unknown; no decision-eligible values")

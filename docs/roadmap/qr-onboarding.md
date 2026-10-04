@@ -1715,6 +1715,198 @@ writing `published.json` beside the result. It is at workspace commit `e653872`.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 696 files |
 
+## M3c design note: lakeFS publication, study scale and authoring guides (approved 2026-10-04)
+
+The owner approved this note and I-A on 2026-10-04. M3c was planned as the feature
+publisher (P-A). The gaps below block J2 and J3, which come first, so this note
+takes M3c, and the planned parts move down one letter: P-A becomes M3d, M-1 becomes
+M3e and the driver's J6–J7 become M3f.
+
+**What the rehearsals and authoring showed.**
+1. **lakeFS.**
+   - `LakeFSStorage` only resolves, reads and materializes; nothing publishes.
+   - `DatasetVersion` requires `raw/`, `snapshots/` *and* `features/`, a rule
+     inherited from the MR04 backtest consumer, so raw published captures cannot be
+     versioned.
+2. **Study market.** `CapturedStudyMarket` admits the whole capture in memory
+   through `CaptureInput.admit`, capped at 10,000 records. A 30-minute OKX book
+   capture has about 18,000.
+3. **Saved decision source.** `SavedDecisionSource.read` re-reads and re-verifies
+   its whole selection at every decision, so cost grows as decisions × records.
+4. **Guides.**
+   - No maintained example shows a transform, estimator, label or order/quote
+     policy. The study guide links test consumers instead.
+   - No guide says how a new listing gets an instrument identity.
+
+**Design.** Each item replaces code in place, and no old path is kept.
+1. **lakeFS publication.**
+   - `LakeFSStorage.publish(repository, branch, root, components, message)` uploads
+     the named component directories through the SDK adapter, commits, and returns
+     the resolved `DatasetVersion`. `LakeFSStorage.create(repository, namespace)`
+     creates a repository.
+   - `DatasetVersion` requires `raw/` and `snapshots/`; `features/` becomes
+     optional.
+   - The configured backtest, which needs derived features, keeps that requirement
+     in its own admission.
+   - J2 then publishes raw and snapshots, and J4 publishes a second version with
+     the feature bytes.
+2. **Streamed study market.** `CapturedStudyMarket` reads a published book snapshot
+   (snapshot identity and request identity) through the existing streamed book
+   reader. It verifies the snapshot once and yields only markets inside the
+   requested window, so memory is bounded by one window, not the capture.
+3. **Indexed saved decisions.** `SavedDecisionSource` reads its selection once, at
+   the selection's cutoff, and builds a per-requirement timeline of projected
+   values only (never full books).
+   - Book fields are indexed by knowledge time.
+   - Trades are indexed by event time, with every observed version. A read keeps,
+     per trade, the latest version known by the cutoff, as `PublicTradeReader`
+     does.
+   - Captured boundaries are indexed by receipt.
+   - Reference history resolves as today.
+   - `read(entity, at)` is a binary search plus a scan of the flow window, so folds
+     can read in any order. Results must equal today's at every cutoff; the
+     existing tests and a new randomized equality test over REST revisions,
+     captured gaps and books prove it.
+4. **Guides and template.**
+   - **Template.** The maintained template extension (`engineering-candidates`)
+     gains a fitted transform, an exact estimator, a forward label and an
+     order/quote policy, so every component role has a maintained example outside
+     `tests/`.
+   - **QR quickstart.** It gains a "Write a study" section: a complete `DecisionStudy`
+     with folds, holdout, economics, metric and chart, built from those components.
+     The study guide links it instead of the test consumers.
+   - **Instrument identity.** The study guide and QR guide state the rule: a new
+     listing gets one new canonical `InstrumentId` (a random UUID), authored once in
+     the QR's configuration and never derived from a symbol.
+
+**Choice for the owner — I: instrument identities.**
+- **I-A (recommended): authored and documented.** No code change. Existing
+  identities are authored UUIDs, so a derivation rule would introduce a second
+  convention.
+- **I-B: derived.** `InstrumentId.for_listing(venue, product, symbol)` returns a
+  UUIDv5. That needs a namespace decision, and existing identities would differ
+  from derived ones.
+
+**Journey declaration changes.**
+- J2's lakeFS step publishes raw and snapshots only.
+- J4 adds a lakeFS version with the feature bytes.
+- The driver passes the published book snapshot, not the capture directory, to the
+  study.
+
+**Plan.** One commit (M3c) with the full suite, then rehearsal 3, J1–J5 on a
+30-minute window. The QR workspace gains the J3–J5 scripts, written from the new
+guide.
+
+**Consequences.**
+- `DatasetVersion` admits versions without features. Retained MR04 versions still
+  contain features and stay valid.
+- `CapturedStudyMarket` callers and `captured_study.py` change to snapshot inputs.
+- Study results are unchanged; the equality tests prove it.
+
+## M3c result (2026-10-04)
+
+Implemented as approved, with I-A, in one commit. Nothing has been signed or run.
+
+**What changed.**
+- **lakeFS.**
+  - `LakeFSStorage.create` and `LakeFSStorage.publish` (upload, commit, resolve) go
+    through the SDK adapter, with new stub declarations.
+  - `DatasetVersion` requires `raw/` and `snapshots/`; `features/` is optional.
+  - Objects up to 2 GiB are verified and materialized in 64 MiB ranges, so a
+    capture segment never sits in memory. `read` returns only objects up to
+    64 MiB.
+  - The configured backtest now requires feature bytes itself.
+- **Streamed study market.** `CapturedStudyMarket` takes a published book snapshot
+  and request identity. It verifies the snapshot once, streams only each requested
+  window, and takes an optional `max_levels` depth bound, which is part of its
+  identity. `captured_study.py` is updated.
+- **Indexed saved decisions.** `SavedDecisionSource` reads its selection once, at
+  the selection cutoff, and answers every decision from indexes:
+  - **books:** the last row known by receipt;
+  - **trades:** each trade's change points in knowledge order, indexed per
+    instrument by event time;
+  - **captured trades:** boundaries by receipt.
+
+  Lineage is recomputed from each cutoff's query identity, through the new
+  `BookQueryReader.identity` and `ResearchReader.public_trade_versions`.
+- **Template and example.**
+  - **Template.** `engineering-candidates` gains `NamedProjection` (the
+    registered `projection` feature), `CenterScale` (a fitted transform),
+    `LeastSquares` (an exact estimator), `ForwardMidReturn` (a label),
+    `TouchQuote` (a rule order/quote policy) and `PredictionTarget` (a learned
+    target policy).
+  - **Example.** The new maintained [study example](../../examples/qr_study.py)
+    runs the rule study, the learned study and the frozen holdout over published
+    captures.
+  - **Guides.** The QR quickstart's step 4 is rewritten around them: capture,
+    publish, instrument identity (I-A), lakeFS, and the study rules.
+  - **Other guides.** The QR, study, observations, market-data and lakeFS guides
+    are updated.
+
+**Additions beyond the note, flagged for the owner.**
+- **Saved touch fields.** `SavedDecisionSource` also projects `ask`, `bid`,
+  `ask_size` and `bid_size`, with the live book source's units and aggregation. A
+  quoting study needs a price, and research previously offered only imbalance, so
+  no research quote could match paper. This is additive, with no format change.
+- **`BookSnapshot.request_identities`.** The example selects a book by instrument;
+  a request identity is a computed hash that discovery does not print.
+- **Defect fixed (from M2).** `CandidatePackager` read the fitted transform and
+  model of fold `len(folds)` instead of the last fold, `len(folds) - 1`. M2's
+  packaging test had no fitted state, so it never read them. The example's
+  integration test now packages a fitted two-fold study.
+
+**Open question for the owner — A: policy abstention.**
+- **The gap.** `DecisionTransition.intent` is required, and no intent means "do
+  nothing". A target policy can go flat, but a quote or order policy facing a
+  missing input can only invent a price or fail. The template's `TouchQuote`
+  fails with a clear error.
+- **Live consequence.** On live paper, a source gap would therefore fault the rule
+  candidate's step.
+- **Proposed (A-1).** An explicit abstain result: `DecisionTransition` with no
+  intent, using the "commit continuation, no order" path M1a added for warm-up.
+  It would need its own design note.
+- **Alternative (A-2).** Keep failing, and require a book freshness that makes
+  gaps rare. J6 would then risk an instance fault at a live gap.
+
+**Tests.**
+- `test_lakefs_versions.py`: the inventory rule; publication with ranged
+  verification, including a corrupted range and a staged file that is never linked;
+  and the size bounds.
+- `test_captured_market.py`:
+  - a capture of more than 10,000 records streamed one window at a time;
+  - the depth bound and its identity;
+  - live/saved equality of imbalance and touch fields at 89 cutoffs.
+- `test_public_data.py`: one selection mixing REST trades with a later revision,
+  captured trades with a gap and reconnect, and a captured book. The indexed source
+  must equal a fresh source pinned at each of 61 cutoffs, for two entities, lineage
+  included. A mutation check showed it fails when the effective-version rule is
+  removed.
+- `tests/integration/test_qr_study_example.py`: runs `examples/qr_study.py` as a
+  script for the rule study, the learned study and the learned holdout over
+  authored captures, then packages the learned study.
+- `test_engineering_candidates.py`: the template registry, a train-only
+  `CenterScale` fit, exact `LeastSquares` with a singular-design refusal,
+  `TouchQuote` stepping back and refusing a missing touch, and `PredictionTarget`
+  going flat without a prediction.
+
+**Journey driver.** QR scripts also receive `ALPHA_CLEARML_LOCAL_ENV`, the path of the
+private local-services file, for J3's ClearML publication. As with lakeFS, the driver
+never reads the file.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (702 files), native stubs (1,559 modules), engineering standards, dependency admission (188 packages), link and secret checks; 2,527 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 38 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
+Two runs before this one failed and were fixed:
+- the first, on strict mypy in `test_captured_market.py` and then on the import
+  standard in `test_lakefs_versions.py`;
+- the second, on one unit test that pinned the template's old registry keys.
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design

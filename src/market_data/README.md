@@ -850,8 +850,10 @@ replay and retains the first divergence on failure.
 
 ## Pinned external dataset versions
 
-`LakeFSStorage` resolves a branch/tag reference to an immutable `DatasetVersion`,
-verifies lengths/digests and materializes a bounded cache for existing readers.
+`LakeFSStorage` creates repositories, publishes `raw/` and `snapshots/` (and optional
+`features/`) as one commit, resolves a branch/tag reference to an immutable
+`DatasetVersion`, verifies lengths/digests in bounded ranges and materializes a
+bounded cache for existing readers.
 It does not convert storage commit clocks into market knowledge, relax admission
 or change snapshot identity. The [local lakeFS guide](../../configs/development/lakefs/README.md)
 owns retention/restore fixtures. Model/report artifacts remain separate.

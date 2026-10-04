@@ -34,3 +34,25 @@ class Commit:
     """Describe the immutable commit identity."""
 
     id: str
+
+class RepositoryCreation:
+    """Describe an explicit repository creation request."""
+    def __init__(self, *, name: str, storage_namespace: str, default_branch: str) -> None:
+        """Name the repository, its storage namespace and default branch.
+
+        Args:
+            name: Repository name.
+            storage_namespace: Storage location, such as ``local://name``.
+            default_branch: Initial branch name.
+        """
+        ...
+
+class CommitCreation:
+    """Describe an explicit commit request."""
+    def __init__(self, *, message: str) -> None:
+        """Bind the commit message.
+
+        Args:
+            message: Human-readable commit message.
+        """
+        ...

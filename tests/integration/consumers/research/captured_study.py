@@ -129,10 +129,13 @@ class _CapturedScenario:
         reader: ResearchReader,
         captures: Path,
         consumer_artifact: StudyArtifact,
+        snapshots: Path,
+        raw: RawStore,
     ) -> None:
         """Keep original inputs and the exact external consumer source bytes."""
         selection.__post_init__()
         self._selection, self._reader, self._captures = selection, reader, captures
+        self._snapshots, self._raw = snapshots, raw
         self._consumer_artifact = consumer_artifact
         self._adapters = SourceAdapters()
         self._codec = DomainCodec()
@@ -166,9 +169,11 @@ class _CapturedScenario:
         ):
             raise ValueError("saved book selection differs from original captured request")
         market = CapturedStudyMarket(
-            captured,
-            RawStore(capture_directory),
+            self._snapshots,
+            self._raw,
             readers=self._adapters,
+            snapshot_id=book_selection.query.snapshot_id,
+            request_identity=book_selection.query.request_identity,
             max_bytes=32_000_000,
             clock_assumption="receipt-as-matching",
         )
@@ -436,7 +441,9 @@ def main() -> None:
         ),
         payload=consumer_bytes,
     )
-    scenarios = _CapturedScenario(selection, reader, args.captures, consumer_artifact)
+    scenarios = _CapturedScenario(
+        selection, reader, args.captures, consumer_artifact, args.snapshots, RawStore(args.raw)
+    )
     selections = tuple(item for item in selection.inputs if isinstance(item, BookSelection))
     if len(selections) != 2 or {item.name for item in selections} != {
         "okx_book",

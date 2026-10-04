@@ -91,13 +91,85 @@ imports from a platform package, and any `sys.path` change. It reads the install
 packages' `__all__` without importing them. A release build of your extension runs
 the same audit and refuses any finding.
 
-## 4. Run and retain a study
+## 4. Write and run a study
 
-Compose `applications.explore.StudyComponents` with your component instances and run
-`evaluate_study` on a `DecisionStudy`, as the
-[study guide](../src/research/studies/README.md#generalized-decision-studies)
-describes. To make the study packageable, retain your installed extension's
-identity:
+### Capture and publish data
+
+Collect public books and trades for a fixed UTC window with `alpha-collect
+capture-run`, one run per feed, as the
+[collector guide](../docs/data/l3-collectors.md#finite-public-collection-with-segment-rollover)
+describes. Start from the maintained feed configurations under `configs/live/`; a
+trades feed is the same configuration with `channel` `trades` and `depth` 0. Pass
+`--universes` so research may read what you collect:
+
+```sh
+alpha-collect capture-run --config /absolute/okx-btc-usdt-books.json \
+  --universes /absolute/universes.json --window /absolute/window.json \
+  --run-directory /absolute/runs/okx-btc-usdt-books
+alpha-collect capture-run-replay --run-directory /absolute/runs/okx-btc-usdt-books \
+  --max-seconds 7200
+```
+
+**Instrument identity.** Every listing has one canonical `InstrumentId`, a UUID
+authored once and kept forever. Reuse the identity a maintained configuration
+already gives a listing. For a listing no configuration names yet, author a new
+random UUID once, record it in your own configuration and universes, and never
+derive it from a symbol.
+
+Publish the completed runs. Pass every segment of a book run, and the last segment
+of a trades run (it carries its whole chain):
+
+```sh
+alpha-dataset capture-publish --captures /absolute/runs/okx-btc-usdt-books/segments/<id> \
+  /absolute/runs/okx-btc-usdt-trades/segments/<last-id> \
+  --store /absolute/data/raw --snapshots /absolute/data/snapshots \
+  --max-records 1000000 --max-bytes 1000000000
+alpha-dataset discover --snapshots /absolute/data/snapshots \
+  --max-entries 100 --max-bytes 64000000
+```
+
+The command prints the book snapshot identity and one trades snapshot identity per
+trades run. Captured trades keep each message's coverage, so research applies the
+same synchronization, staleness and flow-window rules the live trade source does
+([captured public trades](../src/market_data/README.md#captured-public-trades)).
+
+To version the published data, create a repository and publish `raw/` and
+`snapshots/` with `market_data.storage.LakeFSStorage` (`create`, then `publish`,
+which returns the verified `DatasetVersion`). Retain that version; `materialize`
+reopens it later. Add `features/` in a later version once you have derived
+features ([lakeFS guide](../configs/development/lakefs/README.md)).
+
+### Run the example study
+
+The maintained [study example](qr_study.py) composes every component role from the
+[`engineering-candidates` template](../extensions/engineering-candidates/) over the
+published snapshots. Copy it into your project and change what you need:
+
+```sh
+python examples/qr_study.py rule --snapshots /absolute/data/snapshots \
+  --raw /absolute/data/raw --attempts /absolute/attempts \
+  --book-snapshot <books> --instrument <instrument id> --trades-snapshot <trades> \
+  --start 2026-10-04T10:00:00+00:00 --end 2026-10-04T10:30:00+00:00 \
+  --train 300 --test 180 --folds 3 --holdout 300 --cadence 15 --horizon 60
+python examples/qr_study.py learned ...                       # same arguments
+python examples/qr_study.py learned --partition holdout ...   # once, last
+```
+
+The example selects the instrument's book from the book snapshot, which can hold
+several. It shows the rules every study follows:
+- **Every role comes from your extension.** The feature is the extension's
+  registered `projection`; the transform, estimator and policies are its classes.
+  `ForwardMidReturn` is a label: it is study code, not a registered component.
+- **Inputs are complete before the first decision.** A fit refuses a training row
+  with a missing feature, so the first window starts after the longest input
+  window (`--warmup`, 30 seconds of trade flow here).
+- **Labels stay inside their fold.** Training and validation decisions leave one
+  label horizon before their window ends, so no label reads the holdout.
+- **The holdout runs once**, after the validation folds, and its use is recorded.
+- **Depth is bounded explicitly.** `CapturedStudyMarket` keeps the best
+  `--max-levels` per side; the bound is part of the market identity.
+
+To make the study packageable it retains the installed extension's identity:
 
 ```python
 from runtime import InstalledExtensions
@@ -109,8 +181,16 @@ record = InstalledExtensions().artifact("qr-signals")
 The artifact is your extension's installed `RECORD`. Its fingerprint is the identity
 the packaged candidate will name, so the study pins exactly the code you will
 deploy. Use `PublicationPolicy(mode="local")` for a first run, or deferred
-publication to ClearML once the local services are up. The study, its fold results,
-report and fitted state stay in the attempt store.
+publication to ClearML once the local services are up, then
+`applications.explore.publish_experiments`. The study, its fold results, report
+and fitted state stay in the attempt store; `research.studies.StudyResult` and
+`StudyReportReader` reopen them. The
+[study guide](../src/research/studies/README.md#generalized-decision-studies) covers
+search (`compare_studies`) and every configuration rule.
+
+**A policy must decide at every decision.** There is no "no intent" result. A target
+policy can go flat; the example's quote policy refuses a missing touch instead of
+inventing a price, so give it a book requirement fresh enough for your cadence.
 
 ## 5. Package a candidate
 
@@ -145,8 +225,9 @@ also refuses a study that did not retain the extension (step 4). Requirements ar
 derived from the study's inputs and output. The bundle is verified on read and named
 by its definition identity.
 
-The [packaging consumer](../tests/integration/consumers/research/candidate_packaging.py)
-runs this whole step against the template extension.
+Every metric and chart the study used needs a selection and a matching
+`CandidateMetricContract`. The [example's test](../tests/integration/test_qr_study_example.py)
+packages the learned example study this way.
 
 ## 6. Serve a stored feature (optional)
 

@@ -738,6 +738,11 @@ class BookSnapshot:
         """Return the exact admitted manifest digest."""
         return self._identity
 
+    @property
+    def request_identities(self) -> tuple[str, ...]:
+        """Return every native partition's request identity, sorted."""
+        return tuple(sorted(self._partitions))
+
     def partition(self, request_identity: str) -> BookPartition:
         """Select an immutable partition by exact native request identity."""
         try:

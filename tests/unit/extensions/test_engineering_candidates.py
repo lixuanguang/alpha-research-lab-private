@@ -9,14 +9,22 @@ from fractions import Fraction
 
 # third party library imports
 import pytest
-from engineering_candidates import ComponentProvider, ImbalanceTarget, SmoothedImbalance
+from engineering_candidates import (
+    CenterScale,
+    ComponentProvider,
+    ImbalanceTarget,
+    LeastSquares,
+    PredictionTarget,
+    SmoothedImbalance,
+    TouchQuote,
+)
 
 # project library imports
 from financial_units import ExactRatio
 from research.features import FeatureSchema, FeatureVector
 from research.observations import DecisionInputs, InputRequirement, NamedObservation, NumericField
 from serialization import DomainCodec
-from strategies import DecisionContext, TargetIntent
+from strategies import DecisionContext, QuoteIntent, TargetIntent
 
 _AT = datetime(2026, 1, 1, tzinfo=UTC)
 _INSTRUMENT = "4476df8e-6342-4417-839e-e41b88f41446"
@@ -125,7 +133,84 @@ class TestEngineeringCandidates:
         other = ImbalanceTarget.create(parameters.replace(b'"quantity":"1"', b'"quantity":"2"'))
         assert other.identity != policy.identity
         factories = ComponentProvider().factories()
-        assert set(factories.features) == {"smoothed-imbalance"}
-        assert set(factories.policies) == {"imbalance-target"}
+        assert set(factories.features) == {"smoothed-imbalance", "projection"}
+        assert set(factories.policies) == {"imbalance-target", "touch-quote", "prediction-target"}
+        assert set(factories.transforms) == {"center-scale"}
+        assert set(factories.estimators) == {"least-squares"}
         assert set(factories.metrics) == {"fold-net"}
         assert set(factories.charts) == {"fold-net-path"}
+
+    @staticmethod
+    def _row(*values: Fraction | None, names: tuple[str, ...] = ("x",)) -> FeatureVector:
+        """Build one vector with the given values under dimensionless fields."""
+        fields = tuple(NumericField(name=name, units="dimensionless") for name in names)
+        return FeatureVector(
+            entity=_INSTRUMENT,
+            decision_at=_AT,
+            event_at=_AT,
+            information_start=_AT,
+            available_at=_AT,
+            expires_at=_AT + timedelta(seconds=30),
+            definition="authored",
+            fields=fields,
+            values=tuple(None if v is None else ExactRatio.from_fraction(v) for v in values),
+            reasons=tuple("authored" for _ in values),
+            input_identity="authored-input",
+        )
+
+    def test_center_scale_fits_training_rows_only(self) -> None:
+        """Mean and largest deviation come from complete training rows; missing stays missing."""
+        transform = CenterScale.create(b"{}")
+        state = transform.fit((self._row(Fraction(1)), self._row(Fraction(3)), self._row(None)))
+        assert transform.apply(state, self._row(Fraction(4))) == (
+            ExactRatio.from_fraction(Fraction(2)),
+        )
+        assert transform.apply(state, self._row(None)) == (None,)
+        with pytest.raises(ValueError, match="complete training row"):
+            transform.fit((self._row(None),))
+
+    def test_least_squares_is_exact_and_refuses_a_singular_design(self) -> None:
+        """An exact line is recovered; a constant column is refused, not regularized."""
+        model = LeastSquares.create(b"{}")
+        rows = tuple(self._row(Fraction(x)) for x in (0, 1, 2))
+        outcomes = tuple(ExactRatio.from_fraction(Fraction(1 + 2 * x)) for x in (0, 1, 2))
+        state = model.fit(rows, outcomes)
+        assert model.predict(state, self._row(Fraction(5))) == ExactRatio.from_fraction(
+            Fraction(11)
+        )
+        constant = tuple(self._row(Fraction(1)) for _ in range(3))
+        with pytest.raises(ValueError, match="singular"):
+            model.fit(constant, outcomes)
+
+    def test_quote_steps_back_and_target_follows_prediction(self) -> None:
+        """The quote steps back on the opposed side; a missing touch is refused."""
+        quote = TouchQuote.create(
+            DomainCodec().encode_json(
+                {
+                    "instrument": _INSTRUMENT,
+                    "quantity": "1",
+                    "tick": "0.1",
+                    "currency": "USDT",
+                    "threshold": {"numerator": "1", "denominator": "5"},
+                }
+            )
+        )
+        names = ("depth_imbalance", "bid", "ask")
+        row = self._row(Fraction(1, 2), Fraction(100), Fraction(1002, 10), names=names)
+        intent = quote.decide(DecisionContext(features=row, prediction=None), b"").intent
+        assert isinstance(intent, QuoteIntent)
+        assert (intent.bid.limit.value, intent.ask.limit.value) == (Decimal(100), Decimal("100.3"))
+        missing = self._row(Fraction(1, 2), None, Fraction(1002, 10), names=names)
+        with pytest.raises(ValueError, match="then-known bid and ask"):
+            quote.decide(DecisionContext(features=missing, prediction=None), b"")
+        target = PredictionTarget.create(
+            DomainCodec().encode_json(
+                {
+                    "instrument": _INSTRUMENT,
+                    "quantity": "1",
+                    "threshold": {"numerator": "0", "denominator": "1"},
+                }
+            )
+        )
+        flat = target.decide(DecisionContext(features=row, prediction=None), b"").intent
+        assert isinstance(flat, TargetIntent) and flat.quantity.value == 0

@@ -8,13 +8,22 @@ The first consumer is the installed `alpha-backtest` workflow.
 
 ## Pin and consume
 
-`LakeFSStorage.resolve(repository, reference, kind=..., objects=...)` resolves an
-explicit branch, tag or commit and verifies each expected object at that immutable
-commit. Retain the resulting `DatasetVersion` through `DomainCodec`. Its SHA-256
-belongs in `BacktestRun.versioned_inputs_sha256`. The inventory must cover existing
-`raw/`, `snapshots/` and derived `features/` bytes. The first derived artifact is
-`features/diagnostics.json`: the exact encoded tuple from the existing causal
-`ResearchInputs.collect(...).features` computation. No model or label is required.
+`LakeFSStorage.create(repository, namespace=...)` creates a repository, and
+`LakeFSStorage.publish(repository, branch, root, components=..., message=...,
+max_bytes=...)` uploads every file under the selected component directories of
+`root` (`raw/`, `snapshots/` and, optionally, `features/`), commits the branch and
+returns the verified `DatasetVersion`. `LakeFSStorage.resolve(repository, reference,
+kind=..., objects=...)` resolves an explicit branch, tag or commit and verifies each
+expected object at that immutable commit. Retain the resulting `DatasetVersion`
+through `DomainCodec`. A version must contain `raw/` and `snapshots/` bytes;
+derived `features/` bytes are optional. Objects up to 2 GiB are verified and
+materialized in bounded 64 MiB ranges, so a whole capture segment never sits in
+memory; `read` returns only objects up to 64 MiB whole.
+
+A configured backtest (`BacktestRun.versioned_inputs_sha256`) additionally requires
+derived feature bytes. Its first derived artifact is `features/diagnostics.json`:
+the exact encoded tuple from the existing causal `ResearchInputs.collect(...).features`
+computation. No model or label is required.
 
 Pass the manifest with `alpha-backtest run --dataset-version ...
 --lakefs-endpoint http://127.0.0.1:18000/api/v1 --lakefs-credentials ...` alongside

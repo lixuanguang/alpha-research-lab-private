@@ -4,9 +4,13 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+from bisect import bisect_left, bisect_right
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from types import MappingProxyType
+from typing import ClassVar
 
 # third party library imports
 from msgspec.structs import replace
@@ -15,7 +19,7 @@ from msgspec.structs import replace
 from financial_units import ExactRatio
 from market_data.contracts import BookObservation, Order, TradeBoundary
 from market_data.datasets import PublicTradeObservation
-from market_data.query import BookMarketRow, PublicTradeResult
+from market_data.query import BookMarketRow, BookQuery, BookQueryReader, PublicTradeResult
 from reference_data.instruments import InstrumentId
 from research.exploration.selection import (
     BookResearchInput,
@@ -37,13 +41,21 @@ from serialization import DomainCodec
 
 
 class SavedDecisionSource:
-    """Reuse MR01 pinned readers per decision, never querying once at a future cutoff.
+    """Project pinned saved inputs at any decision cutoff from one verified read.
 
     Supported projections are public trade price, quantity and signed quantity of
     the latest trade, signed trade flow over ``(at - age, at]``, native L2/L3
-    imbalance, and bitemporal minimum quantity. Trade fields and the flow window
+    imbalance and touch (``ask``, ``bid``, ``ask_size``, ``bid_size``, with the live
+    book source's units), and bitemporal minimum quantity. Trade fields and the flow window
     match ``LiveTradeDecisionSource``. Source families retain their own query rules.
     Non-book numeric datasets can use NumericHistorySource or a fresh DecisionSource.
+
+    The selection is read once, at its own cutoff, on the first decision. Every
+    later decision is answered from indexes over what was read: the last book row
+    known by the cutoff, each trade's effective version at the cutoff (all observed
+    versions are kept), captured trade boundaries and reference history. Results
+    equal a fresh read at each decision's cutoff, including lineage, while cost no
+    longer grows with decisions times records.
     """
 
     def __init__(
@@ -70,7 +82,7 @@ class SavedDecisionSource:
                     isinstance(item, BookSelection)
                     and requirement.family == "book"
                     and requirement.clock in ("event", "receipt")
-                    and requirement.field.name == "imbalance"
+                    and _BookIndex.UNITS.get(requirement.field.name) == requirement.field.units
                 )
                 or (
                     isinstance(item, ReferenceSelection)
@@ -87,6 +99,7 @@ class SavedDecisionSource:
             ):
                 raise ValueError("book imbalance requires bid/ask or native-order projection")
         self._reader, self._selection, self._requirements = reader, selection, requirements
+        self._indexes: dict[str, _BookIndex | _TradeIndex | ReferenceResearchInput] | None = None
 
     @property
     def identity(self) -> str:
@@ -101,108 +114,227 @@ class SavedDecisionSource:
         return self._requirements
 
     def read(self, entity: str, at: datetime) -> DecisionInputs:
-        """Read each saved input at this cutoff and preserve controls/unknown availability."""
+        """Project each saved input at this cutoff and preserve controls/unknown availability."""
         instrument = InstrumentId.from_canonical_text(entity)
-        selections: list[PublicTradeSelection | BookSelection | ReferenceSelection] = []
+        for selection in self._selection.inputs:
+            if at > selection.query.known_at:
+                raise ValueError("decision exceeds pinned source observation cutoff")
+        indexes = self._index()
+        rows: list[NamedObservation] = []
+        for requirement in self.requirements:
+            index = indexes[requirement.name]
+            if isinstance(index, _TradeIndex):
+                rows.extend(index.project(requirement, entity, instrument, at))
+            elif isinstance(index, _BookIndex):
+                rows.extend(index.project(requirement, entity, at))
+            else:
+                spec = index.history.resolve(instrument, valid_at=at, known_at=at)
+                if spec is not None:
+                    _Projection.units(requirement, spec.instrument.base_currency)
+                    rows.append(
+                        NamedObservation(
+                            input=requirement,
+                            entity=entity,
+                            event_at=spec.valid_from,
+                            available_at=spec.ts_knowledge,
+                            value=None
+                            if spec.minimum_quantity is None
+                            else ExactRatio.from_fraction(Fraction(spec.minimum_quantity)),
+                            reason="unknown_minimum"
+                            if spec.minimum_quantity is None
+                            else "versioned_reference_assertion",
+                            lineage=spec.identity,
+                        )
+                    )
+        return ObservationHistory(tuple(rows)).select(entity, at, self.requirements)
+
+    def _index(self) -> dict[str, _BookIndex | _TradeIndex | ReferenceResearchInput]:
+        """Read and verify the whole selection once, at its own cutoff, and index it."""
+        if self._indexes is not None:
+            return self._indexes
         for selection in self._selection.inputs:
             if not isinstance(selection, (PublicTradeSelection, BookSelection, ReferenceSelection)):
                 raise ValueError("trade selections use the window feature path, not projections")
-            if at > selection.query.known_at:
-                raise ValueError("decision exceeds pinned source observation cutoff")
-            selections.append(replace(selection, query=replace(selection.query, known_at=at)))
-        dataset = self._reader.read(ResearchSelection(inputs=tuple(selections)))
-        rows: list[NamedObservation] = []
-        for requirement in self.requirements:
-            for item in dataset.inputs:
-                if item.name != requirement.name:
-                    continue
-                if isinstance(item, PublicTradeResearchInput):
-                    candidates = tuple(
-                        row
-                        for row in item.result.rows
-                        if row.instrument.instrument_id == instrument and row.ts_event <= at
-                    )
-                    if self._captured_refusal(item.result, at) is not None:
-                        continue
-                    if requirement.field.name == "signed_flow":
-                        rows.extend(self._flow(item, requirement, entity, at, candidates))
-                        continue
-                    for trade in (
-                        () if not candidates else (max(candidates, key=self._trade_order),)
-                    ):
-                        definition = trade.instrument
-                        units = (
-                            f"{definition.quote_currency}/{definition.base_currency}"
-                            if requirement.field.name == "price"
-                            else definition.base_currency
-                        )
-                        self._units(requirement, units)
-                        amount = (
-                            Fraction(trade.trade.price)
-                            if requirement.field.name == "price"
-                            else Fraction(trade.trade.quantity)
-                            if requirement.field.name == "quantity"
-                            else self._signed(trade)
-                        )
-                        rows.append(
-                            NamedObservation(
-                                input=requirement,
-                                entity=entity,
-                                event_at=trade.ts_event,
-                                available_at=trade.ts_knowledge,
-                                value=ExactRatio.from_fraction(amount),
-                                reason="observed_public_trade;complete_tape_unproven",
-                                lineage=f"{item.result.query.identity}:{trade.source_sha256}:{trade.ordinal}:{trade.position}",
-                            )
-                        )
-                elif isinstance(item, ReferenceResearchInput):
-                    spec = item.history.resolve(instrument, valid_at=at, known_at=at)
-                    if spec is not None:
-                        self._units(requirement, spec.instrument.base_currency)
-                        rows.append(
-                            NamedObservation(
-                                input=requirement,
-                                entity=entity,
-                                event_at=spec.valid_from,
-                                available_at=spec.ts_knowledge,
-                                value=None
-                                if spec.minimum_quantity is None
-                                else ExactRatio.from_fraction(Fraction(spec.minimum_quantity)),
-                                reason="unknown_minimum"
-                                if spec.minimum_quantity is None
-                                else "versioned_reference_assertion",
-                                lineage=spec.identity,
-                            )
-                        )
-                elif isinstance(item, BookResearchInput):
-                    rows.extend(self._book(item, requirement, entity))
-        return ObservationHistory(tuple(rows)).select(entity, at, self.requirements)
+        dataset = self._reader.read(self._selection)
+        indexes: dict[str, _BookIndex | _TradeIndex | ReferenceResearchInput] = {}
+        for item, selection in zip(dataset.inputs, self._selection.inputs, strict=True):
+            if isinstance(item, PublicTradeResearchInput) and isinstance(
+                selection, PublicTradeSelection
+            ):
+                indexes[item.name] = _TradeIndex(
+                    item.result, self._reader.public_trade_versions(selection)
+                )
+            elif isinstance(item, BookResearchInput) and isinstance(selection, BookSelection):
+                indexes[item.name] = _BookIndex(item, selection.query)
+            elif isinstance(item, ReferenceResearchInput):
+                indexes[item.name] = item
+            else:
+                raise ValueError("saved decision input differs from its selection")
+        self._indexes = indexes
+        return indexes
 
-    @classmethod
-    def _flow(
-        cls,
-        item: PublicTradeResearchInput,
+
+# A bound just before any query start, so the latest-trade range includes the start.
+_EARLIER = timedelta(microseconds=1)
+
+
+class _Projection:
+    """Share unit checks and signed quantities across saved projections."""
+
+    @staticmethod
+    def units(requirement: InputRequirement, units: str) -> None:
+        """Refuse unit relabeling at the source projection boundary."""
+        if requirement.field.units != units:
+            raise ValueError("saved projection units differ from source")
+
+    @staticmethod
+    def signed(row: PublicTradeObservation) -> Fraction:
+        """Sign a trade's quantity by its aggressor side."""
+        quantity = Fraction(row.trade.quantity)
+        return quantity if row.trade.side == "buy" else -quantity
+
+
+class _TradeIndex:
+    """Resolve every selected trade's effective version at any cutoff.
+
+    A read at cutoff ``at`` keeps, per trade, the latest *changed* version known by
+    ``at``; an equal repeat keeps the earlier one. The index therefore keeps each
+    trade's change points in knowledge order, and an event-ordered list of every
+    change point for window and latest-trade lookups.
+    """
+
+    def __init__(self, result: PublicTradeResult, versions: tuple[PublicTradeObservation, ...]):
+        """Index the result read at the selection's cutoff and all its known versions."""
+        self._result = result
+        self._query = result.query
+        changes: dict[tuple[InstrumentId, str], list[PublicTradeObservation]] = {}
+        for row in versions:
+            key = row.instrument.instrument_id, row.trade.trade_id
+            points = changes.setdefault(key, [])
+            if not points or points[-1].trade != row.trade:
+                points.append(row)
+        self._changes = changes
+        self._known = {key: [row.ts_knowledge for row in rows] for key, rows in changes.items()}
+        listed: dict[InstrumentId, list[PublicTradeObservation]] = {}
+        for rows in changes.values():
+            for row in rows:
+                listed.setdefault(row.instrument.instrument_id, []).append(row)
+        self._points: dict[InstrumentId, list[PublicTradeObservation]] = {
+            key: sorted(rows, key=self._event_order) for key, rows in listed.items()
+        }
+        self._events: dict[InstrumentId, list[datetime]] = {
+            key: [row.ts_event for row in rows] for key, rows in self._points.items()
+        }
+        self._received = [item.received_at for item in result.boundaries]
+
+    def project(
+        self,
         requirement: InputRequirement,
         entity: str,
+        instrument: InstrumentId,
         at: datetime,
-        candidates: tuple[PublicTradeObservation, ...],
     ) -> tuple[NamedObservation, ...]:
-        """Sum aggressor-signed quantity of known trades with event time in the window."""
+        """Project one trade field at the cutoff, applying captured stream rules first."""
+        if self._refusal(at) is not None:
+            return ()
+        identity = replace(self._query, known_at=at).identity
+        if requirement.field.name == "signed_flow":
+            return self._flow(requirement, entity, instrument, at, identity)
+        trade = self._latest(instrument, at)
+        if trade is None:
+            return ()
+        definition = trade.instrument
+        _Projection.units(
+            requirement,
+            f"{definition.quote_currency}/{definition.base_currency}"
+            if requirement.field.name == "price"
+            else definition.base_currency,
+        )
+        amount = (
+            Fraction(trade.trade.price)
+            if requirement.field.name == "price"
+            else Fraction(trade.trade.quantity)
+            if requirement.field.name == "quantity"
+            else _Projection.signed(trade)
+        )
+        return (
+            NamedObservation(
+                input=requirement,
+                entity=entity,
+                event_at=trade.ts_event,
+                available_at=trade.ts_knowledge,
+                value=ExactRatio.from_fraction(amount),
+                reason="observed_public_trade;complete_tape_unproven",
+                lineage=self._lineage(identity, trade),
+            ),
+        )
+
+    def _effective(self, row: PublicTradeObservation, at: datetime) -> bool:
+        """Return whether this change point is its trade's version at the cutoff."""
+        key = row.instrument.instrument_id, row.trade.trade_id
+        position = bisect_right(self._known[key], at) - 1
+        return position >= 0 and self._changes[key][position] is row
+
+    def _range(self, instrument: InstrumentId, after: datetime, at: datetime) -> range:
+        """Return positions of one instrument's change points with event in ``(after, at]``.
+
+        The query's event interval ``[start, end)`` bounds the range as a read does.
+        """
+        events = self._events[instrument] if instrument in self._events else []
+        low = max(bisect_right(events, after), bisect_left(events, self._query.start))
+        high = min(bisect_right(events, at), bisect_left(events, self._query.end))
+        return range(low, max(low, high))
+
+    def _latest(self, instrument: InstrumentId, at: datetime) -> PublicTradeObservation | None:
+        """Return the effective trade with the latest event, knowledge and position.
+
+        Change points are scanned from the latest event down; the first effective one
+        fixes the event, and only its ties are compared.
+        """
+        points = self._points[instrument] if instrument in self._points else []
+        best: PublicTradeObservation | None = None
+        for position in reversed(self._range(instrument, self._query.start - _EARLIER, at)):
+            row = points[position]
+            if best is not None and row.ts_event < best.ts_event:
+                break
+            if self._effective(row, at) and (
+                best is None or self._trade_order(row) > self._trade_order(best)
+            ):
+                best = row
+        return best
+
+    def _flow(
+        self,
+        requirement: InputRequirement,
+        entity: str,
+        instrument: InstrumentId,
+        at: datetime,
+        identity: str,
+    ) -> tuple[NamedObservation, ...]:
+        """Sum aggressor-signed quantity of effective trades with event time in the window."""
         start = at - timedelta(microseconds=requirement.max_age_us)
-        if item.result.query.start > start:
+        if self._query.start > start:
             return ()
         definition = next(
-            (row for row in item.result.instruments if str(row.instrument_id) == entity), None
+            (row for row in self._result.instruments if str(row.instrument_id) == entity), None
         )
         if definition is None:
             return ()
-        cls._units(requirement, definition.base_currency)
-        boundary = cls._boundary(item.result, at)
+        _Projection.units(requirement, definition.base_currency)
+        boundary = self._boundary(at)
         if boundary is not None and (
             boundary.covered_from is None or boundary.covered_from > start
         ):
             return ()
-        window = tuple(row for row in candidates if row.ts_event > start)
+        points = self._points[instrument] if instrument in self._points else []
+        window = sorted(
+            (
+                points[position]
+                for position in self._range(instrument, start, at)
+                if self._effective(points[position], at)
+            ),
+            key=self._read_order,
+        )
         return (
             NamedObservation(
                 input=requirement,
@@ -210,44 +342,42 @@ class SavedDecisionSource:
                 event_at=at,
                 available_at=at,
                 value=ExactRatio.from_fraction(
-                    sum((cls._signed(row) for row in window), Fraction())
+                    sum((_Projection.signed(row) for row in window), Fraction())
                 ),
                 reason="observed_public_trades;complete_tape_unproven",
                 lineage=hashlib.sha256(
-                    DomainCodec().encode_json(
-                        tuple(
-                            f"{item.result.query.identity}:{row.source_sha256}:{row.ordinal}:{row.position}"
-                            for row in window
-                        )
-                    )
+                    DomainCodec().encode_json(tuple(self._lineage(identity, row) for row in window))
                 ).hexdigest(),
             ),
         )
 
-    @staticmethod
-    def _boundary(result: PublicTradeResult, at: datetime) -> TradeBoundary | None:
+    def _boundary(self, at: datetime) -> TradeBoundary | None:
         """Return a captured source's latest boundary known by the cutoff, if captured."""
-        return next((item for item in reversed(result.boundaries) if item.received_at <= at), None)
+        position = bisect_right(self._received, at) - 1
+        return self._result.boundaries[position] if position >= 0 else None
 
-    @classmethod
-    def _captured_refusal(cls, result: PublicTradeResult, at: datetime) -> str | None:
+    def _refusal(self, at: datetime) -> str | None:
         """Apply the live trade source's stream rules to a captured source; REST has none."""
-        if result.idle_seconds is None:
+        if self._result.idle_seconds is None:
             return None
-        boundary = cls._boundary(result, at)
+        boundary = self._boundary(at)
         if boundary is None:
             return "no_live_input"
         if boundary.covered_from is None:
             return "trade_stream_unsynchronized"
-        if at - boundary.received_at > timedelta(seconds=result.idle_seconds):
+        if at - boundary.received_at > timedelta(seconds=self._result.idle_seconds):
             return "stale_trade_stream"
         return None
 
     @staticmethod
-    def _signed(row: PublicTradeObservation) -> Fraction:
-        """Sign a trade's quantity by its aggressor side."""
-        quantity = Fraction(row.trade.quantity)
-        return quantity if row.trade.side == "buy" else -quantity
+    def _lineage(identity: str, row: PublicTradeObservation) -> str:
+        """Name one trade version within the query at the cutoff."""
+        return f"{identity}:{row.source_sha256}:{row.ordinal}:{row.position}"
+
+    @staticmethod
+    def _event_order(row: PublicTradeObservation) -> tuple[datetime, datetime, int, int]:
+        """Order change points by event, then knowledge and source position."""
+        return row.ts_event, row.ts_knowledge, row.ordinal, row.position
 
     @staticmethod
     def _trade_order(row: PublicTradeObservation) -> tuple[datetime, datetime, int, int]:
@@ -255,23 +385,78 @@ class SavedDecisionSource:
         return row.ts_event, row.ts_knowledge, row.ordinal, row.position
 
     @staticmethod
-    def _units(requirement: InputRequirement, units: str) -> None:
-        """Refuse unit relabeling at the source projection boundary."""
-        if requirement.field.units != units:
-            raise ValueError("saved projection units differ from source")
+    def _read_order(row: PublicTradeObservation) -> tuple[datetime, str, int, int]:
+        """Order a window as a cutoff read returns rows: knowledge, listing, position."""
+        return row.ts_knowledge, str(row.instrument.instrument_id), row.ordinal, row.position
 
-    @classmethod
-    def _book(
-        cls, item: BookResearchInput, requirement: InputRequirement, entity: str
+
+class _BookIndex:
+    """Return the last book row known by any cutoff from one read at the selection's cutoff.
+
+    Fields and units equal ``LiveBookDecisionSource``'s: visible-depth imbalance and
+    the touch prices and sizes, with native L3 orders aggregated by price.
+    """
+
+    UNITS: ClassVar[Mapping[str, str]] = MappingProxyType(
+        {
+            "imbalance": "dimensionless",
+            "ask": "quote/base",
+            "bid": "quote/base",
+            "ask_size": "base",
+            "bid_size": "base",
+        }
+    )
+
+    def __init__(self, item: BookResearchInput, query: BookQuery) -> None:
+        """Index rows in source order by exact receipt nanoseconds."""
+        self._item, self._query = item, query
+        self._rows = tuple(row for batch in item.batches for row in batch.rows)
+        self._received = [-1 if row.received_ns is None else row.received_ns for row in self._rows]
+
+    def _fields(self, row: BookMarketRow) -> dict[str, ExactRatio] | None:
+        """Aggregate visible depth by price and project imbalance and the touch."""
+        bids: dict[Decimal, Fraction] = {}
+        asks: dict[Decimal, Fraction] = {}
+        if self._item.batches[0].columns == ("orders",):
+            for order in row.values[0]:
+                if isinstance(order, Order):
+                    side = bids if order.side == "buy" else asks
+                    side[order.price] = side.get(order.price, Fraction()) + Fraction(order.size)
+        else:
+            for side, levels in ((bids, row.values[0]), (asks, row.values[1])):
+                for level_row in levels:
+                    if type(level_row) is tuple:
+                        price, level = level_row
+                        side[price] = side.get(price, Fraction()) + Fraction(level.size)
+        if not bids or not asks:
+            return None
+        bid_price, ask_price = max(bids), min(asks)
+        bid_size, ask_size = sum(bids.values(), Fraction()), sum(asks.values(), Fraction())
+        if bid_price >= ask_price or bid_size + ask_size <= 0:
+            return None
+        return {
+            "imbalance": ExactRatio.from_fraction((bid_size - ask_size) / (bid_size + ask_size)),
+            "ask": ExactRatio.from_fraction(Fraction(ask_price)),
+            "bid": ExactRatio.from_fraction(Fraction(bid_price)),
+            "ask_size": ExactRatio.from_fraction(asks[ask_price]),
+            "bid_size": ExactRatio.from_fraction(bids[bid_price]),
+        }
+
+    def project(
+        self, requirement: InputRequirement, entity: str, at: datetime
     ) -> tuple[NamedObservation, ...]:
-        """Respect native message order and invalidation controls; receipt rounds upward."""
-        cls._units(requirement, "dimensionless")
-        if str(item.batches[0].evidence.request.config.instrument_id) != entity:
+        """Project one book field of the last row known at the cutoff."""
+        _Projection.units(requirement, self.UNITS[requirement.field.name])
+        if str(self._item.batches[0].evidence.request.config.instrument_id) != entity:
             return ()
-        rows = tuple(row for batch in item.batches for row in batch.rows)
-        if not rows:
+        elapsed = at - datetime(1970, 1, 1, tzinfo=UTC)
+        cutoff = (elapsed.days * 86_400 + elapsed.seconds) * 1_000_000_000 + (
+            elapsed.microseconds * 1000
+        )
+        position = bisect_right(self._received, cutoff) - 1
+        if position < 0:
             return ()
-        row = rows[-1]
+        row = self._rows[position]
         if row.received_ns is None:
             return ()
         received = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(
@@ -288,33 +473,15 @@ class SavedDecisionSource:
         value = None
         reason = "invalid_book_control"
         if isinstance(row, BookMarketRow):
-            if item.batches[0].columns == ("orders",):
-                orders = tuple(order for order in row.values[0] if isinstance(order, Order))
-                bids = tuple((order.price, order.size) for order in orders if order.side == "buy")
-                asks = tuple((order.price, order.size) for order in orders if order.side == "sell")
-            else:
-                bids = tuple(
-                    (price, level.size)
-                    for level_row in row.values[0]
-                    if type(level_row) is tuple
-                    for price, level in (level_row,)
-                )
-                asks = tuple(
-                    (price, level.size)
-                    for level_row in row.values[1]
-                    if type(level_row) is tuple
-                    for price, level in (level_row,)
-                )
-            if bids and asks and max(p for p, _ in bids) < min(p for p, _ in asks):
-                bid = sum((Fraction(size) for _, size in bids), Fraction())
-                ask = sum((Fraction(size) for _, size in asks), Fraction())
-                if bid + ask > Fraction(Decimal(0)):
-                    value = ExactRatio.from_fraction((bid - ask) / (bid + ask))
-                    reason = "visible_depth_only"
+            fields = self._fields(row)
+            if fields is not None:
+                value = fields[requirement.field.name]
+                reason = "visible_depth_only"
             if requirement.clock == "event" and not has_source_clock:
                 value, reason = None, "unknown_source_event_time"
         elif not isinstance(row, BookObservation):
             raise ValueError("unsupported book record")
+        identity = BookQueryReader.identity(replace(self._query, known_at=at))
         return (
             NamedObservation(
                 input=requirement,
@@ -323,6 +490,6 @@ class SavedDecisionSource:
                 available_at=received,
                 value=value,
                 reason=reason,
-                lineage=f"{item.batches[0].identity}:{row.position}",
+                lineage=f"{identity}:{row.position}",
             ),
         )

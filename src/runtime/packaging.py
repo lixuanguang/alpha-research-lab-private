@@ -107,7 +107,7 @@ class CandidatePackager:
             "feature-schema": store.artifact(attempt_id, "feature-schema"),
         }
         schema = self._codec.decode_json(payloads["feature-schema"], FeatureSchema)
-        last = len(result.folds)
+        last = len(result.folds) - 1
         fold = result.folds[-1]
         if study.transform_identity is not None:
             payloads["transform"] = store.artifact(attempt_id, f"transform-{last:04d}")
