@@ -3031,6 +3031,52 @@ and a research-mode view is refused.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 707 files |
 
+## M3f-2 design note: the journey's J6 (approved 2026-10-05)
+
+The owner approved this note on 2026-10-05. It fixes the numbers the J6 declaration
+left open, extends the QR's candidates to the declared instruments, and fixes how the
+driver runs J6. Nothing is implemented yet.
+
+**Frozen J6 numbers** (MR15's qualified 2a envelope, sized for live BTC and ETH).
+- **Accounts.** `okx-shared` (BTC), `okx-isolated` (ETH), `bitfinex-shared` (BTC) and
+  `bitfinex-isolated` (ETH), each opened with 100,000 in its quote currency.
+- **Budgets.** 10,000 firm and per account, 5,000 per instance, and 1,000 maximum
+  order notional.
+- **Admission.** Fee rate 0.001, quote age 30 s, state age 120 s and price deviation
+  500 bps.
+- **Sizes and the race.**
+  - BTC accounts have a position limit of 0.01. The rule candidate quotes 0.006 per
+    side and the learned candidate targets 0.006, so on `okx-shared` the two contend
+    for the limit: one is admitted and one refused.
+  - ETH accounts have a position limit of 0.5, with 0.1 for each candidate.
+- **Adverse cost.** 0.5 quote currency per base unit in every scenario.
+- **Grants.** 80 orders per hour per account, each grant expiring after one hour.
+- **Alert.** The QR's net-per-turnover contract declares a warning band that a short
+  run cannot satisfy, so its alert fires during P-A and the receiver must hold it.
+
+**Candidates for every declared instrument.** The QR workspace's J3 and J5 study and
+package the rule and learned candidates for OKX BTC and ETH and Bitfinex BTC and ETH:
+eight bundles. This roughly quadruples J3's runtime.
+
+**How J6 runs.**
+- **Platform side.** `journey_paper.py` is copied and run like `journey_checks.py`,
+  with the research interpreter. It authors:
+  - the services configuration, each account's configuration, deployment and
+    authorization, the owners file, and the control and observation files;
+  - install and claim through `InstalledPaperAccount`;
+  - an independent reconciliation of every account every 60 s, from its settled
+    ledger and open orders as MR15's reconciler does.
+  - After each phase it checks: reconciliation, per-strategy costs and P&L, the
+    race, exact replay of every delivery log, served-feature lineage, dashboards
+    and the received alert, and zero shadow fills.
+- **Driver side.** The driver builds, verifies and installs:
+  - the services release, with the QR's candidates and extension;
+  - an execution release and a target per account (and per shadow target).
+
+  It then runs P-A, P-B and S as declared, including the owner's death and
+  recovery, and records every command.
+- **Rehearsals** use the declared 10/5/5-minute phases.
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
