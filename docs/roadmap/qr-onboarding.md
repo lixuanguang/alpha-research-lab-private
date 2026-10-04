@@ -2256,6 +2256,51 @@ runs with the real Feast worker and skips without one:
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 702 files |
 
+## Extension identity defect (found 2026-10-04)
+
+**Found while dry-running the updated J4 and J5.** M1b defined an extension's
+identity as the SHA-256 of its whole installed `RECORD`. That file also lists what an
+installer writes: `direct_url.json` (the source path), `INSTALLER`, `REQUESTED` and
+uv's cache files. So the same extension code installed from another path got
+another identity:
+- rehearsal 4's environment, installed from `<attempt>/qr/mr17-extensions`;
+- the scratch environment, installed from the QR workspace.
+
+Packaging then refused a study made in the other environment.
+
+**Why it matters for J6.** A QR's studies pin the research environment's identity,
+while the signed paper-services release installs the extension from its own wheel.
+Every packaged candidate would have been refused by the supervisor.
+
+**Fix (commit below).** This keeps M1b's approved `RECORD`-based identity and its
+intent, that the signed deployment pins the exact extension code.
+- Every recorded file is still verified against `RECORD`.
+- The identity is now the SHA-256 of the **code inventory**: the sorted `RECORD`
+  entries of the package files, plus `METADATA` and `entry_points.txt`.
+- Installer-written files and bytecode caches are excluded.
+- `InstalledExtensions.artifact` retains that inventory as the study artifact.
+
+**Tests.**
+- Two installs differing only in installer files and bytecode get one identity, and
+  changed code changes it.
+- The two real `mr17-extensions` installs that disagreed now agree
+  (`5a8be3f9…`).
+- The existing identity test now checks the inventory.
+
+**Consequences.** Extension identities change once, so studies and bundles made
+before this commit no longer package or load with the current code. Recorded
+rehearsals stay valid at their own commits.
+
+**Validation.** This ran on a tree that also held uncommitted M3d-2 work, which is
+not in this commit.
+
+| Check | Result |
+|---|---|
+| `make check` | Passed: 2530 passed, 3 skipped, 25 performance deselected; wheel smoke passed |
+| Integration lane | 39 passed |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 703 files |
+
 ## A-1 design note: explicit policy abstention (approved 2026-10-04)
 
 The owner approved A-1 and then AB-1 on 2026-10-04. Nothing is implemented yet.

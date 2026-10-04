@@ -5,7 +5,6 @@ from __future__ import annotations
 # standard library imports
 import base64
 import hashlib
-from importlib.metadata import distribution
 from pathlib import Path
 from typing import Literal
 
@@ -46,13 +45,16 @@ class TestInstalledExtensions:
         (metadata / "RECORD").write_text(record)
         return package / "__init__.py"
 
-    def test_installed_identity_pins_record_and_provider_factories(self) -> None:
-        """Identity is the RECORD digest; every factory carries it as its implementation."""
+    def test_installed_identity_pins_code_inventory_and_provider_factories(self) -> None:
+        """Identity is the code inventory digest; every factory carries it."""
         extensions = InstalledExtensions()
         identity = extensions.identity(self.extension)
-        record = distribution(self.extension).read_text("RECORD")
-        assert record is not None
-        assert identity == hashlib.sha256(record.encode()).hexdigest()
+        artifact = extensions.artifact(self.extension)
+        assert identity == artifact.fingerprint.sha256
+        assert identity == hashlib.sha256(artifact.payload).hexdigest()
+        inventory = artifact.payload.decode()
+        assert "engineering_candidates/components.py," in inventory
+        assert all(name not in inventory for name in ("direct_url.json", "INSTALLER", "/RECORD,"))
         assert extensions.identity(self.extension) == identity
         components = extensions.components(self.extension)
         parameters = CandidateArtifact(name="parameters", sha256="0" * 64)
@@ -75,6 +77,42 @@ class TestInstalledExtensions:
         components.admit(selected)
         with pytest.raises(ValueError, match="implementation differs"):
             components.admit((replace(selected[0], implementation_sha256="f" * 64),))
+
+    def test_identity_ignores_where_and_how_code_was_installed(self, tmp_path: Path) -> None:
+        """Installer files and bytecode never change identity; code changes always do."""
+        entry = "[alpha_research.candidate_components]\nfakeext = fakeext:Provider\n"
+        identities: list[str] = []
+        for site, installer, url in (
+            ("a", b"uv", b'{"url":"file:///one"}'),
+            ("b", b"pip", b'{"url":"file:///two"}'),
+        ):
+            root = tmp_path / site
+            self._distribution(root, entry_points=entry)
+            metadata = root / "fakeext-0.1.0.dist-info"
+            record = (
+                (metadata / "RECORD").read_text().replace("fakeext-0.1.0.dist-info/RECORD,,\n", "")
+            )
+            for name, content in (("INSTALLER", installer), ("direct_url.json", url)):
+                (metadata / name).write_bytes(content)
+                record += self._record(Path("fakeext-0.1.0.dist-info") / name, content)
+            cache = root / "fakeext/__pycache__"
+            cache.mkdir()
+            compiled = b"bytecode-" + site.encode()
+            (cache / "__init__.cpython-314.pyc").write_bytes(compiled)
+            record += self._record(Path("fakeext/__pycache__/__init__.cpython-314.pyc"), compiled)
+            (metadata / "RECORD").write_text(record + "fakeext-0.1.0.dist-info/RECORD,,\n")
+            identities.append(InstalledExtensions(search_paths=(root,)).identity("fakeext"))
+        assert identities[0] == identities[1]
+        changed = tmp_path / "c"
+        module = self._distribution(changed, entry_points=entry)
+        assert InstalledExtensions(search_paths=(changed,)).identity("fakeext") == identities[0]
+        code = b'"""Provide something else."""\n'
+        module.write_bytes(code)
+        metadata = changed / "fakeext-0.1.0.dist-info"
+        (metadata / "RECORD").write_text(
+            self._record(Path("fakeext/__init__.py"), code) + "fakeext-0.1.0.dist-info/RECORD,,\n"
+        )
+        assert InstalledExtensions(search_paths=(changed,)).identity("fakeext") != identities[0]
 
     def test_altered_file_platform_name_and_absent_distribution_are_refused(
         self, tmp_path: Path

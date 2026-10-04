@@ -56,11 +56,16 @@ class InstalledExtensions:
     """Resolve candidate components only from named, verified installed distributions.
 
     An extension registers one provider class under the
-    ``alpha_research.candidate_components`` entry-point group. Its identity is the
-    SHA-256 of its installed ``RECORD``, after every recorded file is checked against
-    its recorded hash. Every component it provides carries that identity as its
-    implementation digest, so a candidate definition pins the exact extension code.
-    Nothing is imported by path or module name from configuration.
+    ``alpha_research.candidate_components`` entry-point group. Every recorded file
+    is first checked against its installed ``RECORD`` hash. The identity is then the
+    SHA-256 of the extension's **code inventory**: the sorted ``RECORD`` entries of
+    its package files plus its ``METADATA`` and ``entry_points.txt``. Files an
+    installer writes (``INSTALLER``, ``REQUESTED``, ``direct_url.json``, the
+    ``RECORD`` itself, tool caches) and bytecode caches are excluded, so the same
+    code has one identity wherever and however it is installed. Every component it
+    provides carries that identity as its implementation digest, so a candidate
+    definition pins the exact extension code. Nothing is imported by path or module
+    name from configuration.
     """
 
     group = "alpha_research.candidate_components"
@@ -91,10 +96,30 @@ class InstalledExtensions:
             )
             if digest.decode() != item.hash.value:
                 raise ValueError(f"installed extension file differs from its record: {item}")
-        return hashlib.sha256(record.encode()).hexdigest()
+        return hashlib.sha256(self._inventory(name)).hexdigest()
+
+    def _inventory(self, name: str) -> bytes:
+        """Return the canonical code inventory: recorded code files and their hashes."""
+        files = self._distribution(name).files
+        if files is None:
+            raise ValueError(f"extension has no installed record: {name}")
+        entries: list[str] = []
+        for item in files:
+            parts = item.parts
+            if item.hash is None or "__pycache__" in parts or item.suffix == ".pyc":
+                continue
+            if parts[0].endswith(".dist-info") and parts[-1] not in (
+                "METADATA",
+                "entry_points.txt",
+            ):
+                continue
+            entries.append(f"{item.as_posix()},{item.hash.mode}={item.hash.value}")
+        if not entries:
+            raise ValueError(f"extension records no code: {name}")
+        return ("\n".join(sorted(entries)) + "\n").encode()
 
     def artifact(self, name: str) -> StudyArtifact:
-        """Return the verified installed ``RECORD`` as a study extension artifact.
+        """Return the verified code inventory as a study extension artifact.
 
         Its fingerprint is the extension's identity, so a study that retains this
         artifact records exactly the installed code a packaged candidate will name.
@@ -104,11 +129,8 @@ class InstalledExtensions:
         from research.studies import StudyArtifact
 
         identity = self.identity(name)
-        record = self._distribution(name).read_text("RECORD")
-        if record is None:
-            raise ValueError(f"extension has no installed record: {name}")
         return StudyArtifact(
-            fingerprint=Fingerprint(name=name, sha256=identity), payload=record.encode()
+            fingerprint=Fingerprint(name=name, sha256=identity), payload=self._inventory(name)
         )
 
     def components(self, name: str) -> CandidateComponents:
