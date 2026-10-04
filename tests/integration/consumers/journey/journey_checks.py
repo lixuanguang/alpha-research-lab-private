@@ -43,7 +43,13 @@ class EnvironmentCheck:
     def criteria(self) -> tuple[Criterion, ...]:
         """Identify the installation and refuse source files read from the checkout."""
         location = Path(research.__file__).resolve()
-        record = importlib.metadata.distribution("alpha-research").read_text("RECORD") or ""
+        # The distribution that installed ``research``, not an assumed project name.
+        owners = importlib.metadata.packages_distributions().get("research", [])
+        record = (
+            importlib.metadata.distribution(owners[0]).read_text("RECORD") or ""
+            if len(owners) == 1
+            else ""
+        )
         extensions = InstalledExtensions()
         distributions = sorted(
             f"{item.metadata['Name']}=={item.version}"

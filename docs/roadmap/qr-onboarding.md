@@ -1634,6 +1634,43 @@ finding 3, and that failure is recorded as run.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 696 files |
 
+## Rehearsal 1 (uncounted, 2026-10-04)
+
+**Setup.**
+- Declared through J2 at commit `d9374e1`, with QR workspace `316802c`.
+- The capture window was 30 minutes.
+- Evidence is in `logs/mr17/rehearsal-1/`, stored outside iCloud.
+
+**Result: failed in J1** at 07:46 UTC, 15 seconds after the start.
+
+| Step | Commands | Outcome |
+| --- | --- | --- |
+| Freeze | Repository and QR workspace status, worktree, QR archive | Passed: both were clean at their declared commits, and the running driver equalled the frozen copy |
+| J1 | `uv python install`, build and research environments, extension install, Feast worker, `make local-services-up`/`status`, import audit | Passed, including the import audit of the QR workspace |
+| J1 | `check-environment` | **Failed** (exit 1) |
+| J1 | Guide coverage, signed collector release | Not run |
+| J2 | All | Not run |
+
+**Cause: a defect in the journey's own check, not in the platform.**
+`journey_checks.py` looked up the research distribution by the assumed name
+`alpha-research`. The research wheel's distribution is `alpha-research-lab`, so the
+lookup raised `PackageNotFoundError`. The unit tests could not catch this, because
+the check runs only inside an installed environment.
+
+**Fix (commit below).** The check now finds the distribution that installed the
+`research` package through `importlib.metadata.packages_distributions()`, instead
+of naming it. A run under the current non-editable environment passed all three
+environment criteria.
+
+**Validation of the fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,516 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 696 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
