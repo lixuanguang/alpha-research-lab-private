@@ -220,20 +220,18 @@ class LakeFSStorage:
                     raise ValueError("lakeFS publication refuses symbolic links")
                 if not path.is_file():
                     continue
-                if path.stat().st_size > max_bytes:
+                size = path.stat().st_size
+                if size > max_bytes:
                     raise ValueError("lakeFS object exceeds max_bytes")
-                payload = path.read_bytes()
+                if size == 0:
+                    raise ValueError("lakeFS publication cannot version an empty file")
                 name = path.relative_to(root).as_posix()
+                digest = self._file_sha256(path)
+                # The SDK opens ``content`` as a local file path and reads it.
                 self._objects.upload_object(
-                    repository, branch, name, content=payload, _request_timeout=300
+                    repository, branch, name, content=str(path), _request_timeout=300
                 )
-                objects.append(
-                    VersionedObject(
-                        path=name,
-                        sha256=hashlib.sha256(payload).hexdigest(),
-                        size_bytes=len(payload),
-                    )
-                )
+                objects.append(VersionedObject(path=name, sha256=digest, size_bytes=size))
         commit = self._commits.commit(
             repository, branch, CommitCreation(message=message), _request_timeout=60
         )

@@ -42,16 +42,16 @@ class ObjectsApi:
         branch: str,
         path: str,
         *,
-        content: bytes,
+        content: str,
         _request_timeout: int,
     ) -> object:
-        """Upload one object's complete bytes to a branch.
+        """Upload one local file's complete bytes to a branch.
 
         Args:
             repository: Repository name.
             branch: Writable branch.
             path: Object path relative to the branch.
-            content: Complete object bytes.
+            content: Local file path; the SDK opens and reads it.
             _request_timeout: Socket timeout seconds.
 
         Returns:

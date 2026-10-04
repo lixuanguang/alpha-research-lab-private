@@ -2066,6 +2066,39 @@ research environment and Feast worker.
 
 This commit also carries the M3d design note as a draft, not yet approved.
 
+## Rehearsal 5 (uncounted, 2026-10-04)
+
+**Setup.** Declared through J5 at commit `5aa3903`, with QR workspace `ab34f0d` and
+a 30-minute capture window. Evidence is in `logs/mr17/rehearsal-5/`.
+
+**Result: failed in J2 at 12:35 UTC,** at `reopen:lakefs_published`.
+- **J1:** passed.
+- **J2:** the eight captures, their replays, `capture-publish`, `discover` and the
+  snapshot reopen all passed.
+- **Cause: a defect from M3c, in `LakeFSStorage.publish`.** It passed each file's
+  bytes as the SDK's `upload_object(content=...)`. The generated SDK opens
+  `content` as a local file path, so the upload failed with "File name too long".
+  The unit test's fake API accepted bytes and could not show this.
+
+**Fix (commit below).**
+- `publish` passes the file path.
+- It takes each object's digest from a streamed read and its size from the file
+  system, and refuses an empty file, which a version cannot hold.
+- The stub declares `content: str` (a path).
+- The fake now reads the path, as the SDK does.
+
+The live upload path is exercised first by the next rehearsal, through the driver,
+which alone passes the private key path.
+
+**Validation of the fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,529 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 38 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
 ## M3d design note: served learned features and the live feature publisher (draft 2026-10-04)
 
 Draft for owner approval. Nothing is implemented. This is the approved P-A

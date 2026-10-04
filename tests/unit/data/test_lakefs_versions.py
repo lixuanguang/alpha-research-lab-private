@@ -36,10 +36,10 @@ class _FakeLakeFS:
         self.corrupt: str | None = None
 
     def upload_object(
-        self, repository: str, branch: str, path: str, *, content: bytes, _request_timeout: int
+        self, repository: str, branch: str, path: str, *, content: str, _request_timeout: int
     ) -> object:
-        """Stage one object."""
-        self.objects[path] = content
+        """Stage one object from a local file path, as the SDK opens ``content``."""
+        self.objects[path] = Path(content).read_bytes()
         return None
 
     def get_object(
@@ -164,6 +164,11 @@ class TestLakeFSVersions:
         with pytest.raises(ValueError, match="exceeds max_bytes"):
             storage.publish(
                 "mr17-data", "main", tmp_path, components=("raw",), message="x", max_bytes=4
+            )
+        (tmp_path / "raw/empty").write_bytes(b"")
+        with pytest.raises(ValueError, match="empty file"):
+            storage.publish(
+                "mr17-data", "main", tmp_path, components=("raw",), message="x", max_bytes=100
             )
         with pytest.raises(ValueError, match="selects raw, snapshots or features"):
             storage.publish(
