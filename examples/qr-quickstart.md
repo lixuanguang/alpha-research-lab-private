@@ -231,13 +231,25 @@ packages the learned example study this way.
 
 ## 6. Serve a stored feature (optional)
 
-For an input that no live feed provides, store the feature and serve it. Register a
-`FeatureStoreDefinition` for your feature schema. Publish snapshots of one version
-with `applications.explore.materialize_features`, which prepares each snapshot,
-publishes and verifies its Feast generation, then appends it. Calling it again with
-the same version and later decisions extends the version's stream. Pass the
-definition to `CandidatePackager.publish(feature_store=...)`, and select the version
-with `PackagedCandidate.feature_version`. The
+To have paper read your feature from the feature store instead of computing it in
+the candidate, serve it:
+1. **Build the definition.** `CandidatePackager().feature_store(store, attempt_id,
+   name=...)` builds the `FeatureStoreDefinition` from your study: its schema and,
+   for a fitted study, the last fold's transform identity and output fields.
+2. **Materialize history.** `research.features.FeatureMaterializer().materialize(...)`
+   computes each vector, applies the study's `FittedTransform` with its retained
+   `TransformVersion` (never refitting), publishes and verifies the Feast
+   generation, then appends the snapshot. Calling it again with the same version
+   and later decisions extends the version's stream.
+3. **Package and select.** Pass the definition to
+   `CandidatePackager.publish(feature_store=...)`, which refuses a definition that
+   differs from the study's, and select the version with
+   `PackagedCandidate.feature_version`.
+
+In paper, the operator's feature publisher extends the same version from the live
+book and trades feeds
+([paper services](../src/applications/paper/README.md#supervised-local-deployments)).
+The
 [feature store guide](../src/research/features/README.md#versioned-feature-store-and-local-feast-serving)
 covers point-in-time rules, faults and rollback.
 

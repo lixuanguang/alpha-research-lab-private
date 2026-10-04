@@ -2256,6 +2256,221 @@ runs with the real Feast worker and skips without one:
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 702 files |
 
+## M3d-2 result (2026-10-04)
+
+The second M3d commit: the live feature publisher (design item 3) and the move of
+materialization into `research.features`. Nothing has been signed or run live.
+
+**What changed.**
+- **One materialization path.** `applications.explore.materialize_features` is
+  removed and replaced by `research.features.FeatureMaterializer.materialize`,
+  with the same contract. The paper-services wheel ships `research.features` but
+  not `applications.explore`, so the publisher could not use the old function.
+  Research workflows, tests and guides now call the new class.
+- **Following a live recording.** `market_data.storage.RecordingFollower` reads a
+  recording's journal incrementally and never writes.
+  - It reads only up to `cursor.json`'s offset, so a partial line is never decoded.
+  - It verifies the running SHA-256 against the cursor at that offset.
+  - It moves to a chain's next segment only once the current one is sealed and
+    fully read. It checks that segment against the run and its predecessor's name,
+    request identity and verified digest, as `CaptureRecording` does.
+- **Live inputs (`runtime.live_inputs`).**
+  - `LiveInputs` joins several sources into one ordered `DecisionSource`, for
+    example a book source and its instrument's trade source.
+  - The supervisor's observer now uses it in place of its own inline join.
+  - `FollowedFeed` replays a followed recording through the collector's native
+    reconstruction into a `LiveBookDecisionSource` or `LiveTradeDecisionSource`.
+- **The publisher.** `applications.execute.feature_publisher.FeaturePublisher`, run
+  as `alpha-execute feature-publisher --config --candidates --root`. The signed
+  launcher now admits this command and binds `--config` and `--candidates` as it does
+  for `deployment`.
+  - It binds the supervisor's run through a `status.json` naming the same
+    configuration identity and written after the publisher started, so an earlier
+    run's status in the same root is never adopted.
+  - It groups served instances by pinned stream and entity; instances sharing a
+    stream must share source and grid.
+  - It loads each bundle's kernel, transform state and stored definition through
+    `PaperServiceCandidates`.
+  - It follows the run's book recording, and its trades recording when the kernel
+    reads trades.
+  - At each grid instant it publishes once every followed feed holds a durable
+    record after the instant. It materializes the pinned version with
+    `FeatureMaterializer` and the fitted transform, Feast-verified before the
+    snapshot is appended.
+  - Its life ends when every followed recording is complete and accepted, or at
+    the supervisor's own end (duration plus drain reserve). It prints a per-stream
+    report: published, skipped, failures, last instant, last error.
+- **Configuration.** `PaperFeatureServing.publisher` is a `PaperFeaturePublisher`
+  carrying `max_lag_seconds` (1 to 300).
+  - `PaperServiceCandidates.published_inputs` counts a served stream's fields when
+    the publisher is declared, so a source starts its trades capture when a served
+    stream reads trades.
+  - Those fields now enter the source's projected requirements, so they also
+    change that source's identity.
+- **Packaging.** `runtime/live_inputs.py` is added to the paper-services wheel, and
+  `FeaturePublisher` is exported lazily from `applications.execute`.
+
+**Departures from the approved note.**
+1. **Where the owner lives.** The note named `runtime.FeaturePublisher`. The
+   publisher composes `PaperServiceCandidates` and the supervisor's layout, and
+   `runtime` may not depend on `applications`. So the owner lives in
+   `applications.execute`, and its reusable parts (`LiveInputs`, `FollowedFeed`) live
+   in `runtime`.
+2. **Clocks.** Each record is accepted on its receipt clock, the deterministic saved
+   reconstruction both live sources support, not on the publisher's own read time.
+   The published stream therefore equals what an offline reader of the same journals
+   computes, and a restart reproduces it.
+3. **Configuration.** The note listed "cadence equal to the candidates' and a
+   maximum lag". The signed field carries only the lag. The cadence comes from the
+   candidates' signed definitions, so it cannot disagree with them.
+4. **Lag rule.** An instant not published within the lag is skipped, whether its
+   feeds were late or the publisher was behind. A failed publication is retried
+   until then.
+5. **Limits, each failing closed.**
+   - Only batch feature definitions are served. An incremental definition binds one
+     checkpoint instance, which would clash with its offline history.
+   - One recording per feed: a restarted source stops the publisher with an error.
+   - Rows carry the live projection as their source and the supervisor run as their
+     dataset, and checkpoints are scoped to that run.
+
+**Open point for J6/J7 (owner decision before M3f).**
+- **What paper decides on.** At a grid instant the supervisor's observer serves the
+  latest snapshot published *by then*. The publisher can publish instant t only
+  after a record later than t exists on every feed, plus a Feast call. So a live
+  decision at t will usually read the snapshot of t − cadence, still within the
+  candidate's maximum age.
+- **What replay compares.** The delivery log retains the exact snapshot served, and
+  replay verifies it. An `offline_features` replay at t reads the snapshot at t.
+- **Consequence.** Paper-to-research parity in J7 must compare each paper decision
+  with the snapshot it actually served, not expect the value at t.
+- **Resolved.** The owner chose exact-instant serving; see the S-1 note.
+
+**Tests.**
+- **Follower** (`tests/unit/data/test_capture_recording.py`):
+  - incremental bounded polls;
+  - bytes past the cursor are never read;
+  - a changed durable byte is refused;
+  - a chain is followed across segments while it grows.
+- **Publisher** (`tests/unit/applications/test_feature_publisher.py`, authored
+  growing OKX journals):
+  - joined inputs keep declared order, and undeclared or repeated requirements are
+    refused;
+  - a followed feed reads exactly what the saved receipt reconstruction reads;
+  - instants publish only after both feeds pass them, with inputs equal to both
+    journals' saved reconstruction;
+  - a quiet feed holds publication, then instants beyond the lag are skipped;
+  - a failed publication is retried;
+  - a restart resumes after the stream's latest snapshot;
+  - the schedule ends with its recordings.
+- **Configuration and binding** (`tests/unit/applications/test_service_candidates.py`):
+  - publisher inputs start the trades feed only when declared;
+  - the lag bounds;
+  - status binding refuses a stale or foreign status;
+  - a run with no recording ends at the deadline;
+  - an incremental stream is refused;
+  - a configuration without a publisher is refused.
+- **Launcher** (`tests/engineering/test_paper_services_release.py`): the binding for
+  `feature-publisher`, and refusal of a `--config` override.
+- **End to end** (`tests/integration/test_qr_study_example.py`, with the real Feast
+  worker, skipped without one):
+  - the example's learned holdout study packages as a served candidate;
+  - its authored captures are placed as a supervisor run's recordings, and the
+    publisher runs to completion;
+  - at every published instant the served vector equals the one `FeatureMaterializer`
+    computes from the published captures through `SavedDecisionSource` with the
+    same transform.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,543 passed, 4 skipped (optional Feast cases with no worker selected, now including the publisher test), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 706 files |
+
+A first run failed the engineering-standards check: five cross-owner imports in the
+publisher bypassed public APIs, and three test helpers were module functions. Both
+were fixed (`FollowedFeed` and `LiveInputs` are now exported lazily from `runtime`)
+and the run above is the rerun.
+
+## S-1 design note: exact-instant feature serving (approved 2026-10-04)
+
+The owner chose on 2026-10-04 that a served candidate decides instant t only with
+the snapshot at exactly t. This replaces "the latest snapshot available". The owner
+approved this note on 2026-10-04, including the recorded-schema change in item 3
+with the schema name kept. Nothing is implemented yet.
+
+**What the code shows.**
+- **Online serving is "latest available".**
+  - At each crossed instant t, `SharedPaperCaptureObserver` serves an
+    `online_features` candidate through `ServedFeatures.serve`. That reads the
+    active version's latest snapshot by t, within the candidate's maximum age.
+  - The publisher (M3d-2) can publish t only after a record later than t exists on
+    every feed, plus a Feast call. So a live decision at t usually reads t − cadence.
+- **Offline replay is "exactly t".** `offline_features` replay requires a snapshot
+  exactly at t, which is what studies and J5 assume.
+- **One pending instant per candidate.** The observer decides each crossed instant
+  on the book that crosses it, from the latest eligible market at or before t. It
+  remembers only the latest crossed instant per candidate.
+- **Coordination is fixed in the log.** `SharedDecisionGroup` requires
+  `coordinated_at == at + 1µs`. `SharedBookDelivery` requires a delivery that decides
+  to also match (`matched`).
+
+**Design.**
+1. **One serving rule.** `ServedFeatures.serve` serves the snapshot exactly at t in
+   both input modes, with Feast parity for `online_features` as today. "No snapshot
+   at t yet" is a distinct result, `feature-pending`.
+2. **Deferred decisions.**
+   - When a served candidate's snapshot at t is pending, the observer keeps the
+     instant open. It retains that instant's market (the latest eligible market at or
+     before t, as today) and retries on each later book delivery.
+   - It decides t once the snapshot exists. It skips t with the pause reason
+     `feature-not-published` once the candidate's next instant is crossed, so the wait
+     is bounded by one cadence and needs no new setting.
+   - Source-fed candidates are unchanged and decide on the crossing book.
+3. **Recorded schema change (needs approval).**
+   - **Coordination.** A deferred group is coordinated when it is decided:
+     `coordinated_at` is one microsecond after the delivery that preceded the
+     deciding delivery, and at least `at + 1µs`. The invariant becomes
+     `at + 1µs ≤ coordinated_at < delivery.available_at`. Account knowledge therefore
+     never precedes a book already matched, and the decision's quote stays the
+     instant's market.
+   - **Matching.** `matched` may now accompany a deferred decision: a delivery that
+     decides also matches its own book, as today.
+   - **Unchanged.** Existing logs satisfy the new invariant, so no record is
+     reinterpreted. The schema name stays `shared-candidate-delivery`, because the
+     change only widens what it accepts. If you prefer a version bump, it would be
+     `shared-candidate-delivery-2`; I do not recommend one, since no consumer reads
+     the field differently.
+4. **Replay.** Replay accepts a retained group only for an instant crossed earlier
+   and not yet decided, with its coordination inside the widened bounds. It then
+   verifies the exact served snapshot as today. Replay never consults whether the
+   snapshot existed at the time; the log is the evidence.
+5. **Latency is measured.**
+   - The decision delay (`coordinated_at − at`) is already retained.
+   - Monitoring reports its distribution per candidate. J7 checks that the study's
+     simulated entry delay is at least the observed decision delay.
+   - Research gets no new feature now.
+6. **Release.** This changes the paper-services release, which stage 2b qualifies
+   anyway, as with AB-1.
+
+**Tests.**
+- A served instant decides once its snapshot appears, from the instant's market,
+  with coordination inside the bounds.
+- A snapshot that never appears skips the instant at the next crossing with
+  `feature-not-published`.
+- A late snapshot never serves a later instant's value.
+- Exact replay of deferred decisions, and refusal of a retained group coordinated
+  outside the bounds or for an undecided-later instant.
+- `ServedFeatures` refuses "latest" and returns `feature-pending`.
+- The integration publisher test, extended with the supervisor's observer in
+  process: paper decisions read exactly the research values at t.
+
+**Sequencing.** One commit, after M3d-2 and before the AB-1 abstention commit. Both
+touch `SharedPaperCaptureObserver`, and doing this first keeps AB-1's cancellation
+rule unaffected by deferral.
+
 ## Extension identity defect (found 2026-10-04)
 
 **Found while dry-running the updated J4 and J5.** M1b defined an extension's

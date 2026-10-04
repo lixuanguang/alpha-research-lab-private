@@ -86,12 +86,29 @@ class PaperServiceCandidates:
             return self._bundle(instance.candidate).definition().inputs
         return self._references(source).inputs
 
+    def published_inputs(self, instance: PaperServiceInstance) -> tuple[InputRequirement, ...]:
+        """Return the source inputs the feature publisher reads for a served candidate.
+
+        Only a feature-served packaged candidate under a configured publisher has
+        any: the publisher computes its stream from these live fields.
+        """
+        features = self.config.features
+        if (
+            features is None
+            or features.publisher is None
+            or not isinstance(instance.candidate, PackagedCandidate)
+            or instance.candidate.feature_version is None
+        ):
+            return ()
+        return self._bundle(instance.candidate).definition().inputs
+
     def requirements(self, source: PaperServiceSource) -> tuple[InputRequirement, ...]:
-        """Return the ordered union of fields the source's candidates read."""
+        """Return the ordered union of fields the source's candidates and publisher read."""
         fields: tuple[InputRequirement, ...] = ()
         for instance in self.config.instances:
             if instance.source == source.name:
-                fields += tuple(item for item in self.inputs(instance) if item not in fields)
+                read = (*self.inputs(instance), *self.published_inputs(instance))
+                fields += tuple(item for item in read if item not in fields)
         return fields
 
     def feeds(self, source: PaperServiceSource) -> PaperInputs:

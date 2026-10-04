@@ -294,8 +294,21 @@ feature-store stream, which the bundle's packaged `FeatureStoreDefinition` names
 it then adds no source fields. Its serving needs the configuration's `features`
 binding (`PaperFeatureServing`: absolute store path and Feast generation root, the
 separately locked worker command and its timeout), and preflight refuses a
-feature-served candidate without it. The publisher that extends the stream runs
-outside the supervisor, as `materialize_features` does. The cadence cannot exceed source freshness or
+feature-served candidate without it. With `features.publisher`
+(`PaperFeaturePublisher`, a maximum lag of 1 to 300 seconds), the separate
+`alpha-execute feature-publisher --config ... --candidates ... --root ...` process
+extends each served stream while the supervisor runs. It binds the supervisor's run
+through a `status.json` written after it started, follows that run's book and trades
+recordings read-only and replays each record on its receipt clock, as a saved
+reconstruction does. At each grid instant, once every followed feed holds a durable
+record after it, it materializes the pinned version's snapshot with the bundle's
+kernel and fitted transform (`FeatureMaterializer`), Feast-verified before it is
+appended. An instant it has not published within the lag is skipped; a failed
+publication is retried until then. Its life ends when the recordings complete or at
+the supervisor's own end. It serves batch definitions only, follows one recording per
+feed, and writes only the feature store and the Feast generation root. Because the
+publisher counts served candidates' fields, a source starts its trades capture when
+a served stream reads trades. The cadence cannot exceed source freshness or
 capture idle time. The supervisor loads every instance before starting and checks its candidate,
 policy, model and feature identities against the signed deployment.
 `alpha-execute deployment-check --config ... --candidates ...` loads every configured

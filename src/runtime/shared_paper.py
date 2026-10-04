@@ -20,8 +20,14 @@ from execution import AccountControl, AccountQuote, PaperAccount, PaperMarket, P
 from financial_units import Price, Quantity
 from market_data.books import BookAsOfIndex, BookDepth, BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord
-from research.observations import DecisionInputs, LiveBookDecisionSource, LiveTradeDecisionSource
+from research.observations import (
+    DecisionInputs,
+    DecisionSource,
+    LiveBookDecisionSource,
+    LiveTradeDecisionSource,
+)
 from runtime.feature_feed import ServedFeature, ServedFeatures
+from runtime.live_inputs import LiveInputs
 from runtime.live_paper import LiveBookDelivery
 from runtime.portfolio import SharedDecisionRuntime, SharedStrategyBinding, SharedStrategyInput
 from serialization import DomainCodec, WireRecord
@@ -466,14 +472,15 @@ class SharedPaperCaptureObserver:
                 return None
             self.feature_pauses.pop(binding.instance_id, None)
             return served
-        causal = self.source.read(binding.entity, instant).observations
-        if self.trades is not None:
-            causal += self.trades.read(binding.entity, instant).observations
-        by_input = {row.input: row for row in causal}
-        rows = tuple(by_input[item] for item in binding.candidate.definition.inputs)
-        if any(row.value is None for row in rows):
+        sources: tuple[DecisionSource, ...] = (
+            (self.source,) if self.trades is None else (self.source, self.trades)
+        )
+        inputs = LiveInputs(binding.candidate.definition.inputs, sources).read(
+            binding.entity, instant
+        )
+        if any(row.value is None for row in inputs.observations):
             return None
-        return DecisionInputs(entity=binding.entity, decision_at=instant, observations=rows)
+        return inputs
 
     def _market(self, delivery: LiveBookDelivery) -> PaperMarket | None:
         """Advance native quality before exposing finite eligible displayed touch liquidity."""

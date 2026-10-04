@@ -9,6 +9,7 @@ from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 # third party library imports
 import pytest
@@ -16,6 +17,7 @@ from engineering_candidates import FoldNetChart, FoldNetMetric, ImbalanceTarget
 from msgspec.structs import replace
 
 # project library imports
+from applications.execute import FeaturePublisher
 from applications.execute.service_candidates import PaperServiceCandidates
 from configuration import (
     AccountConfiguration,
@@ -26,6 +28,7 @@ from configuration import (
     OpeningAccount,
     PackagedCandidate,
     PaperExecutionScenario,
+    PaperFeaturePublisher,
     PaperFeatureServing,
     PaperServiceAccount,
     PaperServiceConfiguration,
@@ -35,6 +38,8 @@ from configuration import (
 )
 from configuration.accounts import InstrumentFeeRate
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
+from market_data.contracts import CaptureRequest
+from market_data.storage import CaptureJournal
 from research.experiments import AttemptStore, ExperimentSpec, Fingerprint, TimeWindow
 from research.experiments.candidates import (
     CandidateArtifact,
@@ -588,6 +593,101 @@ class TestPaperServiceCandidates:
         )
         with pytest.raises(ValueError, match="no feature-store definition"):
             plain.candidate(self._configuration(without).instances[1])
+
+    def test_publisher_inputs_start_the_feeds_a_served_stream_reads(self, tmp_path: Path) -> None:
+        """Only a declared publisher adds a served stream's fields, including trades."""
+        definition = self._publish(tmp_path, trades=True, served=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity,
+            extension=self.extension,
+            starts_at=_ORIGIN,
+            feature_version="stream",
+        )
+        serving = PaperFeatureServing(
+            store_path="/private/tmp/features.sqlite3",
+            serving_root="/private/tmp/feast",
+            worker=("/usr/bin/python3", "-m", "worker"),
+        )
+        unpublished = replace(self._configuration(packaged, trades=True), features=serving)
+        resolved = PaperServiceCandidates(unpublished, tmp_path / "candidates")
+        assert resolved.published_inputs(unpublished.instances[1]) == ()
+        assert resolved.feeds(unpublished.sources[0]).trades == ()
+        published = replace(
+            unpublished,
+            features=replace(serving, publisher=PaperFeaturePublisher(max_lag_seconds=5)),
+        )
+        resolved = PaperServiceCandidates(published, tmp_path / "candidates")
+        assert resolved.published_inputs(published.instances[0]) == ()
+        assert resolved.published_inputs(published.instances[1]) == (self._input(), self._flow())
+        feeds = resolved.feeds(published.sources[0])
+        assert feeds.trades == (self._flow(),) and self._input() in feeds.book
+
+    def test_feature_publisher_binds_its_supervisors_fresh_status(self, tmp_path: Path) -> None:
+        """Stale or foreign status binds nothing; a bound run refuses an incremental stream."""
+        definition = self._publish(tmp_path, trades=True, served=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity,
+            extension=self.extension,
+            starts_at=_ORIGIN,
+            feature_version="stream",
+        )
+        configuration = replace(
+            self._configuration(packaged, trades=True),
+            duration_seconds=1,
+            features=PaperFeatureServing(
+                store_path=str(tmp_path / "features.sqlite3"),
+                serving_root=str(tmp_path / "feast"),
+                worker=("/usr/bin/python3", "-m", "worker"),
+                publisher=PaperFeaturePublisher(max_lag_seconds=5),
+            ),
+        )
+        root = tmp_path / "service"
+        root.mkdir()
+        publisher = FeaturePublisher(
+            configuration, tmp_path / "candidates", root, poll_seconds=0.01
+        )
+        assert [item.instance_id for item in publisher.served()] == ["packaged"]
+        assert publisher.run()["stopped"] == "supervisor_not_found"
+        codec = DomainCodec()
+        status = root / "status.json"
+        status.write_bytes(
+            codec.encode_json(
+                {"configuration": configuration.identity, "run_id": "old", "observed_at": _ORIGIN}
+            )
+        )
+        assert publisher.run()["run_id"] is None
+        fresh = datetime.now(UTC) + timedelta(hours=1)
+        status.write_bytes(
+            codec.encode_json({"configuration": "b" * 64, "run_id": "run", "observed_at": fresh})
+        )
+        with pytest.raises(ValueError, match="names another configuration"):
+            publisher.run()
+        status.write_bytes(
+            codec.encode_json(
+                {"configuration": configuration.identity, "run_id": "run", "observed_at": fresh}
+            )
+        )
+        with pytest.raises(ValueError, match="started no recording"):
+            publisher.run()
+        source = configuration.sources[0]
+        for feed, capture in (("book", source.capture), ("book.trades", source.trades)):
+            assert capture is not None
+            request = CaptureRequest(
+                config=capture, recording_id=str(uuid4()), implementation_identity="a" * 64
+            )
+            directory = root / "runs" / "run" / feed / request.recording_id
+            CaptureJournal(directory / request.recording_id, request).start()
+        with pytest.raises(ValueError, match="batch feature definitions only"):
+            publisher.run()
+        with pytest.raises(ValueError, match="declares no feature publisher"):
+            FeaturePublisher(replace(configuration, features=None), tmp_path / "candidates", root)
+
+    def test_feature_publisher_lag_is_bounded(self) -> None:
+        """The publisher's lag is a whole number of seconds from 1 to 300."""
+        assert PaperFeaturePublisher(max_lag_seconds=300).max_lag_seconds == 300
+        for lag in (0, 301, True):
+            with pytest.raises(ValueError, match="lag must be 1 to 300 seconds"):
+                PaperFeaturePublisher(max_lag_seconds=lag)
 
     def test_feature_serving_requires_absolute_paths_and_worker(self) -> None:
         """The served-feature binding refuses relative locations and unbounded timeouts."""

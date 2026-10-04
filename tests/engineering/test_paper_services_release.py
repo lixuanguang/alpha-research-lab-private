@@ -71,7 +71,7 @@ class TestPaperServicesRelease:
     def test_installed_commands_bind_signed_configuration_and_candidates(
         self, tmp_path: Path
     ) -> None:
-        """Deployment and its check receive signed bytes; control receives nothing signed."""
+        """Deployment, its check and the publisher receive signed bytes; control receives none."""
         runtime = self._runtime()
         config, candidates = tmp_path / "config.json", tmp_path / "candidates"
         bind = LocalInstallation._bound_arguments
@@ -93,6 +93,22 @@ class TestPaperServicesRelease:
         ]
         assert bind(
             runtime,
+            ("feature-publisher", "--root", "/run"),
+            config,
+            tmp_path / "journal",
+            release_identity="a" * 64,
+            candidates=candidates,
+        ) == [
+            "feature-publisher",
+            "--root",
+            "/run",
+            "--config",
+            str(config),
+            "--candidates",
+            str(candidates),
+        ]
+        assert bind(
+            runtime,
             ("deployment-control", "--socket", "/s.sock"),
             config,
             tmp_path / "journal",
@@ -102,6 +118,7 @@ class TestPaperServicesRelease:
         for arguments in (
             ("deployment", "--config", "/other.json"),
             ("deployment", "--candidates=/other"),
+            ("feature-publisher", "--config", "/other.json"),
             ("account",),
         ):
             with pytest.raises(ValueError):

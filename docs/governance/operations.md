@@ -646,8 +646,11 @@ fails closed; on any failure, fix the input and start the step again.
 6. **Sign and activate each account.** Author each account target's deployment
    from those identities, then follow steps 1–2 of the supervised services above:
    authorize, reconcile, claim owners, serve the accounts and start the supervisor.
-   A feature-served candidate also needs its stream publisher running
-   (`materialize_features` on the same version) for values to stay fresh.
+   A feature-served candidate also needs its stream publisher: declare
+   `features.publisher` in the configuration and run `alpha-governance-artifacts run
+   --target SERVICES --policy POLICY.json -- feature-publisher --root ROOT` beside the
+   supervisor, with the supervisor's `--root`. The launcher binds the signed
+   configuration and candidates.
 7. **Monitor and stop** as in steps 3–8 above.
 
 ## Incident record

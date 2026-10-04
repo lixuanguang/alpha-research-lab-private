@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         JobState,
         JobWorkerPool,
     )
+    from runtime.live_inputs import FollowedFeed, LiveInputs
     from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
     from runtime.monitoring import CandidateMonitoringExporter
     from runtime.packaging import CandidatePackager, ComponentSelection
@@ -87,6 +88,12 @@ def __getattr__(name: str) -> object:
             "ExtensionProvider": extensions.ExtensionProvider,
             "InstalledExtensions": extensions.InstalledExtensions,
         }
+        return exports[name]
+    if name in {"FollowedFeed", "LiveInputs"}:
+        # project library imports
+        from runtime import live_inputs
+
+        exports = {"FollowedFeed": live_inputs.FollowedFeed, "LiveInputs": live_inputs.LiveInputs}
         return exports[name]
     if name in {"PaperCapabilities"}:
         # project library imports
@@ -295,6 +302,7 @@ __all__ = [
     "ExtensionFactories",
     "ExtensionProvider",
     "FeatureFactory",
+    "FollowedFeed",
     "ImplementationIdentity",
     "InstalledExtensions",
     "InstalledIdentity",
@@ -307,6 +315,7 @@ __all__ = [
     "JobState",
     "JobWorkerPool",
     "LiveBookDelivery",
+    "LiveInputs",
     "LoadedCandidate",
     "LocalCandidateExecutor",
     "MetricFactory",

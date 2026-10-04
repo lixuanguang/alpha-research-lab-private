@@ -187,17 +187,37 @@ class PackagedCandidate(WireRecord, frozen=True, tag="packaged"):
             raise ValueError("invalid packaged candidate")
 
 
+class PaperFeaturePublisher(WireRecord, frozen=True):
+    """Declare the live feature publisher that extends served candidates' streams.
+
+    It publishes one snapshot per candidate grid instant once every followed feed
+    holds a durable record after the instant, and skips an instant it has not
+    published within ``max_lag_seconds`` of it. It holds no account or venue
+    authority.
+    """
+
+    max_lag_seconds: int
+
+    def __post_init__(self) -> None:
+        """Require a bounded lag."""
+        if type(self.max_lag_seconds) is not int or not 1 <= self.max_lag_seconds <= 300:
+            raise ValueError("feature publisher lag must be 1 to 300 seconds")
+
+
 class PaperFeatureServing(WireRecord, frozen=True):
     """Bind the feature store, Feast generation root and worker for served candidates.
 
     The worker is the separately locked Feast environment's command; its first
-    element is an absolute executable. Nothing here grants trading authority.
+    element is an absolute executable. ``publisher`` declares the live feature
+    publisher that keeps served streams fresh. Nothing here grants trading
+    authority.
     """
 
     store_path: str
     serving_root: str
     worker: tuple[str, ...]
     worker_timeout_seconds: int = 10
+    publisher: PaperFeaturePublisher | None = None
 
     def __post_init__(self) -> None:
         """Require absolute paths, an absolute worker executable and a bounded timeout."""
@@ -214,6 +234,10 @@ class PaperFeatureServing(WireRecord, frozen=True):
             or not 1 <= self.worker_timeout_seconds <= 60
         ):
             raise ValueError("invalid paper feature serving")
+        if self.publisher is not None:
+            if type(self.publisher) is not PaperFeaturePublisher:
+                raise TypeError("feature publisher requires PaperFeaturePublisher")
+            self.publisher.__post_init__()
 
 
 class PaperServiceInstance(WireRecord, frozen=True):

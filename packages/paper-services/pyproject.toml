@@ -40,6 +40,7 @@ bypass-selection = true
 "../../src/runtime/components.py" = "runtime/components.py"
 "../../src/runtime/extensions.py" = "runtime/extensions.py"
 "../../src/runtime/feature_feed.py" = "runtime/feature_feed.py"
+"../../src/runtime/live_inputs.py" = "runtime/live_inputs.py"
 "../../src/runtime/live_paper.py" = "runtime/live_paper.py"
 "../../src/runtime/monitoring.py" = "runtime/monitoring.py"
 "../../src/runtime/paper.py" = "runtime/paper.py"

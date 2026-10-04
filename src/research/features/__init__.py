@@ -20,6 +20,7 @@ from research.features.fitting import (
     TransformVersion,
     VectorSignature,
 )
+from research.features.materialization import FeatureMaterializer
 from research.features.offline import (
     FeastOfflineWorker,
     FeatureAccessError,
@@ -83,6 +84,7 @@ __all__ = [
     "FeatureFactory",
     "FeatureKernel",
     "FeatureMaterialization",
+    "FeatureMaterializer",
     "FeatureObservation",
     "FeatureParity",
     "FeatureQuality",

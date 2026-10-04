@@ -140,7 +140,7 @@ maximum materialization age; a missing or future value is never silently
 recomputed. The local store's `backup`/`restore` preserves SQLite
 history; `WorkspaceBackup` retains both that history and the Feast generations.
 
-`applications.explore.materialize_features` is the executable source →
+`research.features.FeatureMaterializer` is the executable source →
 `FeatureSession` → store → Feast composition. It requires a matching source
 identity and schema, an incremental instance, and ordered decisions; it resumes
 a checkpointed incremental stream and activates only after Feast parity. Calling

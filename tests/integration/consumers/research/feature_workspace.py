@@ -14,13 +14,14 @@ from pathlib import Path
 from msgspec.structs import replace
 
 # project library imports
-from applications.explore import materialize_features, run_served_decision
+from applications.explore import run_served_decision
 from financial_units import Dimension, ExactRatio, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from research.features import (
     FeastOfflineWorker,
     FeastServingBridge,
     FeastServingSnapshot,
+    FeatureMaterializer,
     FeatureSchema,
     FeatureStoreDefinition,
     RunningMeanFeature,
@@ -120,7 +121,7 @@ class _FeatureWorkspace:
 
     def materialize(self, seconds: tuple[int, ...], version: str) -> None:
         """Run the real generalized application with exact source and dataset pins."""
-        materialize_features(
+        FeatureMaterializer().materialize(
             self.store,
             self.definition,
             source=self.source,

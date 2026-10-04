@@ -20,6 +20,7 @@ from applications.execute.workflow import main
 
 if TYPE_CHECKING:
     # project library imports
+    from applications.execute.feature_publisher import FeaturePublisher
     from applications.execute.services import (
         PaperServiceControl,
         PaperServiceOwners,
@@ -44,6 +45,12 @@ def __getattr__(name: str) -> object:
             "run_paper_services": services.run_paper_services,
         }
         return exports[name]
+    if name in {"FeaturePublisher"}:
+        # project library imports
+        from applications.execute import feature_publisher
+
+        exports = {"FeaturePublisher": feature_publisher.FeaturePublisher}
+        return exports[name]
     if name in {"DecodedBookObservation"}:
         # project library imports
         from applications.execute import source_service
@@ -58,6 +65,7 @@ __all__ = [
     "AccountExecutionRequest",
     "AccountExecutionResult",
     "DecodedBookObservation",
+    "FeaturePublisher",
     "MonitoringApplication",
     "MonitoringConfiguration",
     "PaperExecutionApplication",

@@ -48,6 +48,7 @@ from configuration.paper_activation import (
 )
 from configuration.paper_services import (
     PackagedCandidate,
+    PaperFeaturePublisher,
     PaperFeatureServing,
     PaperServiceAccount,
     PaperServiceConfiguration,
@@ -110,6 +111,7 @@ __all__ = [
     "PaperConfiguration",
     "PaperDeployment",
     "PaperExecutionScenario",
+    "PaperFeaturePublisher",
     "PaperFeatureServing",
     "PaperServiceAccount",
     "PaperServiceConfiguration",

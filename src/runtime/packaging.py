@@ -82,7 +82,7 @@ class CandidatePackager:
         It carries the study's feature schema and, for a fitted study, the last
         fold's transform identity and output fields, so stored vectors are the
         transformed vectors the candidate consumes. Pass the same definition to
-        ``materialize_features`` (with that transform) and to ``publish``. An
+        ``FeatureMaterializer.materialize`` (with that transform) and to ``publish``. An
         incremental schema needs a named ``instance``.
         """
         history = store.read(attempt_id)

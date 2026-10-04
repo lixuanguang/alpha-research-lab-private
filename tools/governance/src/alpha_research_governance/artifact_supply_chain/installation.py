@@ -598,7 +598,12 @@ class LocalInstallation:
     ) -> list[str]:
         """Bind paper service commands to the signed configuration and candidates."""
         action = arguments[0]
-        if action not in {"deployment", "deployment-check", "deployment-control"}:
+        if action not in {
+            "deployment",
+            "deployment-check",
+            "deployment-control",
+            "feature-publisher",
+        }:
             raise ValueError("unsupported installed application command")
         for argument in arguments[1:]:
             option = argument.partition("=")[0]
