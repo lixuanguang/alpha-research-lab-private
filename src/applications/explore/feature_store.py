@@ -71,8 +71,12 @@ def materialize_features(
     """Commit each vector with its successor state, then publish and activate verified Feast.
 
     The caller supplies admitted immutable source/dataset identities. Every row
-    retains the source's actual input lineage. A retry resumes committed cutoffs;
-    an interrupted Feast publication leaves the preceding active version intact.
+    retains the source's actual input lineage. A retry resumes committed cutoffs.
+    The snapshot at the last decision is prepared, its Feast generation published
+    and read back, and only then appended, so a reader of the version's stream
+    never finds a snapshot without its generation. Calling again with the same
+    version and later decisions extends that stream; an interrupted publication
+    leaves the preceding snapshot and active version intact.
     This path runs unfitted kernels; transformed vectors use the store's explicit
     fitted-definition append boundary after the existing fitted lifecycle.
     """
@@ -122,11 +126,14 @@ def materialize_features(
                 ).hexdigest(),
             )
             store.append(definition, row, checkpoint=session.checkpoint())
-    materialization = store.materialize(definition, version, decisions[-1], entities)
-    snapshot = FeastServingSnapshot.from_materialization(materialization)
+    prepared = store.prepare(definition, version, decisions[-1], entities)
+    snapshot = FeastServingSnapshot.from_materialization(prepared)
     generation = bridge.materialize(snapshot, serving_root)
     for entity in entities:
         bridge.retrieve(snapshot, generation, entity, decisions[-1])
+    materialization = store.materialize(
+        definition, version, decisions[-1], entities, expected_identity=prepared.identity
+    )
     store.activate_if_current(definition, version, expected_active)
     return materialization
 
@@ -159,7 +166,11 @@ def run_served_decision(
                 decision=None,
                 checkpoint=session.checkpoint(),
             )
-        materialization = store.get_materialization(definition, result.version)
+        if result.materialized_at is None:
+            raise FeatureAccessError("ready online feature lacks its snapshot cutoff")
+        materialization = store.get_materialization(
+            definition, result.version, result.materialized_at
+        )
         snapshot = FeastServingSnapshot.from_materialization(materialization)
         generation = bridge.open_generation(snapshot, serving_root)
         served = bridge.retrieve(snapshot, generation, entity, at)

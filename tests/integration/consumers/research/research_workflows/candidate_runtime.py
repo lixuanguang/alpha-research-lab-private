@@ -112,7 +112,7 @@ class _FeatureCandidateAcceptance:
             source_deployment,
             name=f"{name}-offline",
             input_mode="offline_features",
-            source_identity=snapshot.identity,
+            source_identity=VersionedFeatureStore.stream_identity(definition, version),
             feature_version=version,
         )
         registry = _CandidateAcceptance._registry(manifest.definition.requirements)
@@ -139,7 +139,7 @@ class _FeatureCandidateAcceptance:
             name=f"{name}-online",
             mode="runtime",
             input_mode="online_features",
-            source_identity=snapshot.identity,
+            source_identity=VersionedFeatureStore.stream_identity(definition, version),
             feature_version=version,
         )
         online_session = CandidateSession(loader.load(bundle, online))

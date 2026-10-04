@@ -21,6 +21,7 @@ from financial_units import Price, Quantity
 from market_data.books import BookAsOfIndex, BookDepth, BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord
 from research.observations import DecisionInputs, LiveBookDecisionSource, LiveTradeDecisionSource
+from runtime.feature_feed import ServedFeature, ServedFeatures
 from runtime.live_paper import LiveBookDelivery
 from runtime.portfolio import SharedDecisionRuntime, SharedStrategyBinding, SharedStrategyInput
 from serialization import DomainCodec, WireRecord
@@ -54,7 +55,7 @@ class SharedDecisionGroup(WireRecord, frozen=True):
             if type(item) is not SharedStrategyInput:
                 raise TypeError("shared decision group requires SharedStrategyInput")
             item.__post_init__()
-            if item.inputs.decision_at != self.at or item.quote != self.quote:
+            if item.decision_at != self.at or item.quote != self.quote:
                 raise ValueError("shared input cutoff or quote differs from its instant")
 
 
@@ -162,6 +163,12 @@ class SharedPaperCaptureObserver:
     Trade boundaries only update that source. Each is retained with its actual
     delivery time in the sibling ``.trades.jsonl`` log before it applies, so a
     replay interleaves both logs by delivery time and re-reads the same inputs.
+
+    A feature-served candidate reads its pinned stream through ``features`` at each
+    instant instead of the native sources. A pause reason (missing, stale, future,
+    changed version or unavailable service) skips the instant like missing inputs
+    and is kept in ``feature_pauses``. The delivery log retains the served vector
+    and the exact snapshot; replay reopens that snapshot and requires the same value.
     """
 
     def __init__(
@@ -179,6 +186,7 @@ class SharedPaperCaptureObserver:
         measurements: RuntimeMeasurementJournal | None = None,
         index: BookAsOfIndex | None = None,
         trades: LiveTradeDecisionSource | None = None,
+        features: ServedFeatures | None = None,
     ) -> None:
         """Bind explicit admitted owners and optional new-recording retention path.
 
@@ -207,13 +215,15 @@ class SharedPaperCaptureObserver:
                 raise ValueError("shared trade feed names another instrument")
             provided |= set(trades.requirements)
         for binding in runtime.bindings:
-            if (
-                binding.entity != str(request.config.instrument_id)
-                or not set(binding.candidate.definition.inputs) <= provided
-            ):
+            served = binding.candidate.deployment.input_mode == "online_features"
+            if binding.entity != str(request.config.instrument_id) or (served and features is None):
+                raise ValueError("shared candidate differs from its instrument or feature store")
+            if not served and not set(binding.candidate.definition.inputs) <= provided:
                 raise ValueError("shared candidate inputs differ from the native sources")
         self.source, self.books, self.journal, self.runtime = source, books, journal, runtime
         self.trades = trades
+        self.features = features
+        self.feature_pauses: dict[str, str] = {}
         self.trades_delivered = 0
         self.trades_path = (
             None
@@ -404,7 +414,13 @@ class SharedPaperCaptureObserver:
         due: dict[datetime, list[SharedStrategyInput]] = {}
         for instant, binding in crossed:
             inputs = self._instance_inputs(binding, instant)
-            if inputs is not None:
+            if isinstance(inputs, ServedFeature):
+                due.setdefault(instant, []).append(
+                    SharedStrategyInput(
+                        instance_id=binding.instance_id, inputs=None, quote=quote, served=inputs
+                    )
+                )
+            elif inputs is not None:
                 due.setdefault(instant, []).append(
                     SharedStrategyInput(instance_id=binding.instance_id, inputs=inputs, quote=quote)
                 )
@@ -418,6 +434,20 @@ class SharedPaperCaptureObserver:
             for instant in sorted(due)
         )
 
+    def _replayed(
+        self, binding: SharedStrategyBinding, at: datetime, item: SharedStrategyInput
+    ) -> bool:
+        """Check a retained input against fresh sources or its exact retained snapshot."""
+        if item.served is not None:
+            if self.features is None:
+                return False
+            try:
+                self.features.verify(binding.candidate, item.served)
+            except ValueError:
+                return False
+            return item.served.served_at == at
+        return self._instance_inputs(binding, at) == item.inputs
+
     @staticmethod
     def _instant_order(item: tuple[datetime, SharedStrategyBinding]) -> datetime:
         """Order crossed bindings by instant; equal instants keep binding order."""
@@ -425,8 +455,17 @@ class SharedPaperCaptureObserver:
 
     def _instance_inputs(
         self, binding: SharedStrategyBinding, instant: datetime
-    ) -> DecisionInputs | None:
-        """Select the candidate's exact fields at the instant, or None when any is missing."""
+    ) -> DecisionInputs | ServedFeature | None:
+        """Select the candidate's exact fields or served feature, or None when unavailable."""
+        if binding.candidate.deployment.input_mode == "online_features":
+            if self.features is None:
+                raise ValueError("feature-served candidate has no feature store")
+            served = self.features.serve(binding.candidate, instant)
+            if isinstance(served, str):
+                self.feature_pauses[binding.instance_id] = served
+                return None
+            self.feature_pauses.pop(binding.instance_id, None)
+            return served
         causal = self.source.read(binding.entity, instant).observations
         if self.trades is not None:
             causal += self.trades.read(binding.entity, instant).observations
@@ -513,9 +552,7 @@ class SharedPaperCaptureObserver:
             bindings = {binding.instance_id: binding for binding in self.runtime.bindings}
             for item in group.inputs:
                 binding = bindings.get(item.instance_id)
-                if binding is None or (
-                    replayed and self._instance_inputs(binding, group.at) != item.inputs
-                ):
+                if binding is None or (replayed and not self._replayed(binding, group.at, item)):
                     raise ValueError("shared decision substituted native input lineage")
             identity = hashlib.sha256(self._codec.encode_json((delivery.source, group))).hexdigest()
             # An already retained batch is an exact retry; its quote was observed with it.

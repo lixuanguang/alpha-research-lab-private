@@ -156,12 +156,15 @@ class PackagedCandidate(WireRecord, frozen=True, tag="packaged"):
     """Select one signed candidate bundle and the installed extension providing its code.
 
     The bundle is read from the paper services release's signed candidates by its
-    definition identity; its definition fixes the cadence.
+    definition identity; its definition fixes the cadence. ``feature_version`` serves
+    the candidate that version's feature-store stream instead of source inputs; the
+    bundle must package its feature-store definition.
     """
 
     definition_sha256: str
     extension: str
     starts_at: datetime
+    feature_version: str | None = None
 
     def __post_init__(self) -> None:
         """Require an exact definition digest, an extension project and a UTC grid origin."""
@@ -172,8 +175,45 @@ class PackagedCandidate(WireRecord, frozen=True, tag="packaged"):
             or type(self.extension) is not str
             or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,99}", self.extension)
             or self.extension.startswith("alpha-research-")
+            or (
+                self.feature_version is not None
+                and (
+                    type(self.feature_version) is not str
+                    or not self.feature_version
+                    or self.feature_version != self.feature_version.strip()
+                )
+            )
         ):
             raise ValueError("invalid packaged candidate")
+
+
+class PaperFeatureServing(WireRecord, frozen=True):
+    """Bind the feature store, Feast generation root and worker for served candidates.
+
+    The worker is the separately locked Feast environment's command; its first
+    element is an absolute executable. Nothing here grants trading authority.
+    """
+
+    store_path: str
+    serving_root: str
+    worker: tuple[str, ...]
+    worker_timeout_seconds: int = 10
+
+    def __post_init__(self) -> None:
+        """Require absolute paths, an absolute worker executable and a bounded timeout."""
+        if (
+            any(
+                type(value) is not str or not Path(value).is_absolute()
+                for value in (self.store_path, self.serving_root)
+            )
+            or type(self.worker) is not tuple
+            or not self.worker
+            or any(type(item) is not str or not item for item in self.worker)
+            or not Path(self.worker[0]).is_absolute()
+            or type(self.worker_timeout_seconds) is not int
+            or not 1 <= self.worker_timeout_seconds <= 60
+        ):
+            raise ValueError("invalid paper feature serving")
 
 
 class PaperServiceInstance(WireRecord, frozen=True):
@@ -238,6 +278,7 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
     schema_version: Literal["paper-services"] = "paper-services"
     # Diagnostic telemetry cadence; protection reads stay every poll.
     telemetry_seconds: int = 1
+    features: PaperFeatureServing | None = None
 
     @property
     def telemetry_interval(self) -> int:
@@ -277,6 +318,10 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
             # The supervisor never outlives the signed life of an account owner it uses.
             if self.duration_seconds > account_definition.configuration.service_life_limit:
                 raise ValueError("paper supervisor outlives an account service life")
+        if self.features is not None:
+            if type(self.features) is not PaperFeatureServing:
+                raise TypeError("paper feature serving requires a typed definition")
+            self.features.__post_init__()
         for source_definition in self.sources:
             if type(source_definition) is not PaperServiceSource:
                 raise TypeError("paper selection requires typed source services")

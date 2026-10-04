@@ -726,6 +726,66 @@ M3 journey rehearsals.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 684 files |
 
+## M1c-2 result (2026-10-04)
+
+Implemented under F-A. One commit; nothing signed or run. M1 is complete.
+
+**What changed.**
+- **Store streams.** A feature version is an append-only sequence of snapshots at
+  strictly increasing cutoffs (`versions` and `(definition, version, at)` tables).
+  `get_materialization(definition, version, at)` returns the latest snapshot by a
+  cutoff; `retrieve_online` serves the active version's latest snapshot by the
+  cutoff and reports `future` before its first one. `stream_identity` names what a
+  deployment pins, replacing a single snapshot identity.
+- **Publication order.** `prepare` computes a snapshot without writing it. The
+  publisher (`materialize_features`) publishes and reads back its Feast generation,
+  then appends it with `expected_identity`. A reader never finds a snapshot whose
+  generation is absent, and a revision that arrives after preparation refuses the
+  append. Calling it again with the same version and later decisions extends the
+  stream.
+- **Serving.** `ServedFeatures` serves a candidate's pinned stream and returns a
+  `ServedFeature` (vector, stream, version, snapshot cutoff and identity) or a pause
+  reason: future, stale, expired, missing, version changed or service unavailable.
+  `verify` reopens a retained snapshot. `CandidateFeatureFeed` uses it for dedicated
+  sessions.
+- **Shared accounts.** `SharedStrategyInput` carries source `inputs` or a `served`
+  feature; both executors take either. The observer serves feature-fed candidates
+  at their instants and keeps pause reasons. The delivery log retains the served
+  snapshot, and replay refuses a different value.
+- **Supervisor.** `PackagedCandidate.feature_version` selects a bundle's packaged
+  store definition; `PaperServiceConfiguration.features` (`PaperFeatureServing`)
+  binds the store, Feast root and worker; preflight refuses a feature-served
+  candidate without it. `PaperCapabilities(features=...)` derives the served
+  inputs' profiles from the registered store definition. `deployment-check` prints
+  each pinned stream. `AuthoredCandidates.load(served=..., feature_version=...)`
+  builds authored feature-served candidates.
+
+**Faults covered by unit tests.** Future, stale, expired, version rollback and
+re-activation, lost Feast service and recovery, a late revision reaching only later
+snapshots, a forged retained value refused on replay, a changed prepared snapshot,
+and a stream regressing or naming different bytes. Matched-cutoff parity with
+retained trades is in M1c-1; offline PIT parity is unchanged.
+
+**Open for M3 and the 2b declaration.**
+- **Live row production.** The store serves rows someone appends. A live paper
+  candidate fed from the store therefore needs a publisher process running
+  `materialize_features` on a live `DecisionSource` alongside the supervisor. The
+  journey (M3) must declare that process; nothing in the supervisor starts it.
+- **Serving cost.** Each served instant calls the Feast worker as a subprocess, as
+  dedicated online serving already did. If 2b includes served features, its
+  declaration must size this.
+- **Not unit-tested.** The supervisor's construction of `ServedFeatures` and its
+  preflight refusal need a running account owner; M3 rehearsals exercise them first.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (685 files), native stubs, engineering standards, dependency admission (188 packages), pip-audit, link and secret checks; 2,480 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 36 passed, 0 skipped (run on this code before the final guide edits) |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 685 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
@@ -734,8 +794,8 @@ M3 journey rehearsals.
      binding in `PaperServiceInstance` (done 2026-10-04).
    - **M1b:** signed extension packages and component registration (done 2026-10-04).
    - **M1c:** declared input resolution, including feature-store serving in the
-     supervisor: M1c-1 (resolver and live trades, done 2026-10-04) and M1c-2
-     (served feature streams).
+     supervisor: M1c-1 (resolver and live trades) and M1c-2 (served feature
+     streams), both done 2026-10-04.
 2. **M2 — external import audit (P2) and guides.** The governance command; QR guide
    quickstart and extension walkthrough, development environment correction, operator
    path for a packaged candidate, and the study-to-bundle API (P7).

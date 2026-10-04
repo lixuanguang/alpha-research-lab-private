@@ -130,13 +130,20 @@ the exact checkpoint schema; explicit reset starts a new session. The applicatio
 owns durable retention. `PaperCandidateRuntime` below connects these same sessions
 to the MR07 durable order journal.
 
-`CandidateFeatureFeed(store, bridge=..., serving_root=...).evaluate(session, at)`
-consumes the packaged `FeatureStoreDefinition` and a deployment-pinned immutable
-materialization. Offline reads match the authoritative PIT value at that cutoff;
-online reads also verify the actual isolated Feast generation and active version.
-Fitted store vectors are never transformed twice. Missing, stale, expired or lost
-serving values pause with unchanged state. A version change pauses and requires
-an explicit new binding. No fallback recomputes a different definition.
+`ServedFeatures(store, bridge=..., serving_root=...).serve(candidate, at)` reads a
+feature-served candidate's deployment-pinned stream (the deployment's
+`source_identity` is the store's `stream_identity` for its packaged
+`FeatureStoreDefinition` and `feature_version`). Offline serving needs a snapshot
+exactly at the cutoff and matches the authoritative PIT value; online serving reads
+the active version's latest snapshot by the cutoff within the candidate's declared
+age and verifies that snapshot's isolated Feast generation. It returns a
+`ServedFeature` (vector, stream, version, snapshot cutoff and identity) or the pause
+reason: `future`, `stale`, `expired`, `missing`, `feature-version-changed` or
+`feature-service-unavailable`. `verify` reopens a retained served feature's exact
+snapshot and refuses a different value. `CandidateFeatureFeed` applies it to a
+dedicated session. Fitted store vectors are never transformed twice; a pause leaves
+state unchanged; a version change needs an explicit new binding; no fallback
+recomputes a different definition.
 
 The complete input schedule, fitted availability, current field signatures and
 unsupported product/channel/order combinations fail before data work. Actual
@@ -242,6 +249,15 @@ with each decided instant's inputs, quote and coordination clock, and whether th
 book matched. Replay recomputes the grid and refuses a retained delivery whose
 matching or decided inputs differ. Native invalidation blocks new independent
 admission while preserving pending exposure.
+
+Shared accounts also run feature-served candidates. `SharedStrategyInput` carries
+either source `inputs` or a `served` feature, and both executors accept either. The
+observer serves such a candidate at each instant through `ServedFeatures`; a pause
+reason skips the instant like missing inputs and is kept in `feature_pauses`. The
+delivery log retains the served vector and snapshot, and a replay reopens that
+snapshot and refuses a different value. `AuthoredCandidates.load(served=...,
+feature_version=...)` builds such a candidate; `PaperCapabilities(features=...)`
+resolves its inputs against profiles derived from the registered store definition.
 
 `PaperInputs` maps each declared input to a feed the source provisions: book fields
 to the book, trade fields to the source's public trades feed when it records one.

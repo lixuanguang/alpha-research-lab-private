@@ -56,6 +56,7 @@ from market_data.books import BookAsOfIndex, BookRegistry
 from market_data.collection import CaptureTransport
 from market_data.contracts import CaptureRequest, CaptureRunRequest, RecordingRequest
 from market_data.storage import CaptureRecording
+from research.features import FeastOfflineWorker, FeastServingBridge, VersionedFeatureStore
 from research.observations import (
     InputRequirement,
     LiveBookDecisionSource,
@@ -67,6 +68,7 @@ from runtime import (
     InstalledIdentity,
     LoadedCandidate,
     ProcessCandidateExecutor,
+    ServedFeatures,
     SharedDecisionRuntime,
     SharedPaperCaptureObserver,
     SharedStrategyBinding,
@@ -240,6 +242,20 @@ class PaperServices:
         self.active = set(configuration.active)
         self.workers: dict[str, ProcessCandidateExecutor] = {}
         self.resolved = PaperServiceCandidates(configuration, candidates)
+        serving = configuration.features
+        self.features = (
+            None
+            if serving is None
+            else ServedFeatures(
+                VersionedFeatureStore(Path(serving.store_path)),
+                bridge=FeastServingBridge(
+                    FeastOfflineWorker(
+                        serving.worker, timeout_seconds=serving.worker_timeout_seconds
+                    )
+                ),
+                serving_root=Path(serving.serving_root),
+            )
+        )
         self.sources: dict[str, SourceChild] = {}
         self.faulted_accounts: set[str] = set()
         self.unavailable_accounts: set[str] = set()
@@ -337,6 +353,10 @@ class PaperServices:
         """Verify immutable deployed definitions and active owners before scheduling work."""
         for source in self.config.sources:
             self.resolved.feeds(source)
+        if self.features is None and any(
+            self.candidate(item).deployment.input_mode != "source" for item in self.config.instances
+        ):
+            raise ValueError("feature-served candidates require the configured feature store")
         for account_id, account in self.accounts.items():
             # A bounded read: the full trace history outgrows the one MiB socket response.
             state = account.execute(
@@ -836,6 +856,7 @@ class PaperServices:
                 source=LiveBookDecisionSource(
                     child.request, self.resolved.book_requirements(source), history_capacity=1000
                 ),
+                features=self.features,
                 trades=(
                     None
                     if trades is None or not trade_fields

@@ -1,4 +1,4 @@
-"""Bind a candidate session to pinned offline or isolated online features."""
+"""Serve candidates their pinned feature-store streams, offline or through isolated Feast."""
 
 from __future__ import annotations
 
@@ -12,18 +12,57 @@ from research.features import (
     FeastServingBridge,
     FeastServingSnapshot,
     FeatureAccessError,
+    FeatureVector,
     VersionedFeatureStore,
 )
-from runtime.candidates import CandidateSession, CandidateStep
+from runtime.candidates import CandidateSession, CandidateStep, LoadedCandidate
+from serialization import WireRecord
 
 
-class CandidateFeatureFeed:
-    """Consume a pinned feature version without advancing state on serving failure.
+class ServedFeature(WireRecord, frozen=True):
+    """Carry one served, already transformed vector and the exact snapshot that served it.
 
-    Offline reads compare the selected immutable materialization with
-    authoritative point-in-time retrieval. Online reads also verify the actual
-    isolated Feast generation and active version. Already fitted transforms in
-    the store are never reapplied.
+    ``stream`` is the pinned version stream's identity; ``materialization`` is the
+    snapshot's identity at ``materialized_at``. Replay reopens that snapshot.
+    """
+
+    vector: FeatureVector
+    stream: str
+    version: str
+    materialized_at: datetime
+    materialization: str
+    served_at: datetime
+
+    def __post_init__(self) -> None:
+        """Bind the vector and snapshot to one serving cutoff."""
+        if type(self.vector) is not FeatureVector:
+            raise TypeError("served feature requires a feature vector")
+        self.vector.__post_init__()
+        self._require_utc(self.materialized_at, field_name="materialized_at")
+        self._require_utc(self.served_at, field_name="served_at")
+        for value in (self.stream, self.materialization):
+            if type(value) is not str or len(value) != 64:
+                raise ValueError("served feature requires stream and snapshot identities")
+        if type(self.version) is not str or not self.version.strip():
+            raise ValueError("served feature requires a version")
+        if self.materialized_at > self.served_at or self.vector.available_at > self.served_at:
+            raise ValueError("served feature cannot come from a later snapshot or value")
+
+    @property
+    def entity(self) -> str:
+        """Return the served entity."""
+        return self.vector.entity
+
+
+class ServedFeatures:
+    """Read a candidate's pinned stream at a cutoff, or name why it cannot serve.
+
+    Offline serving requires a snapshot exactly at the cutoff and compares it with
+    authoritative point-in-time retrieval. Online serving reads the active version's
+    latest snapshot by the cutoff within the candidate's declared age, and also
+    reads the snapshot's immutable Feast generation. A changed active version, a
+    missing, stale or future value, or an unavailable store or Feast worker is a
+    reason, never a substitute value. Already fitted transforms are never reapplied.
     """
 
     def __init__(
@@ -33,79 +72,140 @@ class CandidateFeatureFeed:
         bridge: FeastServingBridge | None = None,
         serving_root: Path | None = None,
     ) -> None:
-        """Bind authoritative store and optional isolated Feast serving access."""
+        """Bind the authoritative store and optional isolated Feast serving access."""
         self._store = store
         self._bridge = bridge
         self._serving_root = serving_root
 
-    def evaluate(self, session: CandidateSession, at: datetime) -> CandidateStep:
-        """Evaluate one cutoff against the deployment's exact feature binding.
+    def serve(self, loaded: LoadedCandidate, at: datetime) -> ServedFeature | str:
+        """Return the candidate's served feature at ``at``, or the pause reason.
 
-        A changed active version, missing or stale value, or unavailable serving
-        dependency yields a pause without committing the candidate checkpoint.
-        Invalid deployment bindings, cutoffs and inconsistent store data raise.
+        Raises:
+            ValueError: The deployment's binding or the store's data are invalid.
         """
-        loaded = session.loaded
         deployment, definition = loaded.deployment, loaded.store_definition
-        if (
-            definition is None
-            or deployment.feature_version is None
-            or deployment.input_mode == "source"
-        ):
+        version = deployment.feature_version
+        if definition is None or version is None or deployment.input_mode == "source":
             raise ValueError("candidate deployment has no feature-store binding")
+        stream = VersionedFeatureStore.stream_identity(definition, version)
+        if deployment.source_identity != stream:
+            raise ValueError("candidate deployment differs from its pinned feature stream")
         if deployment.input_mode == "online_features" and (
             self._bridge is None or self._serving_root is None
         ):
             raise ValueError("online candidate requires its isolated Feast bridge")
-        session.admit_cutoff(at)
         try:
-            materialization = self._store.get_materialization(
-                definition, deployment.feature_version
-            )
-            if materialization.identity != deployment.source_identity:
-                raise ValueError("candidate materialization differs from pinned deployment")
             if deployment.input_mode == "offline_features":
-                if at != materialization.at:
-                    raise ValueError("offline candidate cutoff differs from pinned materialization")
+                snapshot = self._store.get_materialization(definition, version, at)
+                if snapshot.at != at:
+                    raise ValueError("offline candidate cutoff has no snapshot in its stream")
                 result = self._store.retrieve_offline(definition, deployment.entity, at)
                 pinned = next(
-                    (row for row in materialization.rows if row.entity == deployment.entity),
-                    None,
+                    (row for row in snapshot.rows if row.entity == deployment.entity), None
                 )
                 if (
                     pinned is None
                     or pinned.feature != result.feature
                     or pinned.status != result.status
                 ):
-                    raise ValueError("candidate PIT retrieval differs from pinned materialization")
+                    raise ValueError("candidate PIT retrieval differs from its stream snapshot")
+                if result.status != "ready":
+                    return result.status
             else:
                 result = self._store.retrieve_online(
                     definition,
                     deployment.entity,
                     at,
-                    max_materialization_age_us=min(
-                        *(item.max_age_us for item in loaded.definition.inputs),
-                        *(
-                            requirement.max_freshness_us
-                            for requirement in loaded.definition.requirements
-                            if requirement.name in {item.name for item in loaded.definition.inputs}
-                            and requirement.max_freshness_us is not None
-                        ),
-                    ),
+                    max_materialization_age_us=self.maximum_age_us(loaded),
                 )
-                if result.version != deployment.feature_version:
-                    return session.pause(at, "feature-version-changed")
-                if result.status != "ready":
-                    return session.pause(at, result.status)
+                if result.version != version:
+                    return "feature-version-changed"
+                if result.status != "ready" or result.materialized_at is None:
+                    return result.status
+                snapshot = self._store.get_materialization(
+                    definition, version, result.materialized_at
+                )
                 if self._bridge is None or self._serving_root is None:
                     raise ValueError("online candidate requires its isolated Feast bridge")
-                snapshot = FeastServingSnapshot.from_materialization(materialization)
-                generation = self._bridge.open_generation(snapshot, self._serving_root)
-                served = self._bridge.retrieve(snapshot, generation, deployment.entity, at)
+                serving = FeastServingSnapshot.from_materialization(snapshot)
+                generation = self._bridge.open_generation(serving, self._serving_root)
+                served = self._bridge.retrieve(serving, generation, deployment.entity, at)
                 if served.status != "ready":
-                    return session.pause(at, served.status)
-            if result.status != "ready":
-                return session.pause(at, result.status)
+                    return served.status
         except FeatureAccessError, OSError, sqlite3.Error:
-            return session.pause(at, "feature-service-unavailable")
-        return session.evaluate_feature(result.require_ready(), at)
+            return "feature-service-unavailable"
+        return ServedFeature(
+            vector=result.require_ready(),
+            stream=stream,
+            version=version,
+            materialized_at=snapshot.at,
+            materialization=snapshot.identity,
+            served_at=at,
+        )
+
+    def verify(self, loaded: LoadedCandidate, served: ServedFeature) -> None:
+        """Reopen the exact snapshot a retained served feature names and compare its value.
+
+        Raises:
+            ValueError: The stream, snapshot or value differs from the store.
+        """
+        served.__post_init__()
+        deployment, definition = loaded.deployment, loaded.store_definition
+        version = deployment.feature_version
+        if (
+            definition is None
+            or version is None
+            or served.version != version
+            or served.stream != VersionedFeatureStore.stream_identity(definition, version)
+            or served.entity != deployment.entity
+        ):
+            raise ValueError("served feature differs from the candidate's pinned stream")
+        snapshot = self._store.get_materialization(definition, version, served.materialized_at)
+        row = next((item for item in snapshot.rows if item.entity == deployment.entity), None)
+        if (
+            snapshot.at != served.materialized_at
+            or snapshot.identity != served.materialization
+            or row is None
+            or row.vector != served.vector
+        ):
+            raise ValueError("served feature differs from its retained snapshot")
+
+    @staticmethod
+    def maximum_age_us(loaded: LoadedCandidate) -> int:
+        """Return the tightest declared input age and capability freshness."""
+        names = {item.name for item in loaded.definition.inputs}
+        return min(
+            *(item.max_age_us for item in loaded.definition.inputs),
+            *(
+                requirement.max_freshness_us
+                for requirement in loaded.definition.requirements
+                if requirement.name in names and requirement.max_freshness_us is not None
+            ),
+        )
+
+
+class CandidateFeatureFeed:
+    """Consume a pinned feature stream without advancing state on serving failure."""
+
+    def __init__(
+        self,
+        store: VersionedFeatureStore,
+        *,
+        bridge: FeastServingBridge | None = None,
+        serving_root: Path | None = None,
+    ) -> None:
+        """Bind authoritative store and optional isolated Feast serving access."""
+        self._served = ServedFeatures(store, bridge=bridge, serving_root=serving_root)
+
+    def evaluate(self, session: CandidateSession, at: datetime) -> CandidateStep:
+        """Evaluate one cutoff against the deployment's exact feature stream.
+
+        A changed active version, missing or stale value, or unavailable serving
+        dependency yields a pause without committing the candidate checkpoint.
+        Invalid deployment bindings, cutoffs and inconsistent store data raise.
+        """
+        session.admit_cutoff(at)
+        served = self._served.serve(session.loaded, at)
+        if isinstance(served, str):
+            return session.pause(at, served)
+        return session.evaluate_feature(served.vector, at)

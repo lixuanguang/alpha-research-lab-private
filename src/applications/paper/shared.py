@@ -48,7 +48,7 @@ class SharedPaperDecision(WireRecord, frozen=True):
             if type(item) is not SharedStrategyInput:
                 raise TypeError("shared paper decision requires SharedStrategyInput")
             item.__post_init__()
-            if item.inputs.decision_at >= self.at:
+            if item.decision_at >= self.at:
                 raise ValueError("coordination must follow every decision")
 
 

@@ -163,8 +163,10 @@ class TestVersionedFeatureStore:
         assert store.retrieve_online(definition, "instrument-a", self._time(3)).version == (
             "release-one"
         )
+        with pytest.raises(FeatureStoreError, match="must increase"):
+            store.materialize(definition, "release-one", self._time(1), ("instrument-a",))
         with pytest.raises(FeatureStoreError, match="different bytes"):
-            store.materialize(definition, "release-one", self._time(3), ("instrument-a",))
+            store.materialize(definition, "release-one", self._time(2), ("instrument-a",))
         assert store.active_version(definition) == "release-one"
         store.activate(definition, "release-two")
         assert store.retrieve_online(definition, "instrument-a", self._time(3)).feature == (
@@ -183,6 +185,50 @@ class TestVersionedFeatureStore:
         restored = VersionedFeatureStore.restore(backup, tmp_path / "restored.sqlite")
         assert restored.active_version(definition) == "release-one"
         assert restored.get_materialization(definition, "release-two") == newer
+
+    def test_a_version_serves_its_latest_snapshot_by_each_cutoff(self, tmp_path: Path) -> None:
+        """Appending snapshots extends the active stream without a version change."""
+        definition = self._definition()
+        store = VersionedFeatureStore.open(tmp_path / "features.sqlite")
+        store.register(definition)
+        store.append(definition, self._feature(definition))
+        with pytest.raises(FeatureStoreError, match="unknown"):
+            store.activate(definition, "stream")
+        first = store.materialize(definition, "stream", self._time(2), ("instrument-a",))
+        store.activate(definition, "stream")
+        store.append(
+            definition, self._feature(definition, available_minute=3, numerator=5, revision="2")
+        )
+        second = store.materialize(definition, "stream", self._time(4), ("instrument-a",))
+        assert store.get_materialization(definition, "stream") == second
+        assert store.get_materialization(definition, "stream", self._time(3)) == first
+        with pytest.raises(FeatureStoreError, match="no snapshot by cutoff"):
+            store.get_materialization(definition, "stream", self._time(1))
+        early = store.retrieve_online(definition, "instrument-a", self._time(1))
+        assert (early.status, early.materialized_at) == ("future", self._time(2))
+        between = store.retrieve_online(definition, "instrument-a", self._time(3))
+        assert (between.version, between.materialized_at) == ("stream", self._time(2))
+        assert between.feature == first.rows[0].feature
+        latest = store.retrieve_online(definition, "instrument-a", self._time(4))
+        assert (latest.materialized_at, latest.feature) == (self._time(4), second.rows[0].feature)
+        assert VersionedFeatureStore.stream_identity(definition, "stream") != (
+            VersionedFeatureStore.stream_identity(definition, "other")
+        )
+        prepared = store.prepare(definition, "stream", self._time(6), ("instrument-a",))
+        with pytest.raises(FeatureStoreError, match="unknown"):
+            store.get_materialization(definition, "unpublished")
+        store.append(
+            definition, self._feature(definition, available_minute=5, numerator=7, revision="3")
+        )
+        with pytest.raises(FeatureStoreError, match="changed after preparation"):
+            store.materialize(
+                definition,
+                "stream",
+                self._time(6),
+                ("instrument-a",),
+                expected_identity=prepared.identity,
+            )
+        assert store.get_materialization(definition, "stream") == second
 
     def test_online_quality_and_fitted_schema_validation(self, tmp_path: Path) -> None:
         """Missing, future, expired and stale states stay explicit at serving time."""

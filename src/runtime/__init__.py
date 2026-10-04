@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         TransformFactory,
     )
     from runtime.extensions import ExtensionFactories, ExtensionProvider, InstalledExtensions
-    from runtime.feature_feed import CandidateFeatureFeed
+    from runtime.feature_feed import CandidateFeatureFeed, ServedFeature, ServedFeatures
     from runtime.jobs import (
         JobHandler,
         JobHealth,
@@ -162,12 +162,14 @@ def __getattr__(name: str) -> object:
             "ProcessCandidateExecutor": candidate_worker.ProcessCandidateExecutor,
         }
         return exports[name]
-    if name in {"CandidateFeatureFeed"}:
+    if name in {"CandidateFeatureFeed", "ServedFeature", "ServedFeatures"}:
         # project library imports
         from runtime import feature_feed
 
         exports = {
             "CandidateFeatureFeed": feature_feed.CandidateFeatureFeed,
+            "ServedFeature": feature_feed.ServedFeature,
+            "ServedFeatures": feature_feed.ServedFeatures,
         }
         return exports[name]
     if name in {"CandidateMonitoringExporter"}:
@@ -298,6 +300,8 @@ __all__ = [
     "ProcessSupervisor",
     "ReferenceCandidates",
     "RuntimeFiles",
+    "ServedFeature",
+    "ServedFeatures",
     "SharedBookDelivery",
     "SharedCandidateCheckpoint",
     "SharedDecisionGroup",

@@ -463,7 +463,8 @@ greater than the source's `freshness_us` or capture idle time. A source may add 
 instrument's public `trades` capture; it starts only when a candidate reads trade
 fields, and a trades feed fault faults the source's accounts like a book fault.
 `deployment-check --config PATH [--candidates DIR]` loads every configured
-candidate and prints its candidate, policy, model and feature identities. Native records
+candidate and prints its candidate, policy, model and feature identities, and the
+pinned feature stream of a candidate served from the feature store. Native records
 remain retained and validated in order. At each candidate grid instant the due
 candidates decide from the latest eligible market at or before it, and the book
 that crossed the instant matches orders. Books between instants update the

@@ -18,6 +18,7 @@ from configuration import (
 )
 from reference_data.instruments import InstrumentId
 from research.experiments import CandidateBundle
+from research.features import FeatureStoreDefinition, VersionedFeatureStore
 from research.observations import InputRequirement, NumericField
 from runtime import (
     CandidateLoader,
@@ -38,7 +39,8 @@ class PaperServiceCandidates:
     both resolve against this environment's paper capabilities. All candidates on
     one source share its projected book fields and, when it records trades, its
     trade fields, so their inputs of one feed must agree on the requirement name,
-    clock and age.
+    clock and age. A packaged candidate with a ``feature_version`` reads that
+    version's feature-store stream instead and adds no source fields.
     """
 
     def __init__(
@@ -60,19 +62,27 @@ class PaperServiceCandidates:
         """Return the instance's configured native source."""
         return next(item for item in self.config.sources if item.name == instance.source)
 
-    def capabilities(self, source: PaperServiceSource) -> PaperCapabilities:
-        """Describe this environment for one native receipt-clock book and optional trades."""
+    def capabilities(
+        self, source: PaperServiceSource, features: FeatureStoreDefinition | None = None
+    ) -> PaperCapabilities:
+        """Describe this environment for one native book, optional trades and store."""
         return PaperCapabilities(
             venue=source.capture.venue,
             freshness_us=source.freshness_us,
             clocks=("receipt",),
             trades=source.trades,
+            features=features,
         )
 
     def inputs(self, instance: PaperServiceInstance) -> tuple[InputRequirement, ...]:
-        """Return the instance's declared source inputs without constructing components."""
+        """Return the instance's declared source inputs without constructing components.
+
+        A feature-served candidate reads its stream, so it declares no source inputs.
+        """
         source = self.source(instance)
         if isinstance(instance.candidate, PackagedCandidate):
+            if instance.candidate.feature_version is not None:
+                return ()
             return self._bundle(instance.candidate).definition().inputs
         return self._references(source).inputs
 
@@ -144,6 +154,11 @@ class PaperServiceCandidates:
                 "model_identity": self.model_identity(loaded),
                 "cadence_us": loaded.definition.cadence_us,
                 "output": loaded.definition.output,
+                "feature_stream": (
+                    None
+                    if loaded.deployment.input_mode == "source"
+                    else loaded.deployment.source_identity
+                ),
             }
         return {
             "schema_version": "paper-service-candidates",
@@ -191,7 +206,15 @@ class PaperServiceCandidates:
             source.freshness_us, source.capture.idle_seconds * 1_000_000
         ):
             raise ValueError("packaged candidate cadence exceeds source freshness or idle time")
-        capabilities = self.capabilities(source)
+        version = selection.feature_version
+        store: FeatureStoreDefinition | None = None
+        if version is not None:
+            if definition.feature_store is None:
+                raise ValueError("feature-served candidate bundle has no feature-store definition")
+            store = self.codec.decode_json(
+                bundle.artifact(definition.feature_store), FeatureStoreDefinition
+            )
+        capabilities = self.capabilities(source, store)
         instrument = InstrumentId(UUID(str(source.scenario.instrument_id)))
         deployment = CandidateDeployment(
             name=f"{definition.name}-{instance.instance_id}",
@@ -199,16 +222,24 @@ class PaperServiceCandidates:
             instance=instance.instance_id,
             entity=str(source.scenario.instrument_id),
             mode="runtime",
-            input_mode="source",
-            source_identity=self.source_identity(source),
+            input_mode="source" if store is None else "online_features",
+            source_identity=(
+                self.source_identity(source)
+                if store is None or version is None
+                else VersionedFeatureStore.stream_identity(store, version)
+            ),
             starts_at=selection.starts_at,
-            selections=capabilities.selections(definition.requirements),
+            selections=capabilities.selections(
+                definition.requirements,
+                frozenset() if store is None else frozenset(i.name for i in definition.inputs),
+            ),
             universes=UniverseSelection(
                 collection=(instrument,),
                 research=(),
                 strategy=(instrument,),
                 authorized_trading=(),
             ),
+            feature_version=version,
         )
         return CandidateLoader(
             self.extensions.components(selection.extension), capabilities.registry()

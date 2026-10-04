@@ -26,6 +26,7 @@ from configuration import (
     OpeningAccount,
     PackagedCandidate,
     PaperExecutionScenario,
+    PaperFeatureServing,
     PaperServiceAccount,
     PaperServiceConfiguration,
     PaperServiceInstance,
@@ -44,7 +45,7 @@ from research.experiments.candidates import (
     CandidateMetricContract,
     CandidateStateContract,
 )
-from research.features import FeatureSchema
+from research.features import FeatureSchema, FeatureStoreDefinition, VersionedFeatureStore
 from research.observations import DecisionInputs, InputRequirement, NamedObservation, NumericField
 from research.studies import ResultManifest
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
@@ -235,10 +236,13 @@ class TestPaperServiceCandidates:
         )
 
     @classmethod
-    def _publish(cls, root: Path, *, trades: bool = False) -> CandidateDefinition:
+    def _publish(
+        cls, root: Path, *, trades: bool = False, served: bool = False
+    ) -> CandidateDefinition:
         """Publish one packaged candidate with authored completed-study provenance.
 
-        With ``trades`` its feature also reads signed public trade flow.
+        With ``trades`` its feature also reads signed public trade flow; with ``served``
+        the bundle packages its feature-store definition.
         """
         inputs = (cls._input(), cls._flow()) if trades else (cls._input(),)
         codec = DomainCodec()
@@ -268,6 +272,8 @@ class TestPaperServiceCandidates:
             "metric-parameters": b"{}",
             "chart-parameters": b"{}",
         }
+        if served:
+            payloads["feature-store"] = codec.encode_json(cls._store(schema))
         selection = codec.encode_json(
             {
                 "schema_version": "decision-study",
@@ -345,7 +351,7 @@ class TestPaperServiceCandidates:
             code_sha256=ImplementationIdentity.sha256(),
             environment_sha256=ExperimentSpec.installed_environment(),
             feature_schema=artifacts["feature-schema"],
-            feature_store=None,
+            feature_store=artifacts.get("feature-store"),
             transform=None,
             estimator=None,
             components=(
@@ -540,6 +546,64 @@ class TestPaperServiceCandidates:
                 ),
             ),
         )
+
+    @staticmethod
+    def _store(schema: FeatureSchema) -> FeatureStoreDefinition:
+        """Describe the store definition serving the packaged instance's feature."""
+        return FeatureStoreDefinition(
+            name="engineering-imbalance",
+            entity_type="instrument",
+            schema=schema,
+            instance="packaged",
+        )
+
+    def test_feature_version_serves_the_packaged_candidate_its_stream(self, tmp_path: Path) -> None:
+        """A feature version replaces source inputs with the bundle's store stream."""
+        definition = self._publish(tmp_path, served=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity,
+            extension=self.extension,
+            starts_at=_ORIGIN,
+            feature_version="stream",
+        )
+        configuration = self._configuration(packaged)
+        resolved = PaperServiceCandidates(configuration, tmp_path / "candidates")
+        instance = configuration.instances[1]
+        assert resolved.inputs(instance) == ()
+        loaded = resolved.candidate(instance)
+        assert loaded.store_definition is not None
+        stream = VersionedFeatureStore.stream_identity(loaded.store_definition, "stream")
+        assert (loaded.deployment.input_mode, loaded.deployment.source_identity) == (
+            "online_features",
+            stream,
+        )
+        assert loaded.deployment.feature_version == "stream"
+        instances = cast(dict[str, dict[str, object]], resolved.report()["instances"])
+        assert instances["packaged"]["feature_stream"] == stream
+        assert instances["reference"]["feature_stream"] is None
+        unpackaged = self._publish(tmp_path / "plain")
+        without = replace(packaged, definition_sha256=unpackaged.identity)
+        plain = PaperServiceCandidates(
+            self._configuration(without), tmp_path / "plain" / "candidates"
+        )
+        with pytest.raises(ValueError, match="no feature-store definition"):
+            plain.candidate(self._configuration(without).instances[1])
+
+    def test_feature_serving_requires_absolute_paths_and_worker(self) -> None:
+        """The served-feature binding refuses relative locations and unbounded timeouts."""
+        serving = PaperFeatureServing(
+            store_path="/private/tmp/features.sqlite3",
+            serving_root="/private/tmp/feast",
+            worker=("/usr/bin/python3", "-m", "worker"),
+        )
+        for changes in (
+            {"store_path": "features.sqlite3"},
+            {"serving_root": "feast"},
+            {"worker": ("python3",)},
+            {"worker_timeout_seconds": 61},
+        ):
+            with pytest.raises(ValueError, match="invalid paper feature serving"):
+                replace(serving, **changes)
 
     def test_packaged_candidate_refuses_unsigned_foreign_or_changed_inputs(
         self, tmp_path: Path

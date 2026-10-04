@@ -71,6 +71,7 @@ from reference_data.instruments import InstrumentId
 from research.experiments import CandidateStateContract
 from research.features import FeatureSchema, ProjectionFeature
 from research.observations import (
+    DecisionInputs,
     InputRequirement,
     LiveBookDecisionSource,
     LiveTradeDecisionSource,
@@ -906,6 +907,7 @@ class TestSharedPublicPaper:
         (group,) = retained[3].decisions
         assert group.at == self.at + timedelta(milliseconds=2500)
         (decided,) = group.inputs
+        assert decided.inputs is not None
         assert [(row.input.name, row.value) for row in decided.inputs.observations] == [
             ("book", ExactRatio.from_fraction(Fraction(100))),
             ("trades", ExactRatio.from_fraction(Fraction(1, 2))),
@@ -1062,7 +1064,7 @@ class TestSharedPublicPaper:
         quote = AccountQuote(price=self._price("100"), at=first.source.available_at)
         instant = self.at + timedelta(milliseconds=1500)
         inputs = observer._instance_inputs(observer.runtime.bindings[0], instant)
-        assert inputs is not None
+        assert isinstance(inputs, DecisionInputs)
         group = SharedDecisionGroup(
             at=instant,
             quote=quote,

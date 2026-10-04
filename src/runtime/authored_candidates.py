@@ -30,7 +30,13 @@ from research.experiments import (
     CandidateStateContract,
     ExperimentSpec,
 )
-from research.features import FeatureKernel, FeatureSchema, ProjectionFeature
+from research.features import (
+    FeatureKernel,
+    FeatureSchema,
+    FeatureStoreDefinition,
+    ProjectionFeature,
+    VersionedFeatureStore,
+)
 from research.observations import InputRequirement, NumericField
 from runtime.candidates import CandidateLoader, LoadedCandidate
 from runtime.components import CandidateComponents, FeatureFactory, PolicyFactory
@@ -109,16 +115,26 @@ class AuthoredCandidates:
         source_identity: str,
         state: CandidateStateContract,
         order_types: tuple[str, ...] = ("gtc", "ioc"),
+        served: FeatureStoreDefinition | None = None,
+        feature_version: str | None = None,
     ) -> LoadedCandidate:
-        """Package and load the supplied components for one runtime placement."""
+        """Package and load the supplied components for one runtime placement.
+
+        With ``served`` and ``feature_version`` the candidate reads that version's
+        feature-store stream instead of source inputs; ``source_identity`` is unused.
+        """
         schema = feature.schema
         policy.admit(schema.outputs, None)
+        if (served is None) != (feature_version is None):
+            raise ValueError("a served candidate names its store definition and version")
         requirements = self._requirements(schema.inputs, policy.output, order_types)
         payloads = {
             "feature-schema": self._codec.encode_json(schema),
             "feature-parameters": b"{}",
             "policy-parameters": b"{}",
         }
+        if served is not None:
+            payloads["feature-store"] = self._codec.encode_json(served)
         artifacts = {
             item: CandidateArtifact(name=item, sha256=hashlib.sha256(payload).hexdigest())
             for item, payload in payloads.items()
@@ -129,7 +145,7 @@ class AuthoredCandidates:
             code_sha256=self._implementation,
             environment_sha256=ExperimentSpec.installed_environment(),
             feature_schema=artifacts["feature-schema"],
-            feature_store=None,
+            feature_store=artifacts.get("feature-store"),
             transform=None,
             estimator=None,
             components=(
@@ -167,16 +183,24 @@ class AuthoredCandidates:
             instance=instance,
             entity=entity,
             mode="runtime",
-            input_mode="source",
-            source_identity=source_identity,
+            input_mode="source" if served is None else "online_features",
+            source_identity=(
+                source_identity
+                if served is None or feature_version is None
+                else VersionedFeatureStore.stream_identity(served, feature_version)
+            ),
             starts_at=starts_at,
-            selections=self._selections(requirements),
+            selections=self._selections(
+                requirements,
+                frozenset() if served is None else frozenset(item.name for item in schema.inputs),
+            ),
             universes=UniverseSelection(
                 collection=(instrument,),
                 research=(),
                 strategy=(instrument,),
                 authorized_trading=(),
             ),
+            feature_version=feature_version,
         )
         supplied = _Supplied(feature, policy)
         components = CandidateComponents(
@@ -201,11 +225,13 @@ class AuthoredCandidates:
         )
 
     def _selections(
-        self, requirements: tuple[CapabilityRequirement, ...]
+        self,
+        requirements: tuple[CapabilityRequirement, ...],
+        served: frozenset[str] = frozenset(),
     ) -> tuple[CapabilitySelection, ...]:
         """Select the environment's profiles, or this candidate's own fixture profiles."""
         if self.capabilities is not None:
-            return self.capabilities.selections(requirements)
+            return self.capabilities.selections(requirements, served)
         return tuple(
             CapabilitySelection(name=item.name, profile=f"authored-{item.name}")
             for item in requirements

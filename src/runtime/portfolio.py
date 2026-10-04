@@ -24,6 +24,7 @@ from financial_units import Money
 from research.observations import DecisionInputs
 from runtime.candidate_worker import LocalCandidateExecutor
 from runtime.candidates import CandidateCheckpoint, CandidateStep, LoadedCandidate
+from runtime.feature_feed import ServedFeature
 from serialization import DomainCodec, WireRecord
 
 
@@ -57,7 +58,7 @@ class SharedStrategyBinding:
             deployment.instance != self.instance_id
             or deployment.entity != self.entity
             or deployment.mode != "runtime"
-            or deployment.input_mode != "source"
+            or deployment.input_mode not in ("source", "online_features")
         ):
             raise ValueError("shared binding differs from its candidate runtime placement")
         if type(self.context) is not PortfolioContext or type(self.maximum_fee) is not Money:
@@ -71,28 +72,69 @@ class SharedStrategyBinding:
 class CandidateExecutor(Protocol):
     """Evaluate one candidate step from committed state, in process or isolated."""
 
-    def step(self, inputs: DecisionInputs, checkpoint: CandidateCheckpoint | None) -> CandidateStep:
+    def step(
+        self, inputs: DecisionInputs | ServedFeature, checkpoint: CandidateCheckpoint | None
+    ) -> CandidateStep:
         """Return the staged step; ``None`` starts fresh candidate state."""
         ...
 
 
 class SharedStrategyInput(WireRecord, frozen=True):
-    """Supply a named instance's causal source inputs and the observed account quote."""
+    """Supply a named instance's causal inputs and the observed account quote.
+
+    A source-fed candidate receives ``inputs``; a feature-served candidate receives
+    ``served``, the vector and the exact stream snapshot that served it.
+    """
 
     instance_id: str
-    inputs: DecisionInputs
+    inputs: DecisionInputs | None
     quote: AccountQuote
+    served: ServedFeature | None = None
 
     def __post_init__(self) -> None:
-        """Require typed observations; the journal independently verifies the market mark."""
+        """Require one typed input; the journal independently verifies the market mark."""
         if type(self.instance_id) is not str or not self.instance_id:
             raise ValueError("shared input requires an instance")
-        if type(self.inputs) is not DecisionInputs or type(self.quote) is not AccountQuote:
-            raise TypeError("shared input requires decision inputs and account quote")
-        self.inputs.__post_init__()
+        if type(self.quote) is not AccountQuote or (self.inputs is None) == (self.served is None):
+            raise TypeError("shared input requires one of decision inputs or a served feature")
+        if self.inputs is not None:
+            if type(self.inputs) is not DecisionInputs:
+                raise TypeError("shared input requires decision inputs")
+            self.inputs.__post_init__()
+        if self.served is not None:
+            if type(self.served) is not ServedFeature:
+                raise TypeError("shared input requires a served feature")
+            self.served.__post_init__()
         self.quote.__post_init__()
-        if self.quote.at > self.inputs.decision_at:
+        if self.quote.at > self.decision_at:
             raise ValueError("shared input contains a future quote")
+
+    @property
+    def decision_at(self) -> datetime:
+        """Return the decision cutoff of whichever input is supplied."""
+        if self.inputs is not None:
+            return self.inputs.decision_at
+        if self.served is None:
+            raise TypeError("shared input has no decision input")
+        return self.served.served_at
+
+    @property
+    def entity(self) -> str:
+        """Return the entity of whichever input is supplied."""
+        if self.inputs is not None:
+            return self.inputs.entity
+        if self.served is None:
+            raise TypeError("shared input has no decision input")
+        return self.served.entity
+
+    @property
+    def payload(self) -> DecisionInputs | ServedFeature:
+        """Return the supplied input for the candidate executor."""
+        if self.inputs is not None:
+            return self.inputs
+        if self.served is None:
+            raise TypeError("shared input has no decision input")
+        return self.served
 
 
 class SharedCandidateCheckpoint(WireRecord, frozen=True):
@@ -256,7 +298,7 @@ class SharedDecisionRuntime:
         for item in sorted(inputs, key=self._input_order):
             item.__post_init__()
             binding = self._bindings.get(item.instance_id)
-            if binding is None or item.inputs.entity != binding.entity:
+            if binding is None or item.entity != binding.entity:
                 raise ValueError("shared input is not selected or its entity differs")
             if str(item.quote.price.per.instrument_id) != binding.entity:
                 raise ValueError("shared quote belongs to another instrument")
@@ -270,7 +312,7 @@ class SharedDecisionRuntime:
                 else self._decode(binding, saved)
             )
             step = self._executors[item.instance_id].step(
-                item.inputs, None if prior is None else prior.step.checkpoint
+                item.payload, None if prior is None else prior.step.checkpoint
             )
             self._require_step(binding, item, step)
             if step.status == "paused":
@@ -339,7 +381,7 @@ class SharedDecisionRuntime:
         step.__post_init__()
         if (
             step.checkpoint.binding_identity != binding.candidate.identity
-            or step.at != item.inputs.decision_at
+            or step.at != item.decision_at
             or (step.feature is not None and step.feature.entity != binding.entity)
         ):
             raise ValueError("candidate step differs from its binding or input cutoff")

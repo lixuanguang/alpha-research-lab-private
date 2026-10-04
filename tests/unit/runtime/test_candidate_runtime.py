@@ -615,7 +615,7 @@ class TestCandidateSession:
             )
         snapshot = store.materialize(definition, "version-one", _AT, (_ENTITY,))
         store.activate(definition, snapshot.version)
-        return store, definition, snapshot.identity
+        return store, definition, VersionedFeatureStore.stream_identity(definition, "version-one")
 
     def test_offline_pinned_store_value_and_missing_pause(self, tmp_path: Path) -> None:
         """Consume actual PIT bytes and pause when the pinned materialization lacks a field."""
@@ -672,7 +672,7 @@ class TestCandidateSession:
             )
         )
         checkpoint = changed.checkpoint()
-        with pytest.raises(ValueError, match="materialization differs from pinned deployment"):
+        with pytest.raises(ValueError, match="differs from its pinned feature stream"):
             feed.evaluate(changed, _AT)
         assert changed.checkpoint() == checkpoint
 

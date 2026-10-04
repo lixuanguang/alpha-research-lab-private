@@ -382,6 +382,7 @@ class TestCapacityParity:
         assert group.at == at + timedelta(seconds=3)
         assert len(group.inputs) == 2
         item = group.inputs[0]
+        assert item.inputs is not None
         observation = item.inputs.observations[0]
         observations: tuple[NamedObservation, ...] = (
             replace(observation, value=ExactRatio(numerator="101", denominator="1")),

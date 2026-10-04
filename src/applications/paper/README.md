@@ -288,7 +288,14 @@ candidates on one source must share its book requirement name, clock and freshne
 and likewise its trade requirement. A candidate's trade fields need the source's
 trades capture, which runs in its own source process under the `<source>.trades`
 key, shares the book's chain limits and observers, and is retained in each
-account's `.trades.jsonl` log; reference and non-book inputs are refused here. The cadence cannot exceed source freshness or
+account's `.trades.jsonl` log; reference and non-book inputs are refused here.
+A `PackagedCandidate` with `feature_version` instead reads that version's
+feature-store stream, which the bundle's packaged `FeatureStoreDefinition` names;
+it then adds no source fields. Its serving needs the configuration's `features`
+binding (`PaperFeatureServing`: absolute store path and Feast generation root, the
+separately locked worker command and its timeout), and preflight refuses a
+feature-served candidate without it. The publisher that extends the stream runs
+outside the supervisor, as `materialize_features` does. The cadence cannot exceed source freshness or
 capture idle time. The supervisor loads every instance before starting and checks its candidate,
 policy, model and feature identities against the signed deployment.
 `alpha-execute deployment-check --config ... --candidates ...` loads every configured

@@ -2,8 +2,10 @@
 
 The store owns authoritative point-in-time selection. A serving adapter may copy a
 materialization into another system, but that system does not infer revision or
-availability eligibility. SQLite transactions keep a named snapshot and its active
-pointer separate, so a failed publication never exposes a partial version.
+availability eligibility. A version is a stream: an append-only sequence of complete
+snapshots at strictly increasing cutoffs. SQLite transactions keep each snapshot and
+the active version pointer separate, so a failed publication never exposes a partial
+snapshot.
 """
 
 from __future__ import annotations
@@ -319,19 +321,27 @@ class VersionedFeatureStore:
                 );
                 CREATE INDEX IF NOT EXISTS feature_rows_cutoff ON feature_rows
                     (definition_identity, entity, decision_at DESC, available_at DESC);
+                CREATE TABLE IF NOT EXISTS versions (
+                    definition_identity TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    PRIMARY KEY (definition_identity, version),
+                    FOREIGN KEY (definition_identity) REFERENCES definitions(identity)
+                );
                 CREATE TABLE IF NOT EXISTS materializations (
                     definition_identity TEXT NOT NULL,
                     version TEXT NOT NULL,
+                    at TEXT NOT NULL,
                     identity TEXT NOT NULL,
                     payload BLOB NOT NULL,
-                    PRIMARY KEY (definition_identity, version),
-                    FOREIGN KEY (definition_identity) REFERENCES definitions(identity)
+                    PRIMARY KEY (definition_identity, version, at),
+                    FOREIGN KEY (definition_identity, version)
+                        REFERENCES versions(definition_identity, version)
                 );
                 CREATE TABLE IF NOT EXISTS active_versions (
                     definition_identity TEXT PRIMARY KEY,
                     version TEXT NOT NULL,
                     FOREIGN KEY (definition_identity, version)
-                        REFERENCES materializations(definition_identity, version)
+                        REFERENCES versions(definition_identity, version)
                 );
                 CREATE TABLE IF NOT EXISTS checkpoints (
                     definition_identity TEXT NOT NULL,
@@ -696,14 +706,85 @@ class VersionedFeatureStore:
             self._require_registered(connection, definition)
             return self._select(connection, definition, entity, at)
 
-    def materialize(
+    def prepare(
         self,
         definition: FeatureStoreDefinition,
         version: str,
         at: datetime,
         entities: tuple[str, ...],
     ) -> FeatureMaterialization:
-        """Stage one complete named snapshot atomically; publication uses :meth:`activate`."""
+        """Compute the snapshot :meth:`materialize` would append, without writing it.
+
+        A publisher prepares a snapshot, publishes its serving generation, then
+        appends it with ``expected_identity`` so readers never find a snapshot whose
+        generation is absent.
+        """
+        self._scope(definition, version, at, entities)
+        with closing(self._connect()) as connection:
+            self._require_registered(connection, definition)
+            return self._snapshot(connection, definition, version, at, entities)
+
+    def materialize(
+        self,
+        definition: FeatureStoreDefinition,
+        version: str,
+        at: datetime,
+        entities: tuple[str, ...],
+        *,
+        expected_identity: str | None = None,
+    ) -> FeatureMaterialization:
+        """Append one complete snapshot to a version's stream atomically.
+
+        Cutoffs within a version strictly increase; an exact retry of the latest
+        snapshot is accepted. With ``expected_identity`` the snapshot must equal the
+        prepared one. Publication of the version uses :meth:`activate`.
+
+        Raises:
+            FeatureStoreError: The cutoff regresses, names other bytes, or the snapshot
+                changed after preparation.
+        """
+        self._scope(definition, version, at, entities)
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_registered(connection, definition)
+            snapshot = self._snapshot(connection, definition, version, at, entities)
+            if expected_identity is not None and snapshot.identity != expected_identity:
+                raise FeatureStoreError("materialization changed after preparation")
+            payload = self._codec.encode_json(snapshot)
+            latest = cast(
+                tuple[object, ...] | None,
+                connection.execute(
+                    """SELECT at, identity, payload FROM materializations
+                       WHERE definition_identity = ? AND version = ?
+                       ORDER BY at DESC LIMIT 1""",
+                    (definition.identity, version),
+                ).fetchone(),
+            )
+            if latest is not None and cast(str, latest[0]) == self._clock(at):
+                if cast(str, latest[1]) != snapshot.identity or cast(bytes, latest[2]) != payload:
+                    raise FeatureStoreError("materialization cutoff already names different bytes")
+                return snapshot
+            if latest is not None and cast(str, latest[0]) > self._clock(at):
+                raise FeatureStoreError("materialization stream cutoffs must increase")
+            connection.execute(
+                """INSERT OR IGNORE INTO versions (definition_identity, version) VALUES (?, ?)""",
+                (definition.identity, version),
+            )
+            connection.execute(
+                """INSERT INTO materializations
+                   (definition_identity, version, at, identity, payload) VALUES (?, ?, ?, ?, ?)""",
+                (definition.identity, version, self._clock(at), snapshot.identity, payload),
+            )
+            return snapshot
+
+    def _scope(
+        self,
+        definition: FeatureStoreDefinition,
+        version: str,
+        at: datetime,
+        entities: tuple[str, ...],
+    ) -> None:
+        """Validate a snapshot's definition, version, cutoff and unique entities."""
         definition.__post_init__()
         self._text(version, "version")
         self._clock(at)
@@ -713,80 +794,108 @@ class VersionedFeatureStore:
             self._text(entity, "entity")
         if len(set(entities)) != len(entities):
             raise ValueError("materialization entities must be unique")
-        with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            self._require_registered(connection, definition)
-            rows = tuple(self._select(connection, definition, entity, at) for entity in entities)
-            snapshot = FeatureMaterialization(
-                definition=definition,
-                version=version,
-                at=at,
-                rows=tuple(
-                    FeatureStoreResult(
-                        definition_identity=row.definition_identity,
-                        entity_type=row.entity_type,
-                        entity=row.entity,
-                        requested_at=at,
-                        status=row.status,
-                        feature=row.feature,
-                        version=version,
-                        materialized_at=at,
-                    )
-                    for row in rows
-                ),
-            )
-            snapshot.__post_init__()
-            payload = self._codec.encode_json(snapshot)
-            existing = cast(
-                tuple[object, ...] | None,
-                connection.execute(
-                    """SELECT identity, payload FROM materializations
-                       WHERE definition_identity = ? AND version = ?""",
-                    (definition.identity, version),
-                ).fetchone(),
-            )
-            if existing is None:
-                connection.execute(
-                    """INSERT INTO materializations
-                       (definition_identity, version, identity, payload) VALUES (?, ?, ?, ?)""",
-                    (definition.identity, version, snapshot.identity, payload),
+
+    def _snapshot(
+        self,
+        connection: sqlite3.Connection,
+        definition: FeatureStoreDefinition,
+        version: str,
+        at: datetime,
+        entities: tuple[str, ...],
+    ) -> FeatureMaterialization:
+        """Select every entity's then-known value at the cutoff as one snapshot."""
+        rows = tuple(self._select(connection, definition, entity, at) for entity in entities)
+        snapshot = FeatureMaterialization(
+            definition=definition,
+            version=version,
+            at=at,
+            rows=tuple(
+                FeatureStoreResult(
+                    definition_identity=row.definition_identity,
+                    entity_type=row.entity_type,
+                    entity=row.entity,
+                    requested_at=at,
+                    status=row.status,
+                    feature=row.feature,
+                    version=version,
+                    materialized_at=at,
                 )
-            elif cast(str, existing[0]) != snapshot.identity or cast(bytes, existing[1]) != payload:
-                raise FeatureStoreError("materialization version already names different bytes")
-            return snapshot
+                for row in rows
+            ),
+        )
+        snapshot.__post_init__()
+        return snapshot
 
     def get_materialization(
-        self, definition: FeatureStoreDefinition, version: str
+        self, definition: FeatureStoreDefinition, version: str, at: datetime | None = None
     ) -> FeatureMaterialization:
-        """Reopen an immutable snapshot by exact definition and version."""
+        """Reopen a version's latest snapshot, or its latest at or before ``at``.
+
+        Raises:
+            FeatureStoreError: The version has no snapshot by that cutoff, or bytes differ.
+        """
         definition.__post_init__()
         self._text(version, "version")
+        if at is not None:
+            self._clock(at)
         with closing(self._connect()) as connection:
-            return self._require_materialization(connection, definition, version)
+            snapshot = self._require_materialization(connection, definition, version, at)
+            if snapshot is None:
+                raise FeatureStoreError("materialization version has no snapshot by cutoff")
+            return snapshot
+
+    @staticmethod
+    def stream_identity(definition: FeatureStoreDefinition, version: str) -> str:
+        """Identify one version's snapshot stream, as a feature deployment pins it."""
+        return hashlib.sha256(
+            DomainCodec().encode_json(("feature-stream", definition.identity, version))
+        ).hexdigest()
 
     def _require_materialization(
         self,
         connection: sqlite3.Connection,
         definition: FeatureStoreDefinition,
         version: str,
-    ) -> FeatureMaterialization:
-        """Verify one complete snapshot before retrieval or pointer publication."""
+        at: datetime | None = None,
+    ) -> FeatureMaterialization | None:
+        """Verify a version's latest snapshot at or before ``at``; None if it has none yet.
+
+        Raises:
+            FeatureStoreError: The version is unknown or the snapshot's bytes differ.
+        """
         self._require_registered(connection, definition)
-        row = cast(
+        known = cast(
             tuple[object, ...] | None,
             connection.execute(
-                """SELECT identity, payload FROM materializations
-                   WHERE definition_identity = ? AND version = ?""",
+                "SELECT 1 FROM versions WHERE definition_identity = ? AND version = ?",
                 (definition.identity, version),
             ).fetchone(),
         )
-        if row is None:
+        if known is None:
             raise FeatureStoreError("materialization version is unknown")
-        snapshot = self._codec.decode_json(cast(bytes, row[1]), FeatureMaterialization)
+        query = (
+            """SELECT at, identity, payload FROM materializations
+               WHERE definition_identity = ? AND version = ?
+               ORDER BY at DESC LIMIT 1"""
+            if at is None
+            else """SELECT at, identity, payload FROM materializations
+               WHERE definition_identity = ? AND version = ? AND at <= ?
+               ORDER BY at DESC LIMIT 1"""
+        )
+        parameters = (
+            (definition.identity, version)
+            if at is None
+            else (definition.identity, version, self._clock(at))
+        )
+        row = cast(tuple[object, ...] | None, connection.execute(query, parameters).fetchone())
+        if row is None:
+            return None
+        snapshot = self._codec.decode_json(cast(bytes, row[2]), FeatureMaterialization)
         if (
-            snapshot.identity != cast(str, row[0])
+            snapshot.identity != cast(str, row[1])
             or snapshot.definition != definition
             or snapshot.version != version
+            or self._clock(snapshot.at) != cast(str, row[0])
         ):
             raise FeatureStoreError("materialization bytes or definition differ")
         return snapshot
@@ -797,7 +906,8 @@ class VersionedFeatureStore:
         self._text(version, "version")
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._require_materialization(connection, definition, version)
+            if self._require_materialization(connection, definition, version) is None:
+                raise FeatureStoreError("feature version has no materialized snapshot")
             connection.execute(
                 """INSERT INTO active_versions (definition_identity, version) VALUES (?, ?)
                    ON CONFLICT(definition_identity) DO UPDATE SET version = excluded.version""",
@@ -822,7 +932,8 @@ class VersionedFeatureStore:
             self._text(expected_version, "expected_version")
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._require_materialization(connection, definition, version)
+            if self._require_materialization(connection, definition, version) is None:
+                raise FeatureStoreError("feature version has no materialized snapshot")
             row = cast(
                 tuple[object, ...] | None,
                 connection.execute(
@@ -863,7 +974,11 @@ class VersionedFeatureStore:
         *,
         max_materialization_age_us: int | None = None,
     ) -> FeatureStoreResult:
-        """Serve only the active snapshot with explicit freshness and missingness."""
+        """Serve the active version's latest snapshot at or before ``at``.
+
+        A version whose first snapshot is later than ``at`` is ``future``; a snapshot
+        older than the maximum age is ``stale``. Missingness stays explicit.
+        """
         definition.__post_init__()
         self._text(entity, "entity")
         self._clock(at)
@@ -874,18 +989,14 @@ class VersionedFeatureStore:
             raise ValueError("invalid maximum materialization age")
         with closing(self._connect()) as connection:
             self._require_registered(connection, definition)
-            row = cast(
+            active = cast(
                 tuple[object, ...] | None,
                 connection.execute(
-                    """SELECT m.identity, m.payload FROM materializations AS m
-                       JOIN active_versions AS a
-                         ON a.definition_identity = m.definition_identity
-                         AND a.version = m.version
-                       WHERE a.definition_identity = ?""",
+                    "SELECT version FROM active_versions WHERE definition_identity = ?",
                     (definition.identity,),
                 ).fetchone(),
             )
-            if row is None:
+            if active is None:
                 return FeatureStoreResult(
                     definition_identity=definition.identity,
                     entity_type=definition.entity_type,
@@ -894,9 +1005,16 @@ class VersionedFeatureStore:
                     status="unmaterialized",
                     feature=None,
                 )
-            snapshot = self._codec.decode_json(cast(bytes, row[1]), FeatureMaterialization)
-            if snapshot.identity != cast(str, row[0]) or snapshot.definition != definition:
+            version = cast(str, active[0])
+            current = self._require_materialization(connection, definition, version, at)
+            first = (
+                current
+                if current is not None
+                else self._first_materialization(connection, definition, version)
+            )
+            if first is None:
                 raise FeatureStoreError("active feature version is corrupt")
+            snapshot = first
         if at < snapshot.at:
             status: FeatureQuality = "future"
             feature = None
@@ -920,6 +1038,28 @@ class VersionedFeatureStore:
             version=snapshot.version,
             materialized_at=snapshot.at,
         )
+
+    def _first_materialization(
+        self,
+        connection: sqlite3.Connection,
+        definition: FeatureStoreDefinition,
+        version: str,
+    ) -> FeatureMaterialization | None:
+        """Read a version's earliest snapshot, which a cutoff before it finds in the future."""
+        row = cast(
+            tuple[object, ...] | None,
+            connection.execute(
+                """SELECT identity, payload FROM materializations
+                   WHERE definition_identity = ? AND version = ? ORDER BY at LIMIT 1""",
+                (definition.identity, version),
+            ).fetchone(),
+        )
+        if row is None:
+            return None
+        snapshot = self._codec.decode_json(cast(bytes, row[1]), FeatureMaterialization)
+        if snapshot.identity != cast(str, row[0]) or snapshot.definition != definition:
+            raise FeatureStoreError("materialization bytes or definition differ")
+        return snapshot
 
     def backup(self, destination: Path) -> None:
         """Copy one transactionally consistent store to a new backup path."""

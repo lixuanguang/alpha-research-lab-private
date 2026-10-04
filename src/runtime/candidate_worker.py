@@ -12,6 +12,7 @@ from typing import cast
 # project library imports
 from research.observations import DecisionInputs
 from runtime.candidates import CandidateCheckpoint, CandidateSession, CandidateStep, LoadedCandidate
+from runtime.feature_feed import ServedFeature
 from serialization import DomainCodec, WireRecord
 from telemetry import HealthMetric, HealthMetrics
 
@@ -26,18 +27,35 @@ class CandidateProcessFailure(RuntimeError):
 
 
 class _StepRequest(WireRecord, frozen=True):
-    """Carry only causal inputs and the committed continuation to the child."""
+    """Carry only causal inputs, or a served feature, and the committed continuation."""
 
-    inputs: DecisionInputs
+    inputs: DecisionInputs | None
     checkpoint: CandidateCheckpoint | None
+    served: ServedFeature | None = None
 
     def __post_init__(self) -> None:
-        """Validate both typed inputs after crossing the process boundary."""
-        if type(self.inputs) is not DecisionInputs:
-            raise TypeError("candidate worker requires decision inputs")
-        self.inputs.__post_init__()
+        """Validate one typed input and the continuation after crossing the boundary."""
+        if (self.inputs is None) == (self.served is None):
+            raise TypeError("candidate worker requires decision inputs or a served feature")
+        if self.inputs is not None:
+            if type(self.inputs) is not DecisionInputs:
+                raise TypeError("candidate worker requires decision inputs")
+            self.inputs.__post_init__()
+        if self.served is not None:
+            if type(self.served) is not ServedFeature:
+                raise TypeError("candidate worker requires a served feature")
+            self.served.__post_init__()
         if self.checkpoint is not None:
             self.checkpoint.__post_init__()
+
+    @property
+    def payload(self) -> DecisionInputs | ServedFeature:
+        """Return the supplied input."""
+        if self.inputs is not None:
+            return self.inputs
+        if self.served is None:
+            raise TypeError("candidate worker request has no input")
+        return self.served
 
 
 class _StepReply(WireRecord, frozen=True):
@@ -66,9 +84,14 @@ class LocalCandidateExecutor:
         """Bind one admitted candidate placement."""
         self.loaded = loaded
 
-    def step(self, inputs: DecisionInputs, checkpoint: CandidateCheckpoint | None) -> CandidateStep:
+    def step(
+        self, inputs: DecisionInputs | ServedFeature, checkpoint: CandidateCheckpoint | None
+    ) -> CandidateStep:
         """Stage one feature/model/policy transition from committed state."""
-        return CandidateSession(self.loaded, checkpoint, continuing=True).evaluate_inputs(inputs)
+        session = CandidateSession(self.loaded, checkpoint, continuing=True)
+        if isinstance(inputs, ServedFeature):
+            return session.evaluate_feature(inputs.vector, inputs.served_at)
+        return session.evaluate_inputs(inputs)
 
 
 class ProcessCandidateExecutor:
@@ -117,9 +140,15 @@ class ProcessCandidateExecutor:
         """Expose whether the isolated candidate can still accept a step."""
         return self._process.is_alive()
 
-    def step(self, inputs: DecisionInputs, checkpoint: CandidateCheckpoint | None) -> CandidateStep:
+    def step(
+        self, inputs: DecisionInputs | ServedFeature, checkpoint: CandidateCheckpoint | None
+    ) -> CandidateStep:
         """Return one typed step or fail within the bounded response time."""
-        request = _StepRequest(inputs=inputs, checkpoint=checkpoint)
+        request = (
+            _StepRequest(inputs=None, checkpoint=checkpoint, served=inputs)
+            if isinstance(inputs, ServedFeature)
+            else _StepRequest(inputs=inputs, checkpoint=checkpoint)
+        )
         request.__post_init__()
         with self._lock:
             if not self.is_alive:
@@ -181,7 +210,7 @@ class ProcessCandidateExecutor:
                 try:
                     request = codec.decode_json(payload, _StepRequest)
                     request.__post_init__()
-                    step = executor.step(request.inputs, request.checkpoint)
+                    step = executor.step(request.payload, request.checkpoint)
                     step.__post_init__()
                     reply = _StepReply(step=step, error=None)
                 except Exception as error:
