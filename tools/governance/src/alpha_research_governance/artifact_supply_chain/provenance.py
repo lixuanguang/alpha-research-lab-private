@@ -9,7 +9,7 @@ import io
 import tomllib
 import zipfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from typing import Literal, cast
 
@@ -26,6 +26,8 @@ from alpha_research_governance.dependency_admission.selected_closure import (
     SelectedClosureFacts,
 )
 from alpha_research_governance.dependency_admission.wheel_archive import WheelArchive
+
+_COMPONENT_GROUP = "alpha_research.candidate_components"
 
 
 class SourceSnapshot(ImmutableModel):
@@ -103,18 +105,21 @@ class ReleaseProvenance:
             if disallowed.intersection(wheel.name for wheel in facts.wheels):
                 raise ValueError("release includes a development-only dependency")
             wheels: list[Path] = []
+            root_lock = directory / "root.lock"
+            selected_lock = directory / "selected.lock"
+            root_lock.write_bytes(release.content("provenance/uv.lock"))
+            selected_lock.write_bytes(release.content("provenance/selected.lock"))
+            projects = cls._local_projects(release, selected_lock)
             for filename, expected_wheel in by_filename.items():
                 wheel_path = directory / filename
                 wheel_path.write_bytes(release.content("wheels/" + filename))
                 wheels.append(wheel_path)
                 if WheelArchive.inspect(wheel_path) != expected_wheel:
                     raise ValueError("release wheel metadata differs from admitted bytes")
-                if expected_wheel.name.startswith("alpha-research-"):
-                    cls._local_source(release, filename, expected_wheel.name)
-            root_lock = directory / "root.lock"
-            selected_lock = directory / "selected.lock"
-            root_lock.write_bytes(release.content("provenance/uv.lock"))
-            selected_lock.write_bytes(release.content("provenance/selected.lock"))
+                if expected_wheel.name in projects:
+                    cls._local_source(
+                        release, filename, expected_wheel.name, projects[expected_wheel.name]
+                    )
             SelectedClosureAdmission.verify_retained(
                 facts,
                 root_lock=root_lock,
@@ -126,7 +131,7 @@ class ReleaseProvenance:
 
     @staticmethod
     def _configuration(release: VerifiedRelease) -> None:
-        """Bind executable configuration mode/schema to the signed runtime declaration."""
+        """Bind executable configuration mode/schema and payload kinds to the runtime."""
         config = TypeAdapter(dict[str, object]).validate_json(
             release.content("configuration/config.json")
         )
@@ -135,41 +140,109 @@ class ReleaseProvenance:
             raise ValueError("configuration schema differs from signed release")
         if runtime.application == "execution" and config.get("mode") != runtime.mode:
             raise ValueError("execution configuration mode differs from signed release")
+        if runtime.application == "paper-services":
+            accounts = TypeAdapter(list[dict[str, object]]).validate_python(
+                config.get("accounts", [])
+            )
+            modes = {
+                TypeAdapter(dict[str, object])
+                .validate_python(account.get("configuration"))
+                .get("mode")
+                for account in accounts
+            }
+            if modes != {runtime.mode}:
+                raise ValueError("paper services account modes differ from signed release")
+        allowed = {"configuration", "provenance", "source", "state", "wheels"}
+        if runtime.application == "paper-services":
+            allowed.add("candidates")
+        if any(name.split("/", 1)[0] not in allowed for name, _ in release.contents):
+            raise ValueError("release payload contains an unsupported kind")
 
     @staticmethod
-    def _local_source(release: VerifiedRelease, filename: str, distribution: str) -> None:
-        """Compare every installed local payload file to its retained monorepo source."""
-        package = distribution.removeprefix("alpha-research-")
-        if package not in {"contracts", "collector", "execution"}:
+    def _local_projects(release: VerifiedRelease, selected_lock: Path) -> dict[str, str]:
+        """Map each locked local distribution to its retained source project directory."""
+        root = release.manifest.root_distribution
+        project = "packages/" + root.removeprefix("alpha-research-")
+        projects: dict[str, str] = {}
+        locked: dict[str, object] = tomllib.loads(selected_lock.read_text())
+        for item in TypeAdapter(list[dict[str, object]]).validate_python(locked.get("package")):
+            name, source = item.get("name"), item.get("source")
+            if not isinstance(name, str) or not isinstance(source, dict):
+                raise ValueError("retained selected lock has malformed packages")
+            directory = cast(dict[str, object], source).get("directory")
+            if cast(dict[str, object], source).get("editable") == ".":
+                projects[name] = project
+            elif isinstance(directory, str):
+                resolved = PurePosixPath(project, directory).as_posix()
+                parts: list[str] = []
+                for part in resolved.split("/"):
+                    if part == "..":
+                        if not parts:
+                            raise ValueError("retained local project escapes the repository")
+                        parts.pop()
+                    else:
+                        parts.append(part)
+                projects[name] = "/".join(parts)
+        if projects.get(root) != project:
+            raise ValueError("retained selected lock lacks its editable root")
+        return projects
+
+    @staticmethod
+    def _local_source(
+        release: VerifiedRelease, filename: str, distribution: str, project: str
+    ) -> None:
+        """Compare every installed local payload file to its retained monorepo source.
+
+        Platform packages map wheel members to ``src/``; an extension maps them to
+        its own ``extensions/<name>/src/`` and may declare only component providers.
+        """
+        extension = project.startswith("extensions/")
+        if not extension and project not in {
+            "packages/contracts",
+            "packages/collector",
+            "packages/execution",
+            "packages/paper-services",
+        }:
             raise ValueError("unknown local release distribution")
         source = TypeAdapter(dict[str, object]).validate_python(
             cast(
                 object,
-                tomllib.loads(
-                    release.content(f"source/packages/{package}/pyproject.toml").decode()
-                ),
+                tomllib.loads(release.content(f"source/{project}/pyproject.toml").decode()),
             )
         )
-        project = TypeAdapter(dict[str, object]).validate_python(source.get("project"))
-        scripts = TypeAdapter(dict[str, str]).validate_python(project.get("scripts", {}))
-        if project.get("name") != distribution:
+        project_table = TypeAdapter(dict[str, object]).validate_python(source.get("project"))
+        if project_table.get("name") != distribution:
             raise ValueError("local wheel and source project identities differ")
+        if extension:
+            groups = TypeAdapter(dict[str, dict[str, str]]).validate_python(
+                project_table.get("entry-points", {})
+            )
+            if "scripts" in project_table or set(groups) != {_COMPONENT_GROUP}:
+                raise ValueError("extension must declare only candidate component providers")
+            expected = {_COMPONENT_GROUP: groups[_COMPONENT_GROUP]}
+            source_root = f"source/{project}/src/"
+        else:
+            expected = {
+                "console_scripts": TypeAdapter(dict[str, str]).validate_python(
+                    project_table.get("scripts", {})
+                )
+            }
+            source_root = "source/src/"
         with zipfile.ZipFile(io.BytesIO(release.content("wheels/" + filename))) as archive:
             entrypoints = [
                 name for name in archive.namelist() if name.endswith(".dist-info/entry_points.txt")
             ]
-            observed: dict[str, str] = {}
+            if len(entrypoints) > 1:
+                raise ValueError("local wheel entrypoints differ from retained source")
+            observed: dict[str, dict[str, str]] = {}
             for entrypoint in entrypoints:
                 parser = _EntryPoints(interpolation=None)
                 parser.read_string(archive.read(entrypoint).decode())
-                if parser.sections() != ["console_scripts"]:
-                    raise ValueError("local wheel contains unapproved entrypoint groups")
-                observed = dict(parser.items("console_scripts"))
-            if len(entrypoints) > 1 or observed != scripts:
+                observed = {section: dict(parser.items(section)) for section in parser.sections()}
+            if {group: items for group, items in expected.items() if items} != observed:
                 raise ValueError("local wheel entrypoints differ from retained source")
             for member in archive.infolist():
                 if member.is_dir() or member.filename.split("/", 1)[0].endswith(".dist-info"):
                     continue
-                source_name = "source/src/" + member.filename
-                if archive.read(member) != release.content(source_name):
+                if archive.read(member) != release.content(source_root + member.filename):
                     raise ValueError("local wheel differs from retained source snapshot")

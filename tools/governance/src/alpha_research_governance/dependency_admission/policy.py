@@ -49,9 +49,12 @@ _EXPECTED_LOCK_PATHS = (
     "uv.lock",
     "packages/collector/uv.lock",
     "packages/execution/uv.lock",
+    "packages/paper-services/uv.lock",
 )
 _RUNTIME_SCAN_ROOTS = ("src", "tools")
 _EXPECTED_LOCAL_PACKAGES = {"alpha-research-governance", "alpha-research-lab"}
+# Research extensions are local projects under extensions/<name>, never alpha-research-*.
+_EXTENSION_SOURCE = re.compile(r"extensions/[a-z][a-z0-9-]{0,63}")
 _HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _PACKAGE_NAME = re.compile(r"^[a-z0-9]+(?:[-.][a-z0-9]+)*$")
@@ -562,6 +565,7 @@ class DependencyRepository:
                 and len(cast(dict[str, object], item["source"])) == 1
                 and set(cast(dict[str, object], item["source"])) <= {"directory", "editable"}
             )
+            and not DependencyRepository._extension_package(name, item)
         }
         if unexpected:
             findings.append(f"uv.lock contains unadmitted external packages: {sorted(unexpected)}")
@@ -679,6 +683,19 @@ class DependencyRepository:
                         f"{path.relative_to(root).as_posix()}"
                     )
         return findings
+
+    @staticmethod
+    def _extension_package(name: str, item: dict[str, object]) -> bool:
+        """Recognize one locked research extension project by its directory source."""
+        source = item.get("source")
+        if not isinstance(source, dict) or set(cast(dict[str, object], source)) != {"directory"}:
+            return False
+        directory = cast(dict[str, object], source)["directory"]
+        return (
+            isinstance(directory, str)
+            and _EXTENSION_SOURCE.fullmatch(directory) is not None
+            and not name.startswith("alpha-research-")
+        )
 
     @staticmethod
     def validate(

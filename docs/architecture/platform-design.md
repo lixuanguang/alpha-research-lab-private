@@ -205,6 +205,11 @@ engineering check validates owned imports, explicit APIs and command metadata.
   selecting factories. Runtime supervision receives a workload explicitly and
   never imports the application it supervises. Strategy logic cannot construct
   executable venue clients or change independent risk/activation policy.
+- Code is loaded only from signed, admitted installed distributions by registered
+  identity. A research extension registers one component provider under the
+  `alpha_research.candidate_components` entry-point group; the paper services
+  resolve it by distribution name and pin its verified installed identity. No code
+  is imported by path or module name from configuration.
 
 The engineering checker enforces imports, public APIs and entrypoints for the
 current source tree. New capabilities follow these rules when they gain a working

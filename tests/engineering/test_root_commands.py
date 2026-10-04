@@ -22,6 +22,7 @@ class TestIndependentLockfiles:
         (
             "packages/collector",
             "packages/execution",
+            "packages/paper-services",
             "configs/development/research-worker",
             "configs/development/clearml/worker",
         ),
@@ -88,7 +89,7 @@ class TestRootCommands:
         assert (
             commands.count(
                 "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs "
-                "examples"
+                "examples extensions"
             )
             == 1
         )
@@ -159,13 +160,15 @@ class TestRootCommands:
         assert result.returncode != 0
         assert "Error 17" in result.stderr
         invocations = log.read_text(encoding="utf-8").splitlines()
-        assert invocations[:6] == [
+        assert invocations[:7] == [
             "lock --check",
             "lock --check --project packages/collector",
             "lock --check --project packages/execution",
+            "lock --check --project packages/paper-services",
             "lock --check --project configs/development/research-worker",
             "lock --check --project configs/development/clearml/worker",
-            "run --frozen ruff check src tests tools/governance/src tools/typing/stubs examples",
+            "run --frozen ruff check src tests tools/governance/src tools/typing/stubs examples "
+            "extensions",
         ]
         assert not any("format" in invocation or "mypy" in invocation for invocation in invocations)
 

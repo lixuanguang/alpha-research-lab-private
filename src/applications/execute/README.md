@@ -458,8 +458,10 @@ The independently signed execution target remains free of research/source packag
 only the account service runs inside that target.
 
 In that supervised paper composition, each `PaperServiceInstance` selects a
-`ReferenceCandidate` with its decision cadence and UTC grid origin; the cadence is
-no greater than the source's `freshness_us` or capture idle time. Native records
+`ReferenceCandidate` or a signed `PackagedCandidate`; a candidate's cadence is no
+greater than the source's `freshness_us` or capture idle time.
+`deployment-check --config PATH [--candidates DIR]` loads every configured
+candidate and prints its candidate, policy, model and feature identities. Native records
 remain retained and validated in order. At each candidate grid instant the due
 candidates decide from the latest eligible market at or before it, and the book
 that crossed the instant matches orders. Books between instants update the

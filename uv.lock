@@ -89,6 +89,9 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+extensions = [
+    { name = "engineering-candidates" },
+]
 notebooks = [
     { name = "ipykernel" },
     { name = "jupyter-client" },
@@ -131,6 +134,7 @@ dev = [
     { name = "pytest-cov", specifier = "==7.1.0" },
     { name = "ruff", specifier = "==0.16.5" },
 ]
+extensions = [{ name = "engineering-candidates", directory = "extensions/engineering-candidates" }]
 notebooks = [
     { name = "ipykernel", specifier = "==7.4.0" },
     { name = "jupyter-client", specifier = "==8.10.0" },
@@ -775,6 +779,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/a9/5b/698127a554057c15b
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a5/0c/bb2a677e02b96e006ed6d7e1fb59e21143978098086f37751b4f4ba16f99/empyrical_reloaded-0.5.9-py3-none-any.whl", hash = "sha256:d1ffd695f2f4685c385c1c70716adbee56a6283ddd077ba589e01c2f82955ec5", size = 32403, upload-time = "2023-01-10T22:32:08.042Z" },
 ]
+
+[[package]]
+name = "engineering-candidates"
+version = "0.1.0"
+source = { directory = "extensions/engineering-candidates" }
 
 [[package]]
 name = "exchange-calendars"

@@ -621,7 +621,11 @@ class CapacityWorkload:
                 for source in service.sources
             ),
             "strategies": tuple(
-                (instance.instance_id, instance.candidate.formula, instance.source)
+                (
+                    instance.instance_id,
+                    PaperServiceWorkload.reference(instance).formula,
+                    instance.source,
+                )
                 for instance in service.instances
             ),
             "account_service_seconds": 120,

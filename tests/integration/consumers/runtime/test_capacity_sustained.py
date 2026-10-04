@@ -13,6 +13,7 @@ import msgspec
 import pytest
 from capacity_inputs import CapacityNativeFixture, CapacityWorkload
 from capacity_sustained import SustainedNativeFixture, SustainedWorkload
+from paper_services import PaperServiceWorkload
 
 # project library imports
 from configuration import PaperSourceChain
@@ -72,13 +73,20 @@ class TestCapacitySustained:
         assert service.duration_seconds == 2880
         assert service.telemetry_interval == 15
         assert {
-            (item.candidate.formula, item.candidate.cadence_us, str(item.quantity.value))
+            (
+                PaperServiceWorkload.reference(item).formula,
+                PaperServiceWorkload.reference(item).cadence_us,
+                str(item.quantity.value),
+            )
             for item in service.instances
         } == {("target_clip", 3_000_000, "1")}
         # The stage-1 selection declares no chain, service life or target formula.
         encoded = DomainCodec().encode_json(stage1.service_configuration())
         assert b'"chain":null' in encoded and b"service_life_seconds" not in encoded
-        assert {item.candidate.formula for item in stage1.service_configuration().instances} == {
+        assert {
+            PaperServiceWorkload.reference(item).formula
+            for item in stage1.service_configuration().instances
+        } == {
             "fixed_clip",
             "liquidity_clip",
         }

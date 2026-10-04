@@ -25,6 +25,7 @@ from typing import Literal, cast
 from uuid import uuid4
 
 # project library imports
+from applications.execute.service_candidates import PaperServiceCandidates
 from applications.execute.service_monitor import (
     DiagnosticReceipt,
     PaperServiceDiagnostics,
@@ -61,7 +62,6 @@ from runtime import (
     InstalledIdentity,
     LoadedCandidate,
     ProcessCandidateExecutor,
-    ReferenceCandidates,
     SharedDecisionRuntime,
     SharedPaperCaptureObserver,
     SharedStrategyBinding,
@@ -169,8 +169,13 @@ class PaperServices:
         control_socket: Path,
         transports: Mapping[str, CaptureTransport] | None = None,
         measurement_root: Path | None = None,
+        candidates: Path | None = None,
     ) -> None:
-        """Bind explicit configuration and claimed owners without starting any process."""
+        """Bind explicit configuration and claimed owners without starting any process.
+
+        ``candidates`` is the installed release's signed candidates directory, which
+        packaged candidates require.
+        """
         configuration.__post_init__()
         if (
             not root.is_absolute()
@@ -213,7 +218,7 @@ class PaperServices:
         self.instances = {item.instance_id: item for item in configuration.instances}
         self.active = set(configuration.active)
         self.workers: dict[str, ProcessCandidateExecutor] = {}
-        self._candidates: dict[str, LoadedCandidate] = {}
+        self.resolved = PaperServiceCandidates(configuration, candidates)
         self.sources: dict[str, SourceChild] = {}
         self.faulted_accounts: set[str] = set()
         self.unavailable_accounts: set[str] = set()
@@ -253,37 +258,16 @@ class PaperServices:
         return True
 
     def requirements(self, source: PaperServiceSource) -> tuple[InputRequirement, ...]:
-        """Return the native book fields the source's reference candidates read."""
-        return ReferenceCandidates(
-            venue=source.capture.venue, freshness_us=source.freshness_us, clock="receipt"
-        ).inputs
+        """Return the native book fields the source's candidates read."""
+        return self.resolved.requirements(source)
 
     def source_identity(self, source: PaperServiceSource) -> str:
         """Identify a source's capture and projected fields independently of recordings."""
-        return hashlib.sha256(
-            self.codec.encode_json((source.capture, self.requirements(source)))
-        ).hexdigest()
+        return self.resolved.source_identity(source)
 
     def candidate(self, instance: PaperServiceInstance) -> LoadedCandidate:
         """Load the instance's explicitly selected candidate without fallback."""
-        loaded = self._candidates.get(instance.instance_id)
-        if loaded is not None:
-            return loaded
-        source = next(item for item in self.config.sources if item.name == instance.source)
-        loaded = ReferenceCandidates(
-            venue=source.capture.venue, freshness_us=source.freshness_us, clock="receipt"
-        ).load(
-            instance.candidate,
-            instance=instance.instance_id,
-            entity=str(source.scenario.instrument_id),
-            quantity=instance.quantity,
-            lot=instance.lot,
-            currency=source.scenario.adverse.currency,
-            tick=self.config.instance_limits(instance).tick,
-            source_identity=self.source_identity(source),
-        )
-        self._candidates[instance.instance_id] = loaded
-        return loaded
+        return self.resolved.candidate(instance)
 
     def binding(self, instance: PaperServiceInstance) -> SharedStrategyBinding:
         """Bind one candidate's continuation to its economic instance and venue."""
@@ -313,9 +297,7 @@ class PaperServices:
     @staticmethod
     def model_identity(loaded: LoadedCandidate) -> str:
         """Name the candidate's fitted model, or the explicit rule-only selection."""
-        return (
-            "rule-only" if loaded.estimator_version is None else loaded.estimator_version.identity
-        )
+        return PaperServiceCandidates.model_identity(loaded)
 
     def preflight(self) -> None:
         """Verify immutable deployed definitions and active owners before scheduling work."""
@@ -1441,6 +1423,7 @@ def run_paper_services(
     control_socket: Path,
     transports: Mapping[str, CaptureTransport] | None = None,
     measurement_root: Path | None = None,
+    candidates: Path | None = None,
 ) -> dict[str, object]:
     """Compose one explicit bounded installed deployment and return its stopped service state."""
     services = PaperServices(
@@ -1450,6 +1433,7 @@ def run_paper_services(
         control_socket=control_socket,
         transports=transports,
         measurement_root=measurement_root,
+        candidates=candidates,
     )
     return services.run()
 

@@ -47,6 +47,7 @@ from configuration.paper_activation import (
     PaperStrategyIdentity,
 )
 from configuration.paper_services import (
+    PackagedCandidate,
     PaperServiceAccount,
     PaperServiceConfiguration,
     PaperServiceInstance,
@@ -103,6 +104,7 @@ __all__ = [
     "InstrumentFeeRate",
     "OKXHistoryConfig",
     "OpeningAccount",
+    "PackagedCandidate",
     "PaperAuthorization",
     "PaperConfiguration",
     "PaperDeployment",

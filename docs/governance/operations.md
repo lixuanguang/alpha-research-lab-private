@@ -94,7 +94,12 @@ These are parameterized commands, not authorization for a new deployment.
 `ReleaseBuild` selects identity/origin/expiry and `ReleaseRuntime` selects
 application, mode, target, shared-contract version and configuration/state
 schemas. Execution uses `execution-admission`; collector uses the existing
-`CaptureConfig` schema `1`. Initial empty state uses `none`; `--state PATH`
+`CaptureConfig` schema `1`; paper services use `paper-services` with state
+schema `none`, and `--candidates DIR` signs that directory's candidate bundles
+into the release. An installed paper services target runs `deployment`,
+`deployment-check` and `deployment-control`; the launcher binds the signed
+configuration and candidates and bounds a run by the supervisor's duration plus
+60 seconds. Installation runs `deployment-check` before selecting the release. Initial empty state uses `none`; `--state PATH`
 can bind an explicitly quiesced snapshot. The initial state envelope must not be
 supplied by that directory. The application owns the meaning of a nonempty state
 schema; a declared schema alone is not reconciliation or migration evidence.

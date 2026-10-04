@@ -48,7 +48,10 @@ It accepts a `DecisionStudy` value or a path to the same strict versioned JSON.
 optional transform/model/outcome reader, execution/cost models and metric/chart
 implementations. Every configured identity must match; missing selections fail
 without substituting a built-in implementation. This is an installed callable
-API; no new command or dynamic Python import from configuration is introduced.
+API; the study runs whatever components the caller supplies, and configuration
+never imports code. Operating services load extension components only from signed
+installed distributions, as the [runtime guide](../../runtime/README.md#research-extensions)
+describes.
 
 `StudyFold` freezes training/evaluation schedules, an authored `TemporalSplit`
 with an empty sample inventory, and a label-evaluation cutoff. The application

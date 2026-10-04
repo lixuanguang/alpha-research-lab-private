@@ -32,6 +32,7 @@ if TYPE_CHECKING:
         PolicyFactory,
         TransformFactory,
     )
+    from runtime.extensions import ExtensionFactories, ExtensionProvider, InstalledExtensions
     from runtime.feature_feed import CandidateFeatureFeed
     from runtime.jobs import (
         JobHandler,
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
     from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
     from runtime.monitoring import CandidateMonitoringExporter
     from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
+    from runtime.paper_capabilities import PaperCapabilities
     from runtime.portfolio import (
         CandidateExecutor,
         SharedCandidateCheckpoint,
@@ -72,6 +74,22 @@ def __getattr__(name: str) -> object:
             "SharedDecisionGroup": shared_paper.SharedDecisionGroup,
             "SharedPaperCaptureObserver": shared_paper.SharedPaperCaptureObserver,
         }
+        return exports[name]
+    if name in {"ExtensionFactories", "ExtensionProvider", "InstalledExtensions"}:
+        # project library imports
+        from runtime import extensions
+
+        exports = {
+            "ExtensionFactories": extensions.ExtensionFactories,
+            "ExtensionProvider": extensions.ExtensionProvider,
+            "InstalledExtensions": extensions.InstalledExtensions,
+        }
+        return exports[name]
+    if name in {"PaperCapabilities"}:
+        # project library imports
+        from runtime import paper_capabilities
+
+        exports = {"PaperCapabilities": paper_capabilities.PaperCapabilities}
         return exports[name]
     if name in {"AuthoredCandidates", "ReferenceCandidates"}:
         # project library imports
@@ -245,8 +263,11 @@ __all__ = [
     "CandidateStep",
     "ChartFactory",
     "EstimatorFactory",
+    "ExtensionFactories",
+    "ExtensionProvider",
     "FeatureFactory",
     "ImplementationIdentity",
+    "InstalledExtensions",
     "InstalledIdentity",
     "JobHandler",
     "JobHealth",
@@ -261,6 +282,7 @@ __all__ = [
     "LocalCandidateExecutor",
     "MetricFactory",
     "PaperCandidateRuntime",
+    "PaperCapabilities",
     "PaperCaptureObserver",
     "PaperCheckpoint",
     "PolicyFactory",

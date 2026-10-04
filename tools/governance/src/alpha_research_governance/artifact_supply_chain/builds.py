@@ -7,6 +7,7 @@ import subprocess  # nosec B404  # [owner=platform; rationale=explicit local bui
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 # project library imports
 from alpha_research_governance._models import ImmutableModel
@@ -59,6 +60,7 @@ class ReleaseBuilder:
         registry: Path,
         now: datetime,
         state: Path | None = None,
+        candidates: Path | None = None,
     ) -> Path:
         """Publish a signed release after build, complete admission and source comparison.
 
@@ -71,6 +73,8 @@ class ReleaseBuilder:
             registry: Local immutable registry destination.
             now: Aware UTC build observation time.
             state: Optional quiesced initial state directory; absent means an empty state.
+            candidates: Paper services only: a directory of candidate bundle roots,
+                signed under ``candidates/`` and verified by the installed application.
 
         Returns:
             Content-addressed bundle path, ready for separate local installation.
@@ -94,6 +98,8 @@ class ReleaseBuilder:
         if backend.strip() != b"1.32.0":
             raise ValueError("release build requires admitted hatchling 1.32.0")
         audit_bytes = ReleaseAudit.run(policy, audit_report)
+        if (candidates is not None) != (request.runtime.application == "paper-services"):
+            raise ValueError("candidate bundles are signed only into paper services releases")
         before = self._source_inputs()
         selected = self.repository / "packages" / request.runtime.application
         root_name = "alpha-research-" + request.runtime.application
@@ -102,7 +108,7 @@ class ReleaseBuilder:
             directory = Path(temporary)
             wheels = directory / "wheels"
             wheels.mkdir()
-            for project in (self.repository / "packages/contracts", selected):
+            for project in self._local_projects(selected):
                 command = [
                     self.policy.uv_executable,
                     "build",
@@ -155,6 +161,11 @@ class ReleaseBuilder:
             }
             contents.update(("source/" + name, content) for name, content in before)
             contents.update(("wheels/" + path.name, path.read_bytes()) for path in actual_wheels)
+            if candidates is not None:
+                for name in ReleaseRegistry.inventory(candidates):
+                    contents["candidates/" + name] = ReleaseRegistry.read_regular(
+                        candidates / name, 67_108_864
+                    )
             initial: list[ReleaseFile] = []
             if state is not None:
                 for name in ReleaseRegistry.inventory(state):
@@ -186,6 +197,8 @@ class ReleaseBuilder:
                     "alpha-research-collector"
                     if request.runtime.application == "collector"
                     else "alpha-research-execution"
+                    if request.runtime.application == "execution"
+                    else "alpha-research-paper-services"
                 ),
                 files=tuple(
                     ReleaseFile.describe(name, content)
@@ -207,6 +220,28 @@ class ReleaseBuilder:
             ReleaseProvenance.verify(verified, now=now)
             return published
 
+    def _local_projects(self, selected: Path) -> tuple[Path, ...]:
+        """Return every local project the selected lock installs, root last.
+
+        Directory sources resolve against the selected project and must stay inside
+        ``packages/`` or ``extensions/`` of this repository.
+        """
+        locked = DependencyRepository.locked_packages(selected / "uv.lock")
+        projects: list[Path] = []
+        for name in sorted(locked):
+            source = locked[name].get("source")
+            if not isinstance(source, dict):
+                continue
+            entries = cast(dict[str, object], source)
+            if set(entries) != {"directory"}:
+                continue
+            directory = (selected / str(entries["directory"])).resolve(strict=True)
+            relative = directory.relative_to(self.repository).as_posix()
+            if relative.split("/", 1)[0] not in {"packages", "extensions"}:
+                raise ValueError("local release project lies outside packages or extensions")
+            projects.append(directory)
+        return (*projects, selected)
+
     def _source_inputs(self) -> tuple[tuple[str, bytes], ...]:
         """Capture maintained build/runtime inputs, including uncommitted source bytes."""
         paths: set[Path] = set()
@@ -226,11 +261,20 @@ class ReleaseBuilder:
                 "docs/architecture/dependency-admission.toml",
             )
         )
-        for package in ("contracts", "collector", "execution"):
+        for package in ("contracts", "collector", "execution", "paper-services"):
             paths.add(self.repository / "packages" / package / "pyproject.toml")
             lock = self.repository / "packages" / package / "uv.lock"
             if lock.exists():
                 paths.add(lock)
+        extensions = self.repository / "extensions"
+        if extensions.is_dir():
+            for project in sorted(path for path in extensions.iterdir() if path.is_dir()):
+                paths.add(project / "pyproject.toml")
+                paths.update(
+                    path
+                    for path in (project / "src").rglob("*")
+                    if path.suffix in {".py", ".json"} or path.name == "py.typed"
+                )
         return tuple(
             (
                 path.relative_to(self.repository).as_posix(),

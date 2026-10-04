@@ -277,11 +277,18 @@ to be rerun.
 definitions from the `active` instance tuple. Each account definition points to an
 explicitly activated signed account socket. Each source binds one native capture,
 venue/instrument identity, execution scenario and freshness budget; each instance
-selects its source and a `ReferenceCandidate`: an installed formula, its decision
-cadence and the UTC grid origin. The cadence cannot exceed source freshness or
-capture idle time. The supervisor loads each instance through `ReferenceCandidates`
-and checks its candidate, policy, model and feature identities against the signed
-deployment before starting. The supported local envelope is at most four
+selects its source and a candidate: a `ReferenceCandidate` (an installed formula,
+its decision cadence and UTC grid origin) or a `PackagedCandidate` (a signed bundle's
+definition identity, the installed extension providing its code, and the grid
+origin; the definition fixes the cadence). Packaged bundles are read only from the
+release's signed `candidates/` directory, after their research provenance verifies,
+with components from the named extension resolved against `PaperCapabilities`. All
+candidates on one source must share its book requirement name, clock and freshness. The cadence cannot exceed source freshness or
+capture idle time. The supervisor loads every instance before starting and checks its candidate,
+policy, model and feature identities against the signed deployment.
+`alpha-execute deployment-check --config ... --candidates ...` loads every configured
+candidate without starting anything and prints those identities, for authoring and
+checking the signed deployments. The supported local envelope is at most four
 accounts, eight source processes and sixteen candidate instances. Invocations
 are bounded by each account configuration's signed service life (120 seconds unless
 declared). These resource ceilings are not MR15 throughput qualification.

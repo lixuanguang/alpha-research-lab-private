@@ -188,7 +188,9 @@ class TestCapacityInputs:
         )
         service = workload.service_configuration()
         source = next(item for item in service.sources if item.capture.venue == "bitfinex")
-        assert {item.candidate.cadence_us for item in service.instances} == {3_000_000}
+        assert {PaperServiceWorkload.reference(item).cadence_us for item in service.instances} == {
+            3_000_000
+        }
         fixture = CapacityNativeFixture(source)
         cadence = fixture.grid_cadence_ns / 1_000_000_000
         phase = fixture.grid_phase_ns / 1_000_000_000

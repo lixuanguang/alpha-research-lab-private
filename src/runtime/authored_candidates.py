@@ -35,6 +35,7 @@ from research.observations import InputRequirement, NumericField
 from runtime.candidates import CandidateLoader, LoadedCandidate
 from runtime.components import CandidateComponents, FeatureFactory, PolicyFactory
 from runtime.identity import ImplementationIdentity
+from runtime.paper_capabilities import PaperCapabilities
 from serialization import DomainCodec
 from strategies import DecisionPolicy, ReferencePolicies
 
@@ -83,9 +84,15 @@ class AuthoredCandidates:
         venue: str,
         product: str = "spot",
         calendar: str = "continuous-utc",
+        capabilities: PaperCapabilities | None = None,
     ) -> None:
-        """Bind the venue, product and calendar every requirement declares."""
+        """Bind the venue, product and calendar every requirement declares.
+
+        With ``capabilities``, requirements resolve against that installed
+        environment; without it, against self-declared fixture profiles.
+        """
         self.venue, self.product, self.calendar = venue, product, calendar
+        self.capabilities = capabilities
         self._codec = DomainCodec()
         self._implementation = ImplementationIdentity.sha256()
 
@@ -163,10 +170,7 @@ class AuthoredCandidates:
             input_mode="source",
             source_identity=source_identity,
             starts_at=starts_at,
-            selections=tuple(
-                CapabilitySelection(name=item.name, profile=f"authored-{item.name}")
-                for item in requirements
-            ),
+            selections=self._selections(requirements),
             universes=UniverseSelection(
                 collection=(instrument,),
                 research=(),
@@ -187,8 +191,24 @@ class AuthoredCandidates:
                 )
             },
         )
-        return CandidateLoader(components, self._registry(requirements)).load(
+        registry = (
+            self._registry(requirements)
+            if self.capabilities is None
+            else self.capabilities.registry()
+        )
+        return CandidateLoader(components, registry).load(
             CandidateObjects(definition, payloads), deployment
+        )
+
+    def _selections(
+        self, requirements: tuple[CapabilityRequirement, ...]
+    ) -> tuple[CapabilitySelection, ...]:
+        """Select the environment's profiles, or this candidate's own fixture profiles."""
+        if self.capabilities is not None:
+            return self.capabilities.selections(requirements)
+        return tuple(
+            CapabilitySelection(name=item.name, profile=f"authored-{item.name}")
+            for item in requirements
         )
 
     def _requirements(
@@ -286,12 +306,13 @@ class ReferenceCandidates:
         venue: str,
         freshness_us: int,
         clock: Literal["event", "receipt"],
+        capabilities: PaperCapabilities | None = None,
     ) -> None:
-        """Bind the native venue, source freshness and source clock the inputs use."""
+        """Bind the native venue, source freshness, source clock and optional environment."""
         if type(freshness_us) is not int or freshness_us <= 0 or clock not in ("event", "receipt"):
             raise ValueError("reference candidates require positive freshness and a source clock")
         self.freshness_us, self.clock = freshness_us, clock
-        self._authored = AuthoredCandidates(venue=venue)
+        self._authored = AuthoredCandidates(venue=venue, capabilities=capabilities)
         self._implementation = ImplementationIdentity.sha256()
 
     @property

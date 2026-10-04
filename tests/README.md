@@ -11,6 +11,7 @@ than by the MR that originally demonstrated it.
 | --- | --- |
 | `unit/` | Domain/component regressions, including integration-marked cases beside their owner |
 | `engineering/` | Packaging, dependencies, source standards and governance |
+| `unit/extensions/` | Maintained research extensions under `extensions/`, through their registered providers |
 | `golden/`, `fixtures/` | Independent expected values and static input bytes; no executable Python |
 | `support/subprocesses/` | Acquisition fakes and deliberate process-death/publication interruptions |
 | `integration/test_*.py` | Discovered workflow tests |

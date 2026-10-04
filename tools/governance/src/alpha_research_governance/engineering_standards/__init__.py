@@ -45,5 +45,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
     except (EngineeringStandardsError, OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
-    print("Python clarity standards passed for src, tests, governance, native stubs and examples")
+    print(
+        "Python clarity standards passed for src, tests, governance, native stubs, "
+        "examples and extensions"
+    )
     return 0

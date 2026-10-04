@@ -13,6 +13,7 @@ from typing import ClassVar, Literal
 # third party library imports
 import msgspec
 from capacity_inputs import CapacityNativeFixture, CapacityVariant, CapacityWorkload
+from paper_services import PaperServiceWorkload
 
 # project library imports
 from accounting import AccountLedger
@@ -284,7 +285,7 @@ class SustainedWorkload(CapacityWorkload):
             if type(opening) is not int or type(steady) is not int:
                 raise ValueError("sustained projection lacks order counts")
             cadence_us = min(
-                item.candidate.cadence_us
+                PaperServiceWorkload.reference(item).cadence_us
                 for item in service.instances
                 if item.account_id == account.account_id
             )
@@ -338,7 +339,11 @@ class SustainedWorkload(CapacityWorkload):
                 for source in service.sources
             ),
             "strategies": tuple(
-                (instance.instance_id, instance.candidate.formula, instance.source)
+                (
+                    instance.instance_id,
+                    PaperServiceWorkload.reference(instance).formula,
+                    instance.source,
+                )
                 for instance in service.instances
             ),
             "account_service_seconds": self.service_life_seconds,
@@ -384,7 +389,7 @@ class SustainedWorkload(CapacityWorkload):
                 account_id=account_id,
                 entity=str(source.scenario.instrument_id),
                 candidate=venue.candidates(source).load(
-                    instance.candidate,
+                    PaperServiceWorkload.reference(instance),
                     instance=instance.instance_id,
                     entity=str(source.scenario.instrument_id),
                     quantity=instance.quantity,

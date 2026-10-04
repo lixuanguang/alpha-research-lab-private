@@ -365,6 +365,13 @@ class PaperServiceWorkload:
             alert_socket=initial.alert_socket,
         )
 
+    @staticmethod
+    def reference(instance: PaperServiceInstance) -> ReferenceCandidate:
+        """Return the instance's reference candidate; this workload provisions no other."""
+        if not isinstance(instance.candidate, ReferenceCandidate):
+            raise ValueError("paper service workload provisions only reference candidates")
+        return instance.candidate
+
     def candidate(
         self,
         service: PaperServiceConfiguration,
@@ -375,7 +382,7 @@ class PaperServiceWorkload:
         if self.implementation is None:
             raise ValueError("candidate identity requires the installed release")
         return self.candidates(source).load(
-            instance.candidate,
+            PaperServiceWorkload.reference(instance),
             instance=instance.instance_id,
             entity=str(source.scenario.instrument_id),
             quantity=instance.quantity,
@@ -622,7 +629,7 @@ class PaperServiceWorkload:
                 for item in service.sources
             ),
             "strategies": tuple(
-                (item.instance_id, item.candidate.formula, item.source)
+                (item.instance_id, PaperServiceWorkload.reference(item).formula, item.source)
                 for item in service.instances
             ),
             "opening_cash": self.money("100000"),

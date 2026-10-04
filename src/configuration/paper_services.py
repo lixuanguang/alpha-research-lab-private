@@ -103,7 +103,7 @@ class PaperServiceSource(WireRecord, frozen=True):
                 raise ValueError("paper source chain is incompatible with its capture")
 
 
-class ReferenceCandidate(WireRecord, frozen=True):
+class ReferenceCandidate(WireRecord, frozen=True, tag="reference"):
     """Select one installed reference formula and its UTC decision grid."""
 
     formula: Literal["fixed_clip", "liquidity_clip", "target_clip"]
@@ -121,13 +121,41 @@ class ReferenceCandidate(WireRecord, frozen=True):
             raise ValueError("invalid reference candidate")
 
 
+class PackagedCandidate(WireRecord, frozen=True, tag="packaged"):
+    """Select one signed candidate bundle and the installed extension providing its code.
+
+    The bundle is read from the paper services release's signed candidates by its
+    definition identity; its definition fixes the cadence.
+    """
+
+    definition_sha256: str
+    extension: str
+    starts_at: datetime
+
+    def __post_init__(self) -> None:
+        """Require an exact definition digest, an extension project and a UTC grid origin."""
+        self._require_utc(self.starts_at, field_name="packaged candidate grid origin")
+        if (
+            type(self.definition_sha256) is not str
+            or not re.fullmatch(r"[0-9a-f]{64}", self.definition_sha256)
+            or type(self.extension) is not str
+            or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,99}", self.extension)
+            or self.extension.startswith("alpha-research-")
+        ):
+            raise ValueError("invalid packaged candidate")
+
+
 class PaperServiceInstance(WireRecord, frozen=True):
-    """Provision one candidate independently of the active scheduling selection."""
+    """Provision one candidate independently of the active scheduling selection.
+
+    ``quantity`` and ``lot`` select the instance's instrument limits; a reference
+    formula also uses them as its clip.
+    """
 
     instance_id: str
     account_id: str
     source: str
-    candidate: ReferenceCandidate
+    candidate: ReferenceCandidate | PackagedCandidate
     quantity: Quantity
     lot: Quantity
     maximum_fee: Money
@@ -135,7 +163,7 @@ class PaperServiceInstance(WireRecord, frozen=True):
     def __post_init__(self) -> None:
         """Require a typed candidate and exact positive clip parameters."""
         if (
-            type(self.candidate) is not ReferenceCandidate
+            type(self.candidate) not in (ReferenceCandidate, PackagedCandidate)
             or type(self.quantity) is not Quantity
             or type(self.lot) is not Quantity
             or type(self.maximum_fee) is not Money
@@ -271,8 +299,11 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
                 or limits is None
                 or limits.lot != instance.lot
                 or source.freshness_us > account.configuration.budgets.max_quote_age_us
-                or instance.candidate.cadence_us
-                > min(source.freshness_us, source.capture.idle_seconds * 1_000_000)
+                or (
+                    type(instance.candidate) is ReferenceCandidate
+                    and instance.candidate.cadence_us
+                    > min(source.freshness_us, source.capture.idle_seconds * 1_000_000)
+                )
             ):
                 raise ValueError("paper instance exceeds its installed account definition")
 

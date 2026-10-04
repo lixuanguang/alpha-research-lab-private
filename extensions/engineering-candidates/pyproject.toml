@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engineering-candidates"
+version = "0.1.0"
+description = "Engineering reference extension: a stateful book feature and a target policy"
+requires-python = "==3.14.*"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = []
+
+[project.entry-points."alpha_research.candidate_components"]
+engineering-candidates = "engineering_candidates:ComponentProvider"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/**/py.typed" }]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engineering_candidates"]

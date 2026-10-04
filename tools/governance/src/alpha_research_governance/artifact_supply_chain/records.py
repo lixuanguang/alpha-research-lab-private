@@ -19,6 +19,10 @@ from alpha_research_governance._models import ImmutableModel
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Identity = Annotated[str, Field(pattern=r"^[a-z][a-z0-9._-]{0,95}$")]
 SchemaVersion = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,95}$")]
+OperatingApplication = Literal["collector", "execution", "paper-services"]
+OperatingRoot = Literal[
+    "alpha-research-collector", "alpha-research-execution", "alpha-research-paper-services"
+]
 
 
 class ReleaseFile(ImmutableModel):
@@ -59,7 +63,7 @@ class ReleaseRuntime(ImmutableModel):
     python_version: Literal["3.14.7"]
     platform: Literal["darwin_arm64", "linux_x86_64"]
     contract_version: Literal["1"]
-    application: Literal["collector", "execution"]
+    application: OperatingApplication
     mode: Literal["collection", "research", "paper", "shadow"]
     config_schema: SchemaVersion
     state_schema: SchemaVersion
@@ -67,9 +71,15 @@ class ReleaseRuntime(ImmutableModel):
 
     @model_validator(mode="after")
     def validate_mode(self) -> Self:
-        """Keep collector and intent-only execution placement modes distinct."""
+        """Keep collector, intent-only execution and paper service placements distinct."""
         if (self.application == "collector") != (self.mode == "collection"):
             raise ValueError("application and operating mode are incompatible")
+        if (self.application == "paper-services") != (self.config_schema == "paper-services"):
+            raise ValueError("paper services configuration and application are incompatible")
+        if self.application == "paper-services" and (
+            self.mode not in ("paper", "shadow") or self.state_schema != "none"
+        ):
+            raise ValueError("paper services run paper or shadow mode without own state")
         account_configuration = self.config_schema == "account-runtime"
         account_state = self.state_schema == "account-journal"
         if account_configuration != account_state or (
@@ -93,7 +103,7 @@ class ReleaseManifest(ImmutableModel):
     source_dirty: bool
     build_commands: tuple[tuple[str, ...], ...]
     runtime: ReleaseRuntime
-    root_distribution: Literal["alpha-research-collector", "alpha-research-execution"]
+    root_distribution: OperatingRoot
     files: tuple[ReleaseFile, ...]
 
     @model_validator(mode="after")
@@ -144,7 +154,7 @@ class TrustedBuilder(ImmutableModel):
     identity: Identity
     public_key: str
     origins: tuple[str, ...]
-    roots: tuple[Literal["alpha-research-collector", "alpha-research-execution"], ...]
+    roots: tuple[OperatingRoot, ...]
     valid_from: datetime
     valid_until: datetime
 
@@ -213,7 +223,7 @@ class StateEnvelope(ImmutableModel):
     """
 
     schema_version: SchemaVersion
-    application: Literal["collector", "execution"]
+    application: OperatingApplication
     files: tuple[ReleaseFile, ...]
 
     @model_validator(mode="after")

@@ -109,7 +109,7 @@ class TestPaperServicePreparation:
                 )
                 source = next(item for item in initial.sources if item.name == definition.source)
                 candidate = workload.candidate(initial, definition, source)
-                assert definition.candidate.cadence_us == 3_000_000
+                assert PaperServiceWorkload.reference(definition).cadence_us == 3_000_000
                 assert strategy.feature_identity == candidate.feature.schema.identity
                 assert strategy.policy_identity == candidate.policy.identity
                 assert strategy.candidate_identity == candidate.definition.identity

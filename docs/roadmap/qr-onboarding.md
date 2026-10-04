@@ -166,6 +166,7 @@ Every item above has at least one unproven boundary, so G5 is open.
 | P4 | No timed 4× replay of a 24-hour corpus; the sustained workload is sized for 2a (10 periods, 4-segment chain) | Stage 2b harness work, under the 2b declaration |
 | P5 | Host has 497 GiB free; the runtime profile requires at least 512 GiB at trial start | Free space, or a dated redeclaration (decision 10) |
 | P6 | Account service startup owner check still reads full history (open note from stage 2a) | Measure in 2b rehearsal; fix only if it misses a budget |
+| P7 | No library API packages a completed study into a signed candidate bundle; M1b tests author the bundle by hand (found in M1b) | A research owner method that publishes a study's selected components as a `CandidateManifest`, in M2 with the QR guide |
 
 ## Integrated fresh-entry journey
 
@@ -458,18 +459,143 @@ Implemented as approved, with F1 and F2. One commit; nothing signed or run.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 666 files |
 
+## M1b design note: signed extension packages (approved 2026-10-04)
+
+The owner chose S-A on 2026-10-04.
+
+**What exists.**
+- The governance builder signs and installs the `collector` and `execution` operating
+  releases. Their targets contain no research code.
+- The paper supervisor (`alpha-execute deployment`) runs from the full research
+  distribution, which is installed without a signed release. Only the account owners
+  it calls are signed targets.
+- `alpha-governance-artifacts release-check` no longer fails on wheel-only
+  dependencies (removed 2026-10-01); it now fails only because no operating build
+  profile exists for the research distribution.
+- After M1a, the signed account deployment pins each instance's candidate definition
+  identity, which pins its components' `implementation_sha256`. Nothing yet ties those
+  digests to installed extension code, and the supervisor can load only the built-in
+  reference candidates.
+
+**Design.**
+1. **Registration.** An extension package declares its component factories under the
+   entry-point group `alpha_research.candidate_components`. Each entry names a provider
+   class that returns the package's `CandidateComponents`. A runtime
+   `InstalledExtensions` owner loads providers only from named installed distributions
+   and computes each distribution's identity from its installed `RECORD` file hashes.
+   A component's `implementation_sha256` must equal that identity, so the signed
+   deployment pins the exact extension code.
+2. **Packaged candidates.** `PaperServiceInstance` gains a `PackagedCandidate` variant
+   beside `ReferenceCandidate`: candidate bundle path, definition identity, extension
+   distribution name and the UTC grid origin. The supervisor admits it only from a
+   `CandidateBundle` whose research provenance verifies, with components resolved from
+   the named installed extension. Code is never imported by path or module name from
+   configuration.
+3. **Signing.** See the choice below.
+
+**Choice for the owner — what is signed.**
+- **S-A (recommended): a signed supervisor release that includes extensions.** Add an
+  operating build profile, `paper-services`, for the research distribution plus the
+  selected extension wheels. The builder builds extension wheels from their source,
+  admits their dependency closures and signs one release. The supervisor then runs
+  through `alpha-governance-artifacts run` like the account owners, and its
+  environment, platform code and extensions are all authenticated. This closes an
+  existing gap (the supervisor runs unsigned today) and gives 2b and forward paper a
+  fully signed runtime. Cost: a larger signed closure (the research dependencies), a
+  new profile and its installation tests, and M1b becomes the largest M1 part.
+- **S-B: signed extension wheels only.** The builder signs each extension wheel; a new
+  governance command installs it, hash-checked and offline, into the existing unsigned
+  research environment. The supervisor checks installed files against the signed
+  digest. Cheaper, but the platform code around the extension stays unsigned.
+
+**Implementation decisions under S-A (2026-10-04).**
+- **Distribution.** `alpha-research-paper-services` (`packages/paper-services`) depends on
+  the exact `contracts` and `execution` versions and ships the rest of what the
+  supervisor imports: `runtime`, `market_data`, the research owners candidates need
+  (`experiments`, `features`, `labels`, `models`, `observations`, `results`) and the
+  remaining `strategies` modules. It has its own lock and no notebook, tracking or
+  backtest dependencies. The supervisor's measured import closure is msgspec, pydantic
+  and websockets; `research.models` exports its pandas-based study helpers lazily so
+  estimator adapters load without pandas.
+- **Extensions.** An extension lives in `extensions/<name>/` with its own
+  `pyproject.toml`. A release selects it by listing it as a path dependency of
+  `packages/paper-services`; its dependency closure then passes the same admission
+  and audit as the platform.
+- **Candidates in the release.** The builder signs candidate bundles into the release
+  under `candidates/<definition identity>/`. A `PackagedCandidate` names the definition
+  identity and the extension distribution, and the supervisor reads bundles only from
+  its installed release.
+- **Installer.** `paper-services` binds two commands to the signed configuration:
+  `deployment` and `deployment-control`. The outer bound is the supervisor's duration
+  plus 60 s. Installation runs `deployment-check`, which loads every configured
+  candidate before the release is selected.
+
+**Out of scope for M1b.** Research studies keep importing a QR's own package directly;
+config-driven loading is needed only where a CLI or service must find code. Online
+feature-store inputs and non-book sources are M1c.
+
+## M1b result (2026-10-04)
+
+Implemented as approved under S-A. One commit; nothing signed or run.
+
+**What changed.**
+- **Paper services distribution.** `alpha-research-paper-services`
+  (`packages/paper-services`, its own lock) ships the supervisor, the candidate runtime
+  and the research owners candidates need, without notebook, tracking or backtest
+  dependencies. `research.models` exports its pandas-based study helpers lazily.
+- **Operating profile.** The governance builder accepts a third operating
+  application, `paper-services` (paper or shadow, configuration schema
+  `paper-services`, state schema `none`). It builds the extensions listed as path
+  dependencies from source, admits their closures (extensions may declare only
+  external requirements), and signs candidate bundles given by `--candidates` into
+  the release under `candidates/`. Provenance maps each extension wheel to its
+  `extensions/<name>/src` sources. The installed launcher binds the signed
+  configuration and candidates to `deployment`, `deployment-check` and
+  `deployment-control`, bounds a run by its duration plus 60 s, and installation runs
+  `deployment-check` before selecting the release.
+- **Extension loading.** `InstalledExtensions` loads the single provider an installed
+  distribution registers under `alpha_research.candidate_components`, verifies every
+  installed file against `RECORD`, and stamps the `RECORD` digest on every factory as
+  its implementation identity. Platform distributions cannot be named.
+- **Packaged candidates.** `PaperServiceInstance.candidate` is a `ReferenceCandidate` or
+  a `PackagedCandidate` (definition identity, extension, grid origin).
+  `PaperServiceCandidates` resolves both against `PaperCapabilities`, the environment's
+  declared paper profiles, and reads packaged bundles only from the signed candidates
+  directory after their provenance verifies. `alpha-execute deployment-check` prints
+  every instance's identities.
+- **Reference extension.** `extensions/engineering-candidates` registers a smoothed
+  imbalance feature, an imbalance target policy, a fold metric and a chart, and is
+  part of the default development environment.
+- **Rule change.** Platform design now states that code is loaded only from signed,
+  admitted installed distributions by registered identity; guides for runtime,
+  paper, execute, workflow, operations, locks, standards and tests are updated.
+- **Workspace.** 14 iCloud duplicate monitor files and 5 duplicate `current 2` links
+  under `logs/paper-monitoring/` were deleted.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (675 files), native stubs (1,559 modules), engineering standards (now including `extensions`), dependency admission (188 packages), link and secret checks; 2,447 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 36 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 675 files |
+
+The first `make check` failed strict mypy in the two new test files (literal role and
+capability keyword types); they were corrected before the run above.
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
    note first and the full suite passing:
    - **M1a:** one candidate engine on shared accounts, built-in candidates and candidate
-     binding in `PaperServiceInstance`.
-   - **M1b:** signed extension packages and component registration.
+     binding in `PaperServiceInstance` (done 2026-10-04).
+   - **M1b:** signed extension packages and component registration (done 2026-10-04).
    - **M1c:** declared input resolution, including feature-store serving in the
      supervisor.
 2. **M2 — external import audit (P2) and guides.** The governance command; QR guide
    quickstart and extension walkthrough, development environment correction, operator
-   path for a packaged candidate.
+   path for a packaged candidate, and the study-to-bundle API (P7).
 3. **M3 — journey consumer and declaration.** The journey driver and its summary;
    architectural extension through the journey (P3); the exact commands; uncounted
    rehearsals to find remaining guide gaps.

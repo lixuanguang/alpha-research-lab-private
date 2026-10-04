@@ -17,6 +17,7 @@ from typing import ClassVar
 # third party library imports
 import msgspec
 from capacity_inputs import CapacityWorkload
+from paper_services import PaperServiceWorkload
 
 # project library imports
 from accounting import AccountLedger, AccountState
@@ -159,7 +160,7 @@ class CapacityEconomicParity:
         """Load the service's exact reference candidate in process, without a worker."""
         venue = self.workload.venue_workload(source.capture.venue)
         candidate = venue.candidates(source).load(
-            instance.candidate,
+            PaperServiceWorkload.reference(instance),
             instance=instance.instance_id,
             entity=str(source.scenario.instrument_id),
             quantity=instance.quantity,

@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import platform
+import re
 import sys
 import sysconfig
 from collections import deque
@@ -38,12 +39,20 @@ _ROOT_LOCK_PATH = "uv.lock"
 _OPERATING_LOCKS = {
     "alpha-research-collector": "packages/collector/uv.lock",
     "alpha-research-execution": "packages/execution/uv.lock",
+    "alpha-research-paper-services": "packages/paper-services/uv.lock",
 }
-_LOCAL_SOURCES = {
-    "alpha-research-collector": {"editable": "."},
-    "alpha-research-execution": {"editable": "."},
-    "alpha-research-contracts": {"directory": "../contracts"},
+# Local projects each operating root may install, by locked directory source.
+_LOCAL_DEPENDENCIES = {
+    "alpha-research-collector": {"alpha-research-contracts": "../contracts"},
+    "alpha-research-execution": {"alpha-research-contracts": "../contracts"},
+    "alpha-research-paper-services": {
+        "alpha-research-contracts": "../contracts",
+        "alpha-research-execution": "../execution",
+    },
 }
+# Only paper services may select research extensions, each from extensions/<name>.
+_EXTENSION_ROOTS = {"alpha-research-paper-services"}
+_EXTENSION_DIRECTORY = re.compile(r"\.\./\.\./extensions/[a-z][a-z0-9-]{0,63}")
 _REGISTRY_SOURCE = {"registry": "https://pypi.org/simple"}
 
 
@@ -302,12 +311,11 @@ class SelectedClosureAdmission:
                 environment["python_full_version"]
             ):
                 raise DependencyAdmissionError([f"{name} wheel excludes selected Python version"])
-            if name in _LOCAL_SOURCES:
-                if name not in {root_name, "alpha-research-contracts"}:
+            source = package.get("source")
+            if source != _REGISTRY_SOURCE:
+                if not cls._local_source(root_name, name, source):
                     raise DependencyAdmissionError([f"{name} is outside selected local closure"])
-                if package.get("source") != _LOCAL_SOURCES[name]:
-                    raise DependencyAdmissionError([f"{name} local source mapping drifted"])
-                cls._check_local_metadata(wheel, package, selected)
+                cls._check_local_metadata(root_name, wheel, package, selected)
                 continue
             admission = admitted.get(name)
             full_package = full.get(name)
@@ -345,7 +353,30 @@ class SelectedClosureAdmission:
         return None
 
     @staticmethod
+    def _local_source(root_name: str, name: str, source: object) -> bool:
+        """Admit only the root, its declared local dependencies or a permitted extension."""
+        if name == root_name:
+            return source == {"editable": "."}
+        declared = _LOCAL_DEPENDENCIES.get(root_name, {}).get(name)
+        if declared is not None:
+            return source == {"directory": declared}
+        if not isinstance(source, dict):
+            return False
+        entries = cast(dict[str, object], source)
+        if set(entries) != {"directory"}:
+            return False
+        directory = entries["directory"]
+        return (
+            root_name in _EXTENSION_ROOTS
+            and isinstance(directory, str)
+            and _EXTENSION_DIRECTORY.fullmatch(directory) is not None
+            and not name.startswith("alpha-research-")
+        )
+
+    @classmethod
     def _check_local_metadata(
+        cls,
+        root_name: str,
         wheel: WheelIdentity,
         package: dict[str, object],
         selected: dict[str, dict[str, object]],
@@ -377,11 +408,15 @@ class SelectedClosureAdmission:
                 raise DependencyAdmissionError([f"{wheel.name} has malformed locked requirements"])
             if directory is not None:
                 dependency = selected.get(canonicalize_name(name))
+                # Extensions declare only external requirements; the platform supplies
+                # the runtime they extend.
                 if (
-                    name != "alpha-research-contracts"
-                    or directory != "../contracts"
+                    not wheel.name.startswith("alpha-research-")
                     or dependency is None
-                    or dependency.get("source") != _LOCAL_SOURCES[name]
+                    or not isinstance(directory, str)
+                    or not cls._local_source(
+                        root_name, canonicalize_name(name), dependency.get("source")
+                    )
                     or not isinstance(dependency.get("version"), str)
                 ):
                     raise DependencyAdmissionError(

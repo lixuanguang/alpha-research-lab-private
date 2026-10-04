@@ -41,7 +41,10 @@ class TestReleaseProvenance:
         now = datetime.now(UTC)
         review = now.date() + timedelta(days=15)
         root_lock = b'version = 1\nrevision = 3\nrequires-python = "==3.14.*"\n'
-        selected_lock = root_lock
+        selected_lock = root_lock + (
+            b'\n[[package]]\nname = "alpha-research-collector"\nversion = "0.1.0"\n'
+            b'source = { editable = "." }\n'
+        )
         policy = (
             "schema_version = 5\n"
             f'as_of_date = "{now.date().isoformat()}"\n'
@@ -55,6 +58,7 @@ class TestReleaseProvenance:
             f'"uv.lock" = "{cls._sha256(root_lock)}"\n'
             f'"packages/collector/uv.lock" = "{cls._sha256(selected_lock)}"\n'
             f'"packages/execution/uv.lock" = "{cls._sha256(selected_lock)}"\n'
+            f'"packages/paper-services/uv.lock" = "{cls._sha256(selected_lock)}"\n'
             "[pip_audit]\n"
             'command_mode = "exact_locked_graph"\n'
             'failure_policy = "block_unresolved_findings_or_skips"\n'
@@ -204,23 +208,74 @@ class TestReleaseProvenance:
     def test_wheel_payload_must_equal_retained_local_source(self) -> None:
         """Even a wheel owned by the right project cannot replace its source bytes."""
         release, filename = self._local_source_release()
-        ReleaseProvenance._local_source(release, filename, "alpha-research-collector")
+        ReleaseProvenance._local_source(
+            release, filename, "alpha-research-collector", "packages/collector"
+        )
         changed = self._replace(
             release,
             "wheels/" + filename,
             self._wheel(payload=b"def main(): return 'different'\n", command="collector_pkg:main"),
         )
         with pytest.raises(ValueError, match="local wheel differs from retained source snapshot"):
-            ReleaseProvenance._local_source(changed, filename, "alpha-research-collector")
+            ReleaseProvenance._local_source(
+                changed, filename, "alpha-research-collector", "packages/collector"
+            )
 
     def test_wheel_entrypoint_must_equal_retained_project(self) -> None:
         """A wheel cannot silently choose another executable target."""
         release, filename = self._local_source_release()
-        ReleaseProvenance._local_source(release, filename, "alpha-research-collector")
+        ReleaseProvenance._local_source(
+            release, filename, "alpha-research-collector", "packages/collector"
+        )
         changed = self._replace(
             release,
             "wheels/" + filename,
             self._wheel(payload=b"def main(): pass\n", command="collector_pkg:other"),
         )
         with pytest.raises(ValueError, match="entrypoints differ from retained source"):
-            ReleaseProvenance._local_source(changed, filename, "alpha-research-collector")
+            ReleaseProvenance._local_source(
+                changed, filename, "alpha-research-collector", "packages/collector"
+            )
+
+    @classmethod
+    def _extension_release(cls, *, entry_points: str) -> tuple[VerifiedRelease, str]:
+        """Retain one extension project, its src-layout source and a matching wheel."""
+        release, _ = cls._release()
+        filename = "engineering_candidates-0.1.0-py3-none-any.whl"
+        release = cls._replace(
+            release,
+            "source/extensions/engineering-candidates/pyproject.toml",
+            b'[project]\nname = "engineering-candidates"\n'
+            b'[project.entry-points."alpha_research.candidate_components"]\n'
+            b'engineering-candidates = "engineering_candidates:ComponentProvider"\n',
+        )
+        payload = b"class ComponentProvider: pass\n"
+        release = cls._replace(
+            release,
+            "source/extensions/engineering-candidates/src/engineering_candidates/__init__.py",
+            payload,
+        )
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("engineering_candidates/__init__.py", payload)
+            archive.writestr(
+                "engineering_candidates-0.1.0.dist-info/entry_points.txt", entry_points
+            )
+        return cls._replace(release, "wheels/" + filename, output.getvalue()), filename
+
+    def test_extension_wheel_matches_its_own_source_and_registration(self) -> None:
+        """An extension maps to extensions/<name>/src and may only register a provider."""
+        project = "extensions/engineering-candidates"
+        provider = (
+            "[alpha_research.candidate_components]\n"
+            "engineering-candidates = engineering_candidates:ComponentProvider\n"
+        )
+        release, filename = self._extension_release(entry_points=provider)
+        ReleaseProvenance._local_source(release, filename, "engineering-candidates", project)
+        script, _ = self._extension_release(
+            entry_points=provider + "[console_scripts]\nrun = engineering_candidates:main\n"
+        )
+        with pytest.raises(ValueError, match="entrypoints differ"):
+            ReleaseProvenance._local_source(script, filename, "engineering-candidates", project)
+        with pytest.raises(ValueError, match="unknown local release distribution"):
+            ReleaseProvenance._local_source(release, filename, "engineering-candidates", "tools/x")

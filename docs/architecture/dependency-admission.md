@@ -9,9 +9,9 @@ policy consumed by the checker.
 Schema version 5 binds the frozen `uv.lock` to exact package versions, artifact
 hashes and URLs, the reviewed PyPI simple index, Darwin arm64 and Linux x86_64
 wheel coverage, dependency edges, licenses, and vulnerability coverage. The
-checker fixes the root lock, independent collector/execution lock paths and
+checker fixes the root lock, independent collector, execution and paper services lock paths and
 `src`/`tools` runtime scan roots directly.
-[`make lock-check`](../governance/dependency-locks.md) separately ties all five
+[`make lock-check`](../governance/dependency-locks.md) separately ties all six
 environment locks to their owning project manifests. The checker
 rejects missing, duplicate, mutable or unsafe identities. Development tools
 remain outside the runtime package. `pip-audit` must cover the complete admitted

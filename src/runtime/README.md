@@ -149,6 +149,27 @@ matching currently precedes loading; independent deployable environments and
 trusted compatibility admission are provided by MR06 for its independent operating
 closures; the broader research release restriction remains open.
 
+## Research extensions
+
+A research extension is a project in `extensions/<name>/` with its own
+`pyproject.toml` and `src/` package. It declares only external dependencies and
+registers exactly one provider class under the `alpha_research.candidate_components`
+entry-point group. The provider's `factories()` returns `ExtensionFactories`: feature,
+policy, transform, estimator, metric and chart constructors by registered key.
+`InstalledExtensions` finds the named installed distribution, verifies every file
+against its `RECORD`, and uses the `RECORD` digest as the implementation identity of
+every component it provides. A candidate definition therefore pins exact extension
+code, and a changed install is refused. Components must construct without the
+research reporting stack: a metric or chart imports study records inside `evaluate`.
+The maintained [engineering extension](../../extensions/engineering-candidates/)
+is the reference workload and template.
+
+`PaperCapabilities` declares what the supervised paper environment offers one native
+book source: the five book fields, its freshness and receipt clock, reference data,
+calendar, valuation, account and every paper intent family and order type. Packaged
+candidates resolve their requirements against it rather than against their own
+declarations.
+
 ## Shared decision runtime
 
 Owner: `runtime`; account admission, tagged orders and portfolio coordination
