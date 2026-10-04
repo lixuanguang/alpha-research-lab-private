@@ -138,6 +138,15 @@ old rows. Consequently no saved-state migration is needed. Research projection
 and live paper matching share these APIs without adding research dependencies to
 the collector or market-data dependencies to the portable execution wheel.
 
+A capture may instead select the venue's public `trades` channel (OKX and Bitfinex
+only, with `depth` 0). Its native state is a `TradeTape`: no depth, the trades the
+last message added, and an identity over every applied trade. The common runner
+journals, replays and quality-checks it exactly as a book. OKX `trades` is ready at
+its acknowledgement and has no snapshot, so earlier trades are unknown; Bitfinex
+starts from its recent-trade snapshot and treats the later of an execution (`te`)
+and its confirmation (`tu`) as a duplicate. A trade repeated within the bounded
+recent window applies once.
+
 The declared initial qualification remains OKX `books` L2 and Bitfinex `R0` L3.
 Coinbase lifecycle fixtures retain software coverage only; live Coinbase
 collection is deferred and not required. Per-book visible depth does not establish complete venue

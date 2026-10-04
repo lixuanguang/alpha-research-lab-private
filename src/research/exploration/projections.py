@@ -39,8 +39,10 @@ from serialization import DomainCodec
 class SavedDecisionSource:
     """Reuse MR01 pinned readers per decision, never querying once at a future cutoff.
 
-    Supported projections are public trade price/quantity, native L2/L3 imbalance,
-    and bitemporal minimum quantity. Source families retain their own query rules.
+    Supported projections are public trade price, quantity and signed quantity of
+    the latest trade, signed trade flow over ``(at - age, at]``, native L2/L3
+    imbalance, and bitemporal minimum quantity. Trade fields and the flow window
+    match ``LiveTradeDecisionSource``. Source families retain their own query rules.
     Non-book numeric datasets can use NumericHistorySource or a fresh DecisionSource.
     """
 
@@ -61,7 +63,8 @@ class SavedDecisionSource:
                     isinstance(item, PublicTradeSelection)
                     and requirement.family == "trade"
                     and requirement.clock == "event"
-                    and requirement.field.name in ("price", "quantity")
+                    and requirement.field.name
+                    in ("price", "quantity", "signed_quantity", "signed_flow")
                 )
                 or (
                     isinstance(item, BookSelection)
@@ -120,6 +123,9 @@ class SavedDecisionSource:
                         if row.receipt.request.instrument.instrument_id == instrument
                         and row.ts_event <= at
                     )
+                    if requirement.field.name == "signed_flow":
+                        rows.extend(self._flow(item, requirement, entity, at, candidates))
+                        continue
                     for trade in (
                         () if not candidates else (max(candidates, key=self._trade_order),)
                     ):
@@ -131,9 +137,11 @@ class SavedDecisionSource:
                         )
                         self._units(requirement, units)
                         amount = (
-                            trade.trade.price
+                            Fraction(trade.trade.price)
                             if requirement.field.name == "price"
-                            else trade.trade.quantity
+                            else Fraction(trade.trade.quantity)
+                            if requirement.field.name == "quantity"
+                            else self._signed(trade)
                         )
                         rows.append(
                             NamedObservation(
@@ -141,7 +149,7 @@ class SavedDecisionSource:
                                 entity=entity,
                                 event_at=trade.ts_event,
                                 available_at=trade.ts_knowledge,
-                                value=ExactRatio.from_fraction(Fraction(amount)),
+                                value=ExactRatio.from_fraction(amount),
                                 reason="observed_public_trade;complete_tape_unproven",
                                 lineage=f"{item.result.query.identity}:{trade.receipt.raw.sha256}:{trade.position}",
                             )
@@ -168,6 +176,53 @@ class SavedDecisionSource:
                 elif isinstance(item, BookResearchInput):
                     rows.extend(self._book(item, requirement, entity))
         return ObservationHistory(tuple(rows)).select(entity, at, self.requirements)
+
+    @classmethod
+    def _flow(
+        cls,
+        item: PublicTradeResearchInput,
+        requirement: InputRequirement,
+        entity: str,
+        at: datetime,
+        candidates: tuple[PublicTradeObservation, ...],
+    ) -> tuple[NamedObservation, ...]:
+        """Sum aggressor-signed quantity of known trades with event time in the window."""
+        start = at - timedelta(microseconds=requirement.max_age_us)
+        if item.result.query.start > start:
+            return ()
+        definition = next(
+            (row for row in item.result.instruments if str(row.instrument_id) == entity), None
+        )
+        if definition is None:
+            return ()
+        cls._units(requirement, definition.base_currency)
+        window = tuple(row for row in candidates if row.ts_event > start)
+        return (
+            NamedObservation(
+                input=requirement,
+                entity=entity,
+                event_at=at,
+                available_at=at,
+                value=ExactRatio.from_fraction(
+                    sum((cls._signed(row) for row in window), Fraction())
+                ),
+                reason="observed_public_trades;complete_tape_unproven",
+                lineage=hashlib.sha256(
+                    DomainCodec().encode_json(
+                        tuple(
+                            f"{item.result.query.identity}:{row.receipt.raw.sha256}:{row.position}"
+                            for row in window
+                        )
+                    )
+                ).hexdigest(),
+            ),
+        )
+
+    @staticmethod
+    def _signed(row: PublicTradeObservation) -> Fraction:
+        """Sign a trade's quantity by its aggressor side."""
+        quantity = Fraction(row.trade.quantity)
+        return quantity if row.trade.side == "buy" else -quantity
 
     @staticmethod
     def _trade_order(row: PublicTradeObservation) -> tuple[datetime, datetime, int, int]:

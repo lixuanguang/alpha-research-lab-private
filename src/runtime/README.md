@@ -166,7 +166,9 @@ is the reference workload and template.
 
 `PaperCapabilities` declares what the supervised paper environment offers one native
 book source: the five book fields, its freshness and receipt clock, reference data,
-calendar, valuation, account and every paper intent family and order type. Packaged
+calendar, valuation, account and every paper intent family and order type. When the
+source records public trades it adds a `trade` channel profile with the four trade
+fields in the feed's own currencies and the feed's idle time as freshness. Packaged
 candidates resolve their requirements against it rather than against their own
 declarations.
 
@@ -239,7 +241,18 @@ skipped, and the candidate's gap rule (`pause`, `reset` or `continue`) governs i
 with each decided instant's inputs, quote and coordination clock, and whether the
 book matched. Replay recomputes the grid and refuses a retained delivery whose
 matching or decided inputs differ. Native invalidation blocks new independent
-admission while preserving pending exposure. See the
+admission while preserving pending exposure.
+
+`PaperInputs` maps each declared input to a feed the source provisions: book fields
+to the book, trade fields to the source's public trades feed when it records one.
+Reference and non-book inputs reach paper candidates only through the feature
+store, so a source-fed candidate declaring one is refused before any process
+starts. With a trades feed the observer also holds a `LiveTradeDecisionSource`;
+`observe_trades` retains each trade boundary with its delivery time in a sibling
+`.trades.jsonl` log before applying it, and each decided instant reads both sources.
+A replay delivers both logs into fresh sources in delivery-time order, trades first
+at equal times, through `deliver_trades` and `deliver`. Mixed grids on one observer
+read the sources in ascending instants, because a live source freezes its cutoffs. See the
 [automatic paper application](../applications/paper/README.md#automatic-public-input-accounts)
 for retention, last-bid cost reports and explicit recovery boundaries.
 

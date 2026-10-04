@@ -47,19 +47,28 @@ class _TargetParameters(WireRecord, frozen=True):
 class SmoothedImbalance:
     """Exponentially smooth one book imbalance input with an exact rational weight.
 
+    An optional second input, a public trade ``signed_flow``, confirms the signal:
+    the output is the smoothed imbalance when the flow has the same sign, else zero.
     A missing input yields a missing value and keeps the prior state, so a gap in
-    the book never advances the smoothing.
+    either feed never advances the smoothing.
     """
 
     def __init__(self, schema: FeatureSchema) -> None:
-        """Require the declared smoothing definition, one imbalance input and a weight."""
+        """Require the declared smoothing definition, its inputs and a weight."""
         schema.__post_init__()
         parameters = dict(schema.parameters)
         if (
             schema.implementation != "smoothed-imbalance"
             or schema.mode != "incremental"
-            or len(schema.inputs) != 1
+            or len(schema.inputs) not in (1, 2)
             or schema.inputs[0].field != NumericField(name="imbalance", units="dimensionless")
+            or (
+                len(schema.inputs) == 2
+                and (
+                    schema.inputs[1].family != "trade"
+                    or schema.inputs[1].field.name != "signed_flow"
+                )
+            )
             or schema.outputs != (_SMOOTHED,)
             or set(parameters) != {"weight"}
         ):
@@ -93,8 +102,10 @@ class SmoothedImbalance:
         """Advance the smoothed value from the then-known imbalance."""
         prior = self._codec.decode_json(state, _Smoothed)
         observation = inputs.observations[0]
-        if observation.value is None:
-            return FeatureTransition(values=(None,), reasons=(observation.reason,), state=state)
+        missing = next((row for row in inputs.observations if row.value is None), None)
+        if observation.value is None or missing is not None:
+            reason = observation.reason if missing is None else missing.reason
+            return FeatureTransition(values=(None,), reasons=(reason,), state=state)
         current = Fraction(int(observation.value.numerator), int(observation.value.denominator))
         if prior.value is None:
             smoothed = current
@@ -102,8 +113,13 @@ class SmoothedImbalance:
             previous = Fraction(int(prior.value.numerator), int(prior.value.denominator))
             smoothed = previous + self._weight * (current - previous)
         value = ExactRatio.from_fraction(smoothed)
+        output = value
+        if len(inputs.observations) == 2:
+            flow = inputs.observations[1].value
+            if flow is None or Fraction(int(flow.numerator), int(flow.denominator)) * smoothed <= 0:
+                output = ExactRatio.from_fraction(Fraction(0))
         return FeatureTransition(
-            values=(value,),
+            values=(output,),
             reasons=(observation.reason,),
             state=self._codec.encode_json(_Smoothed(value=value)),
         )

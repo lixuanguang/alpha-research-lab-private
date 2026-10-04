@@ -35,6 +35,7 @@ from applications.execute.source_service import ReceivedSourceDelivery, run_sour
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
+    CaptureConfig,
     CaptureRunConfig,
     PaperServiceAccount,
     PaperServiceConfiguration,
@@ -55,7 +56,11 @@ from market_data.books import BookAsOfIndex, BookRegistry
 from market_data.collection import CaptureTransport
 from market_data.contracts import CaptureRequest, CaptureRunRequest, RecordingRequest
 from market_data.storage import CaptureRecording
-from research.observations import InputRequirement, LiveBookDecisionSource
+from research.observations import (
+    InputRequirement,
+    LiveBookDecisionSource,
+    LiveTradeDecisionSource,
+)
 from runtime import (
     CandidateExecutor,
     CandidateProcessFailure,
@@ -132,7 +137,11 @@ class AccountHealth(WireRecord, frozen=True):
 
 @dataclass
 class SourceChild:
-    """Retain the sole process, pipe and freshness owner for one native input."""
+    """Retain the sole process, pipe and freshness owner for one native feed.
+
+    A source's trades child shares its book child's observers; the book child owns
+    their delivery logs, indexes and measurements.
+    """
 
     definition: PaperServiceSource
     request: RecordingRequest
@@ -143,6 +152,13 @@ class SourceChild:
     stop: Event | None = None
     pipe_drained: bool = False
     received_count: int = 0
+    feed: Literal["book", "trades"] = "book"
+
+    @property
+    def capture(self) -> CaptureConfig:
+        """Return this child's native feed configuration."""
+        trades = self.definition.trades
+        return trades if self.feed == "trades" and trades is not None else self.definition.capture
 
 
 class PaperServices:
@@ -199,7 +215,12 @@ class PaperServices:
         )
         self.transports = {} if transports is None else dict(transports)
         self.measurement_root = measurement_root
-        if not set(self.transports).issubset(item.name for item in configuration.sources):
+        feeds = {item.name for item in configuration.sources} | {
+            self.feed_key(item.name, "trades")
+            for item in configuration.sources
+            if item.trades is not None
+        }
+        if not set(self.transports).issubset(feeds):
             raise ValueError("unknown injected source transport")
         self.codec = DomainCodec()
         self.implementation = InstalledIdentity.sha256()
@@ -258,8 +279,21 @@ class PaperServices:
         return True
 
     def requirements(self, source: PaperServiceSource) -> tuple[InputRequirement, ...]:
-        """Return the native book fields the source's candidates read."""
+        """Return the fields the source's candidates read, from every feed."""
         return self.resolved.requirements(source)
+
+    @staticmethod
+    def feed_key(source: str, feed: Literal["book", "trades"]) -> str:
+        """Name one feed's child, recording directory and injected transport."""
+        return source if feed == "book" else f"{source}.trades"
+
+    def _children(self, source: str) -> tuple[SourceChild, ...]:
+        """Return a configured source's live feed children, book first."""
+        return tuple(
+            child
+            for key in (self.feed_key(source, "book"), self.feed_key(source, "trades"))
+            if (child := self.sources.get(key)) is not None
+        )
 
     def source_identity(self, source: PaperServiceSource) -> str:
         """Identify a source's capture and projected fields independently of recordings."""
@@ -301,6 +335,8 @@ class PaperServices:
 
     def preflight(self) -> None:
         """Verify immutable deployed definitions and active owners before scheduling work."""
+        for source in self.config.sources:
+            self.resolved.feeds(source)
         for account_id, account in self.accounts.items():
             # A bounded read: the full trace history outgrows the one MiB socket response.
             state = account.execute(
@@ -521,6 +557,7 @@ class PaperServices:
             except TimeoutError:
                 values = "health_lock_stalled"
             source_states[name] = {
+                "feed": child.feed,
                 "pid": child.process.pid,
                 "alive": child.process.is_alive(),
                 "health": values,
@@ -598,13 +635,14 @@ class PaperServices:
                     self._start_instance(name)
                     self._refresh_observers(definition.source)
         elif control.action in ("stop_source", "restart_source"):
-            if name is None or name not in self.sources:
+            children = () if name is None else self._children(name)
+            if name is None or not children:
                 raise ValueError("unknown service source")
-            child = self.sources[name]
-            self._close_source(child)
+            for child in children:
+                self._close_source(child)
             self._fault_source(name, "operator_source_stop")
             if control.action == "restart_source":
-                self._start_source(child.definition)
+                self._start_source(children[0].definition)
         if control.action != "inspect":
             with control_path.open("xb") as stream:
                 stream.write(self.codec.encode_json(control))
@@ -641,9 +679,33 @@ class PaperServices:
         )
 
     def _start_source(self, source: PaperServiceSource) -> None:
-        """Create a fresh unsynchronized native recording and its independently watched child."""
+        """Create fresh unsynchronized native recordings and their independently watched children.
+
+        A source whose candidates read trades starts its trades child beside the
+        book child; both share one set of observers, built before either starts.
+        """
         self._join_observations()
-        request = self._capture_request(source)
+        book = self._spawn(source, "book", {})
+        children: tuple[tuple[SourceChild, Connection[bytes, bytes]], ...] = (book,)
+        if source.trades is not None and self.resolved.feeds(source).trades:
+            children += (self._spawn(source, "trades", book[0].observers),)
+        self._refresh_observers(source.name)
+        for child, sender in children:
+            child.process.start()
+            sender.close()
+
+    def _spawn(
+        self,
+        source: PaperServiceSource,
+        feed: Literal["book", "trades"],
+        observers: dict[str, SharedPaperCaptureObserver],
+    ) -> tuple[SourceChild, Connection[bytes, bytes]]:
+        """Prepare one feed's unstarted child process, stop event and pipe's sending end."""
+        key = self.feed_key(source.name, feed)
+        capture = source.trades if feed == "trades" else source.capture
+        if capture is None:
+            raise ValueError("paper source has no trades feed")
+        request = self._capture_request(source, capture)
         context = multiprocessing.get_context("spawn")
         receiver, sender = cast(
             "tuple[Connection[bytes, bytes], Connection[bytes, bytes]]",
@@ -651,7 +713,7 @@ class PaperServices:
         )
         health = HealthMetrics()
         stop = context.Event()
-        root = self.root / "runs" / self.run_id / source.name / request.recording_key
+        root = self.root / "runs" / self.run_id / key / request.recording_key
         process = context.Process(
             target=run_source_service,
             args=(
@@ -659,25 +721,25 @@ class PaperServices:
                 root,
                 sender,
                 health,
-                self.transports.get(source.name),
+                self.transports.get(key),
                 (
                     None
                     if self.measurement_root is None
                     else self.measurement_root
                     / self.run_id
-                    / source.name
+                    / key
                     / f"{request.recording_key}.capture.jsonl"
                 ),
                 stop,
             ),
         )
-        child = SourceChild(source, request, process, receiver, health, {}, stop)
-        self.sources[source.name] = child
-        self._refresh_observers(source.name)
-        process.start()
-        sender.close()
+        child = SourceChild(source, request, process, receiver, health, observers, stop, feed=feed)
+        self.sources[key] = child
+        return child, sender
 
-    def _capture_request(self, source: PaperServiceSource) -> RecordingRequest:
+    def _capture_request(
+        self, source: PaperServiceSource, capture: CaptureConfig
+    ) -> RecordingRequest:
         """Bind a fresh recording: one finite journal, or a chain when the source declares one.
 
         A chain's window opens now and closes at the supervisor's own end. Paper capture
@@ -685,7 +747,7 @@ class PaperServices:
         """
         if source.chain is None:
             return CaptureRequest(
-                config=source.capture,
+                config=capture,
                 recording_id=str(uuid4()),
                 implementation_identity=self.implementation,
             )
@@ -693,7 +755,7 @@ class PaperServices:
         planned = self.stop_at or now + timedelta(seconds=self.config.duration_seconds)
         stop_at = max(planned, now + timedelta(seconds=1))
         return CaptureRunRequest(
-            config=source.capture,
+            config=capture,
             window=CaptureRunConfig(
                 start_at=now,
                 ready_by=stop_at,
@@ -701,7 +763,7 @@ class PaperServices:
                 max_messages=source.chain.max_messages,
                 max_bytes=source.chain.max_bytes,
                 max_segments=source.chain.max_segments,
-                max_reconnects=source.capture.retries,
+                max_reconnects=capture.retries,
             ),
             run_id=str(uuid4()),
             implementation_identity=self.implementation,
@@ -710,10 +772,11 @@ class PaperServices:
     def _refresh_observers(self, source_name: str) -> None:
         """Replace only a cohort selection while retaining each native book and last mark."""
         self._join_observations()
-        child = self.sources.get(source_name)
+        child = self.sources.get(self.feed_key(source_name, "book"))
         if child is None:
             return
         source = child.definition
+        trades = self.sources.get(self.feed_key(source_name, "trades"))
         for account_id, account in self.accounts.items():
             definitions = tuple(
                 item
@@ -768,9 +831,20 @@ class PaperServices:
                     / f"{child.request.recording_key}.{account_id}.paper.jsonl"
                 )
             )
+            trade_fields = self.resolved.feeds(source).trades
             child.observers[account_id] = SharedPaperCaptureObserver(
                 source=LiveBookDecisionSource(
-                    child.request, self.requirements(source), history_capacity=1000
+                    child.request, self.resolved.book_requirements(source), history_capacity=1000
+                ),
+                trades=(
+                    None
+                    if trades is None or not trade_fields
+                    else LiveTradeDecisionSource(
+                        trades.request,
+                        trade_fields,
+                        tapes=BookAdapters.trades,
+                        history_capacity=1000,
+                    )
                 ),
                 books=books,
                 journal=account,
@@ -897,21 +971,30 @@ class PaperServices:
                 self._join_observations()
                 if name in self.active:
                     self._stop_instance(name, "worker_lost")
-        for name, child in tuple(sorted(self.sources.items())):
+        claimed: set[str] = set()
+        for _, child in tuple(sorted(self.sources.items())):
+            source = child.definition.name
             if child.pipe_drained or child.receiver.closed:
                 continue
             is_live = child.process.is_alive()
             if not is_live and not (self.is_stopping and child.stop is not None):
-                self._fault_source(name, "source_lost")
+                self._fault_feed(child, "source_lost")
                 continue
             try:
                 if not self.is_stopping:
+                    # A trade feed's market progress is its trades, so its quiet bound is
+                    # the feed's idle time rather than the book's freshness.
+                    quiet_seconds = (
+                        child.capture.idle_seconds
+                        if child.feed == "trades"
+                        else max(1, child.definition.freshness_us // 1_000_000)
+                    )
                     policy = HealthPolicy(
                         heartbeat_seconds=2,
-                        progress_seconds=30,
-                        freshness_seconds=max(1, child.definition.freshness_us // 1_000_000),
-                        max_queue=child.definition.capture.queue_capacity,
-                        max_reconnects=child.definition.capture.retries,
+                        progress_seconds=max(30, quiet_seconds),
+                        freshness_seconds=quiet_seconds,
+                        max_queue=child.capture.queue_capacity,
+                        max_reconnects=child.capture.retries,
                         max_invalid=0,
                         alert_socket=self.config.alert_socket
                         or "/private/tmp/absent-paper-alert.sock",
@@ -919,9 +1002,11 @@ class PaperServices:
                     reason = policy.reason(child.health.snapshot(), now_ns=time.monotonic_ns())
                     if reason:
                         self._close_source(child)
-                        self._fault_source(name, reason)
+                        self._fault_feed(child, reason)
                         continue
-                if name in self._pending_observations:
+                # One observation per configured source is in flight, so its book and
+                # trade deliveries never run concurrently on their shared observers.
+                if source in self._pending_observations or source in claimed:
                     continue
                 if child.receiver.poll():
                     try:
@@ -938,6 +1023,7 @@ class PaperServices:
                     child.received_count += 1
                     consumed = True
                     if executor is not None:
+                        claimed.add(source)
                         ready.append((child, delivery, received_ns))
                         continue
                     for account_id, observer in sorted(child.observers.items()):
@@ -948,14 +1034,12 @@ class PaperServices:
                             # candidates.
                             observer.active = ()
                         try:
-                            observer._observe_validated(
-                                delivery.record, delivery.book, received_ns=received_ns
-                            )
+                            self._deliver(child.feed, observer, delivery, received_ns)
                         except Exception as error:
                             self._observer_failed(account_id, error)
             except (OSError, EOFError, ValueError, TimeoutError) as error:
                 self._close_source(child)
-                self._fault_source(name, f"source_failure:{type(error).__name__}")
+                self._fault_feed(child, f"source_failure:{type(error).__name__}")
         if executor is not None:
             # Collect this pass's health/receive results before adding jobs. Older
             # jobs may remain in flight; each lifecycle fence joins them first.
@@ -979,7 +1063,11 @@ class PaperServices:
                     observers.append((account_id, observer))
                 if observers:
                     future = executor.submit(
-                        self._observe_source_group, delivery, tuple(observers), received_ns
+                        self._observe_source_group,
+                        child.feed,
+                        delivery,
+                        tuple(observers),
+                        received_ns,
                     )
                     self._pending_observations[child.definition.name] = future
                     future.add_done_callback(self._notify_observation_completion)
@@ -1023,8 +1111,10 @@ class PaperServices:
             concurrent.futures.wait(tuple(self._pending_observations.values()))
             self._finish_observations()
 
-    @staticmethod
+    @classmethod
     def _observe_source_group(
+        cls,
+        feed: Literal["book", "trades"],
         delivery: ReceivedSourceDelivery,
         observers: tuple[tuple[str, SharedPaperCaptureObserver], ...],
         received_ns: int | None = None,
@@ -1033,10 +1123,23 @@ class PaperServices:
         failures: list[tuple[str, Exception]] = []
         for account_id, observer in observers:
             try:
-                observer._observe_validated(delivery.record, delivery.book, received_ns=received_ns)
+                cls._deliver(feed, observer, delivery, received_ns)
             except Exception as error:
                 failures.append((account_id, error))
         return tuple(failures)
+
+    @staticmethod
+    def _deliver(
+        feed: Literal["book", "trades"],
+        observer: SharedPaperCaptureObserver,
+        delivery: ReceivedSourceDelivery,
+        received_ns: int | None,
+    ) -> None:
+        """Give one validated boundary to the observer's book or trade source."""
+        if feed == "trades":
+            observer.observe_trades(delivery.record, delivery.book)
+        else:
+            observer._observe_validated(delivery.record, delivery.book, received_ns=received_ns)
 
     def _observer_failed(self, account_id: str, error: Exception) -> None:
         """Classify an observer failure on the supervisor after all parallel jobs joined."""
@@ -1093,6 +1196,12 @@ class PaperServices:
             )
         except (OSError, ValueError, RuntimeError, TimeoutError) as error:
             self._fault_account(definition.account_id, "selective_stop_failed", str(error))
+
+    def _fault_feed(self, child: SourceChild, reason: str) -> None:
+        """Fault a feed's configured source, naming a trades feed in the reason."""
+        self._fault_source(
+            child.definition.name, reason if child.feed == "book" else f"trades_{reason}"
+        )
 
     def _fault_source(self, name: str, reason: str) -> None:
         """Stop every dependent account's new exposure without assuming unrelated source health."""
@@ -1168,6 +1277,21 @@ class PaperServices:
             error_name = type(error).__name__
         accounts: dict[str, object] = {}
         for account_id, observer in sorted(child.observers.items()):
+            if child.feed == "trades":
+                # Trade boundaries are retained by their own capture journal; their
+                # effect is the decided inputs each book delivery retains.
+                accounts[account_id] = {
+                    "observed_deliveries": observer.trades_delivered,
+                    "complete": (
+                        completed
+                        and result_retained
+                        and child.pipe_drained
+                        and child.process.exitcode == 0
+                        and durable_records is not None
+                        and observer.trades_delivered == durable_records
+                    ),
+                }
+                continue
             retained = observer.retained_count
             accounts[account_id] = {
                 "delivery_path": None
@@ -1398,6 +1522,8 @@ class PaperServices:
                     1 if deadline is None else max(0.0, min(1.0, deadline - time.monotonic()))
                 )
         child.receiver.close()
+        if child.feed == "trades":
+            return
         failed: list[str] = []
         for account_id, observer in child.observers.items():
             if observer.index is not None:

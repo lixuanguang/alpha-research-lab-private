@@ -70,8 +70,13 @@ class TestPaperServiceCandidates:
         return CaptureConfig.read(Path("configs/live/okx-btc-usdt.json"))
 
     @classmethod
-    def _configuration(cls, packaged: PackagedCandidate) -> PaperServiceConfiguration:
-        """Provision a reference formula and a packaged candidate on one shared account."""
+    def _configuration(
+        cls, packaged: PackagedCandidate, *, trades: bool = False
+    ) -> PaperServiceConfiguration:
+        """Provision a reference formula and a packaged candidate on one shared account.
+
+        With ``trades`` the source also records its public trades feed.
+        """
         capture = cls._capture()
         currency = Currency.from_code("USDT")
         dimension = Dimension(instrument_id=capture.instrument_id, kind=QuantityKind.BASE_UNIT)
@@ -109,6 +114,11 @@ class TestPaperServiceCandidates:
         source = PaperServiceSource(
             name="book",
             capture=capture,
+            trades=(
+                replace(capture, channel="trades", depth=0, max_orders=1, idle_seconds=10)
+                if trades
+                else None
+            ),
             freshness_us=30_000_000,
             scenario=PaperExecutionScenario(
                 venue="okx",
@@ -161,7 +171,34 @@ class TestPaperServiceCandidates:
         )
 
     @classmethod
-    def _requirements(cls) -> tuple[CapabilityRequirement, ...]:
+    def _flow(cls) -> InputRequirement:
+        """Read signed public trade flow over the last ten seconds."""
+        return InputRequirement(
+            name="trades",
+            family="trade",
+            clock="event",
+            field=NumericField(name="signed_flow", units="BTC"),
+            max_age_us=10_000_000,
+        )
+
+    @classmethod
+    def _requirements(cls, *, trades: bool = False) -> tuple[CapabilityRequirement, ...]:
+        """Declare the native book, optional trades and the paper service families needed."""
+        flow = CapabilityRequirement(
+            name="trades",
+            kind="market_data",
+            product="spot",
+            venue="okx",
+            calendar="continuous-utc",
+            channel="trade",
+            clock="event",
+            max_freshness_us=10_000_000,
+            fields=(CapabilityField(name="signed_flow", units="BTC"),),
+        )
+        return (*((flow,) if trades else ()), *cls._base_requirements())
+
+    @classmethod
+    def _base_requirements(cls) -> tuple[CapabilityRequirement, ...]:
         """Declare the native book and the four paper service families the candidate needs."""
         return (
             CapabilityRequirement(
@@ -198,14 +235,18 @@ class TestPaperServiceCandidates:
         )
 
     @classmethod
-    def _publish(cls, root: Path) -> CandidateDefinition:
-        """Publish one packaged candidate with authored completed-study provenance."""
+    def _publish(cls, root: Path, *, trades: bool = False) -> CandidateDefinition:
+        """Publish one packaged candidate with authored completed-study provenance.
+
+        With ``trades`` its feature also reads signed public trade flow.
+        """
+        inputs = (cls._input(), cls._flow()) if trades else (cls._input(),)
         codec = DomainCodec()
         instrument = str(cls._capture().instrument_id)
         extension = InstalledExtensions().identity(cls.extension)
         schema = FeatureSchema(
             implementation="smoothed-imbalance",
-            inputs=(cls._input(),),
+            inputs=inputs,
             outputs=(NumericField(name="smoothed_imbalance", units="dimensionless"),),
             parameters=(("weight", "1/2"),),
             mode="incremental",
@@ -337,8 +378,8 @@ class TestPaperServiceCandidates:
                     parameters=artifacts["chart-parameters"],
                 ),
             ),
-            inputs=(cls._input(),),
-            requirements=cls._requirements(),
+            inputs=inputs,
+            requirements=cls._requirements(trades=trades),
             product="spot",
             calendar="continuous-utc",
             entities=(instrument,),
@@ -443,6 +484,62 @@ class TestPaperServiceCandidates:
         assert second.status == "decided" and second.decision is not None
         assert second.feature is not None
         assert second.feature.values == (ExactRatio(numerator="1", denominator="2"),)
+
+    def test_trade_reading_candidate_needs_its_source_trades_feed(self, tmp_path: Path) -> None:
+        """Trade fields resolve only from a recorded trades feed, and confirm the signal."""
+        definition = self._publish(tmp_path, trades=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        configuration = self._configuration(packaged, trades=True)
+        resolved = PaperServiceCandidates(configuration, tmp_path / "candidates")
+        source = configuration.sources[0]
+        feeds = resolved.feeds(source)
+        assert feeds.trades == (self._flow(),)
+        assert self._input() in feeds.book and self._flow() not in feeds.book
+        loaded = resolved.candidate(configuration.instances[1])
+        assert loaded.definition.inputs == (self._input(), self._flow())
+        assert resolved.report()["sources"] == {"book": resolved.source_identity(source)}
+        unfed = PaperServiceCandidates(self._configuration(packaged), tmp_path / "candidates")
+        assert resolved.source_identity(source) != unfed.source_identity(
+            self._configuration(packaged).sources[0]
+        )
+        executor = LocalCandidateExecutor(loaded)
+        at = _ORIGIN + timedelta(seconds=3)
+        warm = executor.step(self._both(at, "1/2", "1"), None)
+        agreeing = executor.step(self._both(at + timedelta(seconds=3), "1/2", "2"), warm.checkpoint)
+        assert agreeing.feature is not None and agreeing.feature.values == (
+            ExactRatio(numerator="1", denominator="2"),
+        )
+        opposed = executor.step(
+            self._both(at + timedelta(seconds=6), "1/2", "-1"), agreeing.checkpoint
+        )
+        assert opposed.feature is not None and opposed.feature.values == (
+            ExactRatio(numerator="0", denominator="1"),
+        )
+        with pytest.raises(ValueError, match="no provisioned feed: trades"):
+            unfed.report()
+
+    @classmethod
+    def _both(cls, at: datetime, imbalance: str, flow: str) -> DecisionInputs:
+        """Supply authored book imbalance and signed trade flow at a grid instant."""
+        book = cls._inputs(at, imbalance)
+        return DecisionInputs(
+            entity=book.entity,
+            decision_at=at,
+            observations=(
+                *book.observations,
+                NamedObservation(
+                    input=cls._flow(),
+                    entity=book.entity,
+                    event_at=at,
+                    available_at=at,
+                    value=ExactRatio.from_fraction(Fraction(flow)),
+                    reason="authored",
+                    lineage="authored-trades",
+                ),
+            ),
+        )
 
     def test_packaged_candidate_refuses_unsigned_foreign_or_changed_inputs(
         self, tmp_path: Path

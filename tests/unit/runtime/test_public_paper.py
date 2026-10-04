@@ -8,6 +8,7 @@ import hashlib
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Literal, cast
 
@@ -44,7 +45,15 @@ from execution import (
     PaperMarket,
     PortfolioContext,
 )
-from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
+from financial_units import (
+    Currency,
+    Dimension,
+    ExactRatio,
+    Money,
+    Price,
+    Quantity,
+    QuantityKind,
+)
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookAsOfIndex, BookProjection, BookRegistry, CaptureReplay
 from market_data.collection.segments import CaptureSegmentWriter
@@ -61,7 +70,12 @@ from market_data.storage import CaptureRecording, CaptureRunJournal
 from reference_data.instruments import InstrumentId
 from research.experiments import CandidateStateContract
 from research.features import FeatureSchema, ProjectionFeature
-from research.observations import InputRequirement, LiveBookDecisionSource, NumericField
+from research.observations import (
+    InputRequirement,
+    LiveBookDecisionSource,
+    LiveTradeDecisionSource,
+    NumericField,
+)
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
     AuthoredCandidates,
@@ -214,16 +228,23 @@ class TestSharedPublicPaper:
 
     @classmethod
     def _binding(
-        cls, *, cadence_us: int = 1_000_000, starts_at: datetime | None = None
+        cls,
+        *,
+        cadence_us: int = 1_000_000,
+        starts_at: datetime | None = None,
+        instance: str = "alpha",
+        signal: InputRequirement | None = None,
     ) -> SharedStrategyBinding:
-        """Select one candidate that targets one unit whenever the ask is positive.
+        """Select one candidate that targets one unit whenever its signal is positive.
 
+        The signal is the ask unless another input is named; it is read beside the ask.
         The default grid puts an instant half a second before every whole second, so
         each market delivery on a new whole second crosses one instant.
         """
         ask = NumericField(name="ask", units="quote/base")
+        inputs = (cls._requirement(),) if signal is None else (cls._requirement(), signal)
         return SharedStrategyBinding(
-            instance_id="alpha",
+            instance_id=instance,
             account_id="paper",
             entity=str(cls.dimension.instrument_id),
             candidate=AuthoredCandidates(venue="okx").load(
@@ -231,15 +252,19 @@ class TestSharedPublicPaper:
                 feature=ProjectionFeature(
                     FeatureSchema(
                         implementation="named-projection",
-                        inputs=(cls._requirement(),),
-                        outputs=(ask,),
+                        inputs=inputs,
+                        outputs=tuple(item.field for item in inputs),
                         parameters=(),
                         mode="batch",
                         ttl_us=5_000_000,
                     )
                 ),
-                policy=ConfirmedSignal(field=ask, quantity=cls._quantity("1"), confirmations=1),
-                instance="alpha",
+                policy=ConfirmedSignal(
+                    field=ask if signal is None else signal.field,
+                    quantity=cls._quantity("1"),
+                    confirmations=1,
+                ),
+                instance=instance,
                 entity=str(cls.dimension.instrument_id),
                 cadence_us=cadence_us,
                 starts_at=cls.at - timedelta(milliseconds=500) if starts_at is None else starts_at,
@@ -255,7 +280,7 @@ class TestSharedPublicPaper:
             ),
             context=PortfolioContext(
                 portfolio_id="test-portfolio",
-                strategy_id="alpha",
+                strategy_id=instance,
                 model_revision="rule-only",
                 config_revision="test",
                 horizon="short",
@@ -791,6 +816,206 @@ class TestSharedPublicPaper:
         with pytest.raises(ValueError, match="replayed decision grid"):
             fresh.deliver(unmatched)
 
+    def test_mixed_grids_read_shared_sources_in_instant_order(self, tmp_path: Path) -> None:
+        """Two instants crossed by one book decide in instant order, not binding order.
+
+        Alpha's 3 s grid (2.5 s) and beta's 2 s grid (2.25 s) are both crossed by the
+        3 s book; both decide from the 2 s market. Reading alpha first would move the
+        live source's frozen cutoff backwards.
+        """
+        observer, journal = self._shared(
+            tmp_path / "mixed.sqlite3",
+            (
+                self._binding(cadence_us=3_000_000),
+                self._binding(
+                    cadence_us=2_000_000,
+                    starts_at=self.at + timedelta(milliseconds=2250),
+                    instance="beta",
+                ),
+            ),
+            clock=_SequenceClock(tuple(self.at + timedelta(seconds=item) for item in range(5))),
+        )
+        assert journal.reconcile(self._opening())
+        for delivery in self._markets()[:4]:
+            observer.observe(delivery.source.record, delivery.source.book)
+        assert len(observer.decisions) == 2
+        checkpoints = (journal.checkpoint("beta"), journal.checkpoint("alpha"))
+        assert all(item is not None for item in checkpoints)
+
+    def test_trade_fields_join_book_fields_in_decided_inputs(self, tmp_path: Path) -> None:
+        """A candidate reading signed trade flow decides from both feeds at its instant."""
+        flow = InputRequirement(
+            name="trades",
+            family="trade",
+            clock="event",
+            field=NumericField(name="signed_flow", units="BTC"),
+            max_age_us=2_000_000,
+        )
+        trades_config = replace(
+            self._capture(), channel="trades", depth=0, max_orders=1, idle_seconds=5
+        )
+        trades = self._trades(trades_config, flow)
+        clock = _SequenceClock(
+            (
+                self.at - timedelta(seconds=2),
+                self.at - timedelta(seconds=2),
+                self.at,
+                self.at + timedelta(seconds=1),
+                self.at + timedelta(milliseconds=1500),
+                self.at + timedelta(seconds=2),
+                self.at + timedelta(seconds=3),
+            )
+        )
+        observer, journal = self._shared(
+            tmp_path / "trades.sqlite3",
+            (self._binding(cadence_us=3_000_000, signal=flow),),
+            clock=clock,
+            trades=trades,
+        )
+        assert journal.reconcile(self._opening())
+        replay = CaptureReplay(trades_config, book_factory=BookAdapters.create)
+        ack = b'{"event":"subscribe","arg":{"channel":"trades","instId":"BTC-USDT"}}'
+        event_ms = self._ns(self.at, 1500) // 1_000_000
+        push = (
+            '{"arg":{"channel":"trades","instId":"BTC-USDT"},"data":[{"instId":"BTC-USDT",'
+            f'"tradeId":"5","ts":"{event_ms}","px":"100","sz":"0.5","side":"buy","count":"1"}}]}}'
+        ).encode()
+        tape = (
+            CaptureRecord(kind="session", epoch=0, received_ns=self._ns(self.at, -2000)),
+            CaptureRecord(kind="frame", epoch=0, received_ns=self._ns(self.at, -2000), raw=ack),
+            CaptureRecord(kind="frame", epoch=0, received_ns=self._ns(self.at, 1500), raw=push),
+        )
+        books = self._markets()
+        for position in range(2):
+            record = tape[position]
+            observer.observe_trades(
+                record, BookProjection.capture(position, record, replay.apply(record), replay)
+            )
+        for delivery in books[:2]:
+            observer.observe(delivery.source.record, delivery.source.book)
+        observer.observe_trades(
+            tape[2], BookProjection.capture(2, tape[2], replay.apply(tape[2]), replay)
+        )
+        for delivery in books[2:4]:
+            observer.observe(delivery.source.record, delivery.source.book)
+        assert observer.trades_delivered == 3
+        retained = tuple(
+            DomainCodec().decode_json(line, SharedBookDelivery)
+            for line in (tmp_path / "trades.jsonl").read_bytes().splitlines()
+        )
+        (group,) = retained[3].decisions
+        assert group.at == self.at + timedelta(milliseconds=2500)
+        (decided,) = group.inputs
+        assert [(row.input.name, row.value) for row in decided.inputs.observations] == [
+            ("book", ExactRatio.from_fraction(Fraction(100))),
+            ("trades", ExactRatio.from_fraction(Fraction(1, 2))),
+        ]
+        assert journal.checkpoint("alpha") is not None
+        replayed, recovered = self._shared(
+            tmp_path / "replay.sqlite3",
+            (self._binding(cadence_us=3_000_000, signal=flow),),
+            trades=self._trades(trades_config, flow),
+        )
+        assert recovered.reconcile(self._opening())
+        codec = DomainCodec()
+        retained_trades = tuple(
+            codec.decode_json(line, LiveBookDelivery)
+            for line in (tmp_path / "trades.trades.jsonl").read_bytes().splitlines()
+        )
+        merged = sorted(
+            [(item.available_at, 0, item) for item in retained_trades]
+            + [(item.source.available_at, 1, item) for item in retained],
+            key=self._replay_order,
+        )
+        for _, _, item in merged:
+            if isinstance(item, SharedBookDelivery):
+                replayed.deliver(item)
+            else:
+                replayed.deliver_trades(item)
+        assert recovered.checkpoint("alpha") == journal.checkpoint("alpha")
+        assert recovered.accounts() == journal.accounts()
+        with pytest.raises(ValueError, match="native sources"):
+            self._shared(
+                tmp_path / "unfed.sqlite3", (self._binding(cadence_us=3_000_000, signal=flow),)
+            )
+
+    @classmethod
+    def _shared(
+        cls,
+        path: Path,
+        bindings: tuple[SharedStrategyBinding, ...],
+        *,
+        clock: _SequenceClock | None = None,
+        trades: LiveTradeDecisionSource | None = None,
+    ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
+        """Construct deciding owners for several bindings, each with an instance budget."""
+        request = cls._request()
+        config = cls._config()
+        limits = tuple(
+            InstanceLimit(
+                instance_id=item.instance_id,
+                account_id="paper",
+                maximum=cls._money("400"),
+                instruments=(cls.dimension.instrument_id,),
+            )
+            for item in bindings
+        )
+        config = replace(config, budgets=replace(config.budgets, instances=limits))
+        journal = AccountJournal(path, config)
+        observer = SharedPaperCaptureObserver(
+            source=LiveBookDecisionSource(request, (cls._requirement(),), history_capacity=20),
+            books=BookRegistry(
+                BookRegistryConfiguration(
+                    selections=(
+                        BookSelection.from_capture(
+                            request.config,
+                            source_id=request.identity,
+                            capability=BookAdapters.capability(request.config),
+                            max_age_ns=5_000_000_000,
+                            allow_degraded=True,
+                        ),
+                    ),
+                    equivalences=(),
+                    history_capacity=20,
+                )
+            ),
+            journal=journal,
+            runtime=SharedDecisionRuntime(journal, bindings),
+            account_id="paper",
+            scenario=cls._scenario(),
+            delivery_path=path.with_suffix(".jsonl"),
+            clock=clock,
+            trades=trades,
+        )
+        return observer, journal
+
+    @staticmethod
+    def _trades(config: CaptureConfig, flow: InputRequirement) -> LiveTradeDecisionSource:
+        """Bind a fresh live trade source to the fixed trades recording."""
+        return LiveTradeDecisionSource(
+            CaptureRequest(
+                config=config,
+                recording_id="22222222-2222-4222-8222-222222222222",
+                implementation_identity="a" * 64,
+            ),
+            (flow,),
+            tapes=BookAdapters.trades,
+            history_capacity=20,
+        )
+
+    @staticmethod
+    def _replay_order(
+        item: tuple[datetime, int, LiveBookDelivery | SharedBookDelivery],
+    ) -> tuple[datetime, int]:
+        """Order retained deliveries by delivery time, trades before books at ties."""
+        return item[0], item[1]
+
+    @staticmethod
+    def _ns(at: datetime, milliseconds: int) -> int:
+        """Return exact Unix nanoseconds of an offset from a UTC instant."""
+        offset = at + timedelta(milliseconds=milliseconds)
+        return (offset - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1) * 1000
+
     def test_grid_never_delays_source_fault(self, tmp_path: Path) -> None:
         """An invalid boundary between instants blocks a previously priced account."""
         observer, journal = self._observer(tmp_path / "invalid.sqlite3", cadence_us=3_000_000)
@@ -949,7 +1174,7 @@ class TestSharedPublicPaper:
             "public-input-fault:"
             + hashlib.sha256(DomainCodec().encode_json(first.source)).hexdigest()
         )
-        observer._apply(first, None)
+        observer._apply(first, None, replayed=False)
         assert worker.controls() == controls
         assert worker.accounts()[0].phase == "faulted"
 

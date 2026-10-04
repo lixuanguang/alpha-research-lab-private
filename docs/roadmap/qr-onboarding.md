@@ -584,6 +584,148 @@ Implemented as approved under S-A. One commit; nothing signed or run.
 The first `make check` failed strict mypy in the two new test files (literal role and
 capability keyword types); they were corrected before the run above.
 
+## M1c design note: declared input resolution (approved 2026-10-04)
+
+The owner approved T-A and F-A on 2026-10-04.
+
+**What exists.**
+- The supervisor resolves only one family of input: every candidate on a source reads
+  fields projected from that source's native book (`LiveBookDecisionSource`). Live capture
+  (`CaptureConfig` schema `1`) subscribes to books only, on OKX `books` and Bitfinex `R0`.
+- Research studies already declare `trade` and `non-book` inputs (for example
+  `captured_study.py` reads `trade_size` from retained public trades). A candidate
+  packaged from such a study loads, but the supervisor has no source for those inputs and
+  refuses it at preflight.
+- Feature-store serving exists only for dedicated accounts (`CandidateFeatureFeed`). A
+  candidate is either `source` or feature-served (`offline_features`/`online_features`),
+  never both. A feature version names **exactly one** materialization at one instant.
+  The online path therefore serves a frozen snapshot: during a live run it pauses as
+  `stale` once the snapshot ages out, or `feature-version-changed` when a newer version
+  is activated. A feature that updates during a paper run cannot be served today.
+- Shared accounts (`SharedStrategyInput`, `ProcessCandidateExecutor`) carry only
+  `DecisionInputs`, and the observer only builds them from book rows.
+
+**What the journey needs.** J3–J6 use a book feature and a signed public-trade-flow
+feature in one schema (a fast, intraday feature). J4 serves a QR feature online to a
+candidate, with missing, stale, revised, retry and rollback faults. J6 runs both QR
+candidates in the supervisor.
+
+**Design.**
+1. **One resolver.** A runtime `PaperInputs` owner maps each declared input family to a
+   source the environment provisions, through `PaperCapabilities` profiles (book,
+   trades, feature store). Preflight refuses any input with no provisioned source or a
+   freshness, clock or unit mismatch. `PaperServiceCandidates` uses it instead of
+   assuming book fields.
+2. **Typed step input on shared accounts.** `SharedStrategyInput` becomes a tagged union
+   of source `DecisionInputs` and a served `FeatureVector` with its lineage (definition,
+   version, snapshot identity, served-at). Both executors carry it. The journal's
+   continuation stays opaque bytes. Each `shared-candidate-delivery` group records the
+   served lineage, so replay verifies it against the store instead of trusting it.
+
+**Choices for the owner.**
+
+*T — how trade inputs reach live candidates.*
+- **T-A (recommended): live public trades beside books.** Capture subscribes to the
+  venue's public trades channel in the same session (OKX `trades`, Bitfinex `trades`),
+  retaining trades with their own venue and receipt clocks. A live trade source projects
+  the same trade fields and window semantics research uses at matched cutoffs, so a
+  study's trade feature runs unchanged in paper. Cost: `CaptureConfig` schema `2`
+  (channel list), two new parsers and recovery rules, a new collector release, and 2b
+  qualifies the extra stream.
+- **T-B: trades only through the feature store.** No capture change. Trade-derived
+  features reach paper only as materialized values. Their latency is the
+  materialization cadence, and they need F-A to update during a run.
+
+*F — what a feature-served deployment pins.*
+- **F-A (recommended): a served stream per version.** A version pins the feature
+  definition and its fitted transform; the store keeps an append-only sequence of
+  materializations of that version, keyed by instant. A scheduled job extends the
+  sequence. At each grid instant the supervisor reads the latest materialization at or
+  before it within the declared age, checks it through the isolated Feast generation as
+  today, and pauses without committing on missing, stale, future or rolled-back values.
+  Activation still moves between versions explicitly, and rollback is a version change.
+  Cost: the store's materialization table and its backup/restore change (replace in
+  place, per the owner's no-compatibility instruction).
+- **F-B: keep one snapshot per version.** The supervisor serves a pinned snapshot only.
+  This suits slowly changing features (hourly or daily). The journey's online feature
+  in J4 would then be a slow feature, separate from the fast features computed from
+  live sources.
+
+*Mixed inputs.* A candidate stays either source-fed or feature-served in M1c. Allowing
+both in one candidate means splitting the session state model, which no journey step
+needs. Defer it.
+
+*Non-book inputs* (`valid` or `authored` clocks) reach live candidates only through the
+feature store. M1c adds no live non-book feed.
+
+**Recommended plan (T-A, F-A).** Two commits, each with the full suite:
+- **M1c-1:** the resolver, the typed step input and live public trades;
+- **M1c-2:** served streams in the store and feature-served candidates on shared
+  accounts, with the J4 fault cases in unit and integration tests.
+
+**Consequences.** The `CaptureConfig`, feature-store and delivery record formats change
+going forward; stage-1/2a captures stay valid at their frozen commits. The 2b
+declaration must name whether its workload includes trades and served features. If it
+does not, the journey's use of them is unqualified for capacity.
+
+## M1c-1 result (2026-10-04)
+
+Implemented under T-A. One commit; nothing signed or run.
+
+**Implementation decisions.** Two points differ from the note's wording; both narrow
+the change:
+- **Separate connection, not the same session.** A trades feed is its own capture
+  (`CaptureConfig` channel `trades`, `depth` 0) in its own source process. The common
+  runner already journals, replays, retries and quality-checks any native stream, so
+  the new feed reuses it unchanged. `CaptureConfig` keeps schema `1` and book capture
+  identities are unchanged. A source process now carries one feed, and a trades feed
+  counts toward the eight-process envelope.
+- **Trade fields.** Live and retained trades expose the same four fields: the latest
+  trade's `price`, `quantity` and aggressor-signed `signed_quantity`, and `signed_flow`
+  over `(at - age, at]`. Units are the feed's currencies, as research already used.
+  The capability channel is `trade`, matching the input family, as the loader requires.
+
+**What changed.**
+- **Trade tapes.** `TradeTape` (`market_data.books`) with `OKXTrades` and
+  `BitfinexTrades`. OKX is ready at its acknowledgement; Bitfinex starts from its
+  snapshot, checks connection sequence numbers and treats the later of `te` and `tu`
+  as a duplicate.
+- **Live trade source.** `LiveTradeDecisionSource` replays each record through the
+  same tape and requires the collector's outcome and state identity. A flow window
+  must lie inside one synchronized coverage interval, and the stream must have
+  delivered a boundary within its idle time. `SavedDecisionSource` gains
+  `signed_quantity` and `signed_flow`, and a unit test shows live and retained trades
+  give equal fields.
+- **Resolution.** `PaperInputs` maps book and trade fields to their feeds and refuses
+  every other family before any process starts. `PaperServiceSource.trades` adds the
+  trades capture; `PaperCapabilities` adds its `trade` profile; source identity
+  includes it.
+- **Supervisor.** A source whose candidates read trades starts a `<source>.trades`
+  child sharing the book child's observers. Book and trade deliveries for one source
+  never run concurrently. A trades fault faults the source's accounts.
+  `SharedPaperCaptureObserver` retains each trade delivery in a sibling
+  `.trades.jsonl` log before applying it. Replay interleaves both logs by delivery
+  time (`deliver_trades`, `deliver`).
+- **Defect fixed (from M1a).** With two grids on one observer, an instant crossed by
+  the same book could be read after a later one, which the live source refuses as a
+  backwards cutoff. The live path also re-read inputs after deciding. Crossed bindings
+  now read in ascending instants, and only a replay re-reads retained inputs.
+- **Reference extension.** `SmoothedImbalance` takes an optional `signed_flow` input
+  that confirms the signal (zero when the flow disagrees).
+
+**Not covered by unit tests.** The supervisor's construction of a trade source
+inside real observers needs a running account owner. It is exercised first by the
+M3 journey rehearsals.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (684 files), native stubs, engineering standards, dependency admission (188 packages), link and secret checks; 2,473 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 36 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 684 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
@@ -592,7 +734,8 @@ capability keyword types); they were corrected before the run above.
      binding in `PaperServiceInstance` (done 2026-10-04).
    - **M1b:** signed extension packages and component registration (done 2026-10-04).
    - **M1c:** declared input resolution, including feature-store serving in the
-     supervisor.
+     supervisor: M1c-1 (resolver and live trades, done 2026-10-04) and M1c-2
+     (served feature streams).
 2. **M2 — external import audit (P2) and guides.** The governance command; QR guide
    quickstart and extension walkthrough, development environment correction, operator
    path for a packaged candidate, and the study-to-bundle API (P7).

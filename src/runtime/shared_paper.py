@@ -20,7 +20,7 @@ from execution import AccountControl, AccountQuote, PaperAccount, PaperMarket, P
 from financial_units import Price, Quantity
 from market_data.books import BookAsOfIndex, BookDepth, BookRegistry
 from market_data.contracts import BookObservation, CaptureRecord
-from research.observations import DecisionInputs, LiveBookDecisionSource
+from research.observations import DecisionInputs, LiveBookDecisionSource, LiveTradeDecisionSource
 from runtime.live_paper import LiveBookDelivery
 from runtime.portfolio import SharedDecisionRuntime, SharedStrategyBinding, SharedStrategyInput
 from serialization import DomainCodec, WireRecord
@@ -156,6 +156,12 @@ class SharedPaperCaptureObserver:
     delivery log retains decided inputs before effects; replay uses its clocks.
     A fresh observer rebuilds source state from the beginning of its recording.
     Account transactions and candidate retry identities survive process restart.
+
+    With ``trades`` the same instrument's public trade tape is delivered through
+    ``observe_trades`` and its fields join the book's in each candidate's inputs.
+    Trade boundaries only update that source. Each is retained with its actual
+    delivery time in the sibling ``.trades.jsonl`` log before it applies, so a
+    replay interleaves both logs by delivery time and re-reads the same inputs.
     """
 
     def __init__(
@@ -172,6 +178,7 @@ class SharedPaperCaptureObserver:
         clock: Callable[[], datetime] | None = None,
         measurements: RuntimeMeasurementJournal | None = None,
         index: BookAsOfIndex | None = None,
+        trades: LiveTradeDecisionSource | None = None,
     ) -> None:
         """Bind explicit admitted owners and optional new-recording retention path.
 
@@ -194,12 +201,27 @@ class SharedPaperCaptureObserver:
             or runtime.journal is not journal
         ):
             raise ValueError("shared public paper binding differs from source or account")
+        provided = set(source.requirements)
+        if trades is not None:
+            if trades.request.config.instrument_id != request.config.instrument_id:
+                raise ValueError("shared trade feed names another instrument")
+            provided |= set(trades.requirements)
         for binding in runtime.bindings:
-            if binding.entity != str(request.config.instrument_id) or not set(
-                binding.candidate.definition.inputs
-            ) <= set(source.requirements):
-                raise ValueError("shared candidate inputs differ from the native source")
+            if (
+                binding.entity != str(request.config.instrument_id)
+                or not set(binding.candidate.definition.inputs) <= provided
+            ):
+                raise ValueError("shared candidate inputs differ from the native sources")
         self.source, self.books, self.journal, self.runtime = source, books, journal, runtime
+        self.trades = trades
+        self.trades_delivered = 0
+        self.trades_path = (
+            None
+            if trades is None or delivery_path is None
+            else delivery_path.with_name(delivery_path.stem + ".trades.jsonl")
+        )
+        self._trade_bytes = 0
+        self._maximum_trade_bytes = 0 if trades is None else trades.request.recording_max_bytes * 4
         # The request is immutable; its identity hashes the encoded request.
         self._source_id = request.identity
         self.account_id, self.scenario = account_id, scenario
@@ -231,6 +253,38 @@ class SharedPaperCaptureObserver:
         record.__post_init__()
         BookObservation.__post_init__(row)
         self._observe_validated(record, row)
+
+    def observe_trades(self, record: CaptureRecord, row: BookObservation) -> None:
+        """Advance the trade source by one durable boundary at its actual delivery.
+
+        Raises:
+            ValueError: The observer has no trade feed, or the boundary is out of order.
+        """
+        if self.trades is None or self.trades_path is None:
+            raise ValueError("shared observer has no retained trade feed")
+        delivery = LiveBookDelivery(record=record, book=row, available_at=self._now())
+        payload = self._codec.encode_json(delivery) + b"\n"
+        if self._trade_bytes + len(payload) > self._maximum_trade_bytes:
+            raise ValueError("shared paper trade retention exceeded configured bound")
+        with self.trades_path.open("ab") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        self._trade_bytes += len(payload)
+        self.trades.accept(record, row, available_at=delivery.available_at)
+        self.trades_delivered += 1
+
+    def deliver_trades(self, delivery: LiveBookDelivery) -> None:
+        """Replay one retained trade boundary at its original delivery time.
+
+        Raises:
+            ValueError: The observer has no trade feed, or the boundary is out of order.
+        """
+        if self.trades is None:
+            raise ValueError("shared observer has no trade feed")
+        LiveBookDelivery.__post_init__(delivery)
+        self.trades.accept(delivery.record, delivery.book, available_at=delivery.available_at)
+        self.trades_delivered += 1
 
     def projected_rows(self) -> _ProjectedRowObserver:
         """Return the observer for an in-process ``CaptureRunner`` in this process.
@@ -267,7 +321,7 @@ class SharedPaperCaptureObserver:
             self._phases["retained_ns"] = started_ns
         prior_decisions = len(self.decisions)
         try:
-            self._apply(delivery, market)
+            self._apply(delivery, market, replayed=False)
         finally:
             finished_ns = time.monotonic_ns()
             self.processing_ns = finished_ns - started_ns
@@ -304,7 +358,7 @@ class SharedPaperCaptureObserver:
         market = self._market(delivery.source)
         if delivery.matched != (market is not None and self._crosses(delivery.source.available_at)):
             raise ValueError("retained delivery differs from the replayed decision grid")
-        self._apply(delivery, market)
+        self._apply(delivery, market, replayed=True)
 
     def _instant(self, binding: SharedStrategyBinding, before: datetime) -> datetime | None:
         """Return the binding's latest grid instant strictly before ``before``."""
@@ -331,7 +385,7 @@ class SharedPaperCaptureObserver:
         if pending is None:
             return ()
         quote = AccountQuote(price=pending.ask, at=pending.at)
-        due: dict[datetime, list[SharedStrategyInput]] = {}
+        crossed: list[tuple[datetime, SharedStrategyBinding]] = []
         for binding in self.runtime.bindings:
             instant = self._crossed.get(binding.instance_id)
             if (
@@ -344,6 +398,11 @@ class SharedPaperCaptureObserver:
             last = self.runtime.last_committed(binding.instance_id)
             if last is not None and instant <= last:
                 continue
+            crossed.append((instant, binding))
+        # Live sources freeze ascending cutoffs, so mixed grids read in instant order.
+        crossed.sort(key=self._instant_order)
+        due: dict[datetime, list[SharedStrategyInput]] = {}
+        for instant, binding in crossed:
             inputs = self._instance_inputs(binding, instant)
             if inputs is not None:
                 due.setdefault(instant, []).append(
@@ -359,12 +418,19 @@ class SharedPaperCaptureObserver:
             for instant in sorted(due)
         )
 
+    @staticmethod
+    def _instant_order(item: tuple[datetime, SharedStrategyBinding]) -> datetime:
+        """Order crossed bindings by instant; equal instants keep binding order."""
+        return item[0]
+
     def _instance_inputs(
         self, binding: SharedStrategyBinding, instant: datetime
     ) -> DecisionInputs | None:
         """Select the candidate's exact fields at the instant, or None when any is missing."""
-        causal = self.source.read(binding.entity, instant)
-        by_input = {row.input: row for row in causal.observations}
+        causal = self.source.read(binding.entity, instant).observations
+        if self.trades is not None:
+            causal += self.trades.read(binding.entity, instant).observations
+        by_input = {row.input: row for row in causal}
         rows = tuple(by_input[item] for item in binding.candidate.definition.inputs)
         if any(row.value is None for row in rows):
             return None
@@ -412,7 +478,9 @@ class SharedPaperCaptureObserver:
             ask_quantity=Quantity(value=ask.quantity, dimension=dimension),
         )
 
-    def _apply(self, delivery: SharedBookDelivery, market: PaperMarket | None) -> None:
+    def _apply(
+        self, delivery: SharedBookDelivery, market: PaperMarket | None, *, replayed: bool
+    ) -> None:
         """Validate retained decision lineage and compose existing atomic public operations."""
         if market is None:
             if delivery.matched or delivery.decisions:
@@ -440,10 +508,14 @@ class SharedPaperCaptureObserver:
         for group in delivery.decisions:
             if pending is None or group.quote != AccountQuote(price=pending.ask, at=pending.at):
                 raise ValueError("shared decision substituted its instant's market quote")
+            # A live delivery's inputs were just read from these sources; a replayed one
+            # is read again, in ascending instants, and must equal what it retained.
             bindings = {binding.instance_id: binding for binding in self.runtime.bindings}
             for item in group.inputs:
                 binding = bindings.get(item.instance_id)
-                if binding is None or self._instance_inputs(binding, group.at) != item.inputs:
+                if binding is None or (
+                    replayed and self._instance_inputs(binding, group.at) != item.inputs
+                ):
                     raise ValueError("shared decision substituted native input lineage")
             identity = hashlib.sha256(self._codec.encode_json((delivery.source, group))).hexdigest()
             # An already retained batch is an exact retry; its quote was observed with it.

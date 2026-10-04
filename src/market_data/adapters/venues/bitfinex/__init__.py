@@ -3,5 +3,6 @@
 # project library imports
 from market_data.adapters.venues.bitfinex.book import BitfinexBook
 from market_data.adapters.venues.bitfinex.public import BitfinexPublic
+from market_data.adapters.venues.bitfinex.trades import BitfinexTrades
 
-__all__ = ["BitfinexBook", "BitfinexPublic"]
+__all__ = ["BitfinexBook", "BitfinexPublic", "BitfinexTrades"]

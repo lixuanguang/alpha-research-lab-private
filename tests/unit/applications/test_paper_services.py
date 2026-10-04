@@ -30,6 +30,7 @@ from msgspec.structs import force_setattr, replace
 # project library imports
 from accounting import AccountLedger, AccountPosting, AccountState, Fill, PaperAccountReport
 from applications.collect import collect
+from applications.execute.service_candidates import PaperServiceCandidates
 from applications.execute.service_monitor import (
     DiagnosticReceipt,
     PaperServiceDiagnostics,
@@ -70,6 +71,7 @@ from execution import (
     SocketPaperAccount,
 )
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
+from market_data.adapters.sources import BookAdapters
 from market_data.adapters.transport import VenueTransport
 from market_data.books import BookAsOfIndex
 from market_data.contracts import (
@@ -80,13 +82,16 @@ from market_data.contracts import (
     FeedSocket,
     Level,
     Order,
+    RecordingRequest,
 )
 from market_data.storage import CaptureRecording
 from reference_data.instruments import InstrumentId
+from research.observations import InputRequirement, LiveTradeDecisionSource, NumericField
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
     CandidateProcessFailure,
     InstalledIdentity,
+    PaperInputs,
     ProcessCandidateExecutor,
     SharedPaperCaptureObserver,
 )
@@ -112,13 +117,14 @@ class _Constant[T]:
 class _ScriptedBookSocket:
     """Deliver one finite OKX public book script, then drop the connection."""
 
-    def __init__(self, frames: tuple[bytes, ...]) -> None:
-        """Bind the exact native frames of one connection."""
+    def __init__(self, frames: tuple[bytes, ...], channel: str = "books") -> None:
+        """Bind the exact native frames of one connection and its subscribed channel."""
         self.frames = iter(frames)
+        self.channel = channel
 
     async def send(self, message: str) -> None:
-        """Accept the selected public book subscription."""
-        assert '"books"' in message
+        """Accept the selected public subscription."""
+        assert f'"{self.channel}"' in message
 
     async def recv(self) -> bytes:
         """Return the next frame, or end the connection with a network error."""
@@ -159,6 +165,62 @@ class _SpawnedBookTransport:
     def snapshot(self) -> bytes:
         """The OKX book feed carries its own snapshot."""
         raise AssertionError("OKX capture does not fetch a REST snapshot")
+
+
+class _SpawnedTradesTransport:
+    """Serve one acknowledged OKX trades session from a spawned source child."""
+
+    _ack = b'{"event":"subscribe","arg":{"channel":"trades","instId":"BTC-USDT"}}'
+    _push = (
+        b'{"arg":{"channel":"trades","instId":"BTC-USDT"},"data":[{"instId":"BTC-USDT",'
+        b'"tradeId":"5","ts":"1790164800100","px":"100","sz":"0.5","side":"buy","count":"1"}]}'
+    )
+
+    async def open(self, timeout: float) -> FeedSocket:
+        """Serve the same acknowledged trade on every connection."""
+        return _ScriptedBookSocket((self._ack, self._push), channel="trades")
+
+    def snapshot(self) -> bytes:
+        """The trades feed has no REST snapshot."""
+        raise AssertionError("OKX trades capture does not fetch a snapshot")
+
+
+class _TradeReadingCandidates(PaperServiceCandidates):
+    """Resolve the configured candidates as if one also read the source's trade flow."""
+
+    flow = InputRequirement(
+        name="trades",
+        family="trade",
+        clock="event",
+        field=NumericField(name="signed_flow", units="BTC"),
+        max_age_us=10_000_000,
+    )
+
+    def feeds(self, source: PaperServiceSource) -> PaperInputs:
+        """Add the trade field to the configured book fields."""
+        return PaperInputs(
+            (*self.requirements(source), self.flow), has_trades=source.trades is not None
+        )
+
+
+class _TradeObserver(SharedPaperCaptureObserver):
+    """Hold only a retained live trade source, as a trade-reading service observer does."""
+
+    def __init__(self, request: RecordingRequest, delivery_path: Path) -> None:
+        """Bind a trade source for the feed's own recording without an account."""
+        self.trades = LiveTradeDecisionSource(
+            request,
+            (_TradeReadingCandidates.flow,),
+            tapes=BookAdapters.trades,
+            history_capacity=10,
+        )
+        self.trades_delivered = 0
+        self.trades_path = delivery_path.with_name(delivery_path.stem + ".trades.jsonl")
+        self._trade_bytes, self._maximum_trade_bytes = 0, request.recording_max_bytes * 4
+        self._codec = DomainCodec()
+        self._clock = None
+        self.index = None
+        self.measurements = None
 
 
 class _IndexedObserver(SharedPaperCaptureObserver):
@@ -1188,6 +1250,85 @@ class TestPaperServices:
         assert accounting["capture_segments"] == len(recording.cursor().segments)
         child.receiver.close()
 
+    def test_trade_reading_source_starts_a_trades_child_sharing_its_observers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The trades feed records under its own key and feeds the book child's observers."""
+        monkeypatch.setattr(
+            InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
+        )
+        config = self._config(self._socket_path())
+        source = config.sources[0]
+        definition = replace(
+            source,
+            capture=replace(source.capture, max_messages=1),
+            trades=replace(source.capture, channel="trades", depth=0, max_orders=1, max_messages=1),
+            chain=PaperSourceChain(max_messages=4, max_bytes=64 * 1024**2, max_segments=8),
+        )
+        config = replace(config, sources=(definition,))
+        services = _SupervisorHarness(config, self._owner(), tmp_path, self._socket_path())
+        services.resolved = _TradeReadingCandidates(config, None)
+        services.transports[definition.name] = _SpawnedBookTransport()
+        services.transports[services.feed_key(definition.name, "trades")] = (
+            _SpawnedTradesTransport()
+        )
+        services._start_source(definition)
+        book, trades = services._children(definition.name)
+        # The harness records refreshes; the trades child sees the book child's observers.
+        book.observers["shared"] = _TradeObserver(trades.request, tmp_path / "trades-paper.jsonl")
+        try:
+            assert (book.feed, trades.feed) == ("book", "trades")
+            assert trades.observers is book.observers
+            assert trades.request.config == definition.trades
+            deliveries: list[ReceivedSourceDelivery] = []
+            while True:
+                try:
+                    payload = trades.receiver.recv_bytes()
+                except EOFError:
+                    break
+                deliveries.append(services.codec.decode_json(payload, ReceivedSourceDelivery))
+            trades.process.join(30)
+            assert trades.process.exitcode == 0
+            for delivery in deliveries:
+                for observer in trades.observers.values():
+                    services._deliver("trades", observer, delivery, None)
+            trades.pipe_drained, trades.received_count = True, len(deliveries)
+        finally:
+            for child in (book, trades):
+                if child.process.is_alive():
+                    child.process.kill()
+                child.process.join()
+        key = services.feed_key(definition.name, "trades")
+        services._account_source_delivery(key, trades)
+        accounting = cast(dict[str, object], services.delivery_accounting[key])
+        assert accounting["status"] == "complete"
+        assert accounting["durable_records"] == len(deliveries)
+        (observer,) = book.observers.values()
+        assert observer.trades_delivered == len(deliveries)
+        assert observer.trades_path is not None and len(
+            observer.trades_path.read_bytes().splitlines()
+        ) == len(deliveries)
+        services._close_source(trades)
+        services._close_source(book)
+        unprovisioned = _TradeReadingCandidates(replace(config, sources=(source,)), None)
+        with pytest.raises(ValueError, match="no provisioned feed: trades"):
+            unprovisioned.feeds(source)
+
+    def test_source_trades_must_be_the_same_instruments_trades_feed(self) -> None:
+        """A trades feed for another route, a book as trades or trades as the book fail."""
+        source = self._config(self._socket_path()).sources[0]
+        trades = replace(source.capture, channel="trades", depth=0, max_orders=1)
+        assert replace(source, trades=trades).trades == trades
+        for invalid in (
+            replace(trades, symbol="ETH-USDT", base_currency="ETH"),
+            replace(trades, instrument_id=InstrumentId(uuid4())),
+            source.capture,
+        ):
+            with pytest.raises(ValueError, match="same instrument's trades feed"):
+                replace(source, trades=invalid)
+        with pytest.raises(ValueError, match="must be a book feed"):
+            replace(source, capture=trades)
+
     def test_an_undeclared_chain_keeps_one_finite_recording(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1200,7 +1341,7 @@ class TestPaperServices:
         services = _SupervisorHarness(
             config, self._owner(), Path("/private/tmp"), self._socket_path()
         )
-        request = services._capture_request(config.sources[0])
+        request = services._capture_request(config.sources[0], config.sources[0].capture)
         assert type(request) is CaptureRequest
         assert (request.config, request.implementation_identity, request.segment) == (
             config.sources[0].capture,

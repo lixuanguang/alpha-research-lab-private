@@ -64,7 +64,9 @@ class PaperServiceSource(WireRecord, frozen=True):
 
     With ``chain`` the source records one rolled-over segment chain per recording;
     without it, one finite journal. The candidates' decision grids select which
-    books match orders.
+    books match orders. ``trades`` adds the same instrument's public trades feed,
+    recorded alongside the book with the same chain limits, for candidates that
+    declare trade inputs.
     """
 
     name: str
@@ -72,6 +74,7 @@ class PaperServiceSource(WireRecord, frozen=True):
     scenario: PaperExecutionScenario
     freshness_us: int
     chain: PaperSourceChain | None = None
+    trades: CaptureConfig | None = None
 
     def __post_init__(self) -> None:
         """Reject ambiguous venue, instrument, currency and source freshness routing."""
@@ -91,6 +94,16 @@ class PaperServiceSource(WireRecord, frozen=True):
             or not 0 < self.freshness_us <= 30_000_000
         ):
             raise ValueError("paper source route or freshness is incompatible")
+        if self.capture.channel == "trades":
+            raise ValueError("paper source capture must be a book feed")
+        if self.trades is not None:
+            if type(self.trades) is not CaptureConfig:
+                raise TypeError("paper source trades require a typed capture definition")
+            self.trades.__post_init__()
+            if self.trades.channel != "trades" or self._route(self.trades) != self._route(
+                self.capture
+            ):
+                raise ValueError("paper source trades must be the same instrument's trades feed")
         if self.chain is not None:
             if type(self.chain) is not PaperSourceChain:
                 raise TypeError("paper source chain requires typed run limits")
@@ -99,8 +112,26 @@ class PaperServiceSource(WireRecord, frozen=True):
                 self.capture.venue not in ("okx", "bitfinex")
                 or self.capture.retries > 32
                 or self.chain.max_bytes < self.capture.max_frame_bytes * 2 + 8192
+                or (
+                    self.trades is not None
+                    and (
+                        self.trades.retries > 32
+                        or self.chain.max_bytes < self.trades.max_frame_bytes * 2 + 8192
+                    )
+                )
             ):
                 raise ValueError("paper source chain is incompatible with its capture")
+
+    @staticmethod
+    def _route(capture: CaptureConfig) -> tuple[str, str, str, str, str]:
+        """Name a feed's venue, native symbol, instrument and currencies."""
+        return (
+            capture.venue,
+            capture.symbol,
+            str(capture.instrument_id),
+            capture.base_currency,
+            capture.quote_currency,
+        )
 
 
 class ReferenceCandidate(WireRecord, frozen=True, tag="reference"):
@@ -254,7 +285,8 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
             if type(instance_definition) is not PaperServiceInstance:
                 raise TypeError("paper selection requires typed instances")
             instance_definition.__post_init__()
-        if len(self.accounts) > 4 or len(self.sources) > 8 or len(self.instances) > 16:
+        feeds = len(self.sources) + sum(item.trades is not None for item in self.sources)
+        if len(self.accounts) > 4 or feeds > 8 or len(self.instances) > 16:
             raise ValueError("paper selection exceeds the supported local process envelope")
         accounts = {item.account_id: item for item in self.accounts}
         sources = {item.name: item for item in self.sources}

@@ -7,6 +7,7 @@ from market_data.books.projection import BookProjection
 from market_data.books.protocol import NativeBook
 from market_data.books.reconstruction import CaptureReplay
 from market_data.books.registry import BookRegistry
+from market_data.books.trades import TradeTape
 from market_data.books.visible import VisibleBook
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "BookRegistry",
     "CaptureReplay",
     "NativeBook",
+    "TradeTape",
     "VisibleBook",
 ]

@@ -10,6 +10,7 @@ from configuration import (
     CapabilityRegistry,
     CapabilityRequirement,
     CapabilitySelection,
+    CaptureConfig,
 )
 
 _BOOK_FIELDS = (
@@ -30,30 +31,77 @@ _KINDS: tuple[CapabilityKind, ...] = (
 
 
 class PaperCapabilities:
-    """Profile one native public book, its reference data and the paper account services.
+    """Profile one native public book, its optional trades, reference data and paper services.
 
-    The installed application declares these profiles from the components it
-    binds; a candidate's requirements resolve against them before any source or
-    account work. A profile match never grants trading authority.
+    The installed application declares these profiles from the sources it
+    provisions; a candidate's requirements resolve against them before any source
+    or account work. A ``trade`` channel requirement resolves only when the source
+    records its public trades feed; that profile's freshness is the feed's idle
+    bound and its fields carry the feed's own currencies, as trade inputs do. A
+    profile match never grants trading authority.
     """
 
-    def __init__(self, *, venue: str, freshness_us: int, clocks: tuple[str, ...]) -> None:
-        """Bind the venue, source freshness and source clocks this environment supports."""
+    def __init__(
+        self,
+        *,
+        venue: str,
+        freshness_us: int,
+        clocks: tuple[str, ...],
+        trades: CaptureConfig | None = None,
+    ) -> None:
+        """Bind the venue, book freshness and clocks, and the optional public trades feed."""
         if type(freshness_us) is not int or freshness_us <= 0 or not clocks:
             raise ValueError("paper capabilities require positive freshness and source clocks")
+        if trades is not None and (trades.channel != "trades" or trades.venue != venue):
+            raise ValueError("paper capabilities require this venue's trades feed")
         self.venue, self.freshness_us, self.clocks = venue, freshness_us, clocks
+        self.trades = trades
 
     def registry(self) -> CapabilityRegistry:
-        """Return one installed profile per capability family."""
-        return CapabilityRegistry(tuple(self._profile(kind) for kind in _KINDS))
+        """Return one installed profile per capability family and provisioned feed."""
+        profiles = tuple(self._profile(kind) for kind in _KINDS)
+        if self.trades is not None:
+            profiles += (self._trades(self.trades),)
+        return CapabilityRegistry(profiles)
 
     def selections(
         self, requirements: tuple[CapabilityRequirement, ...]
     ) -> tuple[CapabilitySelection, ...]:
-        """Select this environment's profile of the same family for every requirement."""
+        """Select this environment's profile of the same family and feed for each requirement."""
         return tuple(
-            CapabilitySelection(name=item.name, profile=self._name(item.kind))
+            CapabilitySelection(
+                name=item.name,
+                profile=(
+                    "paper-market-trades"
+                    if item.kind == "market_data" and item.channel == "trade"
+                    else self._name(item.kind)
+                ),
+            )
             for item in requirements
+        )
+
+    def _trades(self, feed: CaptureConfig) -> CapabilityProfile:
+        """Describe the public trades feed recorded beside the book, in its currencies."""
+        base, quote = feed.base_currency, feed.quote_currency
+        return CapabilityProfile(
+            name="paper-market-trades",
+            kind="market_data",
+            implementation_identity="installed-paper-market_data-trades",
+            version="1",
+            products=("spot",),
+            venues=(self.venue,),
+            calendars=("continuous-utc",),
+            modes=("runtime",),
+            channels=("trade",),
+            clocks=("event",),
+            max_freshness_us=feed.idle_seconds * 1_000_000,
+            fields=(
+                CapabilityField(name="price", units=f"{quote}/{base}"),
+                CapabilityField(name="quantity", units=base),
+                CapabilityField(name="signed_quantity", units=base),
+                CapabilityField(name="signed_flow", units=base),
+            ),
+            qualification="read_only",
         )
 
     def _profile(self, kind: CapabilityKind) -> CapabilityProfile:

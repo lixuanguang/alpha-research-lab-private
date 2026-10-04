@@ -18,12 +18,13 @@ from configuration import (
 )
 from reference_data.instruments import InstrumentId
 from research.experiments import CandidateBundle
-from research.observations import InputRequirement
+from research.observations import InputRequirement, NumericField
 from runtime import (
     CandidateLoader,
     InstalledExtensions,
     LoadedCandidate,
     PaperCapabilities,
+    PaperInputs,
     ReferenceCandidates,
 )
 from serialization import DomainCodec
@@ -35,8 +36,9 @@ class PaperServiceCandidates:
     A packaged candidate is read from the release's signed candidates by its
     definition identity, with components only from its named installed extension;
     both resolve against this environment's paper capabilities. All candidates on
-    one source share its projected book fields, so their inputs must agree on the
-    source requirement name, clock and freshness.
+    one source share its projected book fields and, when it records trades, its
+    trade fields, so their inputs of one feed must agree on the requirement name,
+    clock and age.
     """
 
     def __init__(
@@ -59,9 +61,12 @@ class PaperServiceCandidates:
         return next(item for item in self.config.sources if item.name == instance.source)
 
     def capabilities(self, source: PaperServiceSource) -> PaperCapabilities:
-        """Describe this environment for one native receipt-clock book source."""
+        """Describe this environment for one native receipt-clock book and optional trades."""
         return PaperCapabilities(
-            venue=source.capture.venue, freshness_us=source.freshness_us, clocks=("receipt",)
+            venue=source.capture.venue,
+            freshness_us=source.freshness_us,
+            clocks=("receipt",),
+            trades=source.trades,
         )
 
     def inputs(self, instance: PaperServiceInstance) -> tuple[InputRequirement, ...]:
@@ -72,18 +77,36 @@ class PaperServiceCandidates:
         return self._references(source).inputs
 
     def requirements(self, source: PaperServiceSource) -> tuple[InputRequirement, ...]:
-        """Return the ordered union of book fields the source's candidates read."""
+        """Return the ordered union of fields the source's candidates read."""
         fields: tuple[InputRequirement, ...] = ()
         for instance in self.config.instances:
             if instance.source == source.name:
                 fields += tuple(item for item in self.inputs(instance) if item not in fields)
         return fields
 
+    def feeds(self, source: PaperServiceSource) -> PaperInputs:
+        """Partition the source's fields by feed, refusing any it does not provision."""
+        return PaperInputs(self.requirements(source), has_trades=source.trades is not None)
+
+    def book_requirements(self, source: PaperServiceSource) -> tuple[InputRequirement, ...]:
+        """Return the book fields, or the touch imbalance the market needs when none is read."""
+        book = self.feeds(source).book
+        return book or (
+            InputRequirement(
+                name=f"{source.name}-book",
+                family="book",
+                clock="receipt",
+                field=NumericField(name="imbalance", units="dimensionless"),
+                max_age_us=source.freshness_us,
+            ),
+        )
+
     def source_identity(self, source: PaperServiceSource) -> str:
-        """Identify a source's capture and projected fields independently of recordings."""
-        return hashlib.sha256(
-            self.codec.encode_json((source.capture, self.requirements(source)))
-        ).hexdigest()
+        """Identify a source's feeds and projected fields independently of recordings."""
+        feeds: tuple[object, ...] = (source.capture, self.requirements(source))
+        if source.trades is not None:
+            feeds += (source.trades,)
+        return hashlib.sha256(self.codec.encode_json(feeds)).hexdigest()
 
     def candidate(self, instance: PaperServiceInstance) -> LoadedCandidate:
         """Load the instance's explicitly selected candidate once."""
@@ -109,6 +132,8 @@ class PaperServiceCandidates:
 
     def report(self) -> dict[str, object]:
         """Return each instance's identities for authoring and checking signed deployments."""
+        for source in self.config.sources:
+            self.feeds(source)
         instances: dict[str, object] = {}
         for instance in self.config.instances:
             loaded = self.candidate(instance)

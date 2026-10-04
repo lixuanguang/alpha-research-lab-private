@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from runtime.monitoring import CandidateMonitoringExporter
     from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
     from runtime.paper_capabilities import PaperCapabilities
+    from runtime.paper_inputs import PaperInputs
     from runtime.portfolio import (
         CandidateExecutor,
         SharedCandidateCheckpoint,
@@ -90,6 +91,12 @@ def __getattr__(name: str) -> object:
         from runtime import paper_capabilities
 
         exports = {"PaperCapabilities": paper_capabilities.PaperCapabilities}
+        return exports[name]
+    if name in {"PaperInputs"}:
+        # project library imports
+        from runtime import paper_inputs
+
+        exports = {"PaperInputs": paper_inputs.PaperInputs}
         return exports[name]
     if name in {"AuthoredCandidates", "ReferenceCandidates"}:
         # project library imports
@@ -285,6 +292,7 @@ __all__ = [
     "PaperCapabilities",
     "PaperCaptureObserver",
     "PaperCheckpoint",
+    "PaperInputs",
     "PolicyFactory",
     "ProcessCandidateExecutor",
     "ProcessSupervisor",

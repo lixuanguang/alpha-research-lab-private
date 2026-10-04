@@ -459,7 +459,9 @@ only the account service runs inside that target.
 
 In that supervised paper composition, each `PaperServiceInstance` selects a
 `ReferenceCandidate` or a signed `PackagedCandidate`; a candidate's cadence is no
-greater than the source's `freshness_us` or capture idle time.
+greater than the source's `freshness_us` or capture idle time. A source may add the
+instrument's public `trades` capture; it starts only when a candidate reads trade
+fields, and a trades feed fault faults the source's accounts like a book fault.
 `deployment-check --config PATH [--candidates DIR]` loads every configured
 candidate and prints its candidate, policy, model and feature identities. Native records
 remain retained and validated in order. At each candidate grid instant the due

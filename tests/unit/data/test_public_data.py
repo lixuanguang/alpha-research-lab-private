@@ -25,7 +25,8 @@ from configuration import CaptureConfig, PublicDataJob
 from financial_units import Currency, Dimension, ExactRatio, Price, Quantity, QuantityKind
 from market_data.acquisition import PublicAcquisition, PublicIngestion
 from market_data.acquisition.public import PendingResponse
-from market_data.adapters.sources import SourceAdapters
+from market_data.adapters.sources import BookAdapters, SourceAdapters
+from market_data.books import BookProjection, CaptureReplay
 from market_data.contracts import (
     CaptureRecord,
     CaptureRequest,
@@ -55,7 +56,7 @@ from research.exploration import (
     SavedDecisionSource,
 )
 from research.features import FeatureSchema, FeatureSession, ProjectionFeature
-from research.observations import InputRequirement, NumericField
+from research.observations import InputRequirement, LiveTradeDecisionSource, NumericField
 from risk import SpotLimits
 from serialization import DomainCodec
 
@@ -336,6 +337,96 @@ class TestPublicData:
         assert source.read(str(query.instruments[0]), query.known_at).observations[
             0
         ].value == ExactRatio(numerator="1", denominator="5")
+
+    def test_live_trade_tape_matches_saved_trade_projection(self, tmp_path: Path) -> None:
+        """Retained and live trades give equal latest-trade and signed-flow fields."""
+        query, raw = self._published(tmp_path)
+        at, entity = query.known_at, str(query.instruments[0])
+        requirements = tuple(
+            InputRequirement(
+                name="trades",
+                family="trade",
+                clock="event",
+                field=field,
+                max_age_us=3_660_000_000,
+            )
+            for field in (
+                NumericField(name="price", units="USDT/BTC"),
+                NumericField(name="signed_quantity", units="BTC"),
+                NumericField(name="signed_flow", units="BTC"),
+            )
+        )
+        saved = SavedDecisionSource(
+            ResearchReader(tmp_path / "snapshots", raw, readers=SourceAdapters()),
+            ResearchSelection(inputs=(PublicTradeSelection(name="trades", query=query),)),
+            requirements,
+        ).read(entity, at)
+        expected = [
+            ExactRatio.from_fraction(Fraction(value)) for value in ("100.2", "-0.3", "-0.1")
+        ]
+        assert [row.value for row in saved.observations] == expected
+        config = CaptureConfig(
+            venue="okx",
+            symbol="BTC-USDT",
+            instrument_id=query.instruments[0],
+            base_currency="BTC",
+            quote_currency="USDT",
+            channel="trades",
+            depth=0,
+            duration_seconds=3600,
+            max_messages=1000,
+            max_bytes=1_000_000,
+            max_frame_bytes=100_000,
+            queue_capacity=100,
+            max_orders=1,
+            retries=0,
+            idle_seconds=30,
+        )
+        live = LiveTradeDecisionSource(
+            CaptureRequest(
+                config=config,
+                recording_id="00000000-0000-0000-0000-000000000098",
+                implementation_identity="a" * 64,
+            ),
+            requirements,
+            tapes=BookAdapters.trades,
+            history_capacity=100,
+        )
+        replay = CaptureReplay(config, book_factory=BookAdapters.create)
+        push = (
+            b'{"arg":{"channel":"trades","instId":"BTC-USDT"},"data":['
+            b'{"instId":"BTC-USDT","tradeId":"20","ts":"1790164800200","px":"100.2",'
+            b'"sz":"0.3","side":"sell","count":"1"},{"instId":"BTC-USDT","tradeId":"19",'
+            b'"ts":"1790164800100","px":"100.1","sz":"0.2","side":"buy","count":"1"}]}'
+        )
+        records = (
+            CaptureRecord(kind="session", epoch=0, received_ns=self._ns(_START - timedelta(2))),
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=self._ns(_START - timedelta(seconds=1)),
+                raw=b'{"event":"subscribe","arg":{"channel":"trades","instId":"BTC-USDT"}}',
+            ),
+            CaptureRecord(
+                kind="frame",
+                epoch=0,
+                received_ns=self._ns(_START + timedelta(seconds=1)),
+                raw=push,
+            ),
+            CaptureRecord(
+                kind="frame", epoch=0, received_ns=self._ns(at - timedelta(seconds=1)), raw=b"pong"
+            ),
+        )
+        for position, record in enumerate(records):
+            live.accept(
+                record, BookProjection.capture(position, record, replay.apply(record), replay)
+            )
+        assert [row.value for row in live.read(entity, at).observations] == expected
+
+    @staticmethod
+    def _ns(at: datetime) -> int:
+        """Return exact Unix nanoseconds of a UTC instant."""
+        return (at - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1) * 1000
 
     def test_saved_book_features_keep_receipt_clock_and_invalidation(self, tmp_path: Path) -> None:
         """Native L2 depth 3 versus 1 yields exactly 1/2; a later gap removes the value."""

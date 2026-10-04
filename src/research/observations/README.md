@@ -63,12 +63,30 @@ cannot move that clock forward. Live imbalance and captured study depth use
 `BookDepth` for exact L2/L3 aggregation. Canonical observations and saved delivery
 envelopes retain their existing schema and original native order IDs.
 
+`LiveTradeDecisionSource` binds one OKX or Bitfinex public `trades` feed under one
+name, `trade` family, `event` clock and age. Its fields are the latest trade's
+`price` (quote/base currencies), `quantity` and aggressor-signed `signed_quantity`
+(base currency), and `signed_flow`: the signed quantity of every trade with venue
+time in `(at - age, at]`, known by `at`. These are the same fields and window rule
+`SavedDecisionSource` reads from retained trades, and a unit test checks the two
+agree on the same trades. The source replays each durable record through the
+installed venue `TradeTape` itself and requires the collector's outcome and state
+identity, so both apply identical trades. Coverage starts when the tape
+synchronizes (OKX at its acknowledgement, Bitfinex at its snapshot) and ends at a
+gap, invalid frame or session end. A flow window must lie inside one coverage
+interval, every field needs a boundary within the feed's idle time, and venue and
+local clocks are compared without skew correction, so recorder coverage stays
+unproven. Retention is bounded; dropping an old trade moves coverage past it, so a
+window is never understated.
+
 `research.exploration.SavedDecisionSource` composes the existing MR01
 `ResearchReader`. Every decision reopens the pinned selection with its own
 knowledge cutoff, within the selection's observation envelope:
 
-- Public trade `price` and `quantity` use exchange event time and **local durable
-  availability**, preserving unknown original historical receipt. Latest event
+- Public trade `price`, `quantity` and `signed_quantity` use exchange event time and
+  **local durable availability**, preserving unknown original historical receipt.
+  `signed_flow` sums aggressor-signed quantity over `(at - age, at]` and is missing
+  when the selection's interval starts after the window. Latest event
   wins; equal event/knowledge times use retained request ordinal and native row
   position. Distinct same-millisecond trades are not mistaken for conflicting revisions.
 - Book `imbalance` accepts L2 bid/ask levels or native visible orders. It calculates

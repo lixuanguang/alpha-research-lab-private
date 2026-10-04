@@ -275,21 +275,27 @@ to be rerun.
 
 `PaperServiceConfiguration` separates available source, instance and account
 definitions from the `active` instance tuple. Each account definition points to an
-explicitly activated signed account socket. Each source binds one native capture,
-venue/instrument identity, execution scenario and freshness budget; each instance
-selects its source and a candidate: a `ReferenceCandidate` (an installed formula,
-its decision cadence and UTC grid origin) or a `PackagedCandidate` (a signed bundle's
+explicitly activated signed account socket. Each source binds one native book
+capture, optionally the same instrument's public `trades` capture, venue/instrument
+identity, execution scenario and freshness budget; each instance selects its
+source and a candidate: a `ReferenceCandidate` (an installed formula, its decision
+cadence and UTC grid origin) or a `PackagedCandidate` (a signed bundle's
 definition identity, the installed extension providing its code, and the grid
 origin; the definition fixes the cadence). Packaged bundles are read only from the
 release's signed `candidates/` directory, after their research provenance verifies,
 with components from the named extension resolved against `PaperCapabilities`. All
-candidates on one source must share its book requirement name, clock and freshness. The cadence cannot exceed source freshness or
+candidates on one source must share its book requirement name, clock and freshness,
+and likewise its trade requirement. A candidate's trade fields need the source's
+trades capture, which runs in its own source process under the `<source>.trades`
+key, shares the book's chain limits and observers, and is retained in each
+account's `.trades.jsonl` log; reference and non-book inputs are refused here. The cadence cannot exceed source freshness or
 capture idle time. The supervisor loads every instance before starting and checks its candidate,
 policy, model and feature identities against the signed deployment.
 `alpha-execute deployment-check --config ... --candidates ...` loads every configured
 candidate without starting anything and prints those identities, for authoring and
 checking the signed deployments. The supported local envelope is at most four
-accounts, eight source processes and sixteen candidate instances. Invocations
+accounts, eight source processes (a trades capture counts as one) and sixteen
+candidate instances. Invocations
 are bounded by each account configuration's signed service life (120 seconds unless
 declared). These resource ceilings are not MR15 throughput qualification.
 `fixed_clip`, `liquidity_clip` and `target_clip` are different engineering formulas,

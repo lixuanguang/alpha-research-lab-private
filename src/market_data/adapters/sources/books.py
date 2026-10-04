@@ -2,10 +2,10 @@
 
 # project library imports
 from configuration import CaptureConfig, DataCapability
-from market_data.adapters.venues.bitfinex import BitfinexBook
+from market_data.adapters.venues.bitfinex import BitfinexBook, BitfinexTrades
 from market_data.adapters.venues.coinbase import CoinbaseBook
-from market_data.adapters.venues.okx import OKXBook
-from market_data.books import NativeBook
+from market_data.adapters.venues.okx import OKXBook, OKXTrades
+from market_data.books import NativeBook, TradeTape
 from reference_data.catalogs import InstrumentDefinition
 
 
@@ -16,6 +16,22 @@ class BookAdapters:
     def capability(config: CaptureConfig) -> DataCapability:
         """Declare source-specific depth, source clocks and recovery for the installed feed."""
         config.__post_init__()
+        if config.channel == "trades":
+            return DataCapability(
+                adapter=f"{config.venue}.native-trades",
+                version="1",
+                venue=config.venue,
+                product="spot",
+                channel="trades",
+                representation="trades",
+                modes=("capture", "replay"),
+                depth=None,
+                source_clock="milliseconds",
+                sequence="trade_id" if config.venue == "okx" else "consecutive",
+                reference="none",
+                calendar="continuous-utc",
+                recovery="new-session-epoch",
+            )
         return DataCapability(
             adapter=f"{config.venue}.native-book",
             version="1",
@@ -60,6 +76,20 @@ class BookAdapters:
             channel=config.channel,
             mode="capture",
         )
+        if config.channel == "trades":
+            return BookAdapters.trades(config)
         if config.venue == "okx":
             return OKXBook(config.symbol)
         return BitfinexBook(config) if config.venue == "bitfinex" else CoinbaseBook(config)
+
+    @staticmethod
+    def trades(config: CaptureConfig) -> TradeTape:
+        """Construct a fresh trade tape for a selected public trades feed.
+
+        Raises:
+            ValueError: The configuration selects a book feed.
+        """
+        config.__post_init__()
+        if config.channel != "trades":
+            raise ValueError("trade tape requires a public trades feed")
+        return OKXTrades(config.symbol) if config.venue == "okx" else BitfinexTrades(config)
