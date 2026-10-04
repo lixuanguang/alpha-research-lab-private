@@ -2001,6 +2001,151 @@ as J2 leaves them.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 702 files |
 
+## Rehearsal 4 (uncounted, 2026-10-04)
+
+**Setup.**
+- Declared through J5 at commit `5b6cace`, with QR workspace `39920d6` and a
+  30-minute capture window.
+- Before it, a two-minute live probe with the fix showed all four trades feeds
+  ready, with stop reason `stop_deadline` and 146, 41, 62 and 48 trades. This time
+  exit codes and stop reasons were checked.
+- Evidence is in `logs/mr17/rehearsal-4/`.
+
+**Result: failed in J2 at 11:21 UTC,** at the driver's own `discover` criterion.
+- **J1:** passed.
+- **J2:** all eight captures and replays passed, and `capture-publish` published
+  one book snapshot (four books) and four trades snapshots.
+- **Cause: a driver defect.** The driver decoded `alpha-dataset discover`'s output
+  as a bare list. The command prints a `{status, result}` envelope.
+
+**Fix (commit below).**
+- The driver reads the envelope.
+- It requires status `complete` and exactly one book snapshot plus one per trades
+  feed.
+- A unit test covers the envelope, and decoding rehearsal 4's real output gives
+  five snapshots.
+
+**Continuation by hand.** This is uncounted and recorded here as run. The remaining
+QR steps ran on a scratch copy of rehearsal 4's J2 data, with rehearsal 4's frozen
+research environment and Feast worker.
+- **J2 reopen:** the book snapshot reopened with four partitions, and the four
+  trades snapshots reopened (Bitfinex BTC: 826 trades over 1,719 boundaries, 6
+  uncovered).
+- **J3:** passed, as were the driver's independent research checks.
+  - The rule study (111 s) and the learned study (159 s).
+  - The two-variant grid, the holdout and the refused changed holdout.
+  - The reopen with the custom metric and chart.
+  - The ETH rule and learned studies.
+  - The `XNYS` refusal (one failed attempt holding only its publication policy) and
+    the perpetual refusal.
+- **J4:** passed.
+  - Offline equals recomputation at 56 cutoffs, with no leakage.
+  - The stream extends, and online matches offline.
+  - Expiry and missing entities are explicit.
+  - Publication fails closed with the worker down, and the retry succeeds.
+  - Rollback works, and a late revision reaches only later cutoffs.
+- **J5:** the first run failed to package the rule candidate. My QR script took
+  "the first rule validation study", but the grid's variants share that family, so
+  it could pick a 0.4-threshold variant while declaring 0.2 parameters. QR
+  workspace `ab34f0d` selects the study whose recorded policy identity the
+  declared parameters rebuild. After that:
+  - both candidates packaged, and a changed parameter was refused;
+  - replay equals the studies (18 learned, 10 rule);
+  - the independent bundle checks passed.
+- **Not exercised by hand:** the lakeFS versions and the ClearML publication, which
+  need the private key paths only the driver passes.
+
+**Validation of the driver fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,529 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 38 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
+This commit also carries the M3d design note as a draft, not yet approved.
+
+## M3d design note: served learned features and the live feature publisher (draft 2026-10-04)
+
+Draft for owner approval. Nothing is implemented. This is the approved P-A
+publisher, extended by the two gaps rehearsal 3's dry runs found.
+
+**What the code shows.**
+- **Served vectors must be transformed.** `CandidateLoader` admits a served
+  candidate only if its stored definition carries the fitted transform identity and
+  the transformed output fields. The runtime then uses the served vector as the
+  transformed features. `materialize_features` refuses any definition with a
+  transform, and no supported path appends transformed vectors with their Feast
+  generation.
+- **The packager checks too little.** `CandidatePackager` accepts a stored
+  definition whose schema, transform or fields differ from the study's. Only the
+  loader catches the mismatch, at deployment.
+- **No live publisher exists.** No supported process extends a stream from live
+  inputs (gap G-P).
+- **Trades capture follows only source-fed candidates.** The supervisor starts a
+  source's trades capture only when a *source-fed* candidate reads trades.
+- **Where captures live.** Each feed's capture is retained under
+  `<root>/runs/<run>/<source>.<feed>/<recording>/`, as fsynced journals.
+
+**Design.** Each item replaces code in place, and no old path is kept.
+1. **Fitted materialization.**
+   - `materialize_features` accepts an optional fitted transform: the study's
+     `FittedTransform` and its retained `TransformVersion`.
+   - It computes each raw vector with the kernel and applies the retained state
+     (apply only, never fit).
+   - It appends the transformed vector under a definition whose
+     `transform_identity` and `output_fields` equal the version's, then publishes
+     and verifies the Feast generation as today.
+   - A definition with a transform but no matching version, or the reverse, is
+     refused.
+2. **The packager checks the stored definition.** `CandidatePackager.publish(...,
+   feature_store=...)` applies the loader's rule at packaging time: same schema,
+   the study's transform identity and output fields. For a fitted study, the
+   packager builds that definition itself from the last fold's `TransformVersion`,
+   so the QR passes only a name and entity type.
+3. **The live publisher (P-A).**
+   - **Owner.** A `runtime.FeaturePublisher` owner and an
+     `alpha-execute feature-publisher` command, bound by the signed paper-services
+     launcher like `deployment`.
+   - **Inputs.** For each feature-served `PackagedCandidate`, it loads the bundle's
+     kernel, transform state and stored definition from the signed release through
+     `InstalledExtensions`. It then follows the supervisor's retained book and
+     trades journals read-only, replaying each record through `CaptureReplay` into
+     `LiveBookDecisionSource`/`LiveTradeDecisionSource`.
+   - **Publication.** At each candidate grid instant it materializes one snapshot
+     of the pinned version through fitted materialization.
+   - **Bounds.** Its life is bounded like the supervisor's. It writes only the
+     feature store and the Feast generation root, and holds no account or venue
+     authority.
+   - **Configuration.** `PaperFeatureServing.publisher` (cadence equal to the
+     candidates' and a maximum lag) is a signed configuration field, as approved
+     for P-A.
+   - **Trades capture.** `PaperInputs` counts the publisher's inputs, so a source
+     whose served candidate needs trades still starts its trades capture.
+4. **Research parity.**
+   - J4 materializes the learned candidate's *transformed* vectors offline from the
+     J2 captures, with the study's last `TransformVersion`.
+   - J5 packages the learned candidate as served and replays it in
+     `offline_features` input mode. Its decisions must equal the study's.
+   - Paper (J6) reads the same stream through `online_features`.
+
+**Tests.**
+- Fitted materialization: transformed values, refusal of mismatched pairs, and
+  Feast parity.
+- Packager refusal of a mismatched definition, and a built definition matching the
+  loader's rule.
+- The publisher against authored growing journals: snapshots at grid instants,
+  lag, a missing input producing no snapshot, restart, and a bounded life.
+- A served replay equal to the study.
+- Wiring the supervisor to a running account owner stays a rehearsal check (J6).
+
+**Open for the owner alongside M3d.**
+- **A — policy abstention**, still open from M3c. A quote policy cannot abstain on
+  a missing touch, so a live data gap would fault the rule candidate.
+- **M3e and M3f** (the candidate monitoring exporter, and the driver's J6–J7) follow
+  M3d as planned.
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design

@@ -13,6 +13,7 @@ import pytest
 from mr17_journey import (
     CaptureWindow,
     Commands,
+    Discovery,
     GuideCoverage,
     Journey,
     JourneyDeclaration,
@@ -219,3 +220,13 @@ class TestSequence:
         )
         assert [step.status for step in retained.steps][:2] == ["failed", "not_run"]
         assert not (tmp_path / "evidence/rehearsal-1/checkout").exists()
+
+
+class TestDiscovery:
+    """Read the dataset command's envelope as the driver does."""
+
+    def test_envelope_lists_snapshots(self) -> None:
+        """The discover output wraps its rows in a status envelope."""
+        payload = b'{"result":[{"snapshot_id":"a"},{"snapshot_id":"b"}],"status":"complete"}'
+        discovered = msgspec.json.decode(payload, type=Discovery)
+        assert discovered.status == "complete" and len(discovered.result) == 2

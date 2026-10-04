@@ -152,6 +152,13 @@ class QRResult(msgspec.Struct, frozen=True):
     findings: tuple[Finding, ...] = ()
 
 
+class Discovery(msgspec.Struct, frozen=True):
+    """Read ``alpha-dataset discover``'s envelope: status and one row per snapshot."""
+
+    status: str
+    result: tuple[dict[str, object], ...]
+
+
 class CommandRecord(msgspec.Struct, frozen=True):
     """Retain one command's argv, environment overrides, clocks, exit and output digests."""
 
@@ -806,8 +813,17 @@ class Journey:
                 "64000000",
             ),
         )
-        entries = msgspec.json.decode(listed, type=tuple[dict[str, object], ...])
-        self.require("catalog_lists_snapshots", bool(entries), {"snapshots": len(entries)})
+        discovered = msgspec.json.decode(listed, type=Discovery)
+        trades = sum(feed.endswith("-trades") for feed in self.declaration.feeds)
+        self.require(
+            "catalog_lists_every_snapshot",
+            discovered.status == "complete" and len(discovered.result) == 1 + trades,
+            {
+                "status": discovered.status,
+                "snapshots": len(discovered.result),
+                "expected": 1 + trades,
+            },
+        )
         self.qr_script(
             "reopen",
             "j2_reopen.py",
