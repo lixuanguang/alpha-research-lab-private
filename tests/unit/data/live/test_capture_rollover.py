@@ -21,7 +21,7 @@ from msgspec.structs import replace
 
 # project library imports
 from applications.collect import collect_run
-from configuration import CaptureConfig, CaptureRunConfig
+from configuration import CaptureConfig, CaptureRunConfig, UniverseSelection
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.adapters.transport import VenueTransport
 from market_data.contracts import CaptureRecord, CaptureRequest, CaptureRunRequest, FeedSocket
@@ -268,6 +268,71 @@ class TestCaptureRollover:
         )
         assert updates[1].orders[0].size == Decimal("0.25")
         assert len(suffix.capture_chain()) == 2
+
+    def test_okx_trades_become_ready_at_their_acknowledgement(self, tmp_path: Path) -> None:
+        """A tape with no snapshot is ready at its acknowledgement and publishes as trades."""
+        now = datetime.now(UTC)
+        books = CaptureConfig.read(_ROOT / "configs/live/okx-btc-usdt.json")
+        config = replace(
+            books,
+            channel="trades",
+            depth=0,
+            max_messages=16,
+            max_bytes=32768,
+            max_frame_bytes=8192,
+            queue_capacity=16,
+            max_orders=1,
+            retries=0,
+        )
+        selected = (config.instrument_id,)
+        request = CaptureRunRequest(
+            config=config,
+            window=CaptureRunConfig(
+                start_at=now - timedelta(seconds=1),
+                ready_by=now + timedelta(seconds=30),
+                stop_at=now + timedelta(seconds=60),
+                max_messages=4,
+                max_bytes=1_048_576,
+                max_segments=2,
+                max_reconnects=0,
+            ),
+            run_id="00000000-0000-4000-8000-000000000031",
+            implementation_identity="a" * 64,
+            universes=UniverseSelection(
+                collection=selected, research=selected, strategy=(), authorized_trading=()
+            ),
+        )
+        ms = int(now.timestamp() * 1000)
+        frames = (
+            b'{"event":"subscribe","arg":{"channel":"trades","instId":"BTC-USDT"},'
+            b'"connId":"a3052a1f"}',
+            *(
+                (
+                    '{"arg":{"channel":"trades","instId":"BTC-USDT"},"data":[{"instId":'
+                    f'"BTC-USDT","tradeId":"{100 + index}","px":"100","sz":"0.1",'
+                    f'"side":"buy","ts":"{ms + index}","count":"1"}}]}}'
+                ).encode()
+                for index in range(3)
+            ),
+        )
+        root = tmp_path / "run"
+        summary = asyncio.run(
+            collect_run(request, root, transport=RolloverTransport(config, frames))
+        )
+        # Ready at the acknowledgement; the window's message limit then closes it with a gap.
+        assert summary["actual_ready_ns"] is not None and summary["updates"] == 3
+        assert summary["stop_reason"] == "message_limit"
+        journals = CaptureRunJournal(root, request).segments()
+        (tmp_path / "raw").mkdir()
+        (tmp_path / "snapshots").mkdir()
+        published = DatasetPublication(SourceAdapters(), "b" * 64).publish_captures(
+            (journals[-1].root,),
+            RawStore(tmp_path / "raw"),
+            tmp_path / "snapshots",
+            max_records=32,
+            max_bytes=1_048_576,
+        )
+        assert published.books is None and len(published.trades) == 1
 
     def test_resume_retains_original_tail_gap_and_fresh_snapshot(self, tmp_path: Path) -> None:
         """A saved cursor survives an unknown tail; recovery begins with explicit gap and epoch."""

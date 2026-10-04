@@ -293,7 +293,13 @@ class CaptureRunRunner:
                         reason = self._limit_reason(error)
                         break
                     queue.acknowledged()
-                    if outcome == "snapshot" and replay.book.ready and not replay.invalid:
+                    # A book synchronizes at its snapshot; a trade tape with no snapshot
+                    # (OKX trades) synchronizes at its subscription acknowledgement.
+                    if (
+                        outcome in ("snapshot", "acknowledgement")
+                        and replay.book.ready
+                        and not replay.invalid
+                    ):
                         stop.last_ready_ns = time.time_ns()
                         if stop.ready_ns is None:
                             stop.ready_ns = stop.last_ready_ns

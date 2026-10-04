@@ -1907,6 +1907,100 @@ Two runs before this one failed and were fixed:
   standard in `test_lakefs_versions.py`;
 - the second, on one unit test that pinned the template's old registry keys.
 
+## Rehearsal 3 (uncounted, 2026-10-04)
+
+**Setup.**
+- Declared through J3 at commit `8df9561`, with QR workspace `0f4ba88` and a
+  30-minute capture window.
+- It ran 09:55–10:27 UTC. Evidence is in `logs/mr17/rehearsal-3/`.
+
+**Result: failed in J2.**
+- **J1:** all 29 criteria passed, including the signed collector build, verify
+  and install that stopped rehearsal 2.
+- **J2:** six of the eight captures completed: every book feed and both Bitfinex
+  trades feeds. Both OKX trades captures exited 2 with stop reason
+  `readiness_deadline`. They had received 50 trades each, but the run never marked
+  itself ready.
+- **J3:** not run.
+
+**Cause: a platform defect from M1c-1.**
+- `capture-run`'s segment runner (`market_data.collection.rollover`) marked a feed
+  ready only on a `snapshot` outcome.
+- OKX trades have no snapshot; that tape synchronizes at its subscription
+  acknowledgement, as M1c-1 designed. Bitfinex trades start from a snapshot, so
+  they passed.
+- The supervisor's paper capture does not use this rule.
+
+**My error, recorded.** The two-minute probe after rehearsal 2 had already shown
+this failure: its OKX trades run ended with `readiness_deadline`. I checked only its
+stderr, which was empty, and not its exit code or stop reason.
+
+**Fix (commit below).**
+- The runner marks a feed ready on a `snapshot` *or* `acknowledgement` outcome
+  once its tape or book is ready. An OKX book is still ready only after its
+  snapshot.
+- A regression test runs `capture-run` on an OKX trades feed with the real
+  acknowledgement shape (including `connId`) and publishes the run as trades. It
+  fails without the fix.
+
+**J3–J5 dry runs while rehearsal 3 ran.** These are uncounted. They used a scratch
+environment from `8df9561` and 25 minutes of authored OKX books and trades, laid out
+as J2 leaves them.
+- **J3:** passed.
+  - The rule and learned studies, the two-variant grid, the holdout, and the
+    refusal of a changed second holdout.
+  - The fresh-process reopen, with the custom metric and chart.
+  - ETH studies selected by configuration, and the `XNYS` and perpetual-product
+    refusals.
+  - ClearML publication was not exercised, so as not to route the private key
+    path through my own commands.
+- **J4:** passed, except the lakeFS version, which was not exercised.
+  - Offline equals recomputation at 51 cutoffs, with no future leakage.
+  - The stream extends, and online matches offline.
+  - Expiry and missing entities are explicit.
+  - Publication fails closed with the Feast worker down, and the retry succeeds.
+  - Rollback serves the previous version, and a late revision reaches only later
+    cutoffs.
+- **J5:** passed. Both candidates package, a changed parameter is refused, and
+  replay through `CandidateLoader` equals the studies' decisions (18 learned, 10
+  rule).
+
+**Declaration corrections.**
+- **J3 refusal criterion.** A capability refusal (calendar `XNYS`) is retained as a
+  failed attempt holding only its publication policy. The criterion becomes
+  "refused before any input is read", not "no attempt data written".
+- **Learned feature.** The learned study's feature is declared `batch` with a
+  30-second expiry, so that one schema serves the study, the store and the
+  candidate.
+- **Learned candidate.** It is packaged source-fed until served learned features
+  exist (below).
+
+**New gaps for the owner.** Both belong to the M3d (feature publisher) design note.
+1. **Served learned candidates have no path.** The loader requires a served
+   candidate's stored definition to carry the fitted transform identity and the
+   transformed output fields. `materialize_features` refuses any definition with a
+   transform.
+2. **`CandidatePackager` accepts a mismatched feature-store definition.** It
+   accepted a stored definition whose schema differs from the study's; only the
+   loader refused it later.
+
+**Guide findings.** These are recorded in the QR workspace's `SOURCES.md`.
+- **Stateless features:** a stateless feature must be `batch` to be fitted.
+- **Feast worker command:** the guide never shows how to build it.
+- **ClearML keys:** the private file's key variable names are not documented.
+- **Order types:** `CandidatePackager`'s `order_types` (post-only quotes must
+  declare them) is not mentioned.
+- **Replay loading:** nothing shows how to load a bundle for replay.
+
+**Validation of the fix (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,528 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 38 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
