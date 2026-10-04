@@ -98,7 +98,9 @@ async def collect(
     if snapshot_directory is not None and snapshot_records is not None:
         publication = asyncio.create_task(
             asyncio.to_thread(
-                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books,
+                DatasetPublication(
+                    SourceAdapters(), ImplementationIdentity.sha256()
+                ).publish_captures,
                 (result.root,),
                 RawStore(result.root),
                 snapshot_directory,
@@ -108,7 +110,7 @@ async def collect(
         )
         try:
             try:
-                summary["snapshot_identity"] = await asyncio.shield(publication)
+                summary["snapshot_identity"] = (await asyncio.shield(publication)).single
             except asyncio.CancelledError:
                 await publication
                 raise

@@ -16,7 +16,7 @@ from typing import cast
 
 # project library imports
 from market_data.contracts import BookObservation
-from market_data.datasets import BookInput, BookSnapshot, DatasetReaders
+from market_data.datasets import BookSnapshot, CaptureInput, DatasetReaders
 from market_data.query import EconomicOrder
 from market_data.replay.events import ReplayCursor, ReplayPhase, _EventSteps
 from market_data.storage import RawStore
@@ -152,9 +152,9 @@ class BookReplay:
         self._is_closed = True
 
     @property
-    def evidence(self) -> BookInput:
+    def evidence(self) -> CaptureInput:
         """Return isolated provenance; archive clocks and degraded scope stay unchanged."""
-        return DomainCodec().decode_json(self._input_bytes, BookInput)
+        return DomainCodec().decode_json(self._input_bytes, CaptureInput)
 
     @property
     def cursor(self) -> ReplayCursor | None:

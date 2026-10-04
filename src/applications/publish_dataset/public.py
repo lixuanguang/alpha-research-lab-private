@@ -1,4 +1,4 @@
-"""Expose public-trade publication, catalog discovery and pinned cutoff inspection."""
+"""Expose public-trade and capture publication, catalog discovery and cutoff inspection."""
 
 from __future__ import annotations
 
@@ -10,7 +10,12 @@ from pathlib import Path
 # project library imports
 from market_data.acquisition import PublicAcquisition
 from market_data.adapters.sources import SourceAdapters
-from market_data.datasets import PublicTradeManifest, SnapshotCatalog, SnapshotStore
+from market_data.datasets import (
+    DatasetPublication,
+    PublicTradeManifest,
+    SnapshotCatalog,
+    SnapshotStore,
+)
 from market_data.query import PublicTradeQuery, PublicTradeReader
 from market_data.storage import RawStore
 from runtime import ImplementationIdentity
@@ -25,8 +30,10 @@ class _PublicDatasetArguments(argparse.Namespace):
     snapshots: Path
     store: Path
     query: Path
+    captures: list[Path]
     max_bytes: int
     max_entries: int
+    max_records: int
 
     def read[T](self, path: Path, target: type[T]) -> T:
         """Read strict bounded input without inferring a mutable latest selection."""
@@ -43,12 +50,16 @@ def public_dataset(argv: list[str]) -> int:
     """Compose discovery, atomic publication or a fully verified public cutoff query."""
     parser = argparse.ArgumentParser(prog="alpha-dataset", description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
-    for action in ("discover", "public-publish", "public-read"):
+    for action in ("discover", "public-publish", "public-read", "capture-publish"):
         command = commands.add_parser(action)
         command.add_argument("--snapshots", type=Path, required=True)
         command.add_argument("--max-bytes", type=int, required=True)
         if action == "discover":
             command.add_argument("--max-entries", type=int, required=True)
+        elif action == "capture-publish":
+            command.add_argument("--store", type=Path, required=True)
+            command.add_argument("--captures", type=Path, nargs="+", required=True)
+            command.add_argument("--max-records", type=int, required=True)
         else:
             command.add_argument("--store", type=Path, required=True)
             command.add_argument(
@@ -64,6 +75,17 @@ def public_dataset(argv: list[str]) -> int:
                 max_entries=args.max_entries, max_bytes=args.max_bytes
             )
             result = tuple({"snapshot_id": m.identity, "manifest": m} for m in manifests)
+        elif args.action == "capture-publish":
+            publication = DatasetPublication(
+                SourceAdapters(), ImplementationIdentity.sha256()
+            ).publish_captures(
+                tuple(args.captures),
+                RawStore(args.store),
+                args.snapshots,
+                max_records=args.max_records,
+                max_bytes=args.max_bytes,
+            )
+            result = {"books": publication.books, "trades": publication.trades}
         elif args.action == "public-publish":
             raw, readers = RawStore(args.store), SourceAdapters()
             acquisition = args.read(args.acquisition, PublicAcquisition)

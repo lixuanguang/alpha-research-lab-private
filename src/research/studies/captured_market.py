@@ -13,7 +13,7 @@ from msgspec.structs import replace
 # project library imports
 from market_data.books import BookDepth
 from market_data.contracts import BookObservation
-from market_data.datasets import BookHistory, BookInput, DatasetReaders
+from market_data.datasets import BookHistory, CaptureInput, DatasetReaders
 from market_data.storage import RawStore
 from research.experiments import TimeWindow
 from serialization import DomainCodec
@@ -32,7 +32,7 @@ class CapturedStudyMarket:
 
     def __init__(
         self,
-        source: BookInput,
+        source: CaptureInput,
         raw: RawStore,
         *,
         readers: DatasetReaders,

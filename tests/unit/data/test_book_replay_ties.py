@@ -13,7 +13,7 @@ from test_book_datasets import TestBookDatasets as _Inputs
 from configuration import CaptureConfig
 from market_data.adapters.sources import SourceAdapters
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest
-from market_data.datasets import BookInput, DatasetPublication
+from market_data.datasets import CaptureInput, DatasetPublication
 from market_data.replay import BookReplay, ReplayPhase
 from market_data.storage import CaptureJournal, RawStore
 
@@ -84,13 +84,15 @@ class TestBookReplayTies:
     ) -> None:
         """A disk-spilled tie keeps epoch order, phases and restart continuation."""
         capture = self._capture(tmp_path / "capture")
-        selected = BookInput.read(capture, max_records=16)
+        selected = CaptureInput.read(capture, max_records=16)
         raw_root, snapshot_root = tmp_path / "raw", tmp_path / "snapshots"
         raw_root.mkdir()
         snapshot_root.mkdir()
         raw, readers = RawStore(raw_root), SourceAdapters()
-        identity = DatasetPublication(readers, "a" * 64).publish_books(
-            (capture,), raw, snapshot_root, max_records=16, max_bytes=_LIMIT
+        identity = (
+            DatasetPublication(readers, "a" * 64)
+            .publish_captures((capture,), raw, snapshot_root, max_records=16, max_bytes=_LIMIT)
+            .book
         )
         streamed = BookReplay.read(
             snapshot_root,

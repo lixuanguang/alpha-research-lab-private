@@ -110,3 +110,24 @@ class TradeTape:
                 self.source_time = str(trade.event_ms)
         self.trades = tuple(added)
         return self.trades
+
+
+class TradeTapeCoverage:
+    """Track the synchronized interval of a trades capture, one durable message at a time.
+
+    Coverage opens at the first synchronized message's receipt and closes at a gap,
+    invalid frame, session end or capture end. The live trade source and published
+    captured trades both use this rule, so a flow window is admitted identically.
+    """
+
+    def __init__(self) -> None:
+        """Start outside any covered interval."""
+        self.covered_from_ns: int | None = None
+
+    def step(self, kind: str, synchronized: bool, received_ns: int) -> int | None:
+        """Advance one message and return the receipt that opened its interval, if any."""
+        if not synchronized or kind in ("gap", "session_end", "end"):
+            self.covered_from_ns = None
+        elif self.covered_from_ns is None:
+            self.covered_from_ns = received_ns
+        return self.covered_from_ns

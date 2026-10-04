@@ -1450,6 +1450,151 @@ The driver is implemented for J1–J5 and J8, in one commit. Nothing has been ru
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 694 files |
 
+## M3b design note: one capture publication path and one trade schema (approved 2026-10-04)
+
+The owner approved this note on 2026-10-04. It makes T-1 concrete.
+
+**What the code shows.**
+- The public-trade format is REST-shaped throughout:
+  - `PublicTradeObservation.receipt` is a REST `PublicReceipt`;
+  - `PublicTradePartition` pins a `PublicAcquisition`;
+  - `PublicTradeManifest` admits exactly one partition, which is one REST job;
+  - research orders trades by `receipt.request.ordinal` and builds flow lineage
+    from `receipt.raw.sha256`.
+- `BookInput` is generic capture provenance (capture request, raw object, segment
+  chain), but it is named and admitted as a book.
+- `DatasetPublication.publish_books` is a library call only. `alpha-dataset` has CLI
+  publication for REST trades (`public-publish`) and none for captures.
+- Research flow over REST trades is marked `complete_tape_unproven`. The live trade
+  source refuses a flow window that crosses a coverage gap. Research never checks
+  coverage.
+
+**Design.** Each item replaces the code in place; no reader of an old format is kept.
+1. **`CaptureInput` replaces `BookInput`.** It is the same provenance for any captured
+   stream: request, raw object, bounded prefix and segment chain. Admission selects
+   the reconstruction from the capture's declared capability (`native-book` or
+   `native-trades`).
+2. **One trade observation.**
+   - `PublicTradeObservation.receipt` becomes `origin`: either a REST `PublicReceipt`
+     or a `CaptureTradeOrigin` (recording request identity, segment ordinal, record
+     index, raw digest and receipt nanoseconds).
+   - `ts_knowledge` for a captured trade is its durable receipt, rounded up to
+     microseconds, as for books.
+   - Tie-break ordering and flow lineage use `origin`'s ordinal and digest, so both
+     kinds sort and hash the same way.
+   - Captured trades carry no reference data; `specification_identity` is `None`.
+3. **Partitions and coverage.**
+   - `PublicTradePartition` pins either a `PublicAcquisition` or a trades
+     `CaptureInput`.
+   - A capture partition also retains its **coverage intervals**: the synchronized
+     periods between tape synchronization and each gap, invalid frame or session end.
+     They are derived when the capture is published, by replaying it through the same
+     `TradeTape` the live source uses.
+   - `PublicTradeManifest` admits one or more partitions.
+4. **Research applies the live rule.** For a captured partition, `signed_flow` is
+   missing when its window is not inside one coverage interval, exactly as
+   `LiveTradeDecisionSource` behaves. REST partitions keep `complete_tape_unproven`,
+   since their coverage is unknown.
+5. **One publication path.**
+   - `DatasetPublication.publish_captures(directories, ...)` replaces `publish_books`.
+     It publishes book captures into one `BookDatasetManifest` and trades captures into
+     one `PublicTradeManifest`, returning both snapshot identities.
+   - A new `alpha-dataset capture-publish --captures DIR... --store --snapshots
+     --max-records --max-bytes` command gives QRs and operators the same CLI path as
+     `public-publish`.
+6. **Parity proof.** A unit test feeds the same retained OKX and Bitfinex trades
+   captures to `LiveTradeDecisionSource` and to `SavedDecisionSource` over their
+   published snapshot. It requires equal `price`, `quantity`, `signed_quantity` and
+   `signed_flow` at every matched cutoff, including a window crossing a gap.
+
+**Consequences.**
+- The public-trade manifest, observation and partition formats change, so snapshots
+  published before the change no longer reopen.
+- Retained REST evidence (MR01 and the R1 records) stays valid at its frozen commits.
+- If the R1 corpus is assessed in M4, it is republished on the new code; its raw
+  captures are unchanged.
+- Callers of `publish_books` and `BookInput` change with the rename: capacity
+  consumers, `captured_study.py`, `source_acceptance.py` and the guides that name them.
+
+**Tests.**
+- Capture admission for both kinds, with segment chains.
+- Coverage intervals across an injected gap and a reconnect.
+- Mixed REST and capture partitions in one study.
+- The live/saved parity test.
+- The CLI publication and discovery path.
+- Refusal of a trades capture whose replay differs from its retained outcome.
+
+## M3b result (2026-10-04)
+
+Implemented as approved, in one commit. Nothing has been signed or run.
+
+**What changed.**
+- **One capture input.** `CaptureInput` replaces `BookInput` everywhere, including
+  callers and guides. `is_trades` names a public trades capture.
+- **Captured trades.** `SourceAdapters.trades` replays a trades chain, predecessors
+  first, through the venue `TradeTape`. Messages are numbered from zero across
+  segments, as in the live source. New contracts: `CapturedTrades`,
+  `TradeBoundary` and `CaptureTradeOrigin`.
+- **One trade schema.**
+  - `PublicTradeObservation` has exactly one origin: `receipt` (REST) or `capture`.
+    Readers use origin-neutral `instrument`, `ordinal`, `source_sha256` and
+    `ts_knowledge`.
+  - `PublicTradeHistory` keeps captured message `boundaries`.
+  - `PublicTradePartition` pins an `acquisition` or a trades `capture`. A captured
+    partition needs declared universes.
+  - Reopening replays the raw capture and refuses any difference.
+- **Shared coverage rule.** `TradeTapeCoverage` (in `market_data.books`) is the one
+  rule that both `LiveTradeDecisionSource` and publication use.
+- **Research rules.**
+  - `PublicTradeReader` returns a captured source's boundaries and idle time.
+  - `SavedDecisionSource` refuses every field before the first boundary, while
+    unsynchronized, and when the stream is stale.
+  - It refuses `signed_flow` unless the whole window lies in one covered interval.
+- **Latest-trade order.** Both paths order the latest trade by venue time, then
+  knowledge, then message position and index. The live source previously
+  tie-broke on trade ID.
+- **One publication path.**
+  - `DatasetPublication.publish_captures` replaces `publish_books`. It returns a
+    `CapturePublication` holding the book snapshot, if any, and one trades snapshot
+    per trades chain.
+  - The new `alpha-dataset capture-publish` command runs it.
+  - `alpha-collect capture --snapshot-directory` uses it.
+- **Journey driver.** J2 passes the QR workspace's `data/universes.json` to every
+  capture run, because captured trades need declared universes.
+
+**Implementation decisions.**
+- **One partition per trades manifest.** Each trades capture chain is its own
+  single-partition `public-trades` snapshot, rather than one manifest holding many
+  partitions. The reader and the manifest's one-partition rule stay unchanged,
+  and a study selects one trades snapshot per instrument.
+- **Parity scope.** At matched cutoffs, saved and live trade fields have equal
+  values and equal missing fields. Missing *reasons* can differ in wording, because
+  research reports unavailable rows through `ObservationHistory`'s generic reasons.
+- **Bounded live retention.** Parity assumes the live source's trade capacity is
+  not exceeded. Above it, the live source moves coverage forward, so it can only
+  report more missing flow windows, never different values.
+
+**Tests.** `test_captured_trades.py`:
+- live/saved parity at 144 cutoffs for OKX and Bitfinex, across synchronization, a
+  gap, a reconnect and a Bitfinex reconnect snapshot that repeats an earlier trade.
+  A mutation check showed it fails when research drops the stream rules;
+- coverage boundaries across the gap and reconnect;
+- the `capture-publish` CLI, with discovery;
+- refusal when the replay differs from the retained history;
+- refusal of a trades capture without declared universes.
+
+`test_public_data.py` adds one research selection that reads a REST snapshot and a
+captured snapshot together.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (696 files), native stubs (1,559 modules), engineering standards, dependency admission (188 packages), link and secret checks; 2,516 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 696 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design

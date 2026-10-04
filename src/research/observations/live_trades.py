@@ -13,7 +13,7 @@ from fractions import Fraction
 # project library imports
 from configuration import CaptureConfig
 from financial_units import ExactRatio
-from market_data.books import CaptureReplay, NativeBook, TradeTape
+from market_data.books import CaptureReplay, NativeBook, TradeTape, TradeTapeCoverage
 from market_data.contracts import BookObservation, CaptureRecord, PublicTrade, RecordingRequest
 from research.observations.inputs import DecisionInputs, InputRequirement, NamedObservation
 from serialization import DomainCodec
@@ -26,6 +26,8 @@ class _TapeTrade:
     trade: PublicTrade
     event_at: datetime
     available_at: datetime
+    position: int
+    index: int
     lineage: str
 
 
@@ -50,7 +52,10 @@ class LiveTradeDecisionSource:
     The source reconstructs the tape itself from each durable record and requires the
     collector's outcome and state identity, so both sides apply identical trades.
     Coverage starts when the tape synchronizes and ends at a gap, invalid frame or
-    session end; a flow window must lie inside one coverage interval. Any field also
+    session end (``TradeTapeCoverage``, which published captured trades also use); a flow
+    window must lie inside one coverage interval. The latest trade is the one with
+    the latest venue time, then delivery, then message position and index within the
+    message, the same order research applies to captured trades. Any field also
     needs a boundary within the capture's idle time, which proves the stream was live.
     Venue and local clocks are compared without skew correction, so recorder coverage
     stays unproven, as for retained trades.
@@ -132,6 +137,7 @@ class LiveTradeDecisionSource:
         self._history: deque[_TapeBoundary] = deque(maxlen=history_capacity)
         self._trades: deque[_TapeTrade] = deque()
         self._trade_capacity = trade_capacity
+        self._coverage = TradeTapeCoverage()
         self._covered_from: datetime | None = None
         self._position = 0
         self._last_received_ns = 0
@@ -195,19 +201,23 @@ class LiveTradeDecisionSource:
         tape = self._tape(self._replay.book)
         if outcome != row.outcome or tape.identity != row.state_identity:
             raise ValueError("live trade tape differs from the collector's reconstruction")
-        synchronized = tape.ready and not self._replay.invalid
-        if not synchronized or record.kind in ("gap", "session_end", "end"):
+        opened_ns = self._coverage.step(
+            record.kind, tape.ready and not self._replay.invalid, record.received_ns
+        )
+        if opened_ns is None:
             self._covered_from = None
         elif self._covered_from is None:
-            self._covered_from = received_at
+            self._covered_from = self._from_ns(opened_ns)
         if outcome in ("snapshot", "update"):
             lineage = self._lineage(record, row, delivered_at)
-            for trade in tape.trades:
+            for index, trade in enumerate(tape.trades):
                 self._trades.append(
                     _TapeTrade(
                         trade=trade,
                         event_at=self._from_ms(trade.event_ms),
                         available_at=delivered_at,
+                        position=row.position,
+                        index=index,
                         lineage=f"{lineage}:{trade.trade_id}",
                     )
                 )
@@ -366,9 +376,9 @@ class LiveTradeDecisionSource:
         return book
 
     @staticmethod
-    def _order(item: _TapeTrade) -> tuple[datetime, datetime, int]:
-        """Select the latest venue time, then delivery, then native trade ID."""
-        return item.event_at, item.available_at, int(item.trade.trade_id)
+    def _order(item: _TapeTrade) -> tuple[datetime, datetime, int, int]:
+        """Select the latest venue time, then delivery, then message position and index."""
+        return item.event_at, item.available_at, item.position, item.index
 
     @staticmethod
     def _signed(trade: PublicTrade) -> Fraction:

@@ -5,10 +5,10 @@ from market_data.datasets.books import (
     BookAdmissionReport,
     BookDatasetManifest,
     BookHistory,
-    BookInput,
     BookPartition,
     BookSnapshot,
     CaptureAncestor,
+    CaptureInput,
 )
 from market_data.datasets.catalog import SnapshotCatalog
 from market_data.datasets.manifests import DatasetInput, DatasetManifest, DatasetPartition
@@ -17,7 +17,7 @@ from market_data.datasets.public_trades import (
     PublicTradeManifest,
     PublicTradeObservation,
 )
-from market_data.datasets.publication import DatasetPublication
+from market_data.datasets.publication import CapturePublication, DatasetPublication
 from market_data.datasets.readers import DatasetReaders
 from market_data.datasets.snapshots import SnapshotStore
 
@@ -25,10 +25,11 @@ __all__ = [
     "BookAdmissionReport",
     "BookDatasetManifest",
     "BookHistory",
-    "BookInput",
     "BookPartition",
     "BookSnapshot",
     "CaptureAncestor",
+    "CaptureInput",
+    "CapturePublication",
     "DatasetInput",
     "DatasetManifest",
     "DatasetPartition",

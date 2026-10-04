@@ -724,6 +724,7 @@ class Journey:
         (root / "window.json").write_bytes(msgspec.json.encode(window_record))
         collect = str(self.temporary / "research/bin/alpha-collect")
         captures: list[tuple[str, tuple[str, ...]]] = []
+        shutil.copy2(self.qr / "data/universes.json", root / "config/universes.json")
         for feed in self.declaration.feeds:
             shutil.copy2(self.qr / "data/feeds" / f"{feed}.json", root / "config" / f"{feed}.json")
             captures.append(
@@ -734,6 +735,8 @@ class Journey:
                         "capture-run",
                         "--config",
                         str(root / "config" / f"{feed}.json"),
+                        "--universes",
+                        str(root / "config/universes.json"),
                         "--window",
                         str(root / "window.json"),
                         "--run-directory",

@@ -19,7 +19,7 @@ import market_data
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.books import BookDepth, BookProjection, CaptureReplay
 from market_data.contracts import BookObservation, CaptureRequest
-from market_data.datasets import BookHistory, BookInput, BookSnapshot, DatasetPublication
+from market_data.datasets import BookHistory, BookSnapshot, CaptureInput, DatasetPublication
 from market_data.replay import BookReplay, ReplayCursor, ReplayPhase
 from market_data.storage import CaptureJournal, RawStore
 from runtime import ImplementationIdentity
@@ -47,10 +47,12 @@ class ParityInspection:
         raw, snapshots = output / "raw", output / "snapshots"
         raw.mkdir()
         snapshots.mkdir()
-        selected = BookInput.read(source, max_records=32)
-        identity = DatasetPublication(
-            SourceAdapters(), ImplementationIdentity.sha256()
-        ).publish_books((source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT)
+        selected = CaptureInput.read(source, max_records=32)
+        identity = (
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+            .publish_captures((source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT)
+            .book
+        )
         payload = selected.admit(
             RawStore(raw), readers=SourceAdapters(), max_bytes=_LIMIT
         ).require_canonical()

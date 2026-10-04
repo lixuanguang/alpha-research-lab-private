@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 from market_data.contracts import (
     BookObservation,
     ByteReader,
+    CapturedTrades,
     OccurrenceVerifier,
     PublicSources,
     SavedPartitionReader,
@@ -19,7 +20,7 @@ from market_data.contracts import (
 if TYPE_CHECKING:
     # project library imports
     from market_data.acquisition import AcquisitionManifest
-    from market_data.datasets.books import BookInput
+    from market_data.datasets.books import CaptureInput
 
 
 class DatasetReaders(PublicSources, Protocol):
@@ -47,7 +48,7 @@ class DatasetReaders(PublicSources, Protocol):
         """
         ...
 
-    def books(self, selection: BookInput, store: ByteReader) -> Iterator[BookObservation]:
+    def books(self, selection: CaptureInput, store: ByteReader) -> Iterator[BookObservation]:
         """Reconstruct a bounded native prefix from fully verified original bytes.
 
         Args:
@@ -56,5 +57,17 @@ class DatasetReaders(PublicSources, Protocol):
 
         Returns:
             Whole-message observations with original lineage and availability.
+        """
+        ...
+
+    def trades(self, selection: CaptureInput, store: ByteReader) -> Iterator[CapturedTrades]:
+        """Replay a trades capture chain through the installed venue tape.
+
+        Args:
+            selection: A trades capture and its bounded final-segment prefix.
+            store: Immutable byte reader verifying complete retained objects.
+
+        Returns:
+            Every message of the whole chain, in original order, with the trades it added.
         """
         ...

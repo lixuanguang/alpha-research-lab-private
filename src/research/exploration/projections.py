@@ -13,9 +13,9 @@ from msgspec.structs import replace
 
 # project library imports
 from financial_units import ExactRatio
-from market_data.contracts import BookObservation, Order
+from market_data.contracts import BookObservation, Order, TradeBoundary
 from market_data.datasets import PublicTradeObservation
-from market_data.query import BookMarketRow
+from market_data.query import BookMarketRow, PublicTradeResult
 from reference_data.instruments import InstrumentId
 from research.exploration.selection import (
     BookResearchInput,
@@ -120,16 +120,17 @@ class SavedDecisionSource:
                     candidates = tuple(
                         row
                         for row in item.result.rows
-                        if row.receipt.request.instrument.instrument_id == instrument
-                        and row.ts_event <= at
+                        if row.instrument.instrument_id == instrument and row.ts_event <= at
                     )
+                    if self._captured_refusal(item.result, at) is not None:
+                        continue
                     if requirement.field.name == "signed_flow":
                         rows.extend(self._flow(item, requirement, entity, at, candidates))
                         continue
                     for trade in (
                         () if not candidates else (max(candidates, key=self._trade_order),)
                     ):
-                        definition = trade.receipt.request.instrument
+                        definition = trade.instrument
                         units = (
                             f"{definition.quote_currency}/{definition.base_currency}"
                             if requirement.field.name == "price"
@@ -151,7 +152,7 @@ class SavedDecisionSource:
                                 available_at=trade.ts_knowledge,
                                 value=ExactRatio.from_fraction(amount),
                                 reason="observed_public_trade;complete_tape_unproven",
-                                lineage=f"{item.result.query.identity}:{trade.receipt.raw.sha256}:{trade.position}",
+                                lineage=f"{item.result.query.identity}:{trade.source_sha256}:{trade.ordinal}:{trade.position}",
                             )
                         )
                 elif isinstance(item, ReferenceResearchInput):
@@ -196,6 +197,11 @@ class SavedDecisionSource:
         if definition is None:
             return ()
         cls._units(requirement, definition.base_currency)
+        boundary = cls._boundary(item.result, at)
+        if boundary is not None and (
+            boundary.covered_from is None or boundary.covered_from > start
+        ):
+            return ()
         window = tuple(row for row in candidates if row.ts_event > start)
         return (
             NamedObservation(
@@ -210,13 +216,32 @@ class SavedDecisionSource:
                 lineage=hashlib.sha256(
                     DomainCodec().encode_json(
                         tuple(
-                            f"{item.result.query.identity}:{row.receipt.raw.sha256}:{row.position}"
+                            f"{item.result.query.identity}:{row.source_sha256}:{row.ordinal}:{row.position}"
                             for row in window
                         )
                     )
                 ).hexdigest(),
             ),
         )
+
+    @staticmethod
+    def _boundary(result: PublicTradeResult, at: datetime) -> TradeBoundary | None:
+        """Return a captured source's latest boundary known by the cutoff, if captured."""
+        return next((item for item in reversed(result.boundaries) if item.received_at <= at), None)
+
+    @classmethod
+    def _captured_refusal(cls, result: PublicTradeResult, at: datetime) -> str | None:
+        """Apply the live trade source's stream rules to a captured source; REST has none."""
+        if result.idle_seconds is None:
+            return None
+        boundary = cls._boundary(result, at)
+        if boundary is None:
+            return "no_live_input"
+        if boundary.covered_from is None:
+            return "trade_stream_unsynchronized"
+        if at - boundary.received_at > timedelta(seconds=result.idle_seconds):
+            return "stale_trade_stream"
+        return None
 
     @staticmethod
     def _signed(row: PublicTradeObservation) -> Fraction:
@@ -227,7 +252,7 @@ class SavedDecisionSource:
     @staticmethod
     def _trade_order(row: PublicTradeObservation) -> tuple[datetime, datetime, int, int]:
         """Select latest event, then local knowledge and retained response/position for ties."""
-        return row.ts_event, row.ts_knowledge, row.receipt.request.ordinal, row.position
+        return row.ts_event, row.ts_knowledge, row.ordinal, row.position
 
     @staticmethod
     def _units(requirement: InputRequirement, units: str) -> None:

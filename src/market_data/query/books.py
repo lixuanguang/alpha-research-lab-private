@@ -14,8 +14,8 @@ from typing import Literal, NamedTuple
 # project library imports
 from market_data.contracts import BookObservation, Level, Order
 from market_data.datasets import (
-    BookInput,
     BookSnapshot,
+    CaptureInput,
     DatasetReaders,
 )
 from market_data.storage import RawStore
@@ -91,7 +91,7 @@ class BookQueryBatch(NamedTuple):
     identity: str
     columns: tuple[BookColumn, ...]
     rows: tuple[BookMarketRow | BookObservation, ...]
-    evidence: BookInput
+    evidence: CaptureInput
     reasons: tuple[str, ...]
 
 

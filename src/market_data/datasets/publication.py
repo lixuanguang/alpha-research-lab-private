@@ -12,8 +12,9 @@ from typing import Literal
 # project library imports
 from market_data.acquisition import AcquisitionManifest
 from market_data.contracts import ArchiveCapture, Occurrence, SourceRequest
-from market_data.datasets.books import BookAdmissionReport, BookDatasetManifest, BookInput
+from market_data.datasets.books import BookAdmissionReport, BookDatasetManifest, CaptureInput
 from market_data.datasets.manifests import DatasetInput, DatasetManifest, DatasetPartition
+from market_data.datasets.public_trades import PublicTradeManifest
 from market_data.datasets.readers import DatasetReaders
 from market_data.datasets.snapshots import SnapshotStore
 from market_data.storage import RawStore
@@ -25,6 +26,31 @@ from market_data.validation import (
     TradeRevision,
 )
 from reference_data.eligibility import EligibilityAssertions
+from serialization import WireRecord
+
+
+class CapturePublication(WireRecord, frozen=True, kw_only=True):
+    """Name the snapshots one capture publication produced, by stream kind."""
+
+    books: str | None
+    trades: tuple[str, ...]
+
+    @property
+    def book(self) -> str:
+        """Return the book snapshot identity, refusing a publication that had none."""
+        if self.books is None:
+            raise ValueError("capture publication selected no book input")
+        return self.books
+
+    @property
+    def single(self) -> str:
+        """Return the only snapshot identity of a single-kind, single-snapshot publication."""
+        identities: list[str] = list(self.trades)
+        if self.books is not None:
+            identities.append(self.books)
+        if len(identities) != 1:
+            raise ValueError("capture publication did not produce exactly one snapshot")
+        return identities[0]
 
 
 class DatasetPublication:
@@ -40,7 +66,7 @@ class DatasetPublication:
         self._readers = readers
         self._normalization_identity = normalization_identity
 
-    def publish_books(
+    def publish_captures(
         self,
         directories: tuple[Path, ...],
         store: RawStore,
@@ -49,8 +75,12 @@ class DatasetPublication:
         max_records: int,
         max_bytes: int,
         report: Callable[[str, BookAdmissionReport], None] | None = None,
-    ) -> str:
-        """Bind saved native inputs, admit exploratory prefixes and atomically publish them.
+    ) -> CapturePublication:
+        """Retain captured or archived native inputs and publish them by stream kind.
+
+        Book captures and archives publish together as one book snapshot. Each trades
+        capture chain publishes as its own public-trade snapshot, replayed through the
+        same tape the live trade source uses.
 
         Args:
             directories: Completed capture/archive directories; no network access is performed.
@@ -58,22 +88,25 @@ class DatasetPublication:
             destination: Provisioned directory shared with the existing snapshot store.
             max_records: Explicit per-input raw-position prefix ceiling, at most 1,000,000.
             max_bytes: Positive per-file raw/canonical byte bound.
-            report: Optional quality sink called before each partition's publication gate.
+            report: Optional book quality sink called before each partition's publication gate.
 
         Returns:
-            Explicit book snapshot identity for reopening with the selected book manifest type.
+            The book snapshot identity, if any book input was selected, and each trades
+            snapshot identity in input order.
 
         Raises:
             ValueError: An input is incomplete, unsupported, malformed or exceeds its bounds.
         """
+        if not directories:
+            raise ValueError("capture publication requires at least one input")
         selections = tuple(
-            BookInput.read(directory, max_records=max_records) for directory in directories
+            CaptureInput.read(directory, max_records=max_records) for directory in directories
         )
         if len({selected.request.identity for selected in selections}) != len(selections):
-            raise ValueError("duplicate book source selection")
+            raise ValueError("duplicate capture source selection")
         for directory, selected in zip(directories, selections, strict=True):
             if type(max_bytes) is not int or not 0 < selected.raw.size_bytes <= max_bytes:
-                raise ValueError("book raw input exceeds max_bytes")
+                raise ValueError("capture raw input exceeds max_bytes")
             store.publish(
                 directory / selected.raw.sha256,
                 descriptor=selected.raw,
@@ -81,20 +114,41 @@ class DatasetPublication:
             )
             for ancestor in selected.capture_chain()[:-1]:
                 if not 0 <= ancestor.raw.size_bytes <= max_bytes:
-                    raise ValueError("book predecessor raw input exceeds max_bytes")
+                    raise ValueError("capture predecessor raw input exceeds max_bytes")
                 store.publish(
                     directory.parent / ancestor.capture.recording_id / ancestor.raw.sha256,
                     descriptor=ancestor.raw,
                     request=ancestor.capture.binding,
                 )
-        return SnapshotStore(
-            destination, store, readers=self._readers, manifest_type=BookDatasetManifest
-        ).publish_book_streams(
-            selections,
-            normalization_identity=self._normalization_identity,
-            max_bytes=max_bytes,
-            report=report,
+        books = tuple(item for item in selections if not item.is_trades)
+        book_identity = (
+            SnapshotStore(
+                destination, store, readers=self._readers, manifest_type=BookDatasetManifest
+            ).publish_book_streams(
+                books,
+                normalization_identity=self._normalization_identity,
+                max_bytes=max_bytes,
+                report=report,
+            )
+            if books
+            else None
         )
+        trades: list[str] = []
+        snapshots = SnapshotStore(
+            destination, store, readers=self._readers, manifest_type=PublicTradeManifest
+        )
+        for selected in selections:
+            if not selected.is_trades:
+                continue
+            manifest, payload = PublicTradeManifest.assemble_capture(
+                selected,
+                store,
+                readers=self._readers,
+                max_bytes=max_bytes,
+                normalization_identity=self._normalization_identity,
+            )
+            trades.append(snapshots.publish(manifest, (payload,), max_bytes=max_bytes))
+        return CapturePublication(books=book_identity, trades=tuple(trades))
 
     def publish(
         self,

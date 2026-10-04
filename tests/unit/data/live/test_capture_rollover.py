@@ -25,7 +25,7 @@ from configuration import CaptureConfig, CaptureRunConfig
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.adapters.transport import VenueTransport
 from market_data.contracts import CaptureRecord, CaptureRequest, CaptureRunRequest, FeedSocket
-from market_data.datasets import BookInput, BookSnapshot, DatasetPublication
+from market_data.datasets import BookSnapshot, CaptureInput, DatasetPublication
 from market_data.replay import SavedCaptureRun
 from market_data.storage import CaptureJournal, CaptureRunJournal, RawStore
 from serialization import DomainCodec
@@ -244,17 +244,21 @@ class TestCaptureRollover:
         raw_root.mkdir()
         snapshot_root.mkdir()
         readers, raw = SourceAdapters(), RawStore(raw_root)
-        identity = DatasetPublication(readers, "b" * 64).publish_books(
-            tuple(journal.root for journal in journals),
-            raw,
-            snapshot_root,
-            max_records=32,
-            max_bytes=1_048_576,
+        identity = (
+            DatasetPublication(readers, "b" * 64)
+            .publish_captures(
+                tuple(journal.root for journal in journals),
+                raw,
+                snapshot_root,
+                max_records=32,
+                max_bytes=1_048_576,
+            )
+            .book
         )
         snapshot = BookSnapshot.read(
             snapshot_root, raw, readers=readers, identity=identity, max_bytes=1_048_576
         )
-        suffix = BookInput.read(journals[1].root, max_records=32)
+        suffix = CaptureInput.read(journals[1].root, max_records=32)
         rows = tuple(snapshot.observations(suffix.request.identity))
         updates = tuple(row for row in rows if row.outcome == "update")
         assert len(updates) == 2

@@ -31,8 +31,10 @@ def main() -> None:
     raw, snapshots = output / "raw", output / "snapshots"
     raw.mkdir()
     snapshots.mkdir()
-    identity = DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
-        (source,), RawStore(raw), snapshots, max_records=32, max_bytes=64_000_000
+    identity = (
+        DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+        .publish_captures((source,), RawStore(raw), snapshots, max_records=32, max_bytes=64_000_000)
+        .book
     )
     store = SnapshotStore(
         snapshots, RawStore(raw), readers=SourceAdapters(), manifest_type=BookDatasetManifest
@@ -48,25 +50,25 @@ def main() -> None:
     selected = manifest.partitions[0].selection
     observations = tuple(snapshot.observations(selected.request.identity))
     assert (
-        DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
-            (source,), RawStore(raw), snapshots, max_records=32, max_bytes=64_000_000
-        )
+        DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+        .publish_captures((source,), RawStore(raw), snapshots, max_records=32, max_bytes=64_000_000)
+        .book
         == identity
     )
     failures: list[str] = []
     try:
-        DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
+        DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_captures(
             (source,), RawStore(raw), snapshots, max_records=1, max_bytes=64_000_000
-        )
+        ).book
     except ValueError as error:
         failures.append(str(error))
     with patch(
         "market_data.datasets.snapshots.os.rename", side_effect=OSError("publication interrupted")
     ):
         try:
-            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_captures(
                 (source,), RawStore(raw), snapshots, max_records=31, max_bytes=64_000_000
-            )
+            ).book
         except OSError as error:
             failures.append(str(error))
     assert store.read(identity, max_bytes=64_000_000) == manifest

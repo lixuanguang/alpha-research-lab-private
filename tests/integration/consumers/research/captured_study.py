@@ -14,7 +14,7 @@ from typing import Literal
 from applications.explore import StudyComponents, evaluate_study
 from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import SourceAdapters
-from market_data.datasets import BookHistory, BookInput
+from market_data.datasets import BookHistory, CaptureInput
 from market_data.storage import RawStore
 from reference_data.catalogs import InstrumentDefinition, ReferenceHistory
 from research.experiments import AttemptStore, Fingerprint, TemporalSplit, TimeWindow
@@ -159,7 +159,7 @@ class _CapturedScenario:
             if item.instrument_id == book_selection.query.instrument
         )
         capture_directory = self._capture_directory(instrument.venue)
-        captured = BookInput.read(capture_directory, max_records=100)
+        captured = CaptureInput.read(capture_directory, max_records=100)
         if (
             captured.request.identity != book_selection.query.request_identity
             or captured.request.config.instrument_id != instrument.instrument_id

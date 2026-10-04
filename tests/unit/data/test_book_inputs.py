@@ -9,7 +9,7 @@ from pathlib import Path
 from configuration import CaptureConfig
 from market_data.adapters.sources import SourceAdapters
 from market_data.contracts import CaptureRecord, CaptureRequest, Order
-from market_data.datasets import BookHistory, BookInput, DatasetPublication
+from market_data.datasets import BookHistory, CaptureInput, DatasetPublication
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader
 from market_data.storage import CaptureJournal, RawStore
 from serialization import DomainCodec
@@ -78,7 +78,7 @@ class TestBookInputs:
         ):
             journal.append(record)
         journal.finish(1)
-        report = BookInput.read(root, max_records=32).admit(
+        report = CaptureInput.read(root, max_records=32).admit(
             RawStore(root), readers=SourceAdapters(), max_bytes=_LIMIT
         )
         history = _CODEC.decode_json(report.require_canonical(), BookHistory)
@@ -92,8 +92,10 @@ class TestBookInputs:
         raw_path.mkdir()
         snapshots.mkdir()
         raw = RawStore(raw_path)
-        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (root,), raw, snapshots, max_records=32, max_bytes=_LIMIT
+        identity = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures((root,), raw, snapshots, max_records=32, max_bytes=_LIMIT)
+            .book
         )
         query = BookQuery(
             snapshot_id=identity,

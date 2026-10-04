@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from msgspec.structs import force_setattr, replace
 from test_book_datasets import TestBookDatasets as _Books
+from test_captured_trades import CapturedTradesFixture as _Captured
 
 # project library imports
 from configuration import CaptureConfig, PublicDataJob
@@ -36,7 +37,7 @@ from market_data.contracts import (
     RequestBinding,
 )
 from market_data.datasets import (
-    BookInput,
+    CaptureInput,
     DatasetPublication,
     PublicTradeManifest,
     SnapshotCatalog,
@@ -423,6 +424,50 @@ class TestPublicData:
             )
         assert [row.value for row in live.read(entity, at).observations] == expected
 
+    def test_one_selection_reads_rest_and_captured_trades(self, tmp_path: Path) -> None:
+        """REST and captured trade snapshots share one schema and one research selection."""
+        rest, raw = self._published(tmp_path)
+        capture = _Captured.capture(tmp_path / "captured", "okx")
+        captured = DatasetPublication(SourceAdapters(), "b" * 64).publish_captures(
+            (capture,), raw, tmp_path / "snapshots", max_records=1000, max_bytes=1_000_000
+        )
+        request = _Captured.request("okx")
+        live = PublicTradeQuery(
+            snapshot_id=captured.single,
+            instruments=(request.config.instrument_id,),
+            start=_START - timedelta(minutes=1),
+            end=_START + timedelta(minutes=1),
+            known_at=rest.known_at,
+            max_bytes=1_000_000,
+        )
+        rest_requirement, live_requirement = (
+            InputRequirement(
+                name=name,
+                family="trade",
+                clock="event",
+                field=NumericField(name="price", units="USDT/BTC"),
+                max_age_us=age,
+            )
+            for name, age in (("rest", 3_660_000_000), ("captured", 10_000_000))
+        )
+        source = SavedDecisionSource(
+            ResearchReader(tmp_path / "snapshots", raw, readers=SourceAdapters()),
+            ResearchSelection(
+                inputs=(
+                    PublicTradeSelection(name="rest", query=rest),
+                    PublicTradeSelection(name="captured", query=live),
+                )
+            ),
+            (rest_requirement, live_requirement),
+        )
+        from_rest = source.read(str(rest.instruments[0]), rest.known_at).observations
+        assert from_rest[0].value == ExactRatio.from_fraction(Fraction("100.2"))
+        assert from_rest[1].value is None
+        at = _START + timedelta(seconds=18)
+        from_capture = source.read(str(request.config.instrument_id), at).observations
+        assert from_capture[0].value is None
+        assert from_capture[1].value == ExactRatio.from_fraction(Fraction(100))
+
     @staticmethod
     def _ns(at: datetime) -> int:
         """Return exact Unix nanoseconds of a UTC instant."""
@@ -463,12 +508,16 @@ class TestPublicData:
         (tmp_path / "raw").mkdir()
         (tmp_path / "snapshots").mkdir()
         raw = RawStore(tmp_path / "raw")
-        snapshot = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (tmp_path / "capture",),
-            raw,
-            tmp_path / "snapshots",
-            max_records=16,
-            max_bytes=1_000_000,
+        snapshot = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures(
+                (tmp_path / "capture",),
+                raw,
+                tmp_path / "snapshots",
+                max_records=16,
+                max_bytes=1_000_000,
+            )
+            .book
         )
         epoch = datetime(1970, 1, 1, tzinfo=UTC)
         query = BookQuery(
@@ -968,10 +1017,14 @@ class TestPublicData:
         (tmp_path / "raw").mkdir()
         (tmp_path / "snapshots").mkdir()
         raw = RawStore(tmp_path / "raw")
-        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (capture,), raw, tmp_path / "snapshots", max_records=16, max_bytes=1_000_000
+        identity = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures(
+                (capture,), raw, tmp_path / "snapshots", max_records=16, max_bytes=1_000_000
+            )
+            .book
         )
-        selected = BookInput.read(capture, max_records=16)
+        selected = CaptureInput.read(capture, max_records=16)
         epoch = datetime(1970, 1, 1, tzinfo=UTC)
         query = BookQuery(
             snapshot_id=identity,

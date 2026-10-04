@@ -15,9 +15,9 @@ from typing import ClassVar, cast, overload
 from market_data.datasets.books import (
     BookAdmissionReport,
     BookDatasetManifest,
-    BookInput,
     BookPartition,
     BookStream,
+    CaptureInput,
 )
 from market_data.datasets.manifests import DatasetManifest, DatasetPartition
 from market_data.datasets.public_trades import PublicTradeManifest, PublicTradePartition
@@ -124,7 +124,7 @@ class SnapshotStore[
 
     def publish_book_streams(
         self,
-        selections: tuple[BookInput, ...],
+        selections: tuple[CaptureInput, ...],
         *,
         normalization_identity: str,
         max_bytes: int,

@@ -149,7 +149,7 @@ uses `SavedDecisionSource` and `CapturedStudyMarket` to reopen retained
 OKX/Bitfinex trades, references and native books. Its invocation and evidence
 belong to the [MR03 acceptance record](../../../docs/roadmap/README.md#mr03-delivery-and-acceptance).
 
-`CapturedStudyMarket` reuses `BookInput.admit`, `DatasetReaders` and `RawStore`
+`CapturedStudyMarket` reuses `CaptureInput.admit`, `DatasetReaders` and `RawStore`
 verification. It requires the original capture's research universe, preserving
 the separate collection, research, strategy and trading declarations. A study's
 instance/entity is an offline selection, not account authorization.

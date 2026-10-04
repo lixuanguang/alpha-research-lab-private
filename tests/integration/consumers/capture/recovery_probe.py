@@ -19,7 +19,7 @@ from market_data.adapters.transport import VenueTransport
 from market_data.books import CaptureReplay
 from market_data.collection import BookCapture
 from market_data.contracts import CaptureRequest, FeedSocket
-from market_data.datasets import BookInput
+from market_data.datasets import CaptureInput
 from market_data.storage import CaptureJournal
 from runtime import InstalledIdentity
 from serialization import DomainCodec
@@ -92,7 +92,7 @@ def main() -> None:
     assert result["canonical_parity"] and result["duplicates"] == 2 and result["epochs"] == 2
     assert result["gaps"] and result["synchronized"]
     # Corrupt only the experimental live-side receipt to prove first-event diagnosis.
-    selected = BookInput.read(source, max_records=32)
+    selected = CaptureInput.read(source, max_records=32)
     assert selected.capture is not None
     changed = BookCapture(
         selected.capture.config, 32, readers=SourceAdapters(), book_factory=BookAdapters.create

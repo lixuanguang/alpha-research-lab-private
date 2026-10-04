@@ -26,9 +26,9 @@ from market_data.adapters.venues.okx import OKXArchiveStore
 from market_data.contracts import BookObservation, CaptureRecord, CaptureRequest, OKXArchiveRequest
 from market_data.datasets import (
     BookDatasetManifest,
-    BookInput,
     BookPartition,
     BookSnapshot,
+    CaptureInput,
     DatasetPublication,
     SnapshotStore,
 )
@@ -186,17 +186,19 @@ class TestBookDatasets:
         raw.mkdir()
         snapshots.mkdir()
         inputs = (live, archive)
-        identity = DatasetPublication(
-            SourceAdapters(), ImplementationIdentity.sha256()
-        ).publish_books(inputs, RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT)
+        identity = (
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+            .publish_captures(inputs, RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT)
+            .book
+        )
         store = SnapshotStore(
             snapshots, RawStore(raw), readers=SourceAdapters(), manifest_type=BookDatasetManifest
         )
         manifest = store.read(identity, max_bytes=_LIMIT)
         assert (
-            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
-                inputs, RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
-            )
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+            .publish_captures(inputs, RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT)
+            .book
             == identity
         )
         observed = self._observations(snapshots, manifest)
@@ -212,9 +214,11 @@ class TestBookDatasets:
             for row in historical
         )
         assert historical[0].bids[0][1].size == 2 and historical[1].bids == ()
-        changed = DatasetPublication(
-            SourceAdapters(), ImplementationIdentity.sha256()
-        ).publish_books(inputs, RawStore(raw), snapshots, max_records=4, max_bytes=_LIMIT)
+        changed = (
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+            .publish_captures(inputs, RawStore(raw), snapshots, max_records=4, max_bytes=_LIMIT)
+            .book
+        )
         assert changed != identity
         assert store.read(identity, max_bytes=_LIMIT) == manifest
         with pytest.raises(ValueError):
@@ -228,30 +232,34 @@ class TestBookDatasets:
         raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw.mkdir()
         snapshots.mkdir()
-        identity = DatasetPublication(
-            SourceAdapters(), ImplementationIdentity.sha256()
-        ).publish_books((live,), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT)
+        identity = (
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+            .publish_captures((live,), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT)
+            .book
+        )
         invalid = self._capture(tmp_path / "bad", invalid=True)
         with pytest.raises(ValueError, match="publication refused"):
-            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_captures(
                 (invalid,), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
-            )
+            ).book
         with patch("market_data.datasets.snapshots.os.rename", side_effect=OSError("interrupted")):
             with pytest.raises(OSError, match="interrupted"):
-                DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
+                DatasetPublication(
+                    SourceAdapters(), ImplementationIdentity.sha256()
+                ).publish_captures(
                     (live,), RawStore(raw), snapshots, max_records=4, max_bytes=_LIMIT
-                )
+                ).book
         assert [path.name for path in snapshots.iterdir()] == [identity]
-        selected = BookInput.read(live, max_records=64)
+        selected = CaptureInput.read(live, max_records=64)
         assert (
             selected.admit(RawStore(raw), readers=SourceAdapters(), max_bytes=1).scope == "rejected"
         )
         with pytest.raises(ValueError, match="bounded prefix"):
             replace(selected, max_records=0)
-        with pytest.raises(ValueError, match="duplicate book"):
-            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_books(
+        with pytest.raises(ValueError, match="duplicate capture"):
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256()).publish_captures(
                 (live, live), RawStore(raw), snapshots, max_records=64, max_bytes=_LIMIT
-            )
+            ).book
         (raw / selected.raw.sha256).chmod(0o644)
         (raw / selected.raw.sha256).write_bytes(b"corrupt")
         with pytest.raises(ValueError):
@@ -270,8 +278,12 @@ class TestBookDatasets:
         raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw.mkdir()
         snapshots.mkdir()
-        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (archive,), RawStore(raw), snapshots, max_records=10_001, max_bytes=16_000_000
+        identity = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures(
+                (archive,), RawStore(raw), snapshots, max_records=10_001, max_bytes=16_000_000
+            )
+            .book
         )
         snapshot = BookSnapshot.read(
             snapshots,
@@ -280,7 +292,7 @@ class TestBookDatasets:
             identity=identity,
             max_bytes=16_000_000,
         )
-        selected = BookInput.read(archive, max_records=10_001)
+        selected = CaptureInput.read(archive, max_records=10_001)
         assert snapshot.selection(selected.request.identity).raw == selected.raw
         count = 0
         last: BookObservation | None = None
@@ -294,7 +306,7 @@ class TestBookDatasets:
         with pytest.raises(ValueError, match="book envelope requires"):
             selected.admit(RawStore(raw), readers=SourceAdapters(), max_bytes=16_000_000)
         with pytest.raises(ValueError, match="bounded prefix"):
-            BookInput.read(archive, max_records=1_000_001)
+            CaptureInput.read(archive, max_records=1_000_001)
 
     def test_snapshot_session_isolates_evidence_and_refuses_replaced_file(
         self, tmp_path: Path
@@ -304,8 +316,10 @@ class TestBookDatasets:
         raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw.mkdir()
         snapshots.mkdir()
-        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (archive,), RawStore(raw), snapshots, max_records=2, max_bytes=_LIMIT
+        identity = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures((archive,), RawStore(raw), snapshots, max_records=2, max_bytes=_LIMIT)
+            .book
         )
         session = BookSnapshot.read(
             snapshots,
@@ -314,7 +328,7 @@ class TestBookDatasets:
             identity=identity,
             max_bytes=_LIMIT,
         )
-        request_identity = BookInput.read(archive, max_records=2).request.identity
+        request_identity = CaptureInput.read(archive, max_records=2).request.identity
         assert session.admission_report(request_identity).record_count == 2
         selected = session.selection(request_identity)
         force_setattr(selected, "max_records", 1)
@@ -331,7 +345,7 @@ class TestBookDatasets:
 
     def test_old_book_dataset_schema_is_refused(self, tmp_path: Path) -> None:
         """A manifest in the removed v1 envelope schema is refused, never read."""
-        selected = BookInput.read(self._archive(tmp_path / "archive"), max_records=2)
+        selected = CaptureInput.read(self._archive(tmp_path / "archive"), max_records=2)
         manifest = BookDatasetManifest(
             normalization_identity="a" * 64,
             partitions=(BookPartition("b" * 64, selected),),

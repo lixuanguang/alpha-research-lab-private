@@ -21,7 +21,7 @@ from applications.explore import inspect_eda, inspect_experiment
 from market_data.acquisition import AcquisitionManifest
 from market_data.adapters.sources import SourceAdapters
 from market_data.contracts import BookObservation, CaptureRequest
-from market_data.datasets import BookInput, DatasetPublication, SnapshotCatalog
+from market_data.datasets import CaptureInput, DatasetPublication, SnapshotCatalog
 from market_data.query import BookMarketRow, BookQuery, BookQueryReader, QueryMarketRow
 from market_data.storage import CaptureJournal, RawFiles, RawStore
 from market_data.validation import QualityPolicy
@@ -93,10 +93,10 @@ class TestResearchAccess:
             max_bytes=_LIMIT,
         )
         capture = _Books._capture(root / "capture", gap=True)
-        book_id = publisher.publish_books(
+        book_id = publisher.publish_captures(
             (capture,), raw, root / "snapshots", max_records=16, max_bytes=_LIMIT
-        )
-        selected = BookInput.read(capture, max_records=16)
+        ).book
+        selected = CaptureInput.read(capture, max_records=16)
         book = BookQuery(
             snapshot_id=book_id,
             request_identity=selected.request.identity,
@@ -205,7 +205,7 @@ class TestResearchAccess:
                 catalog.discover(max_entries=limits[0], max_bytes=limits[1])
         book = selection.inputs[1]
         assert isinstance(book, BookSelection)
-        selected = BookInput.read(tmp_path / "capture", max_records=16)
+        selected = CaptureInput.read(tmp_path / "capture", max_records=16)
         (tmp_path / "raw" / selected.raw.sha256).unlink()
         assert catalog.discover(max_entries=3, max_bytes=_LIMIT) == entries
         with pytest.raises(ValueError, match="publication refused"):
@@ -268,10 +268,14 @@ class TestResearchAccess:
                     tmp_path / "snapshots", raw, readers=SourceAdapters(), query=invalid
                 )
         archive = _Books._archive(tmp_path / "archive")
-        archive_id = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (archive,), raw, tmp_path / "snapshots", max_records=16, max_bytes=_LIMIT
+        archive_id = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures(
+                (archive,), raw, tmp_path / "snapshots", max_records=16, max_bytes=_LIMIT
+            )
+            .book
         )
-        archived = BookInput.read(archive, max_records=16)
+        archived = CaptureInput.read(archive, max_records=16)
         query = replace(
             selected.query, snapshot_id=archive_id, request_identity=archived.request.identity
         )
@@ -346,7 +350,7 @@ class TestResearchAccess:
         selection = self._selection(tmp_path)
         trade, book = selection.inputs
         assert isinstance(trade, TradeSelection) and isinstance(book, BookSelection)
-        original = BookInput.read(tmp_path / "capture", max_records=16)
+        original = CaptureInput.read(tmp_path / "capture", max_records=16)
         assert original.capture is not None
         request = CaptureRequest(
             config=replace(
@@ -364,12 +368,16 @@ class TestResearchAccess:
         for record in CaptureJournal(tmp_path / "capture", original.capture).records():
             journal.append(replace(record, raw=record.raw.replace(b"BTC-USDT", b"BTC-USD")))
         journal.finish(1)
-        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (destination,),
-            RawStore(tmp_path / "raw"),
-            tmp_path / "snapshots",
-            max_records=16,
-            max_bytes=_LIMIT,
+        identity = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures(
+                (destination,),
+                RawStore(tmp_path / "raw"),
+                tmp_path / "snapshots",
+                max_records=16,
+                max_bytes=_LIMIT,
+            )
+            .book
         )
         changed = replace(
             book,
@@ -390,7 +398,7 @@ class TestResearchAccess:
         selection = self._selection(tmp_path)
         selected = selection.inputs[1]
         assert isinstance(selected, BookSelection)
-        original = BookInput.read(tmp_path / "capture", max_records=16)
+        original = CaptureInput.read(tmp_path / "capture", max_records=16)
         assert original.capture is not None
         destination = tmp_path / "regressing"
         journal = CaptureJournal(destination, original.capture)
@@ -401,9 +409,9 @@ class TestResearchAccess:
         journal.finish(1)
         raw = RawStore(tmp_path / "raw")
         with pytest.raises(ValueError, match="partition publication refused"):
-            DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
+            DatasetPublication(SourceAdapters(), "a" * 64).publish_captures(
                 (destination,), raw, tmp_path / "snapshots", max_records=16, max_bytes=_LIMIT
-            )
+            ).book
         assert self._reader(tmp_path).read(selection).identity == selection.identity
 
     @pytest.mark.parametrize("is_tracked", [False, True])

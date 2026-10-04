@@ -79,6 +79,12 @@ local clocks are compared without skew correction, so recorder coverage stays
 unproven. Retention is bounded; dropping an old trade moves coverage past it, so a
 window is never understated.
 
+Captured trades feeds published with `alpha-dataset capture-publish` keep every
+message boundary and its coverage (`TradeTapeCoverage`, shared with this source), so
+`SavedDecisionSource` applies the same synchronization, staleness and flow-window
+rules to them, and orders the latest trade the same way (venue time, knowledge,
+message position, index within the message).
+
 `research.exploration.SavedDecisionSource` composes the existing MR01
 `ResearchReader`. Every decision reopens the pinned selection with its own
 knowledge cutoff, within the selection's observation envelope:

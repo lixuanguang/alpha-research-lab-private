@@ -15,7 +15,7 @@ from test_book_datasets import TestBookDatasets as _Inputs
 from market_data.adapters.sources import BookAdapters, SourceAdapters
 from market_data.collection import BookCapture
 from market_data.contracts import BookObservation
-from market_data.datasets import BookHistory, BookInput, BookSnapshot, DatasetPublication
+from market_data.datasets import BookHistory, BookSnapshot, CaptureInput, DatasetPublication
 from market_data.replay import BookReplay, ReplayCursor, ReplayPhase
 from market_data.storage import CaptureJournal, RawStore
 from runtime import ImplementationIdentity
@@ -53,13 +53,15 @@ class TestBookReplay:
         raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw.mkdir()
         snapshots.mkdir()
-        identity = DatasetPublication(SourceAdapters(), "a" * 64).publish_books(
-            (source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT
+        identity = (
+            DatasetPublication(SourceAdapters(), "a" * 64)
+            .publish_captures((source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT)
+            .book
         )
         session = BookSnapshot.read(
             snapshots, RawStore(raw), readers=SourceAdapters(), identity=identity, max_bytes=_LIMIT
         )
-        return session, BookInput.read(source, max_records=32).request.identity
+        return session, CaptureInput.read(source, max_records=32).request.identity
 
     @staticmethod
     def _engine(
@@ -123,10 +125,12 @@ class TestBookReplay:
         raw, snapshots = tmp_path / "raw", tmp_path / "snapshots"
         raw.mkdir()
         snapshots.mkdir()
-        identity = DatasetPublication(
-            SourceAdapters(), ImplementationIdentity.sha256()
-        ).publish_books((source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT)
-        selected = BookInput.read(source, max_records=32)
+        identity = (
+            DatasetPublication(SourceAdapters(), ImplementationIdentity.sha256())
+            .publish_captures((source,), RawStore(raw), snapshots, max_records=32, max_bytes=_LIMIT)
+            .book
+        )
+        selected = CaptureInput.read(source, max_records=32)
         engine = BookReplay.read(
             snapshots,
             RawStore(raw),
@@ -180,7 +184,7 @@ class TestBookReplay:
     def test_capture_parity_retains_first_different_message(self, tmp_path: Path) -> None:
         """A changed intermediate state is located even when later absolute updates converge."""
         root = _Inputs._capture(tmp_path / "capture")
-        selected = BookInput.read(root, max_records=32)
+        selected = CaptureInput.read(root, max_records=32)
         assert selected.capture is not None
         captured = BookCapture(
             selected.capture.config, 32, readers=SourceAdapters(), book_factory=BookAdapters.create

@@ -20,7 +20,7 @@ import msgspec
 # project library imports
 import market_data
 from market_data.adapters.sources import SourceAdapters
-from market_data.datasets import BookAdmissionReport, BookInput, BookSnapshot, DatasetPublication
+from market_data.datasets import BookAdmissionReport, BookSnapshot, CaptureInput, DatasetPublication
 from market_data.query import BookQuery, BookQueryReader
 from market_data.replay import BookReplay
 from market_data.storage import RawStore
@@ -125,7 +125,7 @@ class NativeArchiveCapacity:
             }
         )
 
-    def _query(self, selected: BookInput, identity: str) -> dict[str, object]:
+    def _query(self, selected: CaptureInput, identity: str) -> dict[str, object]:
         """Reopen one archive partition without fabricating receipt-time market rows."""
         archive = selected.archive
         if archive is None:
@@ -158,7 +158,7 @@ class NativeArchiveCapacity:
             "availability": "unknown_original_receipts",
         }
 
-    def _replay(self, selected: BookInput, identity: str) -> dict[str, object]:
+    def _replay(self, selected: CaptureInput, identity: str) -> dict[str, object]:
         """Reopen every selected original position while leaving archive rows unscheduled."""
         archive = selected.archive
         if archive is None:
@@ -232,12 +232,12 @@ class NativeArchiveCapacity:
             raise ValueError("at least one completed archive is required")
         if "site-packages" not in Path(market_data.__file__).parts:
             raise AssertionError("diagnostic must use an independently installed distribution")
-        selected = tuple(BookInput.read(path, max_records=self.max_records) for path in archives)
+        selected = tuple(CaptureInput.read(path, max_records=self.max_records) for path in archives)
         for item in selected:
             if item.archive is None:
                 raise ValueError("diagnostic input is not a completed archive")
         try:
-            BookInput.read(archives[0], max_records=1_000_001)
+            CaptureInput.read(archives[0], max_records=1_000_001)
         except ValueError as error:
             refusal = str(error)
             if "bounded prefix" not in refusal:
@@ -265,14 +265,14 @@ class NativeArchiveCapacity:
             )
         publisher = DatasetPublication(self.readers, self.implementation)
         started = self._begin()
-        identity = publisher.publish_books(
+        identity = publisher.publish_captures(
             archives,
             self.raw,
             self.snapshots,
             max_records=self.max_records,
             max_bytes=self.max_bytes,
             report=self._quality,
-        )
+        ).book
         self._end("publish_and_internal_verification", started)
         started = self._begin()
         self.session = BookSnapshot.read(
@@ -383,7 +383,7 @@ class NativeArchiveCapacity:
             raise ValueError("reopen limits differ from original publication")
         identity = plan.snapshot_identity
         selections = tuple(
-            BookInput.read(Path(directory), max_records=self.max_records)
+            CaptureInput.read(Path(directory), max_records=self.max_records)
             for directory in plan.archives
         )
         started = self._begin()

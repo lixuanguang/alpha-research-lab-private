@@ -106,13 +106,14 @@ def main(argv: list[str] | None = None) -> int:
         OSError: An unwritable terminal report propagates.
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if arguments[:1] in (["discover"], ["public-publish"], ["public-read"]):
+    if arguments[:1] in (["discover"], ["public-publish"], ["public-read"], ["capture-publish"]):
         return public_dataset(arguments)
     parser = argparse.ArgumentParser(
         description=__doc__,
         prog="alpha-dataset",
         epilog=(
             "Public data commands: alpha-dataset public-publish --help; "
+            "alpha-dataset capture-publish --help; "
             "alpha-dataset public-read --help; alpha-dataset discover --help"
         ),
     )
