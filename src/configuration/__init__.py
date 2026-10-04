@@ -52,6 +52,7 @@ from configuration.paper_services import (
     PaperServiceInstance,
     PaperServiceSource,
     PaperSourceChain,
+    ReferenceCandidate,
 )
 from configuration.public_data import DataCapability, PublicDataJob, UniverseSelection
 from configuration.venue_execution import (
@@ -114,6 +115,7 @@ __all__ = [
     "PaperSourceChain",
     "PaperStrategyIdentity",
     "PublicDataJob",
+    "ReferenceCandidate",
     "ResolvedManifest",
     "SecretFile",
     "SecretValue",

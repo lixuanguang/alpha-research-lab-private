@@ -35,9 +35,14 @@ class CandidateMonitoringExporter:
         *,
         scope: str,
         clock_quality: Literal["observed", "modeled", "unknown"],
+        study: str,
     ) -> None:
-        """Bind the admitted candidate, account and durable runtime continuation."""
-        loaded.manifest.__post_init__()
+        """Bind the admitted candidate, its research study, account and continuation.
+
+        ``study`` is the candidate manifest's dataset selection digest; the
+        executable definition alone does not carry research provenance.
+        """
+        loaded.definition.__post_init__()
         loaded.deployment.__post_init__()
         config.__post_init__()
         checkpoint.__post_init__()
@@ -47,6 +52,8 @@ class CandidateMonitoringExporter:
             or checkpoint.candidate.binding_identity != loaded.identity
             or config.mode not in ("paper", "shadow")
             or clock_quality not in ("observed", "modeled", "unknown")
+            or type(study) is not str
+            or not study
         ):
             raise ValueError("candidate monitoring requires the admitted paper continuation")
         self.loaded = loaded
@@ -54,6 +61,7 @@ class CandidateMonitoringExporter:
         self.checkpoint = checkpoint
         self.scope = scope
         self.clock_quality = clock_quality
+        self.study = study
 
     def prediction(self, step: CandidateStep, *, recorded_at: datetime) -> MonitoringEvent:
         """Emit the committed inference with its caller-supplied receipt clock."""
@@ -137,16 +145,16 @@ class CandidateMonitoringExporter:
         if prediction is None:
             raise ValueError("candidate monitoring requires a model prediction")
         policy = next(
-            item.identity for item in self.loaded.manifest.components if item.role == "policy"
+            item.identity for item in self.loaded.definition.components if item.role == "policy"
         )
         return MonitoringIdentity(
             scope=self.scope,
             mode=self.config.mode,
-            release=self.loaded.manifest.code_sha256,
+            release=self.loaded.definition.code_sha256,
             strategy=policy,
             model=prediction.model_identity,
             source=self.loaded.deployment.source_identity,
-            study=self.loaded.manifest.dataset.sha256,
+            study=self.study,
             account=self.config.account,
             instrument=self.loaded.deployment.entity,
         )

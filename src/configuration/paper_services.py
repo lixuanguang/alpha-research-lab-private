@@ -5,11 +5,9 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
-
-# third party library imports
-import msgspec
 
 # project library imports
 from configuration.accounts import SERVICE_LIFE_MAXIMUM_SECONDS, AccountConfiguration
@@ -62,19 +60,18 @@ class PaperSourceChain(WireRecord, frozen=True):
 
 
 class PaperServiceSource(WireRecord, frozen=True):
-    """Bind a native feed, paper matching assumptions and admission cadence.
+    """Bind a native feed, paper matching assumptions and source freshness.
 
     With ``chain`` the source records one rolled-over segment chain per recording;
-    without it, one finite journal, exactly as before.
+    without it, one finite journal. The candidates' decision grids select which
+    books match orders.
     """
 
     name: str
     capture: CaptureConfig
     scenario: PaperExecutionScenario
     freshness_us: int
-    market_interval_us: int = 3_000_000
-    # Omitted from the encoding when unset, so earlier selections keep their bytes.
-    chain: PaperSourceChain | msgspec.UnsetType = msgspec.UNSET
+    chain: PaperSourceChain | None = None
 
     def __post_init__(self) -> None:
         """Reject ambiguous venue, instrument, currency and source freshness routing."""
@@ -92,13 +89,9 @@ class PaperServiceSource(WireRecord, frozen=True):
             or self.capture.quote_currency != self.scenario.adverse.currency.code
             or type(self.freshness_us) is not int
             or not 0 < self.freshness_us <= 30_000_000
-            or type(self.market_interval_us) is not int
-            or not 0
-            < self.market_interval_us
-            <= min(self.freshness_us, self.capture.idle_seconds * 1_000_000)
         ):
             raise ValueError("paper source route or freshness is incompatible")
-        if self.chain is not msgspec.UNSET:
+        if self.chain is not None:
             if type(self.chain) is not PaperSourceChain:
                 raise TypeError("paper source chain requires typed run limits")
             self.chain.__post_init__()
@@ -110,25 +103,45 @@ class PaperServiceSource(WireRecord, frozen=True):
                 raise ValueError("paper source chain is incompatible with its capture")
 
 
+class ReferenceCandidate(WireRecord, frozen=True):
+    """Select one installed reference formula and its UTC decision grid."""
+
+    formula: Literal["fixed_clip", "liquidity_clip", "target_clip"]
+    cadence_us: int
+    starts_at: datetime
+
+    def __post_init__(self) -> None:
+        """Require a named formula and a positive grid with an explicit UTC origin."""
+        self._require_utc(self.starts_at, field_name="reference candidate grid origin")
+        if (
+            self.formula not in ("fixed_clip", "liquidity_clip", "target_clip")
+            or type(self.cadence_us) is not int
+            or not 0 < self.cadence_us <= 86_400_000_000
+        ):
+            raise ValueError("invalid reference candidate")
+
+
 class PaperServiceInstance(WireRecord, frozen=True):
-    """Provision one reference policy independently of the active scheduling selection."""
+    """Provision one candidate independently of the active scheduling selection."""
 
     instance_id: str
     account_id: str
     source: str
-    policy: Literal["fixed_clip", "liquidity_clip", "target_clip"]
+    candidate: ReferenceCandidate
     quantity: Quantity
     lot: Quantity
     maximum_fee: Money
 
     def __post_init__(self) -> None:
-        """Require a named installed reference formula and exact positive clip parameters."""
+        """Require a typed candidate and exact positive clip parameters."""
         if (
-            type(self.quantity) is not Quantity
+            type(self.candidate) is not ReferenceCandidate
+            or type(self.quantity) is not Quantity
             or type(self.lot) is not Quantity
             or type(self.maximum_fee) is not Money
         ):
-            raise TypeError("paper service instance requires exact quantity and money")
+            raise TypeError("paper service instance requires a candidate, quantity and money")
+        self.candidate.__post_init__()
         self.quantity.model_copy()
         self.lot.model_copy()
         self.maximum_fee.model_copy()
@@ -137,7 +150,6 @@ class PaperServiceInstance(WireRecord, frozen=True):
                 not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", name)
                 for name in (self.instance_id, self.account_id, self.source)
             )
-            or self.policy not in ("fixed_clip", "liquidity_clip", "target_clip")
             or self.quantity.dimension != self.lot.dimension
             or self.quantity.value <= 0
             or self.lot.value <= 0
@@ -165,14 +177,13 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
     worker_timeout_seconds: int = 2
     alert_socket: str | None = None
     schema_version: Literal["paper-services"] = "paper-services"
-    # Diagnostic telemetry cadence; protection reads stay every poll. Omitted when
-    # unset, so earlier selections keep their bytes and their one-second cadence.
-    telemetry_seconds: int | msgspec.UnsetType = msgspec.UNSET
+    # Diagnostic telemetry cadence; protection reads stay every poll.
+    telemetry_seconds: int = 1
 
     @property
     def telemetry_interval(self) -> int:
-        """Return the declared diagnostic telemetry cadence, one second when undeclared."""
-        return 1 if self.telemetry_seconds is msgspec.UNSET else self.telemetry_seconds
+        """Return the declared diagnostic telemetry cadence in seconds."""
+        return self.telemetry_seconds
 
     def __post_init__(self) -> None:
         """Validate all definitions, budgets and scheduling bounds before spawning work."""
@@ -188,13 +199,8 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
             or not 1 <= self.duration_seconds <= SERVICE_LIFE_MAXIMUM_SECONDS
             or self.poll_seconds != 1
             or self.worker_timeout_seconds != 2
-            or (
-                self.telemetry_seconds is not msgspec.UNSET
-                and (
-                    type(self.telemetry_seconds) is not int
-                    or not 1 <= self.telemetry_seconds <= 300
-                )
-            )
+            or type(self.telemetry_seconds) is not int
+            or not 1 <= self.telemetry_seconds <= 300
         ):
             raise ValueError("invalid bounded paper service selection")
         if self.previous_sha256 is not None:
@@ -265,6 +271,8 @@ class PaperServiceConfiguration(WireRecord, frozen=True):
                 or limits is None
                 or limits.lot != instance.lot
                 or source.freshness_us > account.configuration.budgets.max_quote_age_us
+                or instance.candidate.cadence_us
+                > min(source.freshness_us, source.capture.idle_seconds * 1_000_000)
             ):
                 raise ValueError("paper instance exceeds its installed account definition")
 

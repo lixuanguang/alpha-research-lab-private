@@ -167,12 +167,11 @@ async def run_live_paper(
     if (
         deployment.mode != "runtime"
         or deployment.input_mode != "source"
-        or len(loaded.manifest.inputs) != 1
         or deployment.entity != str(request.config.instrument_id)
     ):
         raise ValueError("live paper requires one admitted native book source")
     source = LiveBookDecisionSource(
-        request, loaded.manifest.inputs[0], history_capacity=history_capacity
+        request, loaded.definition.inputs, history_capacity=history_capacity
     )
     journal = PaperOrderJournal(
         journal_path,
@@ -196,7 +195,7 @@ async def run_live_paper(
                         source_id=request.identity,
                         capability=BookAdapters.capability(request.config),
                         max_age_ns=min(
-                            loaded.manifest.inputs[0].max_age_us * 1000,
+                            loaded.definition.inputs[0].max_age_us * 1000,
                             request.config.idle_seconds * 1_000_000_000,
                         ),
                         allow_degraded=True,

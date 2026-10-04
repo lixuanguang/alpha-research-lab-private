@@ -96,9 +96,9 @@ class PaperCandidateRuntime:
         """Admit explicit collaborators and source signatures before reading input or state."""
         config.__post_init__()
         if (
-            loaded.manifest.product != "spot"
+            loaded.definition.product != "spot"
             or str(config.maximum.dimension.instrument_id) != loaded.deployment.entity
-            or loaded.manifest.state.on_restart != "restore"
+            or loaded.definition.state.on_restart != "restore"
             or journal.binding_identity != self.binding(loaded, config)
             or journal.account != config.account
             or journal.instance != loaded.deployment.instance
@@ -110,7 +110,7 @@ class PaperCandidateRuntime:
                 source is None
                 or features is not None
                 or source.identity != loaded.deployment.source_identity
-                or source.requirements != loaded.manifest.inputs
+                or source.requirements != loaded.definition.inputs
             ):
                 raise ValueError("paper source differs from admitted candidate binding")
         elif source is not None or features is None:

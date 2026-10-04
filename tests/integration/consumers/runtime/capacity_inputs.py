@@ -27,6 +27,7 @@ from configuration import (
     PaperServiceConfiguration,
     PaperServiceInstance,
     PaperServiceSource,
+    ReferenceCandidate,
 )
 from execution import PaperOwner
 from financial_units import Dimension, Money, Quantity
@@ -54,6 +55,12 @@ class CapacityNativeFixture:
     adverse_slot = 500
     bitfinex_reprice_slot = 115
     okx_ask_shift_slot = 115
+    # The schedule starts one second after a three-second decision instant of the
+    # candidates' grid (under three seconds after opening), so the opening decision
+    # always sees ask 100 at 2 s and the next matching book (5.04 s) always follows
+    # the 4.6 s reprice, whatever the wall-clock start.
+    grid_cadence_ns = 3_000_000_000
+    grid_phase_ns = 1_000_000_000
     codec: ClassVar[DomainCodec] = DomainCodec()
 
     def __init__(
@@ -140,7 +147,7 @@ class CapacityNativeFixture:
         else:
             marker_epoch = 1
             if self.started_at is None:
-                self.started_at = asyncio.get_running_loop().time()
+                self.started_at = self._aligned_anchor_ns() / 1_000_000_000
         self.epoch = max(self.epoch + 1, marker_epoch)
         self.phase = 0
         self.sequence = 0
@@ -148,13 +155,22 @@ class CapacityNativeFixture:
         self._closed = False
         return self
 
+    @classmethod
+    def _aligned_anchor_ns(cls) -> int:
+        """Return the nearest monotonic start that lies one phase after a decision instant."""
+        monotonic_ns, now_ns = time.monotonic_ns(), time.time_ns()
+        origin = PaperServiceWorkload.grid_origin - datetime(1970, 1, 1, tzinfo=UTC)
+        origin_ns = (origin.days * 86_400 + origin.seconds) * 1_000_000_000
+        delay_ns = (origin_ns + cls.grid_phase_ns - now_ns) % cls.grid_cadence_ns
+        return monotonic_ns + delay_ns
+
     def _claim_epoch(self) -> tuple[int, float]:
         """Persist first open and schedule anchor across a fresh spawned source."""
         if self.epoch_path is None:
             raise ValueError("capacity epoch marker was not configured")
         path = self.epoch_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        anchor_ns = time.monotonic_ns()
+        anchor_ns = self._aligned_anchor_ns()
         marker = f"{self.identity}\n{anchor_ns}\n".encode()
         try:
             with path.open("xb") as stream:
@@ -167,10 +183,11 @@ class CapacityNativeFixture:
             if len(fields) != 2 or fields[0] != self.identity.encode() or not fields[1].isdigit():
                 raise ValueError("capacity restart marker differs from predeclared input") from None
             retained_ns = int(fields[1])
+            # An aligned anchor lies at most one grid period after the clock reading.
             if (
                 retained != f"{self.identity}\n{retained_ns}\n".encode()
                 or retained_ns <= 0
-                or retained_ns > anchor_ns
+                or retained_ns > time.monotonic_ns() + self.grid_cadence_ns
             ):
                 raise ValueError("capacity restart marker has an invalid monotonic anchor")
             return 2, retained_ns / 1_000_000_000
@@ -490,7 +507,6 @@ class CapacityWorkload:
                         capture=capture,
                         scenario=native.scenario,
                         freshness_us=native.freshness_us,
-                        market_interval_us=native.market_interval_us,
                     )
                 )
                 accounts.append(
@@ -506,7 +522,11 @@ class CapacityWorkload:
                             instance_id=f"{account_id}-{name}-{asset.lower()}",
                             account_id=account_id,
                             source=source_name,
-                            policy=policy,
+                            candidate=ReferenceCandidate(
+                                formula=policy,
+                                cadence_us=3_000_000,
+                                starts_at=PaperServiceWorkload.grid_origin,
+                            ),
                             quantity=workload.quantity(units, dimension),
                             lot=workload.quantity("1", dimension),
                             maximum_fee=workload.money("2"),
@@ -601,7 +621,7 @@ class CapacityWorkload:
                 for source in service.sources
             ),
             "strategies": tuple(
-                (instance.instance_id, instance.policy, instance.source)
+                (instance.instance_id, instance.candidate.formula, instance.source)
                 for instance in service.instances
             ),
             "account_service_seconds": 120,

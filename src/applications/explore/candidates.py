@@ -78,7 +78,7 @@ def run_candidate(
     if (
         deployment.input_mode != "source"
         or source.identity != deployment.source_identity
-        or source.requirements != loaded.manifest.inputs
+        or source.requirements != loaded.definition.inputs
     ):
         raise ValueError("candidate source binding differs from admitted deployment")
     if type(decisions) is not tuple or not decisions or any(a >= b for a, b in pairwise(decisions)):
@@ -106,7 +106,7 @@ def run_candidate(
         if step.status == "paused" or (stop_after is not None and len(steps) == stop_after):
             break
     return CandidateRunResult(
-        candidate_identity=loaded.manifest.identity,
+        candidate_identity=loaded.definition.identity,
         deployment_identity=deployment.identity,
         binding_identity=loaded.identity,
         steps=tuple(steps),

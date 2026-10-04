@@ -65,20 +65,20 @@ class TestCapacitySustained:
                 max_messages=100_000, max_bytes=1024**3, max_segments=4
             )
             assert source.scenario.adverse.value == Decimal(0)
-            assert source.market_interval_us == 3_000_000
             identity = SustainedNativeFixture(source).identity
             assert identity != CapacityNativeFixture(source).identity
             assert identity != SustainedNativeFixture(source, start_high=True).identity
         assert all(account.configuration.service_life_limit == 3000 for account in service.accounts)
         assert service.duration_seconds == 2880
         assert service.telemetry_interval == 15
-        assert {(item.policy, str(item.quantity.value)) for item in service.instances} == {
-            ("target_clip", "1")
-        }
-        # The stage-1 selection keeps its exact encoding: no chain, life or new policy.
+        assert {
+            (item.candidate.formula, item.candidate.cadence_us, str(item.quantity.value))
+            for item in service.instances
+        } == {("target_clip", 3_000_000, "1")}
+        # The stage-1 selection declares no chain, service life or target formula.
         encoded = DomainCodec().encode_json(stage1.service_configuration())
-        assert b'"chain"' not in encoded and b"service_life_seconds" not in encoded
-        assert {item.policy for item in stage1.service_configuration().instances} == {
+        assert b'"chain":null' in encoded and b"service_life_seconds" not in encoded
+        assert {item.candidate.formula for item in stage1.service_configuration().instances} == {
             "fixed_clip",
             "liquidity_clip",
         }

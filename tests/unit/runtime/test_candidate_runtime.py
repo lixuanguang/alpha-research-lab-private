@@ -49,7 +49,7 @@ from research.experiments import (
     CandidateArtifact,
     CandidateBundle,
     CandidateComponent,
-    CandidateManifest,
+    CandidateDefinition,
     CandidateMetricContract,
     CandidateStateContract,
 )
@@ -312,10 +312,6 @@ class TestCandidateSession:
         return tuple(
             CandidateArtifact(name=name, sha256=hashlib.sha256(name.encode()).hexdigest())
             for name in (
-                "dataset",
-                "experiment",
-                "attempt",
-                "report",
                 "schema",
                 "feature-parameters",
                 "policy-parameters",
@@ -325,17 +321,17 @@ class TestCandidateSession:
         )
 
     @classmethod
-    def _manifest(
+    def _definition(
         cls,
         *,
         output: Literal["target", "order"] = "target",
-        on_gap: Literal["pause", "reset"] = "pause",
+        on_gap: Literal["pause", "reset", "continue"] = "pause",
         warmup: int = 0,
         on_restart: Literal["restore", "reset"] = "restore",
         incremental: bool = True,
         freshness_us: int = 1_000_000,
-    ) -> CandidateManifest:
-        """Build a complete engineering manifest with no empirical authority."""
+    ) -> CandidateDefinition:
+        """Build a complete executable definition with no research provenance."""
         artifacts = {item.name: item for item in cls._artifacts()}
         components = tuple(
             CandidateComponent(
@@ -347,21 +343,15 @@ class TestCandidateSession:
             )
             for role in ("feature", "policy", "metric", "chart")
         )
-        return CandidateManifest(
+        return CandidateDefinition(
             name="runtime-reference",
             version="1",
-            qualification="engineering",
             code_sha256=_CODE,
             environment_sha256=_CODE,
-            dataset=artifacts["dataset"],
-            experiment=artifacts["experiment"],
-            attempt=artifacts["attempt"],
-            report=artifacts["report"],
             feature_schema=artifacts["schema"],
             feature_store=None,
             transform=None,
             estimator=None,
-            assessment=None,
             components=components,
             inputs=(_INPUT,),
             requirements=cls._requirements(output, freshness_us=freshness_us),
@@ -398,7 +388,6 @@ class TestCandidateSession:
                 ),
             ),
             artifacts=tuple(artifacts.values()),
-            limitations=("Synthetic software session; no venue evidence.",),
         )
 
     @staticmethod
@@ -415,7 +404,7 @@ class TestCandidateSession:
         cls,
         policy: _ReferencePolicy,
         *,
-        on_gap: Literal["pause", "reset"] = "pause",
+        on_gap: Literal["pause", "reset", "continue"] = "pause",
         warmup: int = 0,
         on_restart: Literal["restore", "reset"] = "restore",
         incremental: bool = True,
@@ -427,7 +416,7 @@ class TestCandidateSession:
         starts_at: datetime = _AT,
     ) -> LoadedCandidate:
         """Compose the actual session objects and resolved fixture signatures."""
-        manifest = cls._manifest(
+        executable = cls._definition(
             output=policy.output,
             on_gap=on_gap,
             warmup=warmup,
@@ -440,14 +429,14 @@ class TestCandidateSession:
         )
         deployment = CandidateDeployment(
             name="runtime-reference",
-            candidate_identity=manifest.identity,
+            candidate_identity=executable.identity,
             instance="instance-one",
             entity=_ENTITY,
             mode=mode,
             input_mode=input_mode,
             source_identity=source_identity,
             starts_at=starts_at,
-            selections=cls._bindings(manifest.requirements),
+            selections=cls._bindings(executable.requirements),
             universes=UniverseSelection(
                 collection=(),
                 research=(_INSTRUMENT,),
@@ -475,7 +464,7 @@ class TestCandidateSession:
                 operations=(f"intent:{policy.output}",) if r.name == "execution" else (),
                 order_types=("gtc",) if policy.output == "order" and r.name == "execution" else (),
             )
-            for r in manifest.requirements
+            for r in executable.requirements
         )
         schema = cls._schema(incremental=incremental, ttl_us=ttl_us)
         kernel = RunningMeanFeature(schema) if incremental else ProjectionFeature(schema)
@@ -490,10 +479,10 @@ class TestCandidateSession:
             else None
         )
         return LoadedCandidate(
-            manifest=manifest,
+            definition=executable,
             deployment=deployment,
             capabilities=CapabilityRegistry(profiles).resolve(
-                manifest.requirements, deployment.selections, mode=mode
+                executable.requirements, deployment.selections, mode=mode
             ),
             feature=kernel,
             policy=policy,
@@ -904,30 +893,36 @@ class TestPaperCandidateRuntime:
             field=NumericField(name="imbalance", units="dimensionless"),
             max_age_us=1_000_000,
         )
-        source_identity = LiveBookDecisionSource(request, book_input, history_capacity=8).identity
+        source_identity = LiveBookDecisionSource(
+            request, (book_input,), history_capacity=8
+        ).identity
         loaded = TestCandidateSession._loaded(_LifecyclePolicy(), source_identity=source_identity)
         requirement: CapabilityRequirement = replace(
-            loaded.manifest.requirements[0],
+            loaded.definition.requirements[0],
             name="book",
             channel=capture.channel,
             clock="receipt",
             fields=(CapabilityField(name="imbalance", units="dimensionless"),),
         )
         requirements: list[CapabilityRequirement] = [requirement]
-        requirements.extend(loaded.manifest.requirements[1:])
+        requirements.extend(loaded.definition.requirements[1:])
         selected_requirements: tuple[CapabilityRequirement, ...] = tuple(requirements)
-        manifest = replace(
-            loaded.manifest,
+        executable = replace(
+            loaded.definition,
             inputs=(book_input,),
             requirements=selected_requirements,
         )
         deployment = replace(
             loaded.deployment,
             mode="runtime",
-            candidate_identity=manifest.identity,
+            candidate_identity=executable.identity,
             source_identity=source_identity,
         )
-        return replace_dataclass(loaded, manifest=manifest, deployment=deployment), request, config
+        return (
+            replace_dataclass(loaded, definition=executable, deployment=deployment),
+            request,
+            config,
+        )
 
     def test_paper_observer_rejects_misbound_registry_reference(self, tmp_path: Path) -> None:
         """Matching source IDs cannot conceal a different product or native listing."""
@@ -941,12 +936,14 @@ class TestPaperCandidateRuntime:
         )
         source = LiveBookDecisionSource(
             request,
-            InputRequirement(
-                name="book",
-                family="book",
-                clock="receipt",
-                field=NumericField(name="imbalance", units="dimensionless"),
-                max_age_us=1_000_000,
+            (
+                InputRequirement(
+                    name="book",
+                    family="book",
+                    clock="receipt",
+                    field=NumericField(name="imbalance", units="dimensionless"),
+                    max_age_us=1_000_000,
+                ),
             ),
             history_capacity=8,
         )
@@ -982,7 +979,7 @@ class TestPaperCandidateRuntime:
         """A backward wall clock exits visibly before a cadence decision."""
         loaded, request, _ = self._live_fixture(tmp_path)
         runtime = self._runtime(tmp_path / "clock.sqlite3")
-        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=8)
         selected = BookSelection.from_capture(
             request.config,
             source_id=request.identity,
@@ -1007,7 +1004,7 @@ class TestPaperCandidateRuntime:
         """Unsafe nested books cannot enter the dedicated runtime's durable input journal."""
         loaded, request, _ = self._live_fixture(tmp_path)
         runtime = self._runtime(tmp_path / "untrusted.sqlite3")
-        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=8)
         selected = BookSelection.from_capture(
             request.config,
             source_id=request.identity,
@@ -1517,7 +1514,7 @@ class TestPaperCandidateRuntime:
                 ),
                 fee_rate=Decimal(0),
             )
-            source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+            source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=8)
             restored = PaperCandidateRuntime(loaded, config, journal, source=source)
             restored.open(owner="inspector", at=datetime.now(UTC) + timedelta(seconds=1))
             assert restored.checkpoint().blocked == "live-paper-failure:ValueError"
@@ -1590,7 +1587,7 @@ class TestPaperCandidateRuntime:
             ),
             fee_rate=Decimal(0),
         )
-        source = LiveBookDecisionSource(request, loaded.manifest.inputs[0], history_capacity=8)
+        source = LiveBookDecisionSource(request, loaded.definition.inputs, history_capacity=8)
         runtime = PaperCandidateRuntime(loaded, config, journal, source=source)
         runtime.open(owner="operator", at=datetime.now(UTC))
         blocked = runtime.checkpoint()

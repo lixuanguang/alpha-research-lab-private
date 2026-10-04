@@ -230,6 +230,9 @@ class AccountAdmission:
             ),
             Quantity(value=Decimal(0), dimension=limits.lot.dimension),
         )
+        if request.decision.intent is None:
+            # A continuation advances only the instance's opaque state.
+            return StepCommit(status="committed", reason="no_intent", orders=())
         lifecycle = SpotOrderLifecycle(limits)
         if isinstance(request.decision.intent, (TargetIntent, ExposureIntent)) and any(
             tagged.instance_id == request.instance_id and not tagged.order.is_terminal

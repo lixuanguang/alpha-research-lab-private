@@ -40,18 +40,23 @@ type EventKind = Literal[
 
 
 class OrderDecision(WireRecord, frozen=True):
-    """Carry one pure strategy intent without importing research policy machinery."""
+    """Carry one pure strategy intent without importing research policy machinery.
+
+    An absent intent commits only the instance's opaque continuation, such as a
+    warm-up step: it reserves nothing and creates no order.
+    """
 
     identity: str
     at: datetime
-    intent: DecisionIntent
+    intent: DecisionIntent | None
 
     def __post_init__(self) -> None:
-        """Require stable lineage, a UTC decision clock and a supported intent."""
+        """Require stable lineage, a UTC decision clock and a supported or absent intent."""
         self._require_utc(self.at, field_name="order decision")
         if type(self.identity) is not str or not self.identity:
             raise ValueError("order decision requires an identity")
-        self.intent.__post_init__()
+        if self.intent is not None:
+            self.intent.__post_init__()
 
 
 class OrderState(WireRecord, frozen=True):

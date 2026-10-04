@@ -24,11 +24,7 @@ from pathlib import Path
 from typing import Literal, cast
 from uuid import uuid4
 
-# third party library imports
-import msgspec
-
 # project library imports
-from applications.execute.service_inputs import ServiceBookInputs
 from applications.execute.service_monitor import (
     DiagnosticReceipt,
     PaperServiceDiagnostics,
@@ -58,17 +54,19 @@ from market_data.books import BookAsOfIndex, BookRegistry
 from market_data.collection import CaptureTransport
 from market_data.contracts import CaptureRequest, CaptureRunRequest, RecordingRequest
 from market_data.storage import CaptureRecording
-from research.observations import LiveBookDecisionSource
+from research.observations import InputRequirement, LiveBookDecisionSource
 from runtime import (
+    CandidateExecutor,
+    CandidateProcessFailure,
     InstalledIdentity,
-    PolicyProcessFailure,
-    ProcessDecisionPolicy,
+    LoadedCandidate,
+    ProcessCandidateExecutor,
+    ReferenceCandidates,
     SharedDecisionRuntime,
     SharedPaperCaptureObserver,
     SharedStrategyBinding,
 )
 from serialization import DomainCodec, WireRecord
-from strategies import DecisionPolicy, ReferencePolicies
 from telemetry import (
     HealthAlert,
     HealthMetric,
@@ -214,7 +212,8 @@ class PaperServices:
         }
         self.instances = {item.instance_id: item for item in configuration.instances}
         self.active = set(configuration.active)
-        self.workers: dict[str, ProcessDecisionPolicy] = {}
+        self.workers: dict[str, ProcessCandidateExecutor] = {}
+        self._candidates: dict[str, LoadedCandidate] = {}
         self.sources: dict[str, SourceChild] = {}
         self.faulted_accounts: set[str] = set()
         self.unavailable_accounts: set[str] = set()
@@ -253,33 +252,53 @@ class PaperServices:
             seen.update(account_ids)
         return True
 
-    def policy(self, instance: PaperServiceInstance) -> DecisionPolicy:
-        """Resolve the explicitly selected installed reference formula without fallback."""
-        source = next(item for item in self.config.sources if item.name == instance.source)
-        return ReferencePolicies.create(
-            instance.policy,
-            instance.quantity,
-            source.scenario.adverse.currency,
-            instance.lot,
-            tick=self.config.instance_limits(instance).tick,
-            implementation=self.implementation,
-        )
+    def requirements(self, source: PaperServiceSource) -> tuple[InputRequirement, ...]:
+        """Return the native book fields the source's reference candidates read."""
+        return ReferenceCandidates(
+            venue=source.capture.venue, freshness_us=source.freshness_us, clock="receipt"
+        ).inputs
 
-    def binding(
-        self, instance: PaperServiceInstance, policy: DecisionPolicy
-    ) -> SharedStrategyBinding:
-        """Bind stable policy continuation to one economic instance and venue."""
+    def source_identity(self, source: PaperServiceSource) -> str:
+        """Identify a source's capture and projected fields independently of recordings."""
+        return hashlib.sha256(
+            self.codec.encode_json((source.capture, self.requirements(source)))
+        ).hexdigest()
+
+    def candidate(self, instance: PaperServiceInstance) -> LoadedCandidate:
+        """Load the instance's explicitly selected candidate without fallback."""
+        loaded = self._candidates.get(instance.instance_id)
+        if loaded is not None:
+            return loaded
+        source = next(item for item in self.config.sources if item.name == instance.source)
+        loaded = ReferenceCandidates(
+            venue=source.capture.venue, freshness_us=source.freshness_us, clock="receipt"
+        ).load(
+            instance.candidate,
+            instance=instance.instance_id,
+            entity=str(source.scenario.instrument_id),
+            quantity=instance.quantity,
+            lot=instance.lot,
+            currency=source.scenario.adverse.currency,
+            tick=self.config.instance_limits(instance).tick,
+            source_identity=self.source_identity(source),
+        )
+        self._candidates[instance.instance_id] = loaded
+        return loaded
+
+    def binding(self, instance: PaperServiceInstance) -> SharedStrategyBinding:
+        """Bind one candidate's continuation to its economic instance and venue."""
         source = next(item for item in self.config.sources if item.name == instance.source)
         account = self.accounts[instance.account_id]
+        loaded = self.candidate(instance)
         return SharedStrategyBinding(
             instance_id=instance.instance_id,
             account_id=instance.account_id,
             entity=str(source.scenario.instrument_id),
-            policy=policy,
+            candidate=loaded,
             context=PortfolioContext(
                 portfolio_id="reference",
                 strategy_id=instance.instance_id,
-                model_revision="rule-only",
+                model_revision=self.model_identity(loaded),
                 config_revision="paper-services",
                 horizon="capture",
                 reason="engineering-reference",
@@ -289,6 +308,13 @@ class PaperServices:
                 authority_scope=account.config.mode,
             ),
             maximum_fee=instance.maximum_fee,
+        )
+
+    @staticmethod
+    def model_identity(loaded: LoadedCandidate) -> str:
+        """Name the candidate's fitted model, or the explicit rule-only selection."""
+        return (
+            "rule-only" if loaded.estimator_version is None else loaded.estimator_version.identity
         )
 
     def preflight(self) -> None:
@@ -326,11 +352,8 @@ class PaperServices:
                 source = next(
                     item for item in self.config.sources if item.name == definition.source
                 )
-                inputs = ServiceBookInputs((), source.freshness_us, source.market_interval_us)
+                loaded = self.candidate(definition)
                 scope = deployment.scope_for(definition.instance_id)
-                identity = hashlib.sha256(
-                    self.codec.encode_json((source.capture, inputs.requirement, inputs.identity))
-                ).hexdigest()
                 strategy = next(
                     item
                     for item in deployment.strategies
@@ -338,10 +361,11 @@ class PaperServices:
                 )
                 if (
                     scope.scenario != source.scenario
-                    or scope.input_identity != identity
-                    or strategy.policy_identity != self.policy(definition).identity
-                    or strategy.feature_identity != inputs.identity
-                    or strategy.model_identity != "rule-only"
+                    or scope.input_identity != self.source_identity(source)
+                    or strategy.policy_identity != loaded.policy.identity
+                    or strategy.candidate_identity != loaded.definition.identity
+                    or strategy.feature_identity != loaded.feature.schema.identity
+                    or strategy.model_identity != self.model_identity(loaded)
                 ):
                     raise ValueError("paper service strategy or source identity differs")
             if self.active.intersection(state.stopped_instances):
@@ -629,8 +653,9 @@ class PaperServices:
     def _start_instance(self, name: str) -> None:
         """Spawn one policy with no journal or account credentials."""
         self._join_observations()
-        self.workers[name] = ProcessDecisionPolicy(
-            self.policy(self.instances[name]), timeout_seconds=self.config.worker_timeout_seconds
+        self.workers[name] = ProcessCandidateExecutor(
+            self.candidate(self.instances[name]),
+            timeout_seconds=self.config.worker_timeout_seconds,
         )
 
     def _start_source(self, source: PaperServiceSource) -> None:
@@ -676,7 +701,7 @@ class PaperServices:
         A chain's window opens now and closes at the supervisor's own end. Paper capture
         keeps the supervisor's readiness checks, so readiness is the stop instant.
         """
-        if source.chain is msgspec.UNSET:
+        if source.chain is None:
             return CaptureRequest(
                 config=source.capture,
                 recording_id=str(uuid4()),
@@ -718,20 +743,14 @@ class PaperServices:
             names = tuple(
                 item.instance_id for item in definitions if item.instance_id in self.active
             )
-            inputs = ServiceBookInputs(names, source.freshness_us, source.market_interval_us)
             # An empty cohort still drains accepted paper obligations after a selective stop.
-            bindings = tuple(
-                self.binding(
-                    item,
-                    self.workers[item.instance_id]
-                    if item.instance_id in self.workers
-                    else self.policy(item),
-                )
-                for item in definitions
-            )
-            runtime = SharedDecisionRuntime(account, bindings)
+            bindings = tuple(self.binding(item) for item in definitions)
+            executors: dict[str, CandidateExecutor] = {
+                name: self.workers[name] for name in names if name in self.workers
+            }
+            runtime = SharedDecisionRuntime(account, bindings, executors)
             if account_id in child.observers:
-                child.observers[account_id].inputs = inputs
+                child.observers[account_id].active = names
                 child.observers[account_id].runtime = runtime
                 continue
             books = BookRegistry(
@@ -769,16 +788,15 @@ class PaperServices:
             )
             child.observers[account_id] = SharedPaperCaptureObserver(
                 source=LiveBookDecisionSource(
-                    child.request, inputs.requirement, history_capacity=1000
+                    child.request, self.requirements(source), history_capacity=1000
                 ),
                 books=books,
                 journal=account,
                 runtime=runtime,
                 account_id=account_id,
                 scenario=source.scenario,
-                inputs=inputs,
                 delivery_path=path,
-                market_interval_us=source.market_interval_us,
+                active=names,
                 measurements=measurements,
                 index=BookAsOfIndex.create(path.with_name(path.stem + ".index.sqlite3")),
             )
@@ -944,12 +962,9 @@ class PaperServices:
                         if account_id in self.unavailable_accounts:
                             continue
                         if account_id in self.faulted_accounts:
-                            # Fresh input may settle old obligations, but never evaluates policies.
-                            observer.inputs = ServiceBookInputs(
-                                (),
-                                child.definition.freshness_us,
-                                child.definition.market_interval_us,
-                            )
+                            # Fresh input may settle old obligations but never evaluates
+                            # candidates.
+                            observer.active = ()
                         try:
                             observer._observe_validated(
                                 delivery.record, delivery.book, received_ns=received_ns
@@ -978,9 +993,7 @@ class PaperServices:
                     if account_id in self.unavailable_accounts:
                         continue
                     if account_id in self.faulted_accounts:
-                        observer.inputs = ServiceBookInputs(
-                            (), child.definition.freshness_us, child.definition.market_interval_us
-                        )
+                        observer.active = ()
                     observers.append((account_id, observer))
                 if observers:
                     future = executor.submit(
@@ -1046,7 +1059,7 @@ class PaperServices:
     def _observer_failed(self, account_id: str, error: Exception) -> None:
         """Classify an observer failure on the supervisor after all parallel jobs joined."""
         self._join_observations()
-        if isinstance(error, PolicyProcessFailure):
+        if isinstance(error, CandidateProcessFailure):
             failed_worker = next(
                 (
                     instance
@@ -1260,9 +1273,7 @@ class PaperServices:
         # once every account's latest report was retained. Until then (for example
         # before a held position has its first mark) it retries every pass.
         if self.diagnostics is not None and (
-            self.config.telemetry_seconds is msgspec.UNSET
-            or not self._telemetry_retained()
-            or time.monotonic() >= self._next_telemetry
+            not self._telemetry_retained() or time.monotonic() >= self._next_telemetry
         ):
             self._next_telemetry = time.monotonic() + self.config.telemetry_interval
             self.diagnostics.submit(latest_markets)

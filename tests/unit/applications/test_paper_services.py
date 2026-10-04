@@ -30,7 +30,6 @@ from msgspec.structs import force_setattr, replace
 # project library imports
 from accounting import AccountLedger, AccountPosting, AccountState, Fill, PaperAccountReport
 from applications.collect import collect
-from applications.execute.service_inputs import ServiceBookInputs
 from applications.execute.service_monitor import (
     DiagnosticReceipt,
     PaperServiceDiagnostics,
@@ -55,6 +54,7 @@ from configuration import (
     PaperServiceInstance,
     PaperServiceSource,
     PaperSourceChain,
+    ReferenceCandidate,
 )
 from configuration.accounts import InstrumentFeeRate
 from execution import (
@@ -85,9 +85,9 @@ from market_data.storage import CaptureRecording
 from reference_data.instruments import InstrumentId
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
+    CandidateProcessFailure,
     InstalledIdentity,
-    PolicyProcessFailure,
-    ProcessDecisionPolicy,
+    ProcessCandidateExecutor,
     SharedPaperCaptureObserver,
 )
 from serialization import DomainCodec
@@ -300,7 +300,21 @@ class _ClosingObserver(SharedPaperCaptureObserver):
         self.last_market = None
 
 
-class _ClosingWorker(ProcessDecisionPolicy):
+class _ScriptedClock:
+    """Return scripted monotonic seconds in order, then repeat the last value."""
+
+    def __init__(self, values: tuple[float, ...]) -> None:
+        """Keep the script and start at its first value."""
+        self.values, self.index = values, 0
+
+    def __call__(self) -> float:
+        """Read the next scripted value."""
+        value = self.values[min(self.index, len(self.values) - 1)]
+        self.index += 1
+        return value
+
+
+class _ClosingWorker(ProcessCandidateExecutor):
     """Record a policy process fence after source evidence failure."""
 
     def __init__(self, events: list[str]) -> None:
@@ -338,7 +352,7 @@ class _ClosingAccount(SocketPaperAccount):
         return AccountExecutionResult(accounts=(), orders=())
 
 
-class _ChangingWorker(ProcessDecisionPolicy):
+class _ChangingWorker(ProcessCandidateExecutor):
     """Die after the first liveness scan to expose the observer failure branch."""
 
     def __init__(self) -> None:
@@ -363,7 +377,7 @@ class _ChangingWorker(ProcessDecisionPolicy):
         self.closed = True
 
 
-class _StableWorker(ProcessDecisionPolicy):
+class _StableWorker(ProcessCandidateExecutor):
     """Expose only the stable status signals of a selected policy process."""
 
     def __init__(self) -> None:
@@ -389,7 +403,7 @@ class _UncertainObserver(SharedPaperCaptureObserver):
 
     def __init__(self, *, policy_failure: bool = False) -> None:
         """Keep the selected input cohort visible to the supervisor."""
-        self.inputs = ServiceBookInputs(("first",), 30_000_000, 0)
+        self.active = ("first",)
         self.calls = 0
         self.policy_failure = policy_failure
 
@@ -399,7 +413,7 @@ class _UncertainObserver(SharedPaperCaptureObserver):
         """Fail after receipt without claiming whether the account committed."""
         self.calls += 1
         if self.policy_failure:
-            raise PolicyProcessFailure(123, "decision policy process unavailable")
+            raise CandidateProcessFailure(123, "decision policy process unavailable")
         raise TimeoutError("account response uncertain")
 
 
@@ -489,7 +503,7 @@ class _ObservationGate(SharedPaperCaptureObserver):
         self.entered, self.finished = threading.Event(), threading.Event()
         self.positions: list[int] = []
         self.callback_threads: list[int] = []
-        self.inputs = ServiceBookInputs((), 30_000_000, 0)
+        self.active = ()
         self.last_market = None
         self.measurements = None
         self.index = None
@@ -802,7 +816,11 @@ class TestPaperServices:
                     instance_id="first",
                     account_id="shared",
                     source="book",
-                    policy="fixed_clip",
+                    candidate=ReferenceCandidate(
+                        formula="fixed_clip",
+                        cadence_us=3_000_000,
+                        starts_at=datetime(2026, 1, 1, tzinfo=UTC),
+                    ),
                     quantity=quantity,
                     lot=quantity,
                     maximum_fee=Money(value=Decimal("1"), currency=currency),
@@ -865,7 +883,7 @@ class TestPaperServices:
                     instance_id="other",
                     account_id="isolated",
                     source=first.source,
-                    policy=first.policy,
+                    candidate=first.candidate,
                     quantity=first.quantity,
                     lot=first.lot,
                     maximum_fee=first.maximum_fee,
@@ -1173,12 +1191,12 @@ class TestPaperServices:
     def test_an_undeclared_chain_keeps_one_finite_recording(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Stage-1 sources encode as before and still capture one journal per recording."""
+        """A source without a chain captures one journal per recording."""
         monkeypatch.setattr(
             InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
         )
         config = self._config(self._socket_path())
-        assert b'"chain"' not in DomainCodec().encode_json(config.sources[0])
+        assert b'"chain":null' in DomainCodec().encode_json(config.sources[0])
         services = _SupervisorHarness(
             config, self._owner(), Path("/private/tmp"), self._socket_path()
         )
@@ -1213,12 +1231,12 @@ class TestPaperServices:
     def test_diagnostic_telemetry_follows_its_declared_cadence(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Undeclared cadence submits every pass; a declared one waits its interval."""
+        """The default one-second cadence and a declared one each wait their interval."""
         monkeypatch.setattr(
             InstalledIdentity, "sha256", staticmethod(self._implementation_identity)
         )
         config = self._config(self._socket_path())
-        assert b"telemetry_seconds" not in DomainCodec().encode_json(config)
+        assert b'"telemetry_seconds":1' in DomainCodec().encode_json(config)
         assert config.telemetry_interval == 1
         for invalid in (0, 301):
             with pytest.raises(ValueError, match="bounded paper service selection"):
@@ -1245,10 +1263,12 @@ class TestPaperServices:
             services.accounts.clear()
             diagnostics = _Diagnostics()
             services.diagnostics = cast(PaperServiceDiagnostics, diagnostics)
+            # Three passes at 0, 0.5 and 1.2 seconds of monotonic time.
+            monkeypatch.setattr(time, "monotonic", _ScriptedClock((0.0, 0.0, 0.5, 1.2, 1.2)))
             for _ in range(3):
                 services._sample()
             counts.append(diagnostics.submitted)
-        assert counts == [3, 1]
+        assert counts == [2, 1]
 
     def test_declared_telemetry_retries_every_pass_until_a_report_is_retained(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1678,7 +1698,7 @@ class TestPaperServices:
         released, blocked = threading.Event(), threading.Event()
         released.set()
         error = (
-            PolicyProcessFailure(123, "decision policy unavailable")
+            CandidateProcessFailure(123, "decision policy unavailable")
             if policy_failure
             else TimeoutError("account response uncertain")
         )

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 # project library imports
 from configuration import CandidateDeployment, CapabilityBinding, CapabilityRegistry
-from research.experiments import CandidateBundle, CandidateManifest, ExperimentSpec
+from research.experiments import CandidateDefinition, CandidateSource, ExperimentSpec
 from research.features import (
     FeatureCheckpoint,
     FeatureKernel,
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 class LoadedCandidate:
     """Keep verified definitions and reconstructed components bound to one placement."""
 
-    manifest: CandidateManifest
+    definition: CandidateDefinition
     deployment: CandidateDeployment
     capabilities: tuple[CapabilityBinding, ...]
     feature: FeatureKernel
@@ -78,8 +78,12 @@ class CandidateLoader:
         self._components = components
         self._registry = registry
 
-    def load(self, bundle: CandidateBundle, deployment: CandidateDeployment) -> LoadedCandidate:
-        """Verify a complete bundle and reconstruct its exact selected components.
+    def load(self, source: CandidateSource, deployment: CandidateDeployment) -> LoadedCandidate:
+        """Verify a candidate definition and reconstruct its exact selected components.
+
+        The source is a provenance-verified ``CandidateBundle`` or an application's
+        in-memory ``CandidateObjects``; admitting the source kind is the caller's
+        decision.
 
         Raises:
             ValueError: Identity, environment, schema, signature or capability admission fails.
@@ -91,22 +95,22 @@ class CandidateLoader:
         # project library imports
         from research.models import EstimatorLifecycle, EstimatorVersion
 
-        manifest = bundle.read()
+        definition = source.definition()
         deployment.__post_init__()
         if (
-            manifest.identity != deployment.candidate_identity
-            or deployment.entity not in manifest.entities
-            or deployment.starts_at < manifest.available_at
-            or manifest.code_sha256 != ImplementationIdentity.sha256()
-            or manifest.environment_sha256 != ExperimentSpec.installed_environment()
+            definition.identity != deployment.candidate_identity
+            or deployment.entity not in definition.entities
+            or deployment.starts_at < definition.available_at
+            or definition.code_sha256 != ImplementationIdentity.sha256()
+            or definition.environment_sha256 != ExperimentSpec.installed_environment()
         ):
             raise ValueError(
                 "candidate identity, entity, availability or installed environment differs"
             )
         bindings = self._registry.resolve(
-            manifest.requirements, deployment.selections, mode=deployment.mode
+            definition.requirements, deployment.selections, mode=deployment.mode
         )
-        if {requirement.kind for requirement in manifest.requirements} != {
+        if {requirement.kind for requirement in definition.requirements} != {
             "market_data",
             "reference_data",
             "calendar",
@@ -115,31 +119,34 @@ class CandidateLoader:
             "execution",
         }:
             raise ValueError("candidate requires all six capability domains")
-        for requirement in manifest.requirements:
-            if requirement.product != manifest.product or requirement.calendar != manifest.calendar:
+        for requirement in definition.requirements:
+            if (
+                requirement.product != definition.product
+                or requirement.calendar != definition.calendar
+            ):
                 raise ValueError("candidate product/calendar differs from capability requirements")
         codec = DomainCodec()
-        schema = codec.decode_json(bundle.artifact(manifest.feature_schema), FeatureSchema)
-        if schema.inputs != manifest.inputs or schema.mode != manifest.state.feature_mode:
+        schema = codec.decode_json(source.artifact(definition.feature_schema), FeatureSchema)
+        if schema.inputs != definition.inputs or schema.mode != definition.state.feature_mode:
             raise ValueError("candidate feature inputs or lifecycle differ")
-        self._admit_inputs(manifest)
-        self._components.admit(manifest.components)
-        feature_spec = next(c for c in manifest.components if c.role == "feature")
-        policy_spec = next(c for c in manifest.components if c.role == "policy")
+        self._admit_inputs(definition)
+        self._components.admit(definition.components)
+        feature_spec = next(c for c in definition.components if c.role == "feature")
+        policy_spec = next(c for c in definition.components if c.role == "policy")
         feature = self._components.feature(
-            feature_spec, schema, bundle.artifact(feature_spec.parameters)
+            feature_spec, schema, source.artifact(feature_spec.parameters)
         )
-        policy = self._components.policy(policy_spec, bundle.artifact(policy_spec.parameters))
-        if policy.output != manifest.output:
+        policy = self._components.policy(policy_spec, source.artifact(policy_spec.parameters))
+        if policy.output != definition.output:
             raise ValueError("candidate policy output differs from declared intent family")
         transform, transform_version = None, None
-        if manifest.transform is not None:
+        if definition.transform is not None:
             transform_version = codec.decode_json(
-                bundle.artifact(manifest.transform), TransformVersion
+                source.artifact(definition.transform), TransformVersion
             )
-            selected = next(c for c in manifest.components if c.role == "transform")
+            selected = next(c for c in definition.components if c.role == "transform")
             transform = FittedTransform(
-                self._components.transform(selected, bundle.artifact(selected.parameters))
+                self._components.transform(selected, source.artifact(selected.parameters))
             )
             if transform.identity != transform_version.implementation:
                 raise ValueError("candidate transform differs from its fitted implementation")
@@ -158,13 +165,13 @@ class CandidateLoader:
                 transform_identity=transform_version.identity,
             )
         estimator, estimator_version = None, None
-        if manifest.estimator is not None:
+        if definition.estimator is not None:
             estimator_version = codec.decode_json(
-                bundle.artifact(manifest.estimator), EstimatorVersion
+                source.artifact(definition.estimator), EstimatorVersion
             )
-            selected = next(c for c in manifest.components if c.role == "estimator")
+            selected = next(c for c in definition.components if c.role == "estimator")
             estimator = EstimatorLifecycle(
-                self._components.estimator(selected, bundle.artifact(selected.parameters))
+                self._components.estimator(selected, source.artifact(selected.parameters))
             )
             if (
                 estimator.identity != estimator_version.implementation
@@ -178,9 +185,9 @@ class CandidateLoader:
             signature.fields, None if estimator_version is None else estimator_version.output
         )
         store_definition = None
-        if manifest.feature_store is not None:
+        if definition.feature_store is not None:
             store_definition = codec.decode_json(
-                bundle.artifact(manifest.feature_store), FeatureStoreDefinition
+                source.artifact(definition.feature_store), FeatureStoreDefinition
             )
             if (
                 store_definition.schema != schema
@@ -195,12 +202,12 @@ class CandidateLoader:
         if deployment.input_mode != "source" and store_definition is None:
             raise ValueError("candidate serving requires a packaged feature-store definition")
         if (
-            manifest.state.on_restart == "restore"
-            and manifest.state.checkpoint_schema != "candidate-checkpoint"
+            definition.state.on_restart == "restore"
+            and definition.state.checkpoint_schema != "candidate-checkpoint"
         ):
             raise ValueError("candidate checkpoint schema is unsupported")
         return LoadedCandidate(
-            manifest=manifest,
+            definition=definition,
             deployment=deployment,
             capabilities=bindings,
             feature=feature,
@@ -211,22 +218,22 @@ class CandidateLoader:
             estimator_version=estimator_version,
             store_definition=store_definition,
             metrics=tuple(
-                self._components.metric(c, bundle.artifact(c.parameters))
-                for c in manifest.components
+                self._components.metric(c, source.artifact(c.parameters))
+                for c in definition.components
                 if c.role == "metric"
             ),
             charts=tuple(
-                self._components.chart(c, bundle.artifact(c.parameters))
-                for c in manifest.components
+                self._components.chart(c, source.artifact(c.parameters))
+                for c in definition.components
                 if c.role == "chart"
             ),
         )
 
     @staticmethod
-    def _admit_inputs(manifest: CandidateManifest) -> None:
+    def _admit_inputs(definition: CandidateDefinition) -> None:
         """Require exact input fields, clocks and freshness plus declared intent operations."""
-        for item in manifest.inputs:
-            matches = tuple(r for r in manifest.requirements if r.name == item.name)
+        for item in definition.inputs:
+            matches = tuple(r for r in definition.requirements if r.name == item.name)
             if len(matches) != 1:
                 raise ValueError("candidate input lacks a unique capability requirement")
             requirement = matches[0]
@@ -243,8 +250,8 @@ class CandidateLoader:
                 )
             ):
                 raise ValueError("candidate input capability signature/freshness differs")
-        execution = tuple(r for r in manifest.requirements if r.kind == "execution")
-        if len(execution) != 1 or f"intent:{manifest.output}" not in execution[0].operations:
+        execution = tuple(r for r in definition.requirements if r.kind == "execution")
+        if len(execution) != 1 or f"intent:{definition.output}" not in execution[0].operations:
             raise ValueError("candidate execution boundary cannot consume its intent family")
 
 
@@ -359,16 +366,25 @@ class CandidateSession:
     """
 
     def __init__(
-        self, loaded: LoadedCandidate, checkpoint: CandidateCheckpoint | None = None
+        self,
+        loaded: LoadedCandidate,
+        checkpoint: CandidateCheckpoint | None = None,
+        *,
+        continuing: bool = False,
     ) -> None:
-        """Start one isolated instance or restore an exactly matching continuation."""
+        """Start one isolated instance or restore an exactly matching continuation.
+
+        ``continuing`` resumes state committed earlier in the same run, which a
+        caller that keeps no in-memory session reloads at every step. Restoring
+        across a restart (the default) requires the ``restore`` restart rule.
+        """
         self.loaded = loaded
         self._identity = loaded.identity
         if checkpoint is not None:
             checkpoint.__post_init__()
             if checkpoint.binding_identity != self._identity:
                 raise ValueError("candidate checkpoint belongs to another binding")
-            if loaded.manifest.state.on_restart != "restore":
+            if not continuing and loaded.definition.state.on_restart != "restore":
                 raise ValueError(
                     "candidate requires an explicit reset instead of checkpoint restore"
                 )
@@ -439,9 +455,9 @@ class CandidateSession:
         """Compute candidate features and commit the resulting intent atomically."""
         if self.loaded.deployment.input_mode != "source":
             raise ValueError("candidate binding expects feature-store values")
-        if self._is_gap(inputs.decision_at) and self.loaded.manifest.state.on_gap == "pause":
+        if self._is_gap(inputs.decision_at) and self.loaded.definition.state.on_gap == "pause":
             return self.pause(inputs.decision_at, "input-gap")
-        previous = None if self._is_gap(inputs.decision_at) else self._checkpoint
+        previous = self._continuation(inputs.decision_at)
         features = FeatureSession(
             self.loaded.feature,
             instance=self.loaded.deployment.instance,
@@ -457,10 +473,15 @@ class CandidateSession:
         """Consume an already transformed versioned store value without rewriting its clocks."""
         if self.loaded.deployment.input_mode == "source":
             raise ValueError("candidate binding expects source inputs")
-        if self._is_gap(at) and self.loaded.manifest.state.on_gap == "pause":
+        if self._is_gap(at) and self.loaded.definition.state.on_gap == "pause":
             return self.pause(at, "input-gap")
-        previous = None if self._is_gap(at) else self._checkpoint
-        return self._commit(vector, at, None, previous)
+        return self._commit(vector, at, None, self._continuation(at))
+
+    def _continuation(self, at: datetime) -> CandidateCheckpoint | None:
+        """Keep committed state unless a gap requires the declared reset."""
+        if self._is_gap(at) and self.loaded.definition.state.on_gap == "reset":
+            return None
+        return self._checkpoint
 
     def _is_gap(self, at: datetime) -> bool:
         """Validate schedule and detect a missed cadence before any state mutation."""
@@ -469,14 +490,14 @@ class CandidateSession:
         return at > (
             self.loaded.deployment.starts_at
             if last is None
-            else last + timedelta(microseconds=self.loaded.manifest.cadence_us)
+            else last + timedelta(microseconds=self.loaded.definition.cadence_us)
         )
 
     def admit_cutoff(self, at: datetime, *, include_committed: bool = False) -> None:
         """Reject an incompatible schedule before source access; optionally admit a saved prefix."""
         CandidateStep._require_utc(at, field_name="decision time")
         deployment = self.loaded.deployment
-        cadence = timedelta(microseconds=self.loaded.manifest.cadence_us)
+        cadence = timedelta(microseconds=self.loaded.definition.cadence_us)
         last = self._checkpoint.policy.last_at
         if (
             at < deployment.starts_at
@@ -539,7 +560,7 @@ class CandidateSession:
             if isinstance(intent, QuoteIntent)
             else ()
         )
-        execution = next(r for r in self.loaded.manifest.requirements if r.kind == "execution")
+        execution = next(r for r in self.loaded.definition.requirements if r.kind == "execution")
         if any(order.time_in_force not in execution.order_types for order in orders):
             raise ValueError("candidate policy emitted an undeclared order type")
         count = (0 if previous is None else previous.observations) + 1
@@ -549,7 +570,7 @@ class CandidateSession:
             policy=policy.checkpoint(),
             observations=count,
         )
-        warming = count <= self.loaded.manifest.state.warmup_observations
+        warming = count <= self.loaded.definition.state.warmup_observations
         result = CandidateStep(
             status="warming" if warming else "decided",
             reason="warmup" if warming else "candidate-intent",

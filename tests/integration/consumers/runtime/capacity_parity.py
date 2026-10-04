@@ -20,7 +20,6 @@ from capacity_inputs import CapacityWorkload
 
 # project library imports
 from accounting import AccountLedger, AccountState
-from applications.execute import ServiceBookInputs
 from configuration import (
     BookRegistryConfiguration,
     BookSelection,
@@ -44,7 +43,6 @@ from runtime import (
     SharedStrategyBinding,
 )
 from serialization import DomainCodec
-from strategies import ReferencePolicies
 
 
 class _TrialSummary(msgspec.Struct):
@@ -158,20 +156,23 @@ class CapacityEconomicParity:
         source: PaperServiceSource,
         instance: PaperServiceInstance,
     ) -> SharedStrategyBinding:
-        """Use the service's exact policy constructor arguments without a worker."""
-        policy = ReferencePolicies.create(
-            instance.policy,
-            instance.quantity,
-            source.scenario.adverse.currency,
-            instance.lot,
+        """Load the service's exact reference candidate in process, without a worker."""
+        venue = self.workload.venue_workload(source.capture.venue)
+        candidate = venue.candidates(source).load(
+            instance.candidate,
+            instance=instance.instance_id,
+            entity=str(source.scenario.instrument_id),
+            quantity=instance.quantity,
+            lot=instance.lot,
+            currency=source.scenario.adverse.currency,
             tick=self.service.instance_limits(instance).tick,
-            implementation=self.implementation,
+            source_identity=venue.input_identity(source),
         )
         return SharedStrategyBinding(
             instance_id=instance.instance_id,
             account_id=account.account_id,
             entity=str(source.scenario.instrument_id),
-            policy=policy,
+            candidate=candidate,
             context=PortfolioContext(
                 portfolio_id="reference",
                 strategy_id=instance.instance_id,
@@ -311,11 +312,7 @@ class CapacityEconomicParity:
     ) -> tuple[int, tuple[dict[str, object], ...]]:
         """Recompute native source selections before applying original causal deliveries."""
         bindings = self._bindings(account, source)
-        inputs = ServiceBookInputs(
-            tuple(binding.instance_id for binding in bindings),
-            source.freshness_us,
-            source.market_interval_us,
-        )
+        requirements = self.workload.venue_workload(source.capture.venue).candidates(source).inputs
         replayed = 0
         selections: list[dict[str, object]] = []
         for request, stream in self._streams(account.account_id, source):
@@ -335,57 +332,35 @@ class CapacityEconomicParity:
                 )
             )
             observer = SharedPaperCaptureObserver(
-                source=LiveBookDecisionSource(request, inputs.requirement, history_capacity=1000),
+                source=LiveBookDecisionSource(request, requirements, history_capacity=1000),
                 books=books,
                 journal=journal,
                 runtime=SharedDecisionRuntime(journal, bindings),
                 account_id=account.account_id,
                 scenario=source.scenario,
-                inputs=inputs,
                 delivery_path=None,
-                market_interval_us=source.market_interval_us,
             )
             for delivery in stream:
-                selected = self._apply_selected_delivery(observer, delivery)
-                if selected:
-                    selections.append(
-                        {
-                            "request_identity": request.identity,
-                            "recording_id": request.recording_key,
-                            "position": delivery.source.book.position,
-                            "received_ns": delivery.source.record.received_ns,
-                            "available_at": delivery.source.available_at,
-                            "coordinated_at": delivery.coordinated_at,
-                            "instances": tuple(item.instance_id for item in delivery.inputs),
-                            "inputs_sha256": hashlib.sha256(
-                                self.codec.encode_json(delivery.inputs)
-                            ).hexdigest(),
-                        }
-                    )
+                # Replay recomputes the grid and refuses changed matching or input lineage.
+                observer.deliver(delivery)
+                selections.extend(
+                    {
+                        "request_identity": request.identity,
+                        "recording_id": request.recording_key,
+                        "position": delivery.source.book.position,
+                        "received_ns": delivery.source.record.received_ns,
+                        "available_at": delivery.source.available_at,
+                        "decided_at": group.at,
+                        "coordinated_at": group.coordinated_at,
+                        "instances": tuple(item.instance_id for item in group.inputs),
+                        "inputs_sha256": hashlib.sha256(
+                            self.codec.encode_json(group.inputs)
+                        ).hexdigest(),
+                    }
+                    for group in delivery.decisions
+                )
                 replayed += 1
         return replayed, tuple(selections)
-
-    @staticmethod
-    def _apply_selected_delivery(
-        observer: SharedPaperCaptureObserver, delivery: SharedBookDelivery
-    ) -> bool:
-        """Reject changed cadence, skipped decisions and substituted exact feature values."""
-        delivery.__post_init__()
-        market = observer._market(delivery.source)
-        selected = market is not None and observer._select_market(market.at)
-        expected = (
-            observer.inputs.build(
-                observer.source.read(str(observer.scenario.instrument_id), market.at), market
-            )
-            if selected and market is not None
-            else ()
-        )
-        if delivery.inputs != expected or (
-            market is not None and delivery.market_effects != selected
-        ):
-            raise ValueError("retained source selection or exact feature values differ")
-        observer._apply(delivery, market)
-        return selected
 
     def _journal_facts(
         self, account: PaperServiceAccount, journal: AccountJournal

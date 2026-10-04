@@ -216,12 +216,14 @@ class _FeatureSource:
         )
         self.causal_source = LiveBookDecisionSource(
             source.request,
-            InputRequirement(
-                name=source.name,
-                family="book",
-                clock="receipt",
-                field=NumericField(name="imbalance", units="dimensionless"),
-                max_age_us=freshness_us,
+            (
+                InputRequirement(
+                    name=source.name,
+                    family="book",
+                    clock="receipt",
+                    field=NumericField(name="imbalance", units="dimensionless"),
+                    max_age_us=freshness_us,
+                ),
             ),
             history_capacity=10_000,
         )

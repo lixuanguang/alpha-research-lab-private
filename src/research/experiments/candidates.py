@@ -17,7 +17,7 @@ from datetime import datetime
 from fractions import Fraction
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Literal
+from typing import Literal, Protocol
 
 # third party library imports
 import msgspec
@@ -83,12 +83,16 @@ class CandidateComponent(WireRecord, frozen=True, kw_only=True):
 
 
 class CandidateStateContract(WireRecord, frozen=True, kw_only=True):
-    """Describe warm-up, gap and restart behavior for isolated candidate instances."""
+    """Describe warm-up, gap and restart behavior for isolated candidate instances.
+
+    After a missed decision instant, ``pause`` stops deciding, ``reset`` restarts
+    feature and policy state, and ``continue`` keeps both and decides normally.
+    """
 
     feature_mode: Literal["batch", "incremental"]
     warmup_observations: int
     checkpoint_schema: str | None
-    on_gap: Literal["pause", "reset"]
+    on_gap: Literal["pause", "reset", "continue"]
     on_restart: Literal["reset", "restore"]
     policy_state_schema: str
     schema_version: Literal["candidate-state"] = "candidate-state"
@@ -100,7 +104,7 @@ class CandidateStateContract(WireRecord, frozen=True, kw_only=True):
             or self.feature_mode not in ("batch", "incremental")
             or type(self.warmup_observations) is not int
             or not 0 <= self.warmup_observations <= 1_000_000
-            or self.on_gap not in ("pause", "reset")
+            or self.on_gap not in ("pause", "reset", "continue")
             or self.on_restart not in ("reset", "restore")
             or type(self.policy_state_schema) is not str
             or not self.policy_state_schema.strip()
@@ -188,29 +192,24 @@ class CandidateAssessment(WireRecord, frozen=True, kw_only=True):
             raise ValueError("invalid candidate assessment")
 
 
-class CandidateManifest(WireRecord, frozen=True, kw_only=True):
-    """Pin the candidate, completed research provenance and replay/runtime contracts.
+class CandidateDefinition(WireRecord, frozen=True, kw_only=True):
+    """Pin everything replay and runtime execute, independently of research provenance.
 
-    ``dataset`` is the exact resolved input-selection record fingerprinted by
-    the experiment. It can name multiple underlying datasets and sources; the
-    retained request and report carry their original validity and availability
-    semantics. It is not evidence that a venue history is complete.
+    A definition names reviewed installed components, their parameter and fitted
+    state objects, typed inputs and capability requirements, the decision schedule,
+    the intent family and the state contract. ``artifacts`` inventories exactly
+    the objects these references name. Research provenance is carried separately
+    by ``CandidateManifest``.
     """
 
     name: str
     version: str
-    qualification: Literal["engineering", "empirical"]
     code_sha256: str
     environment_sha256: str
-    dataset: CandidateArtifact
-    experiment: CandidateArtifact
-    attempt: CandidateArtifact
-    report: CandidateArtifact
     feature_schema: CandidateArtifact
     feature_store: CandidateArtifact | None
     transform: CandidateArtifact | None
     estimator: CandidateArtifact | None
-    assessment: CandidateArtifact | None
     components: tuple[CandidateComponent, ...]
     inputs: tuple[InputRequirement, ...]
     requirements: tuple[CapabilityRequirement, ...]
@@ -223,25 +222,23 @@ class CandidateManifest(WireRecord, frozen=True, kw_only=True):
     state: CandidateStateContract
     metrics: tuple[CandidateMetricContract, ...]
     artifacts: tuple[CandidateArtifact, ...]
-    limitations: tuple[str, ...] = ()
-    schema_version: Literal["candidate-manifest"] = "candidate-manifest"
+    schema_version: Literal["candidate-definition"] = "candidate-definition"
 
     def __post_init__(self) -> None:
         """Validate direct construction and all cross-references before artifact I/O."""
         if (
-            self.schema_version != "candidate-manifest"
+            self.schema_version != "candidate-definition"
             or type(self.name) is not str
             or _NAME.fullmatch(self.name) is None
             or type(self.version) is not str
             or not self.version.strip()
-            or self.qualification not in ("engineering", "empirical")
             or type(self.code_sha256) is not str
             or _SHA256.fullmatch(self.code_sha256) is None
             or type(self.environment_sha256) is not str
             or _SHA256.fullmatch(self.environment_sha256) is None
             or self.output not in ("target", "exposure", "order", "quote")
         ):
-            raise ValueError("invalid candidate identity, qualification or output")
+            raise ValueError("invalid candidate identity or output")
         for value in (self.product, self.calendar):
             if type(value) is not str or not value.strip() or value != value.strip():
                 raise ValueError("candidate requires product and calendar")
@@ -258,58 +255,41 @@ class CandidateManifest(WireRecord, frozen=True, kw_only=True):
         if type(self.state) is not CandidateStateContract:
             raise TypeError("candidate requires a state contract")
         self.state.__post_init__()
-        self._validate_artifacts()
         self._validate_components()
+        self._validate_artifacts()
         self._validate_inputs()
         self._validate_metrics()
-        if type(self.limitations) is not tuple or any(
-            type(item) is not str or not item.strip() for item in self.limitations
-        ):
-            raise ValueError("candidate limitations must be immutable nonempty statements")
 
     @property
     def identity(self) -> str:
-        """Identify the full immutable candidate handoff independently of its storage path."""
+        """Identify the executable candidate independently of storage and provenance."""
         self.__post_init__()
         return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()
 
     def _validate_artifacts(self) -> None:
-        """Ensure every semantic reference has one unique immutable inventory entry."""
-        if type(self.artifacts) is not tuple or not self.artifacts:
-            raise ValueError("candidate requires an artifact inventory")
-        by_name: dict[str, CandidateArtifact] = {}
-        for artifact in self.artifacts:
-            if type(artifact) is not CandidateArtifact:
-                raise TypeError("candidate inventory requires artifact references")
-            artifact.__post_init__()
-            if artifact.name in by_name:
-                raise ValueError("duplicate candidate artifact name")
-            by_name[artifact.name] = artifact
-        references = (
-            self.dataset,
-            self.experiment,
-            self.attempt,
-            self.report,
-            self.feature_schema,
-            self.feature_store,
-            self.transform,
-            self.estimator,
-            self.assessment,
+        """Require exactly one inventory entry for every executable reference."""
+        by_name = _Inventory.index(self.artifacts)
+        references = tuple(
+            reference
+            for reference in (
+                self.feature_schema,
+                self.feature_store,
+                self.transform,
+                self.estimator,
+            )
+            if reference is not None
         )
-        for reference in references:
-            if reference is None:
-                continue
+        named = references + tuple(component.parameters for component in self.components)
+        for reference in named:
             if type(reference) is not CandidateArtifact:
                 raise TypeError("candidate requires typed semantic artifact references")
             reference.__post_init__()
             if by_name.get(reference.name) != reference:
                 raise ValueError(f"candidate artifact is absent or differs: {reference.name}")
-        if len({reference.name for reference in references if reference is not None}) != len(
-            [reference for reference in references if reference is not None]
-        ):
+        if len({reference.name for reference in references}) != len(references):
             raise ValueError("candidate semantic artifact roles must have distinct names")
-        if self.qualification == "empirical" and self.assessment is None:
-            raise ValueError("empirical candidate requires a retained acceptance assessment")
+        if {reference.name for reference in named} != set(by_name):
+            raise ValueError("candidate definition inventory names unreferenced objects")
 
     def _validate_components(self) -> None:
         """Require selected feature/policy and paired learned artifact roles."""
@@ -317,7 +297,6 @@ class CandidateManifest(WireRecord, frozen=True, kw_only=True):
             raise ValueError("candidate requires selected components")
         selected: set[tuple[str, str]] = set()
         by_role: dict[str, int] = {}
-        artifact_names = {artifact.name: artifact for artifact in self.artifacts}
         for component in self.components:
             if type(component) is not CandidateComponent:
                 raise TypeError("candidate requires typed component selections")
@@ -327,8 +306,6 @@ class CandidateManifest(WireRecord, frozen=True, kw_only=True):
                 raise ValueError("duplicate candidate component selection")
             selected.add(key)
             by_role[component.role] = by_role.get(component.role, 0) + 1
-            if artifact_names.get(component.parameters.name) != component.parameters:
-                raise ValueError("component parameters are absent from the bundle")
         if any(by_role.get(role) != 1 for role in ("feature", "policy")):
             raise ValueError("candidate requires exactly one feature and policy")
         if any(by_role.get(role, 0) > 1 for role in ("transform", "estimator")):
@@ -382,12 +359,11 @@ class CandidateManifest(WireRecord, frozen=True, kw_only=True):
             raise ValueError("candidate input has no source capability requirement")
 
     def _validate_metrics(self) -> None:
-        """Keep selected diagnostic definitions and supported modes explicit."""
-        if type(self.metrics) is not tuple or not self.metrics:
-            raise ValueError("candidate requires metrics and views")
-        selected = {(item.role, item.factory_key): item for item in self.components}
+        """Bind every selected diagnostic to exactly one contract and selected component."""
+        if type(self.metrics) is not tuple:
+            raise ValueError("candidate diagnostics require an immutable tuple")
+        selected = {(item.role, item.factory_key) for item in self.components}
         seen: set[tuple[str, str]] = set()
-        kinds: set[str] = set()
         for item in self.metrics:
             if type(item) is not CandidateMetricContract:
                 raise TypeError("candidate diagnostics require metric contracts")
@@ -396,13 +372,150 @@ class CandidateManifest(WireRecord, frozen=True, kw_only=True):
             if key in seen or key not in selected:
                 raise ValueError("candidate diagnostic is duplicate or lacks selected code")
             seen.add(key)
-            kinds.add(item.kind)
-        if kinds != {"metric", "chart"} or any(
+        if any(
             (item.role, item.factory_key) not in seen
             for item in self.components
             if item.role in ("metric", "chart")
         ):
             raise ValueError("candidate metric and chart selections must match contracts")
+
+
+class CandidateManifest(WireRecord, frozen=True, kw_only=True):
+    """Pin one executable definition to its completed research provenance.
+
+    ``artifacts`` holds the provenance objects the roles name, plus any retained
+    research bytes such as extension source; definition objects are listed separately.
+
+    ``dataset`` is the exact resolved input-selection record fingerprinted by
+    the experiment. It can name multiple underlying datasets and sources; the
+    retained request and report carry their original validity and availability
+    semantics. It is not evidence that a venue history is complete.
+    """
+
+    definition: CandidateDefinition
+    qualification: Literal["engineering", "empirical"]
+    dataset: CandidateArtifact
+    experiment: CandidateArtifact
+    attempt: CandidateArtifact
+    report: CandidateArtifact
+    assessment: CandidateArtifact | None
+    artifacts: tuple[CandidateArtifact, ...]
+    limitations: tuple[str, ...] = ()
+    schema_version: Literal["candidate-manifest"] = "candidate-manifest"
+
+    def __post_init__(self) -> None:
+        """Validate the definition, provenance inventory and research diagnostics."""
+        if self.schema_version != "candidate-manifest" or self.qualification not in (
+            "engineering",
+            "empirical",
+        ):
+            raise ValueError("invalid candidate manifest or qualification")
+        if type(self.definition) is not CandidateDefinition:
+            raise TypeError("candidate manifest requires a candidate definition")
+        self.definition.__post_init__()
+        by_name = _Inventory.index(self.artifacts)
+        references = tuple(
+            reference
+            for reference in (
+                self.dataset,
+                self.experiment,
+                self.attempt,
+                self.report,
+                self.assessment,
+            )
+            if reference is not None
+        )
+        for reference in references:
+            if type(reference) is not CandidateArtifact:
+                raise TypeError("candidate requires typed provenance artifact references")
+            reference.__post_init__()
+            if by_name.get(reference.name) != reference:
+                raise ValueError(f"candidate artifact is absent or differs: {reference.name}")
+        if len({reference.name for reference in references}) != len(references):
+            raise ValueError("candidate provenance roles must have distinct names")
+        if set(by_name) & {item.name for item in self.definition.artifacts}:
+            raise ValueError("candidate provenance and definition object names overlap")
+        if self.qualification == "empirical" and self.assessment is None:
+            raise ValueError("empirical candidate requires a retained acceptance assessment")
+        if {item.kind for item in self.definition.metrics} != {"metric", "chart"}:
+            raise ValueError("research candidate requires selected metrics and views")
+        if type(self.limitations) is not tuple or any(
+            type(item) is not str or not item.strip() for item in self.limitations
+        ):
+            raise ValueError("candidate limitations must be immutable nonempty statements")
+
+    @property
+    def identity(self) -> str:
+        """Identify the full immutable candidate handoff independently of its storage path."""
+        self.__post_init__()
+        return hashlib.sha256(DomainCodec().encode_json(self)).hexdigest()
+
+    @property
+    def objects(self) -> tuple[CandidateArtifact, ...]:
+        """Return the complete stored inventory: definition objects, then provenance."""
+        return (*self.definition.artifacts, *self.artifacts)
+
+
+class _Inventory:
+    """Index an immutable artifact inventory by unique name."""
+
+    @staticmethod
+    def index(artifacts: tuple[CandidateArtifact, ...]) -> dict[str, CandidateArtifact]:
+        """Reject untyped or duplicate entries and return references by name."""
+        if type(artifacts) is not tuple or not artifacts:
+            raise ValueError("candidate requires an artifact inventory")
+        by_name: dict[str, CandidateArtifact] = {}
+        for artifact in artifacts:
+            if type(artifact) is not CandidateArtifact:
+                raise TypeError("candidate inventory requires artifact references")
+            artifact.__post_init__()
+            if artifact.name in by_name:
+                raise ValueError("duplicate candidate artifact name")
+            by_name[artifact.name] = artifact
+        return by_name
+
+
+class CandidateSource(Protocol):
+    """Supply one verified executable definition and its exact objects."""
+
+    def definition(self) -> CandidateDefinition:
+        """Return the verified executable definition."""
+        ...
+
+    def artifact(self, reference: CandidateArtifact) -> bytes:
+        """Return the verified bytes of one object the definition names."""
+        ...
+
+
+class CandidateObjects:
+    """Hold a definition and its exact objects in memory, without research provenance.
+
+    Applications use this for installed built-in candidates and authored fixtures.
+    Whether a definition without provenance may run is the consuming application's
+    admission decision; this class only verifies integrity.
+    """
+
+    def __init__(self, definition: CandidateDefinition, artifacts: Mapping[str, bytes]) -> None:
+        """Verify the exact inventory and every payload digest before use."""
+        definition.__post_init__()
+        if set(artifacts) != {item.name for item in definition.artifacts}:
+            raise ValueError("candidate artifact bytes differ from the exact inventory")
+        for item in definition.artifacts:
+            CandidateBundle.verify_payload(item, artifacts[item.name])
+        for component in definition.components:
+            CandidateBundle.require_json_parameters(artifacts[component.parameters.name])
+        self._definition = definition
+        self._artifacts = dict(artifacts)
+
+    def definition(self) -> CandidateDefinition:
+        """Return the verified executable definition."""
+        return self._definition
+
+    def artifact(self, reference: CandidateArtifact) -> bytes:
+        """Return one verified definition object."""
+        if reference not in self._definition.artifacts:
+            raise ValueError("artifact is not part of the selected candidate")
+        return self._artifacts[reference.name]
 
 
 class _ResultInventory(WireRecord, frozen=True):
@@ -441,10 +554,10 @@ class CandidateBundle:
         integrity, not trusted build provenance or deployment admission.
         """
         manifest.__post_init__()
-        if set(artifacts) != {item.name for item in manifest.artifacts}:
+        if set(artifacts) != {item.name for item in manifest.objects}:
             raise ValueError("candidate artifact bytes differ from the exact inventory")
-        for item in manifest.artifacts:
-            self._verify_payload(item, artifacts[item.name])
+        for item in manifest.objects:
+            self.verify_payload(item, artifacts[item.name])
         self._verify_content(manifest, artifacts)
         payload = self._codec.encode_json(manifest)
         if len(payload) > _MAX_MANIFEST_BYTES:
@@ -455,7 +568,7 @@ class CandidateBundle:
             raise ValueError("candidate publication cannot replace a symlink")
         if published.exists() and published.read_bytes() != payload:
             raise ValueError("candidate root already contains a different manifest")
-        for item in manifest.artifacts:
+        for item in manifest.objects:
             self._publish_bytes(self._object_path(item), artifacts[item.name])
         self._publish_bytes(published, payload)
         return manifest.identity
@@ -475,19 +588,24 @@ class CandidateBundle:
         manifest.__post_init__()
         if self._codec.encode_json(manifest) != payload:
             raise ValueError("candidate manifest is not canonical JSON")
-        artifacts = {item.name: self._read_object(item) for item in manifest.artifacts}
+        artifacts = {item.name: self._read_object(item) for item in manifest.objects}
         self._verify_content(manifest, artifacts)
         return manifest
+
+    def definition(self) -> CandidateDefinition:
+        """Return the executable definition only after its provenance verifies."""
+        return self.read().definition
 
     def artifact(self, reference: CandidateArtifact) -> bytes:
         """Return one verified member only after the complete bundle is admitted."""
         manifest = self.read()
-        if reference not in manifest.artifacts:
+        if reference not in manifest.objects:
             raise ValueError("artifact is not part of the selected candidate")
         return self._read_object(reference)
 
     def _verify_content(self, manifest: CandidateManifest, artifacts: Mapping[str, bytes]) -> None:
         """Bind exact selected inputs, completed attempt and retained report bytes."""
+        definition = manifest.definition
         specification = self._codec.decode_json(artifacts[manifest.experiment.name], ExperimentSpec)
         history = self._codec.decode_json(artifacts[manifest.attempt.name], AttemptHistory)
         specification.__post_init__()
@@ -507,9 +625,9 @@ class CandidateBundle:
             or artifacts[manifest.dataset.name] != history.start.request
         ):
             raise ValueError("candidate dataset selection differs from retained study request")
-        if manifest.code_sha256 not in {item.sha256 for item in specification.components}:
+        if definition.code_sha256 not in {item.sha256 for item in specification.components}:
             raise ValueError("candidate code identity is absent from experiment components")
-        if manifest.environment_sha256 != specification.environment_sha256:
+        if definition.environment_sha256 != specification.environment_sha256:
             raise ValueError("candidate environment differs from completed experiment")
         result = self._codec.decode_json(history.events[-1].result, _ResultInventory)
         result.__post_init__()
@@ -519,13 +637,13 @@ class CandidateBundle:
         ):
             raise ValueError("candidate report is absent from the completed result")
         retained = {item.sha256 for item in result.artifacts}
-        for selected in (manifest.feature_schema, manifest.transform, manifest.estimator):
+        for selected in (definition.feature_schema, definition.transform, definition.estimator):
             if selected is not None and selected.sha256 not in retained:
                 raise ValueError(f"candidate selected state is absent from result: {selected.name}")
         source_implementations = {item.sha256 for item in specification.components} | retained
         if any(
             component.implementation_sha256 not in source_implementations
-            for component in manifest.components
+            for component in definition.components
         ):
             raise ValueError("candidate component implementation lacks experiment provenance")
         self._verify_study_selection(manifest, artifacts, specification)
@@ -546,8 +664,8 @@ class CandidateBundle:
                 or assessment.decision != "accepted"
             ):
                 raise ValueError("candidate assessment does not accept this exact report")
-        for component in manifest.components:
-            self._require_json_parameters(artifacts[component.parameters.name])
+        for component in definition.components:
+            self.require_json_parameters(artifacts[component.parameters.name])
 
     def _verify_study_selection(
         self,
@@ -556,9 +674,10 @@ class CandidateBundle:
         specification: ExperimentSpec,
     ) -> None:
         """Bind selected code and inputs to one saved generalized decision study."""
+        definition = manifest.definition
         selection = self._json_object(artifacts[manifest.dataset.name], name="study selection")
         report = self._json_object(artifacts[manifest.report.name], name="study report")
-        schema = self._json_object(artifacts[manifest.feature_schema.name], name="feature schema")
+        schema = self._json_object(artifacts[definition.feature_schema.name], name="feature schema")
         if (
             selection.get("schema_version") != "decision-study"
             or report.get("schema_version") != "study-report"
@@ -570,22 +689,24 @@ class CandidateBundle:
         self._text_field(economics, "source_identity")
         if (
             economics.get("schema_version") != "offline-intent-simulation"
-            or manifest.product != "spot"
-            or manifest.entities != (self._text_field(economics, "entity"),)
+            or definition.product != "spot"
+            or definition.entities != (self._text_field(economics, "entity"),)
             or self._text_field(selection, "family") != specification.family
-            or self._text_field(selection, "calendar") != manifest.calendar
-            or self._text_field(selection, "output") != manifest.output
+            or self._text_field(selection, "calendar") != definition.calendar
+            or self._text_field(selection, "output") != definition.output
             or self._text_field(report, "study_identity") != specification.identity
         ):
             raise ValueError("candidate scope differs from the completed decision study")
         selections = {
-            item.role: item for item in manifest.components if item.role not in ("metric", "chart")
+            item.role: item
+            for item in definition.components
+            if item.role not in ("metric", "chart")
         }
         if (
             self._text_field(selection, "feature_identity") != selections["feature"].identity
             or self._text_field(selection, "policy_identity") != selections["policy"].identity
-            or manifest.feature_schema.sha256 != selections["feature"].identity
-            or self._text_field(schema, "mode") != manifest.state.feature_mode
+            or definition.feature_schema.sha256 != selections["feature"].identity
+            or self._text_field(schema, "mode") != definition.state.feature_mode
             or self._optional_text_field(selection, "transform_identity")
             != (selections["transform"].identity if "transform" in selections else None)
             or self._optional_text_field(selection, "model_identity")
@@ -595,17 +716,17 @@ class CandidateBundle:
         inputs = msgspec.convert(
             schema.get("inputs"), type=tuple[InputRequirement, ...], strict=True
         )
-        if inputs != manifest.inputs:
+        if inputs != definition.inputs:
             raise ValueError("candidate named inputs differ from retained feature schema")
-        if manifest.transform is not None:
+        if definition.transform is not None:
             transform = self._json_object(
-                artifacts[manifest.transform.name], name="transform version"
+                artifacts[definition.transform.name], name="transform version"
             )
             if self._text_field(transform, "implementation") != selections["transform"].identity:
                 raise ValueError("candidate transform state differs from selected implementation")
-        if manifest.estimator is not None:
+        if definition.estimator is not None:
             estimator = self._json_object(
-                artifacts[manifest.estimator.name], name="estimator version"
+                artifacts[definition.estimator.name], name="estimator version"
             )
             if self._text_field(estimator, "implementation") != selections["estimator"].identity:
                 raise ValueError("candidate estimator state differs from selected implementation")
@@ -613,10 +734,10 @@ class CandidateBundle:
             expected_sha256 = tuple(
                 next(
                     component.identity
-                    for component in manifest.components
+                    for component in definition.components
                     if component.role == kind and component.factory_key == item.component_key
                 )
-                for item in manifest.metrics
+                for item in definition.metrics
                 if item.kind == kind
             )
             selected = self._fingerprints(selection.get(selected_field))
@@ -669,7 +790,7 @@ class CandidateBundle:
         return rows
 
     @staticmethod
-    def _require_json_parameters(payload: bytes) -> None:
+    def require_json_parameters(payload: bytes) -> None:
         """Admit declarative JSON parameters; factories later decode their exact schema."""
         try:
             parameters = msgspec.json.decode(payload, type=dict[str, object], strict=True)
@@ -679,7 +800,7 @@ class CandidateBundle:
             raise ValueError("candidate component parameters must use canonical JSON")
 
     @staticmethod
-    def _verify_payload(reference: CandidateArtifact, payload: bytes) -> None:
+    def verify_payload(reference: CandidateArtifact, payload: bytes) -> None:
         """Reject empty, oversized or changed content before publication or use."""
         if (
             type(payload) is not bytes
@@ -715,7 +836,7 @@ class CandidateBundle:
             raise ValueError("candidate object cannot be a symlink")
         with path.open("rb") as source:
             payload = source.read(_MAX_ARTIFACT_BYTES + 1)
-        self._verify_payload(reference, payload)
+        self.verify_payload(reference, payload)
         return payload
 
     @staticmethod

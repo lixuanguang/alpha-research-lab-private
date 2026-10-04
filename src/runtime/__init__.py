@@ -10,6 +10,12 @@ from runtime.supervision import ProcessSupervisor
 if TYPE_CHECKING:
     # project library imports
     from runtime.account_recovery import AccountRecoveryReceipt, AccountWorkspace
+    from runtime.authored_candidates import AuthoredCandidates, ReferenceCandidates
+    from runtime.candidate_worker import (
+        CandidateProcessFailure,
+        LocalCandidateExecutor,
+        ProcessCandidateExecutor,
+    )
     from runtime.candidates import (
         CandidateCheckpoint,
         CandidateLoader,
@@ -40,16 +46,16 @@ if TYPE_CHECKING:
     from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
     from runtime.monitoring import CandidateMonitoringExporter
     from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
-    from runtime.policy_worker import PolicyProcessFailure, ProcessDecisionPolicy
     from runtime.portfolio import (
-        SharedDecisionCheckpoint,
+        CandidateExecutor,
+        SharedCandidateCheckpoint,
         SharedDecisionRuntime,
         SharedStrategyBinding,
         SharedStrategyInput,
     )
     from runtime.shared_paper import (
         SharedBookDelivery,
-        SharedBookInputs,
+        SharedDecisionGroup,
         SharedPaperCaptureObserver,
     )
     from runtime.workspace import WorkspaceBackup, WorkspaceFile, WorkspaceManifest
@@ -57,14 +63,23 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str) -> object:
     """Load research and workspace services only for their explicit consumers."""
-    if name in {"SharedBookDelivery", "SharedBookInputs", "SharedPaperCaptureObserver"}:
+    if name in {"SharedBookDelivery", "SharedDecisionGroup", "SharedPaperCaptureObserver"}:
         # project library imports
         from runtime import shared_paper
 
         exports: dict[str, object] = {
             "SharedBookDelivery": shared_paper.SharedBookDelivery,
-            "SharedBookInputs": shared_paper.SharedBookInputs,
+            "SharedDecisionGroup": shared_paper.SharedDecisionGroup,
             "SharedPaperCaptureObserver": shared_paper.SharedPaperCaptureObserver,
+        }
+        return exports[name]
+    if name in {"AuthoredCandidates", "ReferenceCandidates"}:
+        # project library imports
+        from runtime import authored_candidates
+
+        exports = {
+            "AuthoredCandidates": authored_candidates.AuthoredCandidates,
+            "ReferenceCandidates": authored_candidates.ReferenceCandidates,
         }
         return exports[name]
     if name in {"AccountRecoveryReceipt", "AccountWorkspace"}:
@@ -77,7 +92,8 @@ def __getattr__(name: str) -> object:
         }
         return exports[name]
     if name in {
-        "SharedDecisionCheckpoint",
+        "CandidateExecutor",
+        "SharedCandidateCheckpoint",
         "SharedDecisionRuntime",
         "SharedStrategyBinding",
         "SharedStrategyInput",
@@ -86,7 +102,8 @@ def __getattr__(name: str) -> object:
         from runtime import portfolio
 
         exports = {
-            "SharedDecisionCheckpoint": portfolio.SharedDecisionCheckpoint,
+            "CandidateExecutor": portfolio.CandidateExecutor,
+            "SharedCandidateCheckpoint": portfolio.SharedCandidateCheckpoint,
             "SharedDecisionRuntime": portfolio.SharedDecisionRuntime,
             "SharedStrategyBinding": portfolio.SharedStrategyBinding,
             "SharedStrategyInput": portfolio.SharedStrategyInput,
@@ -110,13 +127,14 @@ def __getattr__(name: str) -> object:
             "PaperCheckpoint": paper.PaperCheckpoint,
         }
         return exports[name]
-    if name in {"PolicyProcessFailure", "ProcessDecisionPolicy"}:
+    if name in {"CandidateProcessFailure", "LocalCandidateExecutor", "ProcessCandidateExecutor"}:
         # project library imports
-        from runtime import policy_worker
+        from runtime import candidate_worker
 
         exports = {
-            "PolicyProcessFailure": policy_worker.PolicyProcessFailure,
-            "ProcessDecisionPolicy": policy_worker.ProcessDecisionPolicy,
+            "CandidateProcessFailure": candidate_worker.CandidateProcessFailure,
+            "LocalCandidateExecutor": candidate_worker.LocalCandidateExecutor,
+            "ProcessCandidateExecutor": candidate_worker.ProcessCandidateExecutor,
         }
         return exports[name]
     if name in {"CandidateFeatureFeed"}:
@@ -215,11 +233,14 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "AccountRecoveryReceipt",
     "AccountWorkspace",
+    "AuthoredCandidates",
     "CandidateCheckpoint",
     "CandidateComponents",
+    "CandidateExecutor",
     "CandidateFeatureFeed",
     "CandidateLoader",
     "CandidateMonitoringExporter",
+    "CandidateProcessFailure",
     "CandidateSession",
     "CandidateStep",
     "ChartFactory",
@@ -237,18 +258,19 @@ __all__ = [
     "JobWorkerPool",
     "LiveBookDelivery",
     "LoadedCandidate",
+    "LocalCandidateExecutor",
     "MetricFactory",
     "PaperCandidateRuntime",
     "PaperCaptureObserver",
     "PaperCheckpoint",
     "PolicyFactory",
-    "PolicyProcessFailure",
-    "ProcessDecisionPolicy",
+    "ProcessCandidateExecutor",
     "ProcessSupervisor",
+    "ReferenceCandidates",
     "RuntimeFiles",
     "SharedBookDelivery",
-    "SharedBookInputs",
-    "SharedDecisionCheckpoint",
+    "SharedCandidateCheckpoint",
+    "SharedDecisionGroup",
     "SharedDecisionRuntime",
     "SharedPaperCaptureObserver",
     "SharedStrategyBinding",

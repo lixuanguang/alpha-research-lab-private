@@ -17,7 +17,6 @@ from msgspec.structs import replace
 
 # project library imports
 from accounting import AccountLedger
-from applications.execute import ServiceBookInputs
 from configuration import BookRegistryConfiguration, BookSelection, CaptureRunConfig
 from execution import (
     AccountControl,
@@ -26,7 +25,6 @@ from execution import (
     AccountJournal,
     AccountObservation,
     AccountQuote,
-    PaperMarket,
 )
 from financial_units import ExactRatio
 from market_data.adapters.sources import BookAdapters
@@ -38,7 +36,7 @@ from market_data.contracts import (
     CaptureRunRequest,
     Level,
 )
-from research.observations import LiveBookDecisionSource
+from research.observations import LiveBookDecisionSource, NamedObservation
 from runtime import (
     LiveBookDelivery,
     SharedBookDelivery,
@@ -47,6 +45,20 @@ from runtime import (
     SharedStrategyInput,
 )
 from serialization import DomainCodec
+
+
+class _SequenceClock:
+    """Return authored delivery clocks in order, repeating the last one."""
+
+    def __init__(self, times: tuple[datetime, ...]) -> None:
+        """Keep the authored sequence."""
+        self.times, self.index = times, 0
+
+    def __call__(self) -> datetime:
+        """Read the next authored UTC clock value."""
+        value = self.times[min(self.index, len(self.times) - 1)]
+        self.index += 1
+        return value
 
 
 class TestCapacityParity:
@@ -127,8 +139,8 @@ class TestCapacityParity:
             )
             delivery = SharedBookDelivery(
                 source=LiveBookDelivery(record=record, book=book, available_at=available_at),
-                inputs=(),
-                coordinated_at=None,
+                decisions=(),
+                matched=False,
             )
             (source_directory / f"{request.recording_id}-{account.account_id}.jsonl").write_bytes(
                 codec.encode_json(delivery) + b"\n"
@@ -236,8 +248,8 @@ class TestCapacityParity:
                     ),
                     available_at=available_at,
                 ),
-                inputs=(),
-                coordinated_at=None,
+                decisions=(),
+                matched=False,
             )
             (source_directory / f"{request.run_id}-{account.account_id}.jsonl").write_bytes(
                 codec.encode_json(delivery) + b"\n"
@@ -272,10 +284,12 @@ class TestCapacityParity:
             assert comparison[field]["signed_sha256"] != comparison[field]["replay_sha256"]
 
     @staticmethod
-    def _selection_fixture(tmp_path: Path) -> tuple[SharedPaperCaptureObserver, SharedBookDelivery]:
-        """Construct one genuine causal projection with the prepared two-instance policy path."""
+    def _observer(
+        tmp_path: Path, name: str, *, clock: _SequenceClock | None = None
+    ) -> tuple[SharedPaperCaptureObserver, CaptureRequest]:
+        """Construct one prepared two-instance account observer on the reference grid."""
         at = datetime(2026, 9, 28, tzinfo=UTC)
-        root = tmp_path / "selection"
+        root = tmp_path / name
         workload = CapacityWorkload(
             opening_at=at, socket_root=Path("/private/tmp/capacity-selection-test-sockets")
         )
@@ -291,17 +305,21 @@ class TestCapacityParity:
         venue = workload.venue_workload(source.capture.venue)
         request = CaptureRequest(
             config=source.capture,
-            recording_id=str(uuid4()),
+            recording_id="33333333-3333-4333-8333-333333333333",
             implementation_identity="f" * 64,
         )
-        bindings = parity._bindings(account, source)
-        inputs = ServiceBookInputs(
-            tuple(binding.instance_id for binding in bindings),
-            source.freshness_us,
-            source.market_interval_us,
+        journal = AccountJournal(root / "account.sqlite3", account.configuration)
+        journal.observe(
+            AccountQuote(
+                price=venue.price("100", source.scenario.adverse.per),
+                at=at - timedelta(microseconds=1),
+            )
         )
+        assert journal.reconcile(venue.opening_observation(account.account_id, at))
         observer = SharedPaperCaptureObserver(
-            source=LiveBookDecisionSource(request, inputs.requirement, history_capacity=1000),
+            source=LiveBookDecisionSource(
+                request, venue.candidates(source).inputs, history_capacity=1000
+            ),
             books=BookRegistry(
                 BookRegistryConfiguration(
                     selections=(
@@ -317,78 +335,69 @@ class TestCapacityParity:
                     history_capacity=1000,
                 )
             ),
-            journal=(
-                journal := AccountJournal(tmp_path / "account.sqlite3", account.configuration)
-            ),
-            runtime=SharedDecisionRuntime(journal, bindings),
+            journal=journal,
+            runtime=SharedDecisionRuntime(journal, parity._bindings(account, source)),
             account_id=account.account_id,
             scenario=source.scenario,
-            inputs=inputs,
-            delivery_path=None,
-            market_interval_us=source.market_interval_us,
+            delivery_path=root / "deliveries.jsonl",
+            clock=clock,
         )
-        available_at = at + timedelta(seconds=1)
+        return observer, request
+
+    @staticmethod
+    def _book(position: int, available_at: datetime) -> tuple[CaptureRecord, BookObservation]:
+        """Author one valid two-sided OKX book boundary at an actual delivery time."""
         received_ns = int(available_at.timestamp()) * 1_000_000_000
         record = CaptureRecord(kind="frame", epoch=0, received_ns=received_ns, raw=b"{}")
-        book = BookObservation(
-            position=0,
+        return record, BookObservation(
+            position=position,
             epoch=0,
             received_ns=received_ns,
             source_time=str(received_ns // 1_000_000),
-            sequence=10,
-            outcome="snapshot",
+            sequence=10 + position,
+            outcome="snapshot" if position == 0 else "update",
             status="degraded",
             reason="depth_without_checksum",
             state_identity="0" * 64,
             bids=((Decimal("99"), Level(size=Decimal("4"), order_count=1)),),
             asks=((Decimal("100"), Level(size=Decimal("4"), order_count=1)),),
         )
-        retained = LiveBookDelivery(record=record, book=book, available_at=available_at)
-        independently_projected = LiveBookDecisionSource(
-            request, inputs.requirement, history_capacity=1000
-        )
-        independently_projected._accept_validated(record, book, available_at=available_at)
-        market = PaperMarket(
-            identity="1" * 64,
-            at=available_at,
-            bid=venue.price("99", source.scenario.adverse.per),
-            ask=venue.price("100", source.scenario.adverse.per),
-            bid_quantity=venue.quantity("4", source.scenario.adverse.per),
-            ask_quantity=venue.quantity("4", source.scenario.adverse.per),
-        )
-        return observer, SharedBookDelivery(
-            source=retained,
-            inputs=inputs.build(
-                independently_projected.read(str(source.scenario.instrument_id), available_at),
-                market,
-            ),
-            coordinated_at=available_at + timedelta(microseconds=1),
-        )
 
     def test_suffix_recomputes_feature_values_before_economic_effects(self, tmp_path: Path) -> None:
-        """Reject a value substitution even when native lineage is unchanged."""
-        observer, delivery = self._selection_fixture(tmp_path)
-        item = delivery.inputs[0]
-        changed_values: tuple[ExactRatio | None, ...] = (
-            ExactRatio(numerator="101", denominator="1"),
-            *item.context.features.values[1:],
+        """Reject a value substitution even when native lineage is unchanged.
+
+        The reference grid has an instant at midnight; the book at 00:00:01 crosses the
+        first instant and the book at 00:00:04 crosses 00:00:03, deciding from 00:00:01.
+        """
+        at = datetime(2026, 9, 28, tzinfo=UTC)
+        times = (at + timedelta(seconds=1), at + timedelta(seconds=4))
+        live, _ = self._observer(tmp_path, "live", clock=_SequenceClock(times))
+        for position, available_at in enumerate(times):
+            live.observe(*self._book(position, available_at))
+        codec = DomainCodec()
+        lines = (tmp_path / "live" / "deliveries.jsonl").read_bytes().splitlines()
+        first, second = (codec.decode_json(line, SharedBookDelivery) for line in lines)
+        assert (first.matched, first.decisions) == (True, ())
+        (group,) = second.decisions
+        assert group.at == at + timedelta(seconds=3)
+        assert len(group.inputs) == 2
+        item = group.inputs[0]
+        observation = item.inputs.observations[0]
+        observations: tuple[NamedObservation, ...] = (
+            replace(observation, value=ExactRatio(numerator="101", denominator="1")),
+            *item.inputs.observations[1:],
         )
-        changed = replace(
-            item,
-            context=replace(
-                item.context,
-                features=replace(
-                    item.context.features,
-                    values=changed_values,
-                ),
-            ),
+        changed: SharedStrategyInput = replace(
+            item, inputs=replace(item.inputs, observations=observations)
         )
-        changed_inputs: tuple[SharedStrategyInput, ...] = (changed, *delivery.inputs[1:])
-        substituted = replace(delivery, inputs=changed_inputs)
-        with pytest.raises(ValueError, match="exact feature values differ"):
-            CapacityEconomicParity._apply_selected_delivery(observer, substituted)
-        assert observer.journal.checkpoint(item.instance_id) is None
-        assert observer.journal.net_orders() == ()
+        inputs = (changed, group.inputs[1])
+        substituted = replace(second, decisions=(replace(group, inputs=inputs),))
+        replay, _ = self._observer(tmp_path, "replay")
+        replay.deliver(first)
+        with pytest.raises(ValueError, match="substituted native input lineage"):
+            replay.deliver(substituted)
+        assert replay.journal.checkpoint(item.instance_id) is None
+        assert replay.journal.net_orders() == ()
 
     def test_recovery_reconciliation_compares_independent_economics(self, tmp_path: Path) -> None:
         """Original operator clocks cannot reconcile an incorrect independently rebuilt balance."""

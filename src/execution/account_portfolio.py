@@ -123,6 +123,8 @@ class PortfolioCoordinator:
                 if residuals
                 else "internal_cross"
                 if crossed
+                else "no_intent"
+                if all(item.request.decision.intent is None for item in batch.decisions)
                 else "target_matched",
                 children=committed_children,
                 net_orders=tuple(parents),
@@ -140,6 +142,8 @@ class PortfolioCoordinator:
                             and child.order.decision_identity == item.request.decision.identity
                             for child in children
                         )
+                        else "no_intent"
+                        if item.request.decision.intent is None
                         else "target_matched",
                         orders=tuple(
                             child.order

@@ -12,8 +12,11 @@ from research.experiments.candidates import (
     CandidateAssessment,
     CandidateBundle,
     CandidateComponent,
+    CandidateDefinition,
     CandidateManifest,
     CandidateMetricContract,
+    CandidateObjects,
+    CandidateSource,
     CandidateStateContract,
 )
 from research.experiments.identity import ExperimentSpec, Fingerprint
@@ -29,8 +32,11 @@ __all__ = [
     "CandidateAssessment",
     "CandidateBundle",
     "CandidateComponent",
+    "CandidateDefinition",
     "CandidateManifest",
     "CandidateMetricContract",
+    "CandidateObjects",
+    "CandidateSource",
     "CandidateStateContract",
     "ExperimentSpec",
     "Fingerprint",

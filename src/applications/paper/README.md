@@ -14,18 +14,19 @@ restores that same journal and its unresolved reservations.
 `run_shared_paper` composes selected `SharedStrategyBinding` values,
 `SharedStrategyInput` records and an `AccountConfiguration` through one
 `AccountJournal` and `SharedDecisionRuntime`. Import the application entry point
-and records from `applications.paper`; policy bindings and inputs are public
-runtime records. Each binding selects an instance/account/entity, an existing
-`DecisionPolicy`, complete `PortfolioContext`, and maximum fee. Each input
-supplies that instance's causal `DecisionContext` together with an `AccountQuote`
-that the journal has already observed independently.
+and records from `applications.paper`; candidate bindings and inputs are public
+runtime records. Each binding selects an instance/account/entity, a
+`LoadedCandidate`, complete `PortfolioContext`, and maximum fee. Each input
+supplies that instance's causal `DecisionInputs` together with an `AccountQuote`
+that the journal has already observed independently. A decision whose candidates
+all pause or warm reserves nothing.
 
 The finite event stream contains observed quotes, complete local
 `AccountObservation` reconciliation facts, `SharedPaperDecision` batches, and
 normalized `OrderEvent` facts for physical net orders. A batch has a stable
-identity, a coordination time later than every policy decision, and an explicit
+identity, a coordination time later than every candidate decision, and an explicit
 crossing policy (`reject` by default or `internal_at_quote`). The account must
-reconcile before admission, and a policy input cannot substitute for the
+reconcile before admission, and a candidate input cannot substitute for the
 journal's market quote. Both target/exposure and order/quote intents enter the
 same instance/account/firm budget checks.
 
@@ -64,27 +65,27 @@ instances, and authenticated execution remains KIV.
 `AccountJournal`. It supports one selected OKX or Bitfinex spot instrument/account
 per invocation, with one dedicated instance or several sharing the account.
 Supply `AccountConfiguration`, selected `SharedStrategyBinding` values, a
-`PaperExecutionScenario`, one native `InputRequirement`/`CaptureRequest`, an
-input adapter implementing `SharedBookInputs`, the account journal path and an
-absent output directory. The input adapter supplies pure feature/prediction
-contexts for the existing decision SDK; policy state remains in the journal.
-It must preserve native input identity, actual cutoff and the independently
-observed ask-valued account quote. Frozen candidate loading remains owned by
+`PaperExecutionScenario`, one native `CaptureRequest`, the account journal path
+and an absent output directory. The native source projects every book field the
+bound candidates read; each candidate decides on its own UTC grid and keeps its
+full continuation in the journal. Candidate loading remains owned by
 `CandidateLoader`; this bounded composition does not add promotion or activation.
 
 Before decisions, supply a complete independently derived `AccountObservation`
 when the journal requires opening or recovery reconciliation. The workflow never
-constructs a successful reconciliation from its own output. For each eligible
-book it first matches earlier orders and then coordinates new decisions, so the
-decision's input cannot also fill that new order. Matching uses the declared
+constructs a successful reconciliation from its own output. At each candidate
+grid instant the due candidates decide from the latest eligible market at or
+before it, then the book that crossed the instant matches orders, so a decision's
+input cannot also fill its own order. Matching uses the declared
 entry/cancel delays, fee, adverse price and take fraction. All physical net fills
 and child allocations commit with finite touch liquidity in one account transaction.
-Two distinct active reference policies exercise the public extension points;
-their formulas are engineering workloads, not profitability evidence.
+Two distinct active candidates exercise the public extension points; their
+formulas are engineering workloads, not profitability evidence.
 
 Output retains `manifest.json`, native `capture/`, fsynced `deliveries.jsonl`,
 `paper-result.json`, `execution-traces.json` and `cost-report.json`. The manifest
-pins configuration, source/implementation, book registry, policies, execution
+pins configuration, source/implementation, book registry, projected input
+requirements, candidate and deployment identities, execution
 assumptions and `last_eligible_bid` mark policy. Reports require fresh marks
 for all open holdings and retain exact account/strategy P&L, fees and slippage.
 Slippage already paid through effective fill prices is disclosed without a second
@@ -243,12 +244,12 @@ and journal paths. The client retains exact request/result bytes and never
 retries a failed or uncertain command automatically.
 
 The deployment input digest is SHA-256 of
-`DomainCodec().encode_json((capture_config, requirement, inputs.identity))`.
-The API checks that digest, the execution scenario, policy/instance/model/feature
-selection, paper authority context, account configuration and claimed owner
-before starting the bounded feed. Policy
-and feature adapters must include all candidate/model parameters in their
-identities, as required by their existing contracts. Economic boundaries repeat
+`DomainCodec().encode_json((capture_config, requirements))`, where `requirements`
+are the projected book fields. The API checks that digest, the execution scenario,
+each instance's candidate, policy, model and feature identities, paper authority
+context, account configuration and claimed owner before starting the bounded feed.
+Candidate components must include all parameters in their identities, as their
+existing contracts require. Economic boundaries repeat
 current authority and generation checks. Finite completion records an operational
 stop; recovery needs new reconciliation and an explicit owner claim. Expiry or
 revocation blocks new exposure and restart, while the original current owner may
@@ -275,10 +276,13 @@ to be rerun.
 `PaperServiceConfiguration` separates available source, instance and account
 definitions from the `active` instance tuple. Each account definition points to an
 explicitly activated signed account socket. Each source binds one native capture,
-venue/instrument identity, execution scenario, freshness budget and explicit
-`market_interval_us` (default 3,000,000); each instance
-selects its source and installed reference policy. The supported local envelope is
-at most four accounts, eight source processes and sixteen policy instances. Invocations
+venue/instrument identity, execution scenario and freshness budget; each instance
+selects its source and a `ReferenceCandidate`: an installed formula, its decision
+cadence and the UTC grid origin. The cadence cannot exceed source freshness or
+capture idle time. The supervisor loads each instance through `ReferenceCandidates`
+and checks its candidate, policy, model and feature identities against the signed
+deployment before starting. The supported local envelope is at most four
+accounts, eight source processes and sixteen candidate instances. Invocations
 are bounded by each account configuration's signed service life (120 seconds unless
 declared). These resource ceilings are not MR15 throughput qualification.
 `fixed_clip`, `liquidity_clip` and `target_clip` are different engineering formulas,
@@ -288,19 +292,18 @@ through the ask, rounded up to a tick, so it stays marketable against the scenar
 modeled adverse cost at any price level; later interests rest one tick below the best
 bid, or at a bid of a single tick.
 
-`target_clip` requests the same absolute target at every eligible book. The account
+`target_clip` requests the same absolute target at every decision instant. The account
 lowers an unmet target to one immediate-or-cancel buy at the ask, so the target is
 reachable only in a scenario whose modeled adverse cost is zero. Once the target is
 held, a checkpoint commits as `target_matched` without an order. A held position still
 needs the account reconciled within its state-age budget.
 
-The interval is positive and no larger than source freshness or capture idle time.
-It is part of the signed input identity. All native books are retained and validated;
-the first eligible book and later books at least one interval apart trigger matching
-and strategy decisions. Intermediate eligible books update monitoring marks without
-fills or checkpoint changes. Source invalidation still protects accounts immediately.
-Delivery records retain this selection for exact replay. This selected-book paper
-model does not establish sustained native-feed capacity.
+All native books are retained and validated. Each candidate decides at its grid
+instants from the latest eligible market at or before the instant, and the book
+that crosses an instant matches orders; books between instants update monitoring
+marks without fills or checkpoint changes. Source invalidation still protects
+accounts immediately. Delivery records retain decided instants for exact replay.
+This grid-selected paper model does not establish sustained native-feed capacity.
 
 After installing, authorizing, reconciling and claiming each account separately,
 start its signed owner service using the

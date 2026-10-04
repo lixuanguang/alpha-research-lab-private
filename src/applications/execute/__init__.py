@@ -20,7 +20,6 @@ from applications.execute.workflow import main
 
 if TYPE_CHECKING:
     # project library imports
-    from applications.execute.service_inputs import ServiceBookInputs
     from applications.execute.services import (
         PaperServiceControl,
         PaperServiceOwners,
@@ -51,12 +50,6 @@ def __getattr__(name: str) -> object:
 
         exports = {"DecodedBookObservation": source_service.DecodedBookObservation}
         return exports[name]
-    if name in {"ServiceBookInputs"}:
-        # project library imports
-        from applications.execute import service_inputs
-
-        exports = {"ServiceBookInputs": service_inputs.ServiceBookInputs}
-        return exports[name]
     raise AttributeError(name)
 
 
@@ -72,7 +65,6 @@ __all__ = [
     "PaperExecutionResult",
     "PaperServiceControl",
     "PaperServiceOwners",
-    "ServiceBookInputs",
     "VenueApplicationResult",
     "VenueExecutionApplication",
     "main",

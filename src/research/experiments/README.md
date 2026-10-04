@@ -187,9 +187,17 @@ and `EstimatorVersion`; inference reloads those bytes without fitting again.
 The selection record names original sources and economic scope; it is not a copy
 or qualification of all underlying market history.
 
-The manifest binds named inputs and units, cadence, entity/product/calendar,
-capability requirements, a feature-store definition when serving is used, state
-and warm-up policy, and versioned metric/chart contracts. `available_at` means
+A `CandidateDefinition` holds everything replay and runtime execute: component
+selections, named inputs and units, cadence, entity/product/calendar, capability
+requirements, a feature-store definition when serving is used, state, warm-up,
+gap (`pause`, `reset` or `continue`) and restart rules, versioned metric/chart
+contracts, and the inventory of the objects these name. A `CandidateManifest`
+wraps one definition with its research provenance (dataset selection, experiment,
+attempt, report and optional assessment). Runtime placements bind the definition's
+identity; `CandidateBundle.definition()` returns it only after its provenance
+verifies. `CandidateObjects` holds a definition and its objects in memory without
+provenance, for installed built-in candidates and authored workloads; whether such
+a candidate may run is the consuming application's decision. `available_at` means
 declared decision eligibility, including fitted-state availability; it does not
 claim that a later report existed at an earlier historical time.
 `qualification="engineering"` retains reference-workload evidence. Empirical

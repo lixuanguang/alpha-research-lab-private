@@ -456,11 +456,13 @@ background system daemon or grant private venue authority.
    Author its disabled deployment with the full provisioned instance/input/scenario
    envelope. Separately authorize, supply fresh independent quotes and account
    observations, and claim its owner generation. Preserve each target's current
-   journal. Installation alone never activates scheduling. Declare each source's
-   `market_interval_us` before signing: the positive interval is bounded by source
-   freshness and capture idle time, and changes input identity. Every native book
-   is retained/validated; only selected books trigger matching and decisions.
-   Intermediate books update monitoring marks, while source faults remain immediate.
+   journal. Installation alone never activates scheduling. Declare each instance's
+   reference candidate (formula, cadence and UTC grid origin) before signing; the
+   cadence is bounded by source freshness and capture idle time, and the deployment
+   binds the candidate's identity. Every native book is retained/validated; only the
+   book that crosses a decision instant matches, after the due candidates decide.
+   Books between instants update monitoring marks, while source faults remain
+   immediate.
 2. Start each target through `alpha-governance-artifacts run ... -- account
    --request SERVE.json`, with action `serve_paper`, the claimed owner, absolute
    socket path and `service_seconds` no greater than 120. Start `alpha-execute

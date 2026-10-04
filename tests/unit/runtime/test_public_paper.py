@@ -44,7 +44,7 @@ from execution import (
     PaperMarket,
     PortfolioContext,
 )
-from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
+from financial_units import Currency, Dimension, Money, Price, Quantity, QuantityKind
 from market_data.adapters.sources import BookAdapters
 from market_data.books import BookAsOfIndex, BookProjection, BookRegistry, CaptureReplay
 from market_data.collection.segments import CaptureSegmentWriter
@@ -59,16 +59,14 @@ from market_data.contracts import (
 from market_data.replay import SavedCaptureRun
 from market_data.storage import CaptureRecording, CaptureRunJournal
 from reference_data.instruments import InstrumentId
-from research.features import FeatureVector
-from research.observations import (
-    DecisionInputs,
-    InputRequirement,
-    LiveBookDecisionSource,
-    NumericField,
-)
+from research.experiments import CandidateStateContract
+from research.features import FeatureSchema, ProjectionFeature
+from research.observations import InputRequirement, LiveBookDecisionSource, NumericField
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
+    AuthoredCandidates,
     SharedBookDelivery,
+    SharedDecisionGroup,
     SharedDecisionRuntime,
     SharedPaperCaptureObserver,
     SharedStrategyBinding,
@@ -82,59 +80,8 @@ from runtime.shared_paper import (
     RetainedSharedBookDelivery,
 )
 from serialization import DomainCodec
-from strategies import ConfirmedSignal, DecisionContext, OrderIntent
+from strategies import ConfirmedSignal, OrderIntent
 from telemetry import RuntimeMeasurementJournal
-
-
-class _NoDecisionInputs:
-    """Keep source and matching tests free of a strategy-generated order."""
-
-    @property
-    def identity(self) -> str:
-        """Identify the no-decision source adapter."""
-        return "no-decision-public-book"
-
-    def build(self, inputs: DecisionInputs, market: PaperMarket) -> tuple[SharedStrategyInput, ...]:
-        """Ignore an eligible book while preserving the observer's market effects."""
-        return ()
-
-
-class _SignalInputs:
-    """Supply an exact positive signal only when the observer selects a book."""
-
-    def __init__(self) -> None:
-        """Count only book boundaries used to construct policy input."""
-        self.calls = 0
-
-    @property
-    def identity(self) -> str:
-        """Pin this deterministic test feature formula."""
-        return "signal-public-book"
-
-    def build(self, inputs: DecisionInputs, market: PaperMarket) -> tuple[SharedStrategyInput, ...]:
-        """Provide one causal positive signal at the selected book cutoff."""
-        self.calls += 1
-        at = inputs.decision_at
-        vector = FeatureVector(
-            entity=inputs.entity,
-            decision_at=at,
-            event_at=at,
-            information_start=at,
-            available_at=at,
-            expires_at=at + timedelta(seconds=1),
-            definition=self.identity,
-            fields=(NumericField(name="signal", units="score"),),
-            values=(ExactRatio(numerator="1", denominator="1"),),
-            reasons=("native-book",),
-            input_identity=inputs.identity,
-        )
-        return (
-            SharedStrategyInput(
-                instance_id="alpha",
-                context=DecisionContext(features=vector, prediction=None),
-                quote=AccountQuote(price=market.ask, at=at),
-            ),
-        )
 
 
 class _SequenceClock:
@@ -266,16 +213,45 @@ class TestSharedPublicPaper:
         )
 
     @classmethod
-    def _binding(cls) -> SharedStrategyBinding:
-        """Select one inert configured policy for the shared runtime contract."""
+    def _binding(
+        cls, *, cadence_us: int = 1_000_000, starts_at: datetime | None = None
+    ) -> SharedStrategyBinding:
+        """Select one candidate that targets one unit whenever the ask is positive.
+
+        The default grid puts an instant half a second before every whole second, so
+        each market delivery on a new whole second crosses one instant.
+        """
+        ask = NumericField(name="ask", units="quote/base")
         return SharedStrategyBinding(
             instance_id="alpha",
             account_id="paper",
             entity=str(cls.dimension.instrument_id),
-            policy=ConfirmedSignal(
-                field=NumericField(name="signal", units="score"),
-                quantity=cls._quantity("1"),
-                confirmations=1,
+            candidate=AuthoredCandidates(venue="okx").load(
+                name="public-paper-signal",
+                feature=ProjectionFeature(
+                    FeatureSchema(
+                        implementation="named-projection",
+                        inputs=(cls._requirement(),),
+                        outputs=(ask,),
+                        parameters=(),
+                        mode="batch",
+                        ttl_us=5_000_000,
+                    )
+                ),
+                policy=ConfirmedSignal(field=ask, quantity=cls._quantity("1"), confirmations=1),
+                instance="alpha",
+                entity=str(cls.dimension.instrument_id),
+                cadence_us=cadence_us,
+                starts_at=cls.at - timedelta(milliseconds=500) if starts_at is None else starts_at,
+                source_identity="public-paper-source",
+                state=CandidateStateContract(
+                    feature_mode="batch",
+                    warmup_observations=0,
+                    checkpoint_schema="candidate-checkpoint",
+                    on_gap="continue",
+                    on_restart="restore",
+                    policy_state_schema="confirmed-signal",
+                ),
             ),
             context=PortfolioContext(
                 portfolio_id="test-portfolio",
@@ -312,7 +288,7 @@ class TestSharedPublicPaper:
         return InputRequirement(
             name="book",
             family="book",
-            field=NumericField(name="imbalance", units="dimensionless"),
+            field=NumericField(name="ask", units="quote/base"),
             clock="receipt",
             max_age_us=5_000_000,
         )
@@ -344,17 +320,19 @@ class TestSharedPublicPaper:
         *,
         scenario: PaperExecutionScenario | None = None,
         clock: _SequenceClock | None = None,
-        market_interval_us: int = 0,
+        cadence_us: int = 1_000_000,
         retain: bool = False,
-        inputs: _SignalInputs | None = None,
+        deciding: bool = False,
         measurements: RuntimeMeasurementJournal | None = None,
         index: BookAsOfIndex | None = None,
         request: RecordingRequest | None = None,
     ) -> tuple[SharedPaperCaptureObserver, AccountJournal]:
-        """Construct the actual source, registry, account and decision owners."""
+        """Construct the actual source, registry, account and decision owners.
+
+        Unless ``deciding``, the candidate only sets the matching grid and never decides.
+        """
         request = cls._request() if request is None else request
-        requirement = cls._requirement()
-        source = LiveBookDecisionSource(request, requirement, history_capacity=20)
+        source = LiveBookDecisionSource(request, (cls._requirement(),), history_capacity=20)
         books = BookRegistry(
             BookRegistryConfiguration(
                 selections=(
@@ -371,7 +349,7 @@ class TestSharedPublicPaper:
             )
         )
         journal = AccountJournal(path, cls._config())
-        runtime = SharedDecisionRuntime(journal, (cls._binding(),))
+        runtime = SharedDecisionRuntime(journal, (cls._binding(cadence_us=cadence_us),))
         observer = SharedPaperCaptureObserver(
             source=source,
             books=books,
@@ -379,10 +357,9 @@ class TestSharedPublicPaper:
             runtime=runtime,
             account_id="paper",
             scenario=scenario or cls._scenario(),
-            inputs=inputs if inputs is not None else _NoDecisionInputs(),
             delivery_path=path.with_suffix(".jsonl") if retain else None,
+            active=("alpha",) if deciding else (),
             clock=clock,
-            market_interval_us=market_interval_us,
             measurements=measurements,
             index=index,
         )
@@ -427,8 +404,8 @@ class TestSharedPublicPaper:
         )
         return SharedBookDelivery(
             source=LiveBookDelivery(record=record, book=row, available_at=at),
-            inputs=(),
-            coordinated_at=None,
+            decisions=(),
+            matched=market,
         )
 
     @classmethod
@@ -642,78 +619,53 @@ class TestSharedPublicPaper:
         # Validating the row again and encoding it twice made observe about 3x projection.
         assert observe < 2.2 * projection
 
-    def test_market_interval_retains_every_book_but_only_selected_effects(
+    @classmethod
+    def _markets(cls) -> tuple[SharedBookDelivery, ...]:
+        """Author a session and four whole-second two-sided market updates."""
+        return (
+            cls._delivery(
+                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
+            ),
+            *(
+                cls._delivery(
+                    position,
+                    seconds=position,
+                    kind="frame",
+                    outcome="snapshot" if position == 1 else "update",
+                    status="degraded",
+                    reason="visible_depth_only",
+                    market=True,
+                )
+                for position in range(1, 5)
+            ),
+        )
+
+    def test_grid_retains_every_book_but_decides_and_matches_on_crossing_books(
         self, tmp_path: Path
     ) -> None:
-        """Intermediate native updates advance source state without pricing or matching."""
+        """Books between instants advance source state only; a crossing book decides, then matches.
+
+        With a three-second grid at -0.5 s, 2.5 s, ..., the book at 1 s crosses the first
+        instant (nothing to decide yet) and the book at 3 s crosses 2.5 s: the candidate
+        decides from the 2 s market, then the 3 s book matches its order.
+        """
         path = tmp_path / "sampled.sqlite3"
         times = tuple(self.at + timedelta(seconds=seconds) for seconds in range(5))
-        clock = _SequenceClock(
-            (
-                times[0],
-                times[1],
-                times[1] + timedelta(microseconds=1),
-                times[2],
-                times[3],
-                times[4],
-                times[4] + timedelta(microseconds=1),
-            )
-        )
-        inputs = _SignalInputs()
+        clock = _SequenceClock(times)
         measurement_path = tmp_path / "paper-measurements.jsonl"
         measurements = RuntimeMeasurementJournal(measurement_path, sync_every=1)
         as_of = BookAsOfIndex.create(path.with_suffix(".index.sqlite3"))
         observer, journal = self._observer(
             path,
             clock=clock,
-            market_interval_us=3_000_000,
+            cadence_us=3_000_000,
             retain=True,
-            inputs=inputs,
+            deciding=True,
             measurements=measurements,
             index=as_of,
         )
         assert journal.reconcile(self._opening())
-        deliveries = (
-            self._delivery(
-                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
-            ),
-            self._delivery(
-                1,
-                seconds=1,
-                kind="frame",
-                outcome="snapshot",
-                status="degraded",
-                reason="visible_depth_only",
-                market=True,
-            ),
-            self._delivery(
-                2,
-                seconds=2,
-                kind="frame",
-                outcome="update",
-                status="degraded",
-                reason="visible_depth_only",
-                market=True,
-            ),
-            self._delivery(
-                3,
-                seconds=3,
-                kind="frame",
-                outcome="update",
-                status="degraded",
-                reason="visible_depth_only",
-                market=True,
-            ),
-            self._delivery(
-                4,
-                seconds=4,
-                kind="frame",
-                outcome="update",
-                status="degraded",
-                reason="visible_depth_only",
-                market=True,
-            ),
-        )
+        deliveries = self._markets()
         for index, delivery in enumerate(deliveries):
             observer.observe(delivery.source.record, delivery.source.book)
             if index == 1:
@@ -723,21 +675,20 @@ class TestSharedPublicPaper:
                     journal.paper_traces("paper"),
                     journal.checkpoint("alpha"),
                 )
-                assert first_effects[3] is not None
-            if index in (2, 3):
+                assert first_effects[3] is None
+                assert len(first_effects[2]) == 1
+            if index == 2:
                 assert (
                     journal.accounts(),
                     journal.orders(),
                     journal.paper_traces("paper"),
                     journal.checkpoint("alpha"),
                 ) == first_effects
-                assert inputs.calls == 1
                 assert observer.source.latest_book is not None
                 assert observer.source.latest_book.position == index
                 assert observer.last_market is not None
                 assert observer.last_market.at == times[index]
-        assert inputs.calls == 2
-        assert journal.checkpoint("alpha") != first_effects[3]
+        assert journal.checkpoint("alpha") is not None
         assert observer.delivered_count == len(deliveries)
         measurements.close()
         measured = tuple(
@@ -750,11 +701,11 @@ class TestSharedPublicPaper:
             False,
             True,
             False,
-            False,
             True,
+            False,
         )
         selected_rows = tuple(item for item in measured if item["policy_selected"] is True)
-        assert len(selected_rows) == 2
+        assert tuple(item["position"] for item in selected_rows) == (3,)
         assert all(item["checkpoint_acknowledged"] is True for item in selected_rows)
         assert all(
             isinstance(item["book_to_checkpoint_ns"], int) and item["book_to_checkpoint_ns"] >= 0
@@ -766,12 +717,13 @@ class TestSharedPublicPaper:
             phases = cast(dict[str, int], item["phase_ns"])
             started, finished = cast(int, item["book_started_ns"]), cast(int, item["finished_ns"])
             assert started <= phases["retained_ns"] <= finished
-            if item["market_selected"]:
-                assert phases["retained_ns"] <= phases["observed_ns"] <= phases["matched_ns"]
             if item["policy_selected"]:
-                assert phases["matched_ns"] <= phases["evaluated_ns"] <= finished
+                assert phases["retained_ns"] <= phases["evaluated_ns"] <= phases["observed_ns"]
             else:
                 assert "evaluated_ns" not in phases
+            if item["market_selected"]:
+                assert phases["retained_ns"] <= phases["observed_ns"] <= phases["matched_ns"]
+                assert phases["matched_ns"] <= finished
         codec = DomainCodec()
         retained_bytes = path.with_suffix(".jsonl").read_bytes().splitlines()
         retained = tuple(codec.decode_json(line, SharedBookDelivery) for line in retained_bytes)
@@ -784,14 +736,18 @@ class TestSharedPublicPaper:
             )
             observed = ObservedSharedBookDelivery(
                 source=observed_source,
-                inputs=delivery.inputs,
-                coordinated_at=delivery.coordinated_at,
+                decisions=delivery.decisions,
+                matched=delivery.matched,
                 schema_version=delivery.schema_version,
-                market_effects=delivery.market_effects,
             )
             assert codec.encode_json(observed_source) == codec.encode_json(delivery.source)
             assert codec.encode_json(observed) == codec.encode_json(delivery) == payload
         assert tuple(item.source.book.position for item in retained) == tuple(range(5))
+        (group,) = retained[3].decisions
+        assert group.at == self.at + timedelta(milliseconds=2500)
+        assert group.coordinated_at == group.at + timedelta(microseconds=1)
+        assert group.quote.at == times[2]
+        assert tuple(item.instance_id for item in group.inputs) == ("alpha",)
         as_of.close()
         selection = observer.books.lookup(observer._key, cutoff_ns=0).selection
         offset = 0
@@ -808,55 +764,42 @@ class TestSharedPublicPaper:
                 assert selected == (offset, len(payload) + 1)
             offset += len(payload) + 1
         assert BookAsOfIndex(as_of.path).covered_bytes() == offset
-        assert tuple(item.market_effects for item in retained) == (True, True, False, False, True)
+        assert tuple(item.matched for item in retained) == (False, True, False, True, False)
         assert len(journal.paper_traces("paper")) == 2
         assert AccountLedger(journal.accounts()[0].ledger).snapshot().positions == (
             self._quantity("1"),
         )
 
-        replay_inputs = _SignalInputs()
-        replay, recovered = self._observer(tmp_path / "replay.sqlite3", inputs=replay_inputs)
+        replay, recovered = self._observer(
+            tmp_path / "replay.sqlite3", cadence_us=3_000_000, deciding=True
+        )
         assert recovered.reconcile(self._opening())
         for delivery in retained:
             replay.deliver(delivery)
-        assert replay_inputs.calls == 0
         assert recovered.accounts() == journal.accounts()
         assert recovered.orders() == journal.orders()
         assert recovered.paper_traces("paper") == journal.paper_traces("paper")
         assert recovered.paper_report_facts("paper") == journal.paper_report_facts("paper")
         assert recovered.checkpoint("alpha") == journal.checkpoint("alpha")
-
-    def test_market_interval_never_delays_source_fault(self, tmp_path: Path) -> None:
-        """An invalid boundary inside the interval blocks a previously priced account."""
-        observer, journal = self._observer(
-            tmp_path / "invalid.sqlite3", market_interval_us=3_000_000
+        unmatched = replace(retained[3], decisions=(), matched=False)
+        fresh, opened = self._observer(
+            tmp_path / "unmatched.sqlite3", cadence_us=3_000_000, deciding=True
         )
+        assert opened.reconcile(self._opening())
+        for delivery in retained[:3]:
+            fresh.deliver(delivery)
+        with pytest.raises(ValueError, match="replayed decision grid"):
+            fresh.deliver(unmatched)
+
+    def test_grid_never_delays_source_fault(self, tmp_path: Path) -> None:
+        """An invalid boundary between instants blocks a previously priced account."""
+        observer, journal = self._observer(tmp_path / "invalid.sqlite3", cadence_us=3_000_000)
         assert journal.reconcile(self._opening())
+        session, first, second, *_ = self._markets()
         for delivery in (
-            self._delivery(
-                0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
-            ),
-            self._delivery(
-                1,
-                seconds=1,
-                kind="frame",
-                outcome="snapshot",
-                status="degraded",
-                reason="visible_depth_only",
-                market=True,
-            ),
-            replace(
-                self._delivery(
-                    2,
-                    seconds=2,
-                    kind="frame",
-                    outcome="update",
-                    status="degraded",
-                    reason="visible_depth_only",
-                    market=True,
-                ),
-                market_effects=False,
-            ),
+            session,
+            first,
+            replace(second, matched=False),
             self._delivery(
                 3,
                 seconds=3,
@@ -871,19 +814,42 @@ class TestSharedPublicPaper:
         assert observer.last_market is not None
         assert observer.last_market.at == self.at + timedelta(seconds=2)
 
-    def test_market_interval_bounds_and_explicit_selection(self, tmp_path: Path) -> None:
-        """The selection field is always encoded; invalid cadence fails early."""
+    def test_delivery_schema_and_decision_group_order(self, tmp_path: Path) -> None:
+        """Deliveries name their schema; decided instants precede delivery and coordination."""
         delivery = self._delivery(
             0, seconds=0, kind="session", outcome="session", status="recovering", reason="new"
         )
         codec = DomainCodec()
-        assert b'"market_effects":true' in codec.encode_json(delivery)
-        assert codec.decode_json(codec.encode_json(delivery), SharedBookDelivery) == delivery
-        with pytest.raises(ValueError, match="cannot coordinate"):
-            replace(delivery, market_effects=False, coordinated_at=self.at)
-        for interval in (-1, True, 5_000_001, 10_000_000):
-            with pytest.raises(ValueError, match="market interval"):
-                self._observer(tmp_path / f"bad-{interval}.sqlite3", market_interval_us=interval)
+        encoded = codec.encode_json(delivery)
+        assert b'"matched":false' in encoded
+        assert b'"schema_version":"shared-candidate-delivery"' in encoded
+        assert codec.decode_json(encoded, SharedBookDelivery) == delivery
+        with pytest.raises(msgspec.ValidationError):
+            codec.decode_json(
+                encoded.replace(b"shared-candidate-delivery", b"shared-book-delivery"),
+                SharedBookDelivery,
+            )
+        observer, journal = self._observer(tmp_path / "groups.sqlite3", deciding=True)
+        assert journal.reconcile(self._opening())
+        session, first, second, *_ = self._markets()
+        for item in (session, first):
+            observer.deliver(item)
+        quote = AccountQuote(price=self._price("100"), at=first.source.available_at)
+        instant = self.at + timedelta(milliseconds=1500)
+        inputs = observer._instance_inputs(observer.runtime.bindings[0], instant)
+        assert inputs is not None
+        group = SharedDecisionGroup(
+            at=instant,
+            quote=quote,
+            inputs=(SharedStrategyInput(instance_id="alpha", inputs=inputs, quote=quote),),
+            coordinated_at=instant + timedelta(microseconds=1),
+        )
+        with pytest.raises(ValueError, match="also matches"):
+            replace(second, decisions=(group,), matched=False)
+        with pytest.raises(ValueError, match="out of order"):
+            replace(group, coordinated_at=second.source.available_at)
+        with pytest.raises(ValueError, match="precede their delivery"):
+            replace(first, decisions=(group,))
 
     def test_managed_invalidations_fault_once_per_observer(self, tmp_path: Path) -> None:
         """The first bad source fact faults its owner without repeated account loads."""
@@ -1082,8 +1048,8 @@ class TestSharedPublicPaper:
                     book=delivery.source.book,
                     available_at=delivery.source.available_at,
                 ),
-                inputs=(),
-                coordinated_at=None,
+                decisions=(),
+                matched=False,
             )
         force_setattr(delivery.source.book, "state_identity", "bad")
         with pytest.raises(ValueError, match="book state or quality"):
@@ -1093,7 +1059,7 @@ class TestSharedPublicPaper:
                 available_at=delivery.source.available_at,
             )
         with pytest.raises(ValueError, match="book state or quality"):
-            SharedBookDelivery(source=delivery.source, inputs=(), coordinated_at=None)
+            SharedBookDelivery(source=delivery.source, decisions=(), matched=False)
         with pytest.raises(ValueError, match="book state or quality"):
             DomainCodec().decode_json(DomainCodec().encode_json(delivery), SharedBookDelivery)
         with pytest.raises(ValueError, match="book state or quality"):
@@ -1191,7 +1157,7 @@ class TestSharedPublicPaper:
         book = delivery.source.book
         level = Level(size=Decimal("4"), order_count=1)
         book = replace(book, asks=((Decimal("98"), level),) if crossed else ())
-        return replace(delivery, source=replace(delivery.source, book=book))
+        return replace(delivery, source=replace(delivery.source, book=book), matched=False)
 
     def test_transient_unpriceable_book_faults_only_after_freshness(self, tmp_path: Path) -> None:
         """Intermediate per-order states are unpriced; a persistent one still faults."""
@@ -1362,24 +1328,14 @@ class TestSharedPublicPaper:
             stale.deliver(delivery)
         assert stale_journal.accounts()[0].operator_block == "public_input_invalid"
 
-    def test_coordination_reads_real_clock_until_after_delivery(self, tmp_path: Path) -> None:
-        """Equal microsecond samples retry; a frozen clock fails without inventing time."""
-        later = self.at + timedelta(microseconds=1)
-        observer, _ = self._observer(
-            tmp_path / "account.sqlite3", clock=_SequenceClock((self.at, self.at, later))
-        )
-        assert observer._coordination_time(self.at) == later
-        frozen, _ = self._observer(tmp_path / "frozen.sqlite3", clock=_SequenceClock((self.at,)))
-        with pytest.raises(ValueError, match="did not advance"):
-            frozen._coordination_time(self.at)
-
     @pytest.mark.parametrize("changed", ("model", "feature"))
     def test_managed_workload_identity_mismatch_precedes_capture(
         self, tmp_path: Path, changed: str
     ) -> None:
         """Refuse changed model or feature bindings before source access or economics."""
-        config, binding, inputs = self._config(), self._binding(), _NoDecisionInputs()
+        config, binding = self._config(), self._binding()
         request, requirement = self._request(), self._requirement()
+        candidate = binding.candidate
         codec = DomainCodec()
         deployment = PaperDeployment(
             account_id="paper",
@@ -1388,14 +1344,16 @@ class TestSharedPublicPaper:
             strategies=(
                 PaperStrategyIdentity(
                     instance_id=binding.instance_id,
-                    policy_identity=binding.policy.identity,
-                    candidate_identity="reference-policy",
+                    policy_identity=candidate.policy.identity,
+                    candidate_identity=candidate.definition.identity,
                     model_identity="changed-model" if changed == "model" else "rule-only",
-                    feature_identity="changed-feature" if changed == "feature" else inputs.identity,
+                    feature_identity="changed-feature"
+                    if changed == "feature"
+                    else candidate.feature.schema.identity,
                 ),
             ),
             input_identity=hashlib.sha256(
-                codec.encode_json((request.config, requirement, inputs.identity))
+                codec.encode_json((request.config, (requirement,)))
             ).hexdigest(),
             scenario=self._scenario(),
             state_identity="paper-account-state",
@@ -1436,8 +1394,6 @@ class TestSharedPublicPaper:
                     account_id="paper",
                     bindings=(binding,),
                     scenario=self._scenario(),
-                    requirement=requirement,
-                    inputs=inputs,
                     request=request,
                     journal_path=path,
                     output=tmp_path / "capture",
@@ -1488,8 +1444,6 @@ class TestSharedPublicPaper:
                     account_id="paper",
                     bindings=(self._binding(),),
                     scenario=self._scenario(),
-                    requirement=self._requirement(),
-                    inputs=_NoDecisionInputs(),
                     request=self._request(),
                     journal_path=path,
                     output=tmp_path / "run",
@@ -1508,8 +1462,6 @@ class TestSharedPublicPaper:
                     account_id="paper",
                     bindings=(self._binding(),),
                     scenario=self._scenario(),
-                    requirement=self._requirement(),
-                    inputs=_NoDecisionInputs(),
                     request=self._request(),
                     journal_path=prior_path,
                     output=tmp_path / "prior-run",

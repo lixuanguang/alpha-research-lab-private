@@ -333,7 +333,7 @@ def main() -> None:
             source_identity=scenario.source.identity,
             starts_at=starts,
         )
-        registry = _CandidateAcceptance._registry(manifest.requirements)
+        registry = _CandidateAcceptance._registry(manifest.definition.requirements)
         loader = CandidateLoader(components, registry)
         loader.load(CandidateBundle(output / name), replay)
         loaded_runtime = loader.load(CandidateBundle(output / name), runtime)
@@ -397,7 +397,7 @@ def main() -> None:
         )
         _CandidateAcceptance._reject_before_read(
             bundle,
-            replace(replay, starts_at=manifest.available_at - timedelta(microseconds=1)),
+            replace(replay, starts_at=manifest.definition.available_at - timedelta(microseconds=1)),
             components=components,
             registry=registry,
             source=scenario.source,
@@ -444,7 +444,7 @@ def main() -> None:
             "candidate": manifest.identity,
             "deployment": replay.identity,
             "report": manifest.report.sha256,
-            "output": manifest.output,
+            "output": manifest.definition.output,
             "qualification": manifest.qualification,
             "admission_rejections_before_source_reads": 5,
         }
@@ -479,6 +479,7 @@ def main() -> None:
                 paper_checkpoint,
                 scope=f"{name}-paper-candidate",
                 clock_quality="modeled",
+                study=manifest.dataset.sha256,
             )
             pending = scenario.labels.read(paper_step.feature, as_of=paper_step.at)
             observed = scenario.labels.read(

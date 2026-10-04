@@ -73,21 +73,17 @@ from financial_units import (
 from market_data.books import BookRegistry
 from market_data.contracts import CaptureRequest, FeedSocket
 from portfolio import PortfolioContext
-from research.features import FeatureVector
-from research.observations import (
-    DecisionInputs,
-    InputRequirement,
-    LiveBookDecisionSource,
-    NumericField,
-)
+from research.experiments import CandidateStateContract
+from research.features import FeatureSchema, ProjectionFeature
+from research.observations import InputRequirement, LiveBookDecisionSource, NumericField
 from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
+    AuthoredCandidates,
     ImplementationIdentity,
     SharedBookDelivery,
     SharedDecisionRuntime,
     SharedPaperCaptureObserver,
     SharedStrategyBinding,
-    SharedStrategyInput,
 )
 from serialization import DomainCodec
 from strategies import DecisionContext, DecisionTransition, OrderIntent
@@ -287,21 +283,18 @@ class PublicPaperWorkload:
                 "Off-chain spot paper matching; no blockchain activity or transfers."
             ),
         )
-        self.requirement = InputRequirement(
-            name="book",
-            family="book",
-            field=NumericField(name="imbalance", units="dimensionless"),
-            clock="receipt",
-            max_age_us=freshness_us,
+        self.requirements = tuple(
+            InputRequirement(
+                name="book", family="book", field=field, clock="receipt", max_age_us=freshness_us
+            )
+            for field in self.fields
         )
         self.account_config()
 
     @property
-    def identity(self) -> str:
-        """Pin this pure book-feature binding separately from the selected policies."""
-        return hashlib.sha256(
-            self.codec.encode_json(("public-paper-features", self.fields, self.reference_identity))
-        ).hexdigest()
+    def input_identity(self) -> str:
+        """Pin the native capture and its projected touch fields."""
+        return hashlib.sha256(self.codec.encode_json((self.capture, self.requirements))).hexdigest()
 
     def money(self, value: str) -> Money:
         """Construct independent quote-currency amounts."""
@@ -381,34 +374,71 @@ class PublicPaperWorkload:
             "configuration_sha256": hashlib.sha256(configuration).hexdigest(),
             "capture_sha256": hashlib.sha256(self.codec.encode_json(self.capture)).hexdigest(),
             "reference_consumer_sha256": self.reference_identity,
-            "input_identity": hashlib.sha256(
-                self.codec.encode_json((self.capture, self.requirement, self.identity))
-            ).hexdigest(),
+            "input_identity": self.input_identity,
             "scenario": self.scenario,
-            "strategies": tuple(
-                PaperStrategyIdentity(
-                    instance_id=binding.instance_id,
-                    policy_identity=binding.policy.identity,
-                    candidate_identity="public-paper-reference",
-                    model_identity=binding.context.model_revision,
-                    feature_identity=self.identity,
-                )
-                for binding in bindings
-            ),
+            "strategies": self.strategy_identities(bindings),
         }
         (output / "account-configuration.json").write_bytes(configuration)
         (output / "workload.json").write_bytes(self.codec.encode_json(preparation))
         return preparation
 
     def bindings(self) -> tuple[SharedStrategyBinding, ...]:
-        """Select two distinct active formulas with independent durable policy state."""
+        """Select two distinct active formulas with independent durable candidate state.
+
+        Each candidate decides on a one-microsecond grid, so every native book that
+        follows an eligible one decides from that earlier book and then matches.
+        """
         quantity = self.quantity("0.0001" if self.live else "2")
+        lot = self.quantity("0.00000001" if self.live else "1")
+        policies = {
+            "fixed": FixedOpeningClip(
+                quantity,
+                self.currency,
+                lot,
+                no_trade=self.no_trade,
+                implementation=self.reference_identity,
+            ),
+            "liquidity": LiquidityOpeningClip(
+                quantity,
+                self.currency,
+                lot,
+                no_trade=self.no_trade,
+                implementation=self.reference_identity,
+            ),
+        }
         return tuple(
             SharedStrategyBinding(
                 instance_id=name,
                 account_id="paper",
                 entity=str(self.dimension.instrument_id),
-                policy=policy,
+                candidate=AuthoredCandidates(venue=self.capture.venue).load(
+                    name=f"public-paper-{name}",
+                    feature=ProjectionFeature(
+                        FeatureSchema(
+                            implementation="named-projection",
+                            inputs=self.requirements,
+                            outputs=self.fields,
+                            parameters=(),
+                            mode="batch",
+                            ttl_us=self.freshness_us,
+                        )
+                    ),
+                    policy=policies[name],
+                    instance=name,
+                    entity=str(self.dimension.instrument_id),
+                    cadence_us=1,
+                    starts_at=datetime(1970, 1, 1, tzinfo=UTC),
+                    source_identity=self.input_identity,
+                    state=CandidateStateContract(
+                        feature_mode="batch",
+                        warmup_observations=0,
+                        checkpoint_schema="candidate-checkpoint",
+                        on_gap="continue",
+                        on_restart="restore",
+                        policy_state_schema="opening-clip-counter",
+                    ),
+                    order_types=("gtc",),
+                ),
                 context=PortfolioContext(
                     portfolio_id="reference",
                     strategy_id=name,
@@ -423,57 +453,23 @@ class PublicPaperWorkload:
                 ),
                 maximum_fee=self.money("2"),
             )
-            for name, policy in (
-                (
-                    "fixed",
-                    FixedOpeningClip(
-                        quantity,
-                        self.currency,
-                        self.quantity("0.00000001" if self.live else "1"),
-                        no_trade=self.no_trade,
-                        implementation=self.reference_identity,
-                    ),
-                ),
-                (
-                    "liquidity",
-                    LiquidityOpeningClip(
-                        quantity,
-                        self.currency,
-                        self.quantity("0.00000001" if self.live else "1"),
-                        no_trade=self.no_trade,
-                        implementation=self.reference_identity,
-                    ),
-                ),
-            )
-            if name in self.names
+            for name in self.names
         )
 
-    def build(self, inputs: DecisionInputs, market: PaperMarket) -> tuple[SharedStrategyInput, ...]:
-        """Retain actual native input lineage and exact observed book features."""
-        at = inputs.decision_at
-        vector = FeatureVector(
-            entity=inputs.entity,
-            decision_at=at,
-            event_at=at,
-            information_start=at,
-            available_at=at,
-            expires_at=at + timedelta(microseconds=self.freshness_us),
-            definition=self.identity,
-            fields=self.fields,
-            values=tuple(
-                ExactRatio.from_fraction(Fraction(value))
-                for value in (market.ask.value, market.bid.value, market.ask_quantity.value)
-            ),
-            reasons=("native-touch",) * 3,
-            input_identity=inputs.identity,
-        )
+    @staticmethod
+    def strategy_identities(
+        bindings: tuple[SharedStrategyBinding, ...],
+    ) -> tuple[PaperStrategyIdentity, ...]:
+        """Name each binding's exact candidate, policy, model and feature identities."""
         return tuple(
-            SharedStrategyInput(
-                instance_id=name,
-                context=DecisionContext(features=vector, prediction=None),
-                quote=AccountQuote(price=market.ask, at=at),
+            PaperStrategyIdentity(
+                instance_id=binding.instance_id,
+                policy_identity=binding.candidate.policy.identity,
+                candidate_identity=binding.candidate.definition.identity,
+                model_identity=binding.context.model_revision,
+                feature_identity=binding.candidate.feature.schema.identity,
             )
-            for name in self.names
+            for binding in bindings
         )
 
     def opening(self) -> AccountObservation:
@@ -690,8 +686,6 @@ class PublicPaperWorkload:
             account_id="paper",
             bindings=bindings,
             scenario=self.scenario,
-            requirement=self.requirement,
-            inputs=self,
             request=request,
             journal_path=path,
             output=output / "run",
@@ -754,13 +748,12 @@ class PublicPaperWorkload:
                 (journal.accounts(), journal.orders(), journal.net_orders(), journal.paper_traces())
             )
             observer = SharedPaperCaptureObserver(
-                source=LiveBookDecisionSource(request, self.requirement, history_capacity=1000),
+                source=LiveBookDecisionSource(request, self.requirements, history_capacity=1000),
                 books=BookRegistry(result.book_registry),
                 journal=journal,
                 runtime=SharedDecisionRuntime(journal, self.bindings()),
                 account_id="paper",
                 scenario=self.scenario,
-                inputs=self,
                 delivery_path=None,
             )
             for line in (output / "run/deliveries.jsonl").read_bytes().splitlines():
@@ -829,22 +822,9 @@ class PublicPaperWorkload:
             deployment.configuration_sha256
             != hashlib.sha256(self.codec.encode_json(config)).hexdigest()
             or deployment.scenario != self.scenario
-            or deployment.input_identity
-            != hashlib.sha256(
-                self.codec.encode_json((self.capture, self.requirement, self.identity))
-            ).hexdigest()
+            or deployment.input_identity != self.input_identity
             or authorization.deployment_sha256 != deployment.identity
-            or deployment.strategies
-            != tuple(
-                PaperStrategyIdentity(
-                    instance_id=binding.instance_id,
-                    policy_identity=binding.policy.identity,
-                    candidate_identity="public-paper-reference",
-                    model_identity=binding.context.model_revision,
-                    feature_identity=self.identity,
-                )
-                for binding in self.bindings()
-            )
+            or deployment.strategies != self.strategy_identities(self.bindings())
         ):
             raise ValueError("signed paper deployment differs from prepared public workload")
         output.mkdir(parents=True, exist_ok=False)
@@ -1190,8 +1170,6 @@ class PublicPaperWorkload:
             account_id="paper",
             bindings=self.bindings(),
             scenario=self.scenario,
-            requirement=self.requirement,
-            inputs=self,
             request=request,
             journal_path=journal.path,
             output=output / "resumed",
@@ -1348,6 +1326,17 @@ class PublicPaperWorkload:
         """Decode one retained manifest value through the installed domain codec."""
         return self.codec.decode_json(self.codec.encode_json(manifest[name]), target)
 
+    def _typed_items[T](
+        self, manifest: dict[str, object], name: str, target: type[T]
+    ) -> tuple[T, ...]:
+        """Decode one retained manifest list, item by item, through the domain codec."""
+        values = manifest[name]
+        if not isinstance(values, list):
+            raise ValueError(f"retained public paper manifest field is not a list: {name}")
+        return tuple(
+            self.codec.decode_json(self.codec.encode_json(item), target) for item in values
+        )
+
     def _journal_bytes(self, journal: AccountJournal) -> dict[str, bytes]:
         """Snapshot exact durable state for comparison across delivery replay."""
         return {
@@ -1370,8 +1359,7 @@ class PublicPaperWorkload:
                 "execution_scenario",
                 "capture_request",
                 "book_registry",
-                "requirement",
-                "input_binding",
+                "requirements",
                 "paper_mark_policy",
                 "strategies",
                 "opening_observations",
@@ -1384,15 +1372,22 @@ class PublicPaperWorkload:
         request = self._typed_field(manifest, "capture_request", CaptureRequest)
         books = self._typed_field(manifest, "book_registry", BookRegistryConfiguration)
         scenario = self._typed_field(manifest, "execution_scenario", PaperExecutionScenario)
-        requirement = self._typed_field(manifest, "requirement", InputRequirement)
+        requirements = self._typed_items(manifest, "requirements", InputRequirement)
         config.__post_init__()
         request.__post_init__()
         books.__post_init__()
         scenario.__post_init__()
-        requirement.__post_init__()
+        for item in requirements:
+            item.__post_init__()
         bindings = self.bindings()
         strategies = tuple(
-            (binding.instance_id, binding.policy.identity, binding.context, binding.maximum_fee)
+            (
+                binding.instance_id,
+                binding.candidate.definition.identity,
+                binding.candidate.deployment.identity,
+                binding.context,
+                binding.maximum_fee,
+            )
             for binding in bindings
         )
         if (
@@ -1401,9 +1396,8 @@ class PublicPaperWorkload:
             or request.config != self.capture
             or config != replace(self.account_config(), opening_at=config.opening_at)
             or scenario != self.scenario
-            or requirement != self.requirement
+            or requirements != self.requirements
             or manifest["account_id"] != "paper"
-            or manifest["input_binding"] != self.identity
             or manifest["paper_mark_policy"] != "last_eligible_bid"
             or self.codec.encode_json(manifest["strategies"]) != self.codec.encode_json(strategies)
         ):
@@ -1416,14 +1410,13 @@ class PublicPaperWorkload:
         before = self._journal_bytes(journal)
         observer = SharedPaperCaptureObserver(
             source=LiveBookDecisionSource(
-                request, requirement, history_capacity=books.history_capacity
+                request, requirements, history_capacity=books.history_capacity
             ),
             books=BookRegistry(books),
             journal=journal,
             runtime=SharedDecisionRuntime(journal, bindings),
             account_id="paper",
             scenario=scenario,
-            inputs=self,
             delivery_path=None,
         )
         deliveries_bytes = (output / "run/deliveries.jsonl").read_bytes()

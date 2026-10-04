@@ -84,11 +84,11 @@ class CandidateFeatureFeed:
                     deployment.entity,
                     at,
                     max_materialization_age_us=min(
-                        *(item.max_age_us for item in loaded.manifest.inputs),
+                        *(item.max_age_us for item in loaded.definition.inputs),
                         *(
                             requirement.max_freshness_us
-                            for requirement in loaded.manifest.requirements
-                            if requirement.name in {item.name for item in loaded.manifest.inputs}
+                            for requirement in loaded.definition.requirements
+                            if requirement.name in {item.name for item in loaded.definition.inputs}
                             and requirement.max_freshness_us is not None
                         ),
                     ),
