@@ -196,8 +196,9 @@ passed through P2. It contains:
   intents, plus a learned policy emitting targets;
 - a custom metric (net return per unit turnover) and a custom chart.
 
-**Steps, commands and pass criteria.** Exact commands are fixed in the journey
-declaration (milestone M4) once the guides they come from exist; the shape is:
+**Steps, commands and pass criteria.** Exact commands are fixed in the
+[journey declaration](#journey-declaration-approved-2026-10-04) (milestone M3); the
+shape is:
 
 | Step | What runs (installed commands and APIs) | Pass criteria |
 | --- | --- | --- |
@@ -914,6 +915,540 @@ signed paper-services rehearsal.
 | Integration lane with the Feast worker | 37 passed, 0 skipped |
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 691 files |
+
+## M3 design note: journey consumer and declaration (approved 2026-10-04)
+
+The owner approved this note, T-1, P-A (with its signed schema change), M-1, R-1,
+the declaration and the rehearsal scope on 2026-10-04. Legacy code that the changes
+supersede is removed, not kept beside them.
+
+**Sequencing as implemented.** J6 and J7 depend on P-A and M-1, and rehearsal 1
+stops at J5. The driver therefore lands in two parts:
+- M3a: the driver with J1–J5 and J8;
+- after M3b: rehearsal 1;
+- after M3c and M3d: M3e, the driver's J6–J7, then rehearsal 2.
+
+Every known gap is still fixed before any rehearsal reaches it.
+
+**What reading the code shows.** Three journey steps cannot pass on `e8dec10` as
+written. Each needs an owner choice (below) before rehearsals reach it:
+- **G-T — research cannot read live trades captures.** `alpha-collect` captures a
+  websocket `trades` feed (M1c-1), but only the supervisor's `LiveTradeDecisionSource`
+  consumes it. `DatasetPublication.publish_books` admits book captures only, and
+  `SavedDecisionSource` reads trades only from the REST acquisition path
+  (`alpha-acquire public`): polled, with unknown completeness and poll-time
+  availability. A J3 study of signed trade flow would therefore read different trades,
+  under a different availability clock, than the J6 candidate. J5's "replay decisions
+  equal the study's" would fail.
+- **G-P — no supported live feature publisher.** `materialize_features` extends a
+  stream, but no installed command runs it on live inputs. The 2a feature processes
+  are harness code under `tests/`. A QR following the quickstart (step 6) would have
+  to write a long-running process from internals.
+- **G-M — custom metrics never reach supervised dashboards.**
+  `CandidateMonitoringExporter` takes the dedicated path's `PaperConfiguration` and
+  `PaperCheckpoint`. Only `candidate_workflow.py` calls it; the supervisor's
+  diagnostic process never does. J6's "custom metric on paper dashboards" and its
+  alert therefore have no path for a packaged candidate on a shared account.
+- **J7 account restore.** `AccountWorkspace.restore` quarantines a restored journal
+  from managed activation by contract. `alpha-governance-artifacts install --state`
+  binds an explicitly quiesced snapshot to a new signed target, so the journey resumes
+  through that path (R-1 below). Whether the installer accepts a restored account
+  journal is first exercised in a rehearsal.
+- **J2 collection runs outside the signed collector.** The installed launcher bounds
+  every non-account run to 180 s, so a six-hour `capture-run` cannot run through the
+  signed collector target. R1 used a `--no-editable` environment's `alpha-collect`; J2
+  does the same and records that as a stated limitation, not a pass of signed
+  collection.
+- **Disk.** 483 GiB free on 2026-10-04 (497 GiB when the record opened); M5 needs at
+  least 512 GiB.
+
+**Choices for the owner.**
+
+*G-T — trades in research.*
+- **T-1 (recommended): one capture publication path and one trade schema.**
+  `DatasetPublication.publish_books` is replaced in place by one capture publication
+  path. It selects the reconstruction from each capture's declared capability, so
+  books and trades are published the same way, and a future stream type plugs in
+  without a parallel method. Trades captures publish into the same public-trade
+  partition schema that REST acquisitions use:
+  - venue trade IDs, exact price and size, aggressor side and event time are kept;
+  - availability is the durable receipt clock, rounded up to microseconds as for books.
+
+  Research therefore has one trade schema with two acquisition sources: websocket
+  capture for live windows, and REST for historical backfill, which websocket
+  capture cannot provide. The schema is changed in place where trades captures need
+  it, with no compatibility reader. `SavedDecisionSource` reads both with the same
+  field and window rules, so J3, J5 and J6 read the same trades.
+- **T-2: REST trades for research.** No code change. J3 reads polled REST trades;
+  J5 compares only book-fed decisions exactly and reports trade-fed differences.
+  The journey then cannot claim research-to-paper parity for its trade feature.
+
+*G-P — live feature publication.*
+- **P-A (recommended): a signed `feature-publisher` command.** The paper-services
+  release gains a fourth bound command. It reads the supervisor's retained book and
+  trades captures read-only as they grow, rebuilds the live sources, computes the
+  packaged candidate's feature and fitted transform through `InstalledExtensions`,
+  and calls `materialize_features` at each grid instant for the version the signed
+  configuration pins. It writes only the feature store and the Feast generation
+  root. Its life is bounded like the supervisor's, and it holds no account or
+  venue authority. Code still loads only from the signed release. Cost: a runtime
+  owner, a launcher binding, and a `PaperFeatureServing.publisher` field (cadence and
+  maximum lag). That field changes the signed paper-services configuration schema
+  going forward. The publisher is a runtime owner that is not tied to paper, so a
+  scheduled research job can reuse it, and one publisher can feed every deployment
+  that pins the same version. The store stays the only coupling between producer
+  and consumer.
+- **P-B: an unsigned research-environment publisher with its own websocket
+  captures.** No signed change, but it duplicates every source connection beyond
+  the eight-process envelope, and it loads QR code from an unsigned environment,
+  contrary to the code-loading rule.
+
+*G-M — candidate metrics on supervised paper.*
+- **M-1 (recommended): one exporter, exported from the supervisor's diagnostic
+  process.** `CandidateMonitoringExporter` is replaced in place. It takes one
+  candidate step record (feature vector, prediction, decision, instant and
+  continuation) that both the dedicated and shared paths produce, so there is one
+  export path, not two. The dedicated path's caller changes with it. At the telemetry
+  cadence, the diagnostic process exports each packaged candidate's runtime metric
+  contracts into `monitoring/telemetry.sqlite3`, with delayed labels revised as they
+  mature. A threshold alert on a candidate metric goes to the configured
+  `alert_socket`. No control path returns to accounts. Cost: exporter
+  generalization, diagnostic wiring, tests. 2b inherits the extra telemetry.
+- **M-2: offline export after a run** from the retained delivery logs. Cheaper, but
+  dashboards are not live and no alert fires during the run, so J6 would fail its
+  stated criterion.
+
+*R — J7 account resumption.*
+- **R-1 (recommended):** after a quiesced backup, restore into a fresh root, install
+  a fresh signed account target with `--state` bound to the restored journal
+  component, reconcile independently and `claim_paper`. The supervisor resumes from
+  the restored candidate checkpoints. If the installer refuses that state, the
+  rehearsal stops and records it for an owner decision. It is never worked around.
+
+**Plan, if approved as recommended.** Backward compatibility is not kept (owner,
+2026-10-04): superseded code, formats and readers are replaced in place. Evidence
+recorded earlier stays valid at its frozen commits. The known gaps are fixed before
+any rehearsal, because rehearsing into a known failure teaches nothing. There are
+four commits, and each passes the full suite, the integration lane and the Linux
+strict mypy run:
+- **M3a — journey driver,** with tests of its gate logic and summary schema. Nothing
+  runs yet.
+- **M3b — one capture publication path and one trade schema (T-1).**
+- **M3c — the signed feature publisher (P-A).** Its signed schema change needs this
+  approval.
+- **M3d — one candidate monitoring exporter (M-1).**
+- Then the rehearsals below. Every fix a rehearsal exposes is its own reviewable
+  commit before the next rehearsal; guide fixes go in the same commit as the code
+  they describe.
+- C3 stays as approved: the dedicated paper path is retired after MR17, not in M3.
+
+### Journey driver
+
+`tests/integration/consumers/journey/mr17_journey.py` is a QD consumer, like the 2a
+cohort driver. It is copied out of the frozen worktree by hash and run with the
+installed research interpreter (`-I`). One invocation owns one fresh attempt
+directory and stops at its first failed criterion. It never edits QR code and never
+retries a failed step.
+
+- **Classes.** `JourneyDeclaration` (frozen numbers, paths and windows, read from
+  `declaration.json`); `JourneyCommands` (runs each argv, retains stdout and stderr,
+  and appends `commands.jsonl` before the next command starts); one class per step
+  (`Provision`, `Data`, `Research`, `Features`, `Candidates`, `Paper`, `Operations`,
+  `Capacity`), each returning typed `Gate` rows; `JourneySummary` (writes
+  `summary.json`).
+- **CLI.** `run --declaration PATH --output DIR --through J1..J8`. A rehearsal may
+  stop after a named step. A counted attempt must declare `--through J8` and
+  `counted: true`, and the driver refuses a dirty or editable checkout and any
+  QR workspace whose commit differs from the declaration.
+- **What runs where.** QR steps run the QR's own scripts from the attempt's copy of
+  the QR workspace with the research interpreter. Operator steps run installed
+  commands: `alpha-governance-artifacts`, the signed targets through `run`, and
+  `alpha-dataset`. The driver composes only operator inputs (build requests, account
+  deployments, grants, observations, controls) and reads results.
+- **Summary JSON** (`summary.json`, schema `mr17-journey-summary`):
+
+  ```json
+  {
+    "schema": "mr17-journey-summary",
+    "attempt": "rehearsal-1",
+    "counted": false,
+    "commit": "<frozen commit>",
+    "declaration_sha256": "...",
+    "qr_workspace": {"commit": "...", "tree_sha256": "..."},
+    "guides": {"examples/qr-quickstart.md": "<sha256>"},
+    "installed": {"research": "<RECORD sha256>", "paper-services": "<release>"},
+    "started_at": "...",
+    "ended_at": "...",
+    "result": "passed | failed | stopped",
+    "first_failure": {"step": "J3", "criterion": "...", "observed": {}},
+    "steps": [
+      {
+        "step": "J1",
+        "status": "passed | failed | not_run | pending",
+        "started_at": "...",
+        "ended_at": "...",
+        "criteria": [{"name": "...", "passed": true, "observed": {}}],
+        "commands": ["<commands.jsonl ordinals>"],
+        "findings": [{"kind": "guide | code", "detail": "..."}]
+      }
+    ]
+  }
+  ```
+
+  `stopped` means a rehearsal ended at its declared `--through` step with every run
+  step passed. `pending` applies only to J8 while its prerequisites are open.
+
+### Fresh extension package and QR workspace
+
+- **Where.** A git repository at `~/AlphaResearchEvidence.noindex/mr17/qr-workspace/`,
+  outside iCloud and the checkout. It holds the `mr17-extensions` project
+  (`src/mr17_extensions/`, entry point `mr17-extensions =
+  "mr17_extensions:ComponentProvider"`) and the QR's scripts under `studies/`.
+  Each attempt copies the declared commit into `<attempt>/qr/` and records its tree
+  digest.
+- **Authoring rule.** It is written from `examples/qr-quickstart.md` and only the
+  guides and files it links. `qr/SOURCES.md` lists every file read, with its digest.
+  A link that leads into `tests/` (the quickstart links the packaging consumer) is
+  recorded as a guide finding.
+- **Independence limitation.** The author of the rehearsals also wrote the platform
+  code, so "fresh QR" knowledge cannot be proven by authorship. Two mechanical
+  checks bound it:
+  - the import audit (P2) over the whole workspace;
+  - a **guide-coverage** check: every supported name the workspace imports must
+    appear in a guide the quickstart links. An uncovered name is a guide finding
+    and fails J1 in the counted attempt.
+- **Components** (registered keys in parentheses):
+
+  | Component | Role | Definition |
+  | --- | --- | --- |
+  | `mr17.depth-imbalance` | feature | Book `imbalance` over the top five levels, from `bid_size` and `ask_size` |
+  | `mr17.trade-flow` | feature | Trade `signed_flow` over 30 s, divided by its 30 s absolute volume (zero when there is none) |
+  | `mr17.signals` | feature schema | One named schema holding both features |
+  | `mr17.standardize` | transform | Mean and standard deviation fitted on training rows only, retained as fitted state |
+  | `mr17.forward-mid-return` | label | Mid return from the instant to `instant + 60 s`, available at its end |
+  | `mr17.least-squares` | estimator | Exact least squares with intercept on `Fraction`; refuses a singular design |
+  | `mr17.quote-rule` | policy (order/quote) | Rule only: a one-tick-inside quote on the predicted side when both features agree beyond a threshold, otherwise cancel. It requotes only on a side or threshold change |
+  | `mr17.target` | policy (target) | Learned: target position equal to the clipped prediction times a size |
+  | `mr17.net-per-turnover` | metric | Net return per unit turnover, with runtime and research `applies_to` |
+  | `mr17.edge-chart` | chart | Cumulative net return against turnover |
+
+- **Candidates.** `mr17-rule` (book and trade source inputs, order/quote output,
+  rule only) and `mr17-learned` (feature-served from the stored `mr17.signals`
+  version, target output). Both are venue-level and take the instrument from their
+  source, so ETH is added by configuration.
+
+### Journey declaration (approved 2026-10-04)
+
+Abbreviations used in the commands:
+- `A` is `~/AlphaResearchEvidence.noindex/mr17/<attempt>`, and `C` is `$A/checkout`.
+- `T` is `/private/tmp/mr17/<attempt>`, which holds the environments and sockets (each
+  socket path stays under 100 bytes).
+- `GA` is `$T/build/bin/alpha-governance-artifacts`, and `PY` is
+  `$T/research/bin/python -I`.
+
+**J1 — Provision.**
+
+```sh
+git -C <repository> worktree add --detach $C <frozen commit>
+cd $C
+uv python install
+UV_PROJECT_ENVIRONMENT=$T/build uv sync --frozen --no-editable
+UV_PROJECT_ENVIRONMENT=$T/research uv sync --frozen --no-editable
+uv pip install --python $T/research/bin/python --no-deps $A/qr/mr17-extensions
+UV_CACHE_DIR=/private/tmp/uv-cache-research-worker \
+  uv sync --frozen --project configs/development/research-worker
+make local-services-up
+make local-services-status
+$T/build/bin/alpha-governance-engineering-standards import-audit $A/qr
+$GA fetch --repository $C --request $A/j1/collector-request.json \
+  --policy $A/j1/policy.json --dependencies $A/j1/wheels
+$GA build ... --registry $A/j1/registry      # collector, as the runbook lists
+$GA verify --release <collector release> --policy $A/j1/policy.json
+$GA install --release <collector release> --policy $A/j1/policy.json \
+  --target $A/j1/target-collector
+```
+
+Pass criteria:
+- every command exits 0;
+- the installed identities of research, extension, collector and worker are recorded;
+- the import audit and guide-coverage checks are clean;
+- an inventory of an execution target (built in J6) shows no `research`, notebook,
+  training, tracking or reporting modules.
+
+**J2 — Data.** One fixed window, the same for all eight feeds: books and trades for
+OKX `BTC-USDT` and `ETH-USDT`, and Bitfinex `tBTCUSD` and `tETHUSD`. The window is six
+hours in the counted attempt (owner decision 6).
+
+```sh
+$T/research/bin/alpha-collect capture-run --config $A/j2/config/<feed>.json \
+  --window $A/j2/window.json --run-directory $A/j2/runs/<feed>   # x8, concurrent
+$T/research/bin/alpha-collect capture-run-replay --run-directory $A/j2/runs/<feed> \
+  --max-seconds 7200                                                   # x8
+PY $A/qr/studies/j2_publish.py --runs $A/j2/runs --store $A/j2/raw \
+  --snapshots $A/j2/snapshots --lakefs-repository mr17-<attempt>
+$T/research/bin/alpha-dataset discover --snapshots $A/j2/snapshots \
+  --max-entries 100 --max-bytes 64000000
+PY $A/qr/studies/j2_reopen.py --snapshots $A/j2/snapshots --lakefs-reference <tag>
+```
+
+The grant-boundary refusal runs in J6, when the first account target is installed:
+an `authorize_paper` request whose instruments come from the J2 research selection,
+not that account's trading universe.
+
+Pass criteria:
+- every run's replay verification passes, with original receipt and venue clocks;
+- every gap is explicit in the quality report;
+- reopened lakeFS bytes equal the published snapshot;
+- the catalog lists every partition with its specification version and limits;
+- the grant refusal leaves the account state unchanged.
+
+**J3 — Research.** The first five hours are walk-forward development (one-hour
+train, 30-minute test, 30-minute step). The last hour is holdout, consumed once by
+the selected learned study.
+
+```sh
+PY $A/qr/studies/j3_study.py rule --snapshots $A/j2/snapshots --attempts $A/j3/attempts
+PY $A/qr/studies/j3_study.py learned --snapshots $A/j2/snapshots --attempts $A/j3/attempts
+PY $A/qr/studies/j3_study.py grid --attempts $A/j3/attempts \
+  --thresholds 0.2,0.4 --horizons 30,60
+PY $A/qr/studies/j3_study.py holdout --attempts $A/j3/attempts
+PY $A/qr/studies/j3_publish.py --attempts $A/j3/attempts   # publish_experiments to ClearML
+PY $A/qr/studies/j3_reopen.py --attempts $A/j3/attempts    # a fresh process
+PY $A/qr/studies/j3_extension.py --snapshots $A/j2/snapshots --attempts $A/j3/attempts
+```
+
+`j3_extension.py` covers P3:
+- ETH studies selected by configuration only;
+- the trade-flow input carried from study to candidate (packaged in J5, run in J6);
+- a study configuration with calendar `XNYS`, and an instrument definition of
+  product `perpetual` (different economics), each refused before any source
+  access or fold.
+
+Pass criteria:
+- both decision kinds are studied with costs;
+- every component identity is the extension's `RECORD` fingerprint, with no
+  built-in substitution;
+- holdout consumption is recorded once, and a second access is refused;
+- reports include the custom metric and chart;
+- ClearML lists the published experiments;
+- reopened results equal the originals;
+- both refusals are recorded, with no attempt data written.
+
+**J4 — Features.**
+
+```sh
+PY $A/qr/studies/j4_features.py define  --store $A/j4/store --feast $A/j4/feast
+PY $A/qr/studies/j4_features.py offline --snapshots $A/j2/snapshots --store $A/j4/store
+PY $A/qr/studies/j4_features.py stream  --version v1 --snapshots $A/j2/snapshots
+PY $A/qr/studies/j4_features.py faults  --store $A/j4/store --feast $A/j4/feast
+```
+
+The faults step injects, in order: a late revision, TTL expiry, a missing entity, a
+materialization retry after a stopped Feast worker, and a rollback from `v2` to `v1`.
+
+Pass criteria:
+- offline and online values are equal at matched cutoffs;
+- no value is served before its availability;
+- each fault returns its declared pause reason, and serving recovers exactly.
+
+**J5 — Candidates.**
+
+```sh
+PY $A/qr/studies/j5_package.py --attempts $A/j3/attempts --store $A/j4/store \
+  --candidates $A/j5/candidates
+PY $A/qr/studies/j5_replay.py --candidates $A/j5/candidates \
+  --snapshots $A/j2/snapshots --attempts $A/j3/attempts
+```
+
+`j5_package.py` uses `CandidatePackager`. `j5_replay.py` loads each bundle through
+`CandidateLoader` and replays it over the holdout inputs.
+
+Pass criteria:
+- the packager refuses a changed parameter;
+- replayed features, predictions and decisions equal the study's at every
+  matched instant.
+
+**J6 — Paper.** Four accounts, eight source processes (book and trades for each
+instrument), eight active instances and one provisioned inactive instance. This is
+inside the supported envelope.
+
+| Account | Instances |
+| --- | --- |
+| `okx-shared` | `mr17-rule`@okx-btc, `mr17-learned`@okx-btc (the shared-budget race pair); inactive `mr17-rule`@okx-btc with a second grid origin (for J7) |
+| `okx-isolated` | `mr17-rule`@okx-eth, `mr17-learned`@okx-eth |
+| `bitfinex-shared` | `mr17-rule`@bfx-btc, `mr17-learned`@bfx-btc |
+| `bitfinex-isolated` | `mr17-rule`@bfx-eth, `mr17-learned`@bfx-eth |
+
+Commands follow the runbook's
+[packaged-candidate path](../governance/operations.md#take-a-packaged-candidate-to-signed-paper):
+
+```sh
+$T/build/bin/alpha-governance-engineering-standards import-audit $A/j6/extensions/mr17-extensions
+$GA fetch --repository $C --request $A/j6/services-request.json \
+  --policy $A/j6/policy.json --dependencies $A/j6/wheels
+$GA build --repository $C --request $A/j6/services-request.json --policy $A/j6/policy.json \
+  --configuration $A/j6/services.json --dependencies $A/j6/wheels --audit $A/j6/audit \
+  --key <key> --registry $A/j6/registry \
+  --candidates $A/j6/candidates --extensions $A/j6/extensions
+$GA verify --release <services v1> --policy $A/j6/policy.json
+$GA install --release <services v1> --policy $A/j6/policy.json --target $A/j6/services
+$GA run --target $A/j6/services --policy $A/j6/policy.json -- deployment-check
+# for each account: build, verify, install an execution target from those identities, then
+$GA run --target $A/j6/target-<account> --policy $A/j6/policy.json -- account \
+  --request $A/j6/requests/<account>-<install|authorize|observe|claim|serve>.json
+$GA run --target $A/j6/services --policy $A/j6/policy.json -- feature-publisher ...   # P-A
+$GA run --target $A/j6/services --policy $A/j6/policy.json -- deployment \
+  --owners $A/j6/owners.json --root $A/j6/service-root --socket $T/s/supervisor.sock
+$GA run --target $A/j6/services --policy $A/j6/policy.json -- deployment-control \
+  --socket $T/s/supervisor.sock --request $A/j6/controls/<identity>.json
+```
+
+Phases, all within ordinary one-hour grants:
+
+| Phase | Supervisor life | Shape |
+| --- | --- | --- |
+| P-A | 30 min | Paper; reconciliation every 60 s. Selective `stop_instance` and `restart_instance` (with an observation) of `mr17-learned`@okx-btc at 10 min. Ends with an injected death of the `okx-isolated` owner while a request is in flight |
+| P-B | 10 min | Recovery as the runbook's step 5: stop, inspect, reconcile, resolve the uncertain order, fresh claims, relaunch |
+| S | 10 min | Shadow, on two fresh shadow targets (`okx-shadow`, `bitfinex-shadow`) with the same candidates on BTC, under their own grants |
+
+Scenarios:
+- **Shared-budget race.** On `okx-shared`, the rule candidate's quote size plus the
+  learned candidate's target exceeds the account's per-instrument limit, so the
+  first decisions contend for it.
+- **Adverse cost.** Every scenario declares a nonzero adverse cost.
+- **Alert.** A threshold on `mr17.net-per-turnover` is set so that it fires (M-1).
+  A local receiver bound to `alert_socket` retains it.
+
+Each account's orders are projected per hour against the 80-order grant before
+the run, as in 2a.
+
+Pass criteria:
+- exact independent reconciliation at every round;
+- cost and P&L per strategy, with gas inapplicable;
+- no duplicate economic effect, and the uncertain order is never retried;
+- the race is admitted once and refused once, with the account inside its limit;
+- served-feature lineage is retained and verified on replay, and trades deliveries are
+  retained in `.trades.jsonl`;
+- exact replay of every delivery log, with only the killed owner's tail unattributed;
+- the custom metric is on each account's dashboard, and the alert reached the receiver;
+- shadow made zero fills;
+- the research-selection grant was refused (J2).
+
+**J7 — Operations.**
+
+```sh
+PY $A/qr/studies/j7_backup.py --workspace $A --backup $A/j7/backup   # quiesced
+PY $A/qr/studies/j7_restore.py --backup $A/j7/backup --root $A/j7/restored
+$GA install --release <account release> --policy $A/j6/policy.json \
+  --target $A/j7/target-<account> --state $A/j7/restored/<account>   # R-1
+$GA build ... --configuration $A/j7/services-v2.json ...   # revision activates the inactive instance
+$GA install --release <services v2> --policy $A/j6/policy.json --target $A/j6/services
+$GA rollback --release <services v1> --policy $A/j6/policy.json --target $A/j6/services
+```
+
+The backup covers the research workspace (attempts, raw store, snapshots, jobs)
+through `WorkspaceBackup`, the feature store through `VersionedFeatureStore.backup`,
+and each stopped account through `AccountWorkspace.backup`. After the restore, the
+journey reconciles, claims and runs the supervisor for 5 minutes on the restored
+state. It then runs 5 minutes on services v2 and 5 minutes after the rollback to v1.
+
+Pass criteria:
+- restored manifests and identities equal the backup;
+- studies reopen and the restored store serves equal values;
+- resumption needs no manual repair;
+- v2 activates the inactive instance;
+- after the rollback, v1's code and configuration are selected and journals keep
+  their current facts.
+
+**J8 — Capacity.** No new measurement. The step links the accepted MR15 R1 and 2b
+records. It is `pending` until M4 and M5 pass, and passes only when both are
+accepted.
+
+**Evidence layout.**
+
+```text
+~/AlphaResearchEvidence.noindex/mr17/<attempt>/
+  declaration.json  summary.json  steps.jsonl  commands.jsonl
+  checkout/         frozen worktree, used only to build
+  consumers/        driver copy and digests
+  environments/     inventories of build, research, worker and every target
+  qr/               QR workspace copy, SOURCES.md, import audit, guide coverage
+  j1/ ... j8/       each step's inputs, outputs, logs and gate assessments
+logs/mr17/<attempt> -> that directory
+```
+
+Builder keys are created per attempt under `$T/keys` (mode 0700). Sockets live under
+`$T/s`, and the driver removes `$T` after the cleanup audit.
+
+**Rehearsal scope (owner decision 9).** All rehearsals are uncounted, and each is
+recorded here as run.
+- **Rehearsal 1:** J1–J5 on a 30-minute J2 window, with walk-forward and holdout
+  scaled to 20 + 10 minutes.
+- **Rehearsal 2 onward:** J1–J7 on a 60-minute window, with J6 phases shortened to
+  10/5/5 minutes.
+
+Each rehearsal stops at its first failure for owner review. The counted attempt (M6)
+uses the declared six-hour window and full phases on the code frozen at the 2b counted
+pass, and it needs separate approval.
+
+## M3a result (2026-10-04)
+
+The driver is implemented for J1–J5 and J8, in one commit. Nothing has been run.
+
+**What changed.**
+- **Driver.** `tests/integration/consumers/journey/mr17_journey.py`:
+  - It needs only `msgspec` and imports no platform code, because J1 creates the
+    installed environments. Run it with `run --declaration PATH`.
+  - The declaration (`mr17-journey-declaration`) fixes every input up front: the
+    commit, the QR workspace commit, the evidence and temporary roots, the feeds, the
+    capture window, the holdout count, the guides and the capacity records. It refuses
+    a counted attempt that stops before J8 or lacks both capacity records.
+  - Before J1 runs, the freeze requires a clean checkout and QR workspace at their
+    declared commits. It also requires the running driver to equal the frozen
+    worktree's copy.
+  - `Commands` appends each record to `commands.jsonl` before the next command
+    starts, including the eight concurrent J2 captures.
+  - `summary.json` is rewritten after each step.
+  - A declaration through J6 or J7 is refused until M3e.
+- **Independent checks.** `journey_checks.py` runs under the J1 research interpreter
+  with supported imports only:
+  - installed, non-editable research and extension identities;
+  - completed studies that pin `extension:mr17-extensions`, and the declared holdout
+    count;
+  - bundles reopened and tied to a completed attempt and the installed extension.
+- **Guide coverage.** It scans the QR workspace's platform imports against the
+  declared guides and the Markdown files they link. A rehearsal records each uncovered
+  name as a guide finding; a counted attempt fails J1.
+
+**Declaration refinements found while implementing.**
+- **QR results.** Each QR script also takes `--result PATH`. It writes its own
+  criteria and findings there (`{"criteria": [...], "findings": [...]}`), and the
+  driver retains them under the step, prefixed with the script label. The driver's
+  independent checks run in addition; they never replace these.
+- **Candidates bind one instrument.** `CandidatePackager` sets a definition's
+  entities from the study's economics entity. "ETH by configuration" therefore means
+  ETH studies and ETH bundles built from the same extension code with changed
+  configuration only. The J6 instances on ETH sources bind those ETH bundles
+  (`mr17-rule-eth`, `mr17-learned-eth`).
+- **Collector release.** The J1 signed collector is built with configuration schema
+  `1` and state schema `none`, using the first declared feed's capture configuration.
+  The first rehearsal confirms whether the builder accepts these.
+
+**Tests.** `test_mr17_journey.py` (17 cases) covers:
+- declaration and window refusals;
+- unique command ordinals and per-command exits, including concurrent ones;
+- guide-coverage links and uncovered names;
+- refusal of unimplemented steps before any work;
+- a dirty checkout failing J1 first, with a retained summary.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (694 files), native stubs (1,559 modules), engineering standards, dependency admission (188 packages), link and secret checks; 2,509 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 694 files |
 
 ## Milestones
 
