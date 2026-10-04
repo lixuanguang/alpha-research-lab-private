@@ -279,3 +279,25 @@ class TestReleaseProvenance:
             ReleaseProvenance._local_source(script, filename, "engineering-candidates", project)
         with pytest.raises(ValueError, match="unknown local release distribution"):
             ReleaseProvenance._local_source(release, filename, "engineering-candidates", "tools/x")
+
+    def test_external_extension_wheel_matches_its_signed_external_source(self) -> None:
+        """An extension built outside the repository maps to source/external/<name>/src."""
+        provider = (
+            "[alpha_research.candidate_components]\n"
+            "engineering-candidates = engineering_candidates:ComponentProvider\n"
+        )
+        release, filename = self._extension_release(entry_points=provider)
+        for name, content in tuple(release.contents):
+            if name.startswith("source/extensions/engineering-candidates/"):
+                release = self._replace(
+                    release,
+                    name.replace("source/extensions/", "source/external/", 1),
+                    content,
+                )
+        ReleaseProvenance._local_source(
+            release, filename, "engineering-candidates", "external/engineering-candidates"
+        )
+        with pytest.raises(ValueError, match="identities differ"):
+            ReleaseProvenance._local_source(
+                release, filename, "other-extension", "external/engineering-candidates"
+            )

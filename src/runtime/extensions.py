@@ -29,7 +29,7 @@ from strategies import DecisionPolicy
 if TYPE_CHECKING:
     # project library imports
     from research.models import EstimatorAdapter
-    from research.studies import ChartDefinition, MetricDefinition
+    from research.studies import ChartDefinition, MetricDefinition, StudyArtifact
 
 
 @dataclass(frozen=True)
@@ -92,6 +92,24 @@ class InstalledExtensions:
             if digest.decode() != item.hash.value:
                 raise ValueError(f"installed extension file differs from its record: {item}")
         return hashlib.sha256(record.encode()).hexdigest()
+
+    def artifact(self, name: str) -> StudyArtifact:
+        """Return the verified installed ``RECORD`` as a study extension artifact.
+
+        Its fingerprint is the extension's identity, so a study that retains this
+        artifact records exactly the installed code a packaged candidate will name.
+        """
+        # project library imports
+        from research.experiments import Fingerprint
+        from research.studies import StudyArtifact
+
+        identity = self.identity(name)
+        record = self._distribution(name).read_text("RECORD")
+        if record is None:
+            raise ValueError(f"extension has no installed record: {name}")
+        return StudyArtifact(
+            fingerprint=Fingerprint(name=name, sha256=identity), payload=record.encode()
+        )
 
     def components(self, name: str) -> CandidateComponents:
         """Load the named extension's single registered provider as candidate factories."""

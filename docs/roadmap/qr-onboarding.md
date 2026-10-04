@@ -786,6 +786,135 @@ retained trades is in M1c-1; offline PIT parity is unchanged.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 685 files |
 
+## M2 design note: import audit, packaging API and guides (approved 2026-10-04)
+
+The owner approved E-A on 2026-10-04.
+
+**What exists.**
+- The ownership checker enforces private, deep and unexported imports over the
+  repository's roots only (finding 4).
+- No library call turns a completed study into a candidate bundle (P7). The
+  maintained consumers use a 150-line test-side builder that sets factory keys,
+  parameters, requirements and provenance by hand.
+- A packaged candidate reaches supervised paper only if its extension is listed as a
+  path dependency of `packages/paper-services`, that is, committed inside the
+  repository under `extensions/`. The journey authors its extension outside the
+  checkout.
+- The guide gaps are listed under [documentation gaps](#documentation-gaps).
+
+**Design.**
+1. **Import audit (P2), a governance command** as decided:
+   `alpha-governance-engineering-standards import-audit PATH`. It applies the
+   checker's private, deep and unexported import rules and the `sys.path` mutation
+   rule to every Python file under `PATH`. Each owner's `__all__` comes from the
+   installed distributions: `__init__.py` source is located and parsed, never
+   imported. It reports every finding and exits non-zero on any. Ownership style
+   rules (module functions, lambdas) stay the repository's own and are not imposed
+   on QR code.
+2. **Packaging API (P7).** `research.experiments.CandidatePackager` publishes a
+   `CandidateBundle` from:
+   - a completed attempt (store and attempt ID);
+   - its `DecisionStudy`;
+   - the installed extension's name;
+   - one `(factory_key, parameters)` selection per role;
+   - the cadence, state contract, metric and chart contracts;
+   - an optional feature-store definition.
+
+   It builds each selected component through `InstalledExtensions` and refuses any
+   whose identity differs from the one the study recorded, so a bundle cannot
+   package code other than what was studied. Requirements are derived from the
+   study's inputs, output and order types by one shared owner, which
+   `AuthoredCandidates` then also uses. Provenance (dataset, experiment, attempt,
+   report) is copied from the attempt store.
+3. **Guides.**
+   - **QR guide:** a runnable path from a clean machine: install the wheel; lay out
+     an extension from the `engineering-candidates` template; run the import audit;
+     run a study with `StudyArtifact` and `DecisionStudy.extensions` fingerprints;
+     package with `CandidatePackager`; define and stream a stored feature; add a
+     custom metric and chart for paper dashboards; take the candidate to paper.
+   - **Development environment:** `--no-editable` everywhere, a separate
+     environment for installed runs, Feast worker provisioning.
+   - **Operations runbook:** one ordered path for a packaged candidate: build with
+     `--candidates` (and the extension, per E below), `deployment-check`, signed
+     deployment, activation, run, stop.
+   - **Notebook guide:** reading a retained study result through the installed
+     readers.
+   - **Research program:** reviewed against the journey.
+
+**Choice for the owner — E: how an external extension enters a signed release.**
+- **E-A (recommended): the builder takes `--extension PATH`.** The paper-services
+  build accepts one or more extension source directories outside the repository.
+  Each must declare only requirements already in the paper-services lock, otherwise
+  it is refused with guidance to add the dependency through a reviewed lock change.
+  Each must also pass the import audit. The release records each extension's
+  source digest and wheel, as it does for repository extensions. QRs keep their own
+  repositories; the platform repository changes only when a new third-party
+  dependency is admitted. This scales to many QRs without repository churn.
+- **E-B: extensions are committed under `extensions/`.** A QR's extension enters a
+  release by a reviewed change to this repository, which adds the path dependency
+  and relocks, as M1b does. Review is explicit, but every QR change becomes a
+  platform change, and the journey's "no shared-code edit" rule needs an exception
+  for that step.
+
+**Plan.** One commit: the audit command, the packager and requirements owner, E, and
+the guides, with the full suite.
+
+## M2 result (2026-10-04)
+
+Implemented as approved under E-A. One commit; nothing signed or run.
+
+**What changed.**
+- **Import audit (P2).** `alpha-governance-engineering-standards import-audit PATH`
+  applies the private, deep and unexported import rules and the `sys.path` rule to
+  code outside the repository. It reads the installed owners' `__all__` without
+  importing them, and the reference extension passes.
+- **External extensions (E-A).** `alpha-governance-artifacts build --extensions DIR`
+  audits each project, refuses platform names, scripts, uv sources and more than
+  one provider, and builds its wheel. Closure admission treats it as a pure-Python
+  extra root whose every requirement is already in the locked closure; the signed
+  facts list it. Its source is signed under `source/external/<name>/`, and
+  provenance compares every wheel member to that source.
+- **Packaging API (P7).** `runtime.CandidatePackager` with `ComponentSelection`.
+  It is in `runtime`, not `research.experiments` as the note proposed, because it
+  builds components through installed extensions and research may not depend on
+  runtime. `CandidateRequirements` is the shared requirement rule that
+  `AuthoredCandidates` now uses. `InstalledExtensions.artifact` gives a study the
+  installed `RECORD` to retain, whose fingerprint is the identity the packager
+  requires.
+- **Defect fixed (from M1c-1).** `runtime/paper_inputs.py` was missing from the
+  paper-services wheel, so an installed supervisor would have failed to import it.
+  An engineering test now requires every runtime module that shipped code imports
+  to be shipped.
+- **Guides.**
+  - New [QR quickstart](../../examples/qr-quickstart.md).
+  - QR guide and development environment (`--no-editable`, separate installed
+    environments, Feast worker).
+  - Runbook: ordered packaged-candidate path; supervised steps now start the
+    supervisor from the signed paper-services target.
+  - Notebook guide: reading retained study results.
+  - Research program (QR code in QR extension packages; MR17 coverage).
+  - Admission, workflow, coding standards and runtime guides.
+
+**Tests added.** Import audit and CLI; external extension metadata and import
+refusals; external closure edges and the collector refusal; external source
+provenance; shipped runtime modules. An integration consumer runs a real study with
+the reference extension, packages it, loads it and steps it from warming to decided.
+It also checks the three refusals: changed parameters, a missing chart selection,
+and a study that did not retain the extension.
+
+**Not covered by tests.** No test runs `ReleaseBuilder.build` (signed builds run
+only in trials), so the `--extensions` build path is first exercised by the M3
+signed paper-services rehearsal.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: ruff, strict mypy (691 files), native stubs, engineering standards, dependency admission (188 packages), pip-audit, link and secret checks; 2,492 passed, 2 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed. The first attempt failed `format-check` on the new Markdown code blocks, which were then formatted |
+| Integration lane with the Feast worker | 37 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 691 files |
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
@@ -798,7 +927,7 @@ retained trades is in M1c-1; offline PIT parity is unchanged.
      streams), both done 2026-10-04.
 2. **M2 — external import audit (P2) and guides.** The governance command; QR guide
    quickstart and extension walkthrough, development environment correction, operator
-   path for a packaged candidate, and the study-to-bundle API (P7).
+   path for a packaged candidate, and the study-to-bundle API (P7). Done 2026-10-04.
 3. **M3 — journey consumer and declaration.** The journey driver and its summary;
    architectural extension through the journey (P3); the exact commands; uncounted
    rehearsals to find remaining guide gaps.

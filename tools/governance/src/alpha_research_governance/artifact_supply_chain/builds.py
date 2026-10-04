@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 # standard library imports
+import re
 import subprocess  # nosec B404  # [owner=platform; rationale=explicit local build and source identity commands; expires=2027-03-01]
+import tomllib
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import cast
+from typing import ClassVar, cast
+
+# third party library imports
+from pydantic import TypeAdapter
 
 # project library imports
 from alpha_research_governance._models import ImmutableModel
@@ -29,6 +34,7 @@ from alpha_research_governance.artifact_supply_chain.records import (
 from alpha_research_governance.artifact_supply_chain.signatures import ReleaseSignatures
 from alpha_research_governance.dependency_admission import DependencyRepository
 from alpha_research_governance.dependency_admission.selected_closure import SelectedClosureAdmission
+from alpha_research_governance.engineering_standards import ImportAudit
 
 
 class ReleaseBuild(ImmutableModel):
@@ -39,6 +45,66 @@ class ReleaseBuild(ImmutableModel):
     origin: str
     valid_until: datetime
     runtime: ReleaseRuntime
+
+
+class ExternalExtension(ImmutableModel):
+    """Retain one external extension project's identity and exact source bytes."""
+
+    name: str
+    path: Path
+    files: tuple[tuple[str, bytes], ...]
+
+    NAME: ClassVar[re.Pattern[str]] = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
+    GROUP: ClassVar[str] = "alpha_research.candidate_components"
+
+    @classmethod
+    def read(cls, path: Path) -> ExternalExtension:
+        """Read and audit an extension project outside the repository.
+
+        It must declare exactly one candidate component provider, no scripts and no
+        uv sources, and its ``src`` tree must import only supported platform names.
+
+        Raises:
+            ValueError: The project layout, metadata or imports are not admissible.
+        """
+        if not path.is_absolute() or not (path / "pyproject.toml").is_file():
+            raise ValueError(f"external extension requires an absolute project: {path}")
+        table = TypeAdapter(dict[str, object]).validate_python(
+            cast(object, tomllib.loads((path / "pyproject.toml").read_text(encoding="utf-8")))
+        )
+        project = TypeAdapter(dict[str, object]).validate_python(table.get("project"))
+        groups = TypeAdapter(dict[str, dict[str, str]]).validate_python(
+            project.get("entry-points", {})
+        )
+        tool = TypeAdapter(dict[str, object]).validate_python(table.get("tool", {}))
+        uv = TypeAdapter(dict[str, object]).validate_python(tool.get("uv", {}))
+        name = project.get("name")
+        if (
+            not isinstance(name, str)
+            or cls.NAME.fullmatch(name) is None
+            or name.startswith("alpha-research-")
+            or "scripts" in project
+            or set(groups) != {cls.GROUP}
+            or len(groups[cls.GROUP]) != 1
+            or "sources" in uv
+        ):
+            raise ValueError(f"external extension metadata is not admissible: {path}")
+        audit = ImportAudit()
+        findings = audit.audit(path / "src")
+        if findings:
+            raise ValueError("external extension imports: " + "; ".join(audit.report(findings)))
+        files = [
+            ("pyproject.toml", ReleaseRegistry.read_regular(path / "pyproject.toml", 1_048_576))
+        ]
+        for item in sorted((path / "src").rglob("*")):
+            if item.is_file() and "__pycache__" not in item.parts:
+                files.append(
+                    (
+                        item.relative_to(path).as_posix(),
+                        ReleaseRegistry.read_regular(item, 16_777_216),
+                    )
+                )
+        return cls(name=name, path=path, files=tuple(files))
 
 
 class ReleaseBuilder:
@@ -61,6 +127,7 @@ class ReleaseBuilder:
         now: datetime,
         state: Path | None = None,
         candidates: Path | None = None,
+        extensions: Path | None = None,
     ) -> Path:
         """Publish a signed release after build, complete admission and source comparison.
 
@@ -75,6 +142,10 @@ class ReleaseBuilder:
             state: Optional quiesced initial state directory; absent means an empty state.
             candidates: Paper services only: a directory of candidate bundle roots,
                 signed under ``candidates/`` and verified by the installed application.
+            extensions: Paper services only: a directory of external extension
+                projects, one per subdirectory. Each is audited, built and admitted
+                only if its requirements are already in the locked closure; its
+                source is signed under ``source/external/<name>/``.
 
         Returns:
             Content-addressed bundle path, ready for separate local installation.
@@ -100,6 +171,19 @@ class ReleaseBuilder:
         audit_bytes = ReleaseAudit.run(policy, audit_report)
         if (candidates is not None) != (request.runtime.application == "paper-services"):
             raise ValueError("candidate bundles are signed only into paper services releases")
+        if extensions is not None and request.runtime.application != "paper-services":
+            raise ValueError("external extensions are signed only into paper services releases")
+        external = (
+            ()
+            if extensions is None
+            else tuple(
+                ExternalExtension.read(path)
+                for path in sorted(extensions.iterdir())
+                if path.is_dir() and not path.name.startswith(".")
+            )
+        )
+        if len({item.name for item in external}) != len(external):
+            raise ValueError("external extension names must be unique")
         before = self._source_inputs()
         selected = self.repository / "packages" / request.runtime.application
         root_name = "alpha-research-" + request.runtime.application
@@ -125,6 +209,29 @@ class ReleaseBuilder:
                 ]
                 self._run(command)
                 commands.append(tuple(command))
+            extension_wheels: list[Path] = []
+            for item in external:
+                built = directory / "external" / item.name
+                built.mkdir(parents=True)
+                command = [
+                    self.policy.uv_executable,
+                    "build",
+                    "--no-config",
+                    "--offline",
+                    "--no-build-isolation",
+                    "--wheel",
+                    "--no-sources",
+                    "--python",
+                    self.policy.python_executable,
+                    str(item.path),
+                    "--out-dir",
+                    str(built),
+                ]
+                self._run(command)
+                commands.append(tuple(command))
+                (wheel,) = tuple(built.glob("*.whl"))
+                extension_wheels.append(wheels / wheel.name)
+                (wheels / wheel.name).write_bytes(wheel.read_bytes())
             for name in ReleaseRegistry.inventory(dependency_wheels):
                 if "/" in name or not name.endswith(".whl") or name.startswith("alpha_research_"):
                     raise ValueError("dependency wheelhouse must contain only external wheels")
@@ -140,10 +247,20 @@ class ReleaseBuilder:
             if len(roots) != 1:
                 raise ValueError("build did not produce exactly one operating root")
             facts = SelectedClosureAdmission(self.repository, selected / "uv.lock").admit(
-                roots[0], actual_wheels, target="darwin_arm64_cp314"
+                roots[0], actual_wheels, target="darwin_arm64_cp314", extensions=extension_wheels
             )
-            if self._source_inputs() != before:
+            if self._source_inputs() != before or any(
+                ExternalExtension.read(item.path) != item for item in external
+            ):
                 raise ValueError("source changed during release build; retain a stable snapshot")
+            before = (
+                *before,
+                *(
+                    (f"external/{item.name}/{name}", content)
+                    for item in external
+                    for name, content in item.files
+                ),
+            )
             contents: dict[str, bytes] = {
                 "provenance/closure.json": facts.model_dump_json().encode(),
                 "provenance/uv.lock": (self.repository / "uv.lock").read_bytes(),

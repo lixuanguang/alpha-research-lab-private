@@ -110,6 +110,10 @@ class ReleaseProvenance:
             root_lock.write_bytes(release.content("provenance/uv.lock"))
             selected_lock.write_bytes(release.content("provenance/selected.lock"))
             projects = cls._local_projects(release, selected_lock)
+            for name in facts.extensions:
+                if name in projects:
+                    raise ValueError("external extension shadows a locked local project")
+                projects[name] = f"external/{name}"
             for filename, expected_wheel in by_filename.items():
                 wheel_path = directory / filename
                 wheel_path.write_bytes(release.content("wheels/" + filename))
@@ -194,9 +198,10 @@ class ReleaseProvenance:
         """Compare every installed local payload file to its retained monorepo source.
 
         Platform packages map wheel members to ``src/``; an extension maps them to
-        its own ``extensions/<name>/src/`` and may declare only component providers.
+        its own ``extensions/<name>/src/`` (or ``external/<name>/src/`` when built from
+        outside the repository) and may declare only component providers.
         """
-        extension = project.startswith("extensions/")
+        extension = project.startswith(("extensions/", "external/"))
         if not extension and project not in {
             "packages/contracts",
             "packages/collector",

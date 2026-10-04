@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 # standard library imports
+import ast
+import tomllib
 from pathlib import Path
+from typing import cast
 
 # third party library imports
 import pytest
@@ -119,3 +122,78 @@ class TestPaperServicesRelease:
         config.write_text('{"schema_version":"paper-services","duration_seconds":0}')
         with pytest.raises(ValueError, match="finite declared bound"):
             LocalInstallation._outer_seconds(self._runtime(), config)
+
+
+class TestPaperServicesRuntimeModules:
+    """Ship every runtime module that the shipped supervisor code imports."""
+
+    _WHEELS = ("contracts", "execution", "paper-services")
+
+    @classmethod
+    def _shipped(cls) -> set[str]:
+        """Return repository source files the three operating wheels include."""
+        shipped: set[str] = set()
+        for wheel in cls._WHEELS:
+            project = Path("packages") / wheel
+            table: object = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+            for key in ("tool", "hatch", "build", "targets", "wheel"):
+                table = cls._table(table, key)
+            includes = cls._table(table, "force-include")
+            for source in includes:
+                path = (project / source).resolve().relative_to(Path.cwd().resolve())
+                if path.is_dir():
+                    shipped.update(item.as_posix() for item in path.rglob("*.py"))
+                else:
+                    shipped.add(path.as_posix())
+        return shipped
+
+    @staticmethod
+    def _table(value: object, key: str) -> dict[str, object]:
+        """Return one nested TOML table as a typed mapping."""
+        if not isinstance(value, dict):
+            raise TypeError("expected a TOML table")
+        child = cast(dict[str, object], value).get(key)
+        if not isinstance(child, dict):
+            raise TypeError(f"expected TOML table {key}")
+        return cast(dict[str, object], child)
+
+    @staticmethod
+    def _exported_modules() -> dict[str, str]:
+        """Map each runtime export to the module that defines it."""
+        tree = ast.parse(Path("src/runtime/__init__.py").read_text(encoding="utf-8"))
+        names: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("runtime."):
+                for alias in node.names:
+                    names[alias.name] = str(node.module)
+        return names
+
+    def test_every_runtime_import_of_shipped_code_is_shipped(self) -> None:
+        """A module reached only through a lazy runtime export still has to be in a wheel."""
+        shipped = self._shipped()
+        exported = self._exported_modules()
+        missing: set[str] = set()
+        for source in sorted(shipped):
+            # The runtime initializer's exports are type-only or lazy, not imports.
+            if (
+                not source.startswith(("src/runtime/", "src/applications/execute/"))
+                or source == "src/runtime/__init__.py"
+            ):
+                continue
+            tree = ast.parse(Path(source).read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom) or node.level:
+                    continue
+                modules: set[str] = set()
+                if node.module == "runtime":
+                    modules = {
+                        exported[alias.name] for alias in node.names if alias.name in exported
+                    }
+                elif (node.module or "").startswith("runtime."):
+                    modules = {str(node.module)}
+                missing.update(
+                    f"{source}: {module}"
+                    for module in modules
+                    if "src/" + module.replace(".", "/") + ".py" not in shipped
+                )
+        assert not missing, sorted(missing)

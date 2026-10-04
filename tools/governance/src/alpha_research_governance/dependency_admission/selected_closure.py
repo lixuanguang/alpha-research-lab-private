@@ -80,6 +80,9 @@ class SelectedClosureFacts(ImmutableModel):
     review_due_on: date
     wheels: tuple[WheelIdentity, ...]
     edges: tuple[DependencyEdge, ...]
+    # External research extensions: pure-Python roots outside the locks whose every
+    # requirement is a package the locked closure already installs.
+    extensions: tuple[str, ...] = ()
 
 
 class SelectedClosureAdmission:
@@ -107,6 +110,7 @@ class SelectedClosureAdmission:
         wheels: Sequence[Path],
         *,
         target: SelectedTarget,
+        extensions: Sequence[Path] = (),
     ) -> SelectedClosureFacts:
         """Verify current full admission and an exact installed wheel graph.
 
@@ -114,6 +118,8 @@ class SelectedClosureAdmission:
             root_wheel: Selected collector or execution wheel in the inventory.
             wheels: Complete wheel inventory to install, including the root wheel.
             target: Explicit supported platform and Python runtime identity.
+            extensions: Paper services only: external extension wheels in the inventory,
+                admitted only if every requirement is already in the locked closure.
 
         Returns:
             Serializable wheel, edge, policy and target facts for a signed release.
@@ -138,11 +144,16 @@ class SelectedClosureAdmission:
         root_name = inventory[root_wheel.resolve(strict=True)].name
         if _OPERATING_LOCKS.get(root_name) != self._selected_relative:
             raise DependencyAdmissionError(["root wheel does not match selected operating lock"])
+        external = tuple(sorted(inventory[path.resolve(strict=True)].name for path in extensions))
+        if external and root_name not in _EXTENSION_ROOTS:
+            raise DependencyAdmissionError(["only paper services admit external extensions"])
         by_name = {item.name: item for item in inventory.values()}
-        self._check_pins(root_name, by_name, selected, full, policy, environment)
-        edges = self._resolve(root_name, by_name, selected, environment)
-        if len({edge.child for edge in edges} | {root_name}) != len(by_name):
-            reached = {edge.child for edge in edges} | {root_name}
+        locked = {name: item for name, item in by_name.items() if name not in external}
+        self._check_pins(root_name, locked, selected, full, policy, environment)
+        edges = self._resolve(root_name, locked, selected, environment)
+        edges |= self._external_edges(external, by_name, selected, edges, root_name, environment)
+        reached = {edge.child for edge in edges} | {root_name} | set(external)
+        if reached != set(by_name):
             raise DependencyAdmissionError(
                 [f"wheel inventory has unexpected packages: {sorted(set(by_name) - reached)}"]
             )
@@ -159,6 +170,7 @@ class SelectedClosureAdmission:
             review_due_on=policy.review_due_on,
             wheels=tuple(sorted(by_name.values(), key=self._wheel_sort_key)),
             edges=tuple(sorted(edges, key=self._edge_sort_key)),
+            extensions=external,
         )
 
     @classmethod
@@ -223,11 +235,77 @@ class SelectedClosureAdmission:
             or tuple(sorted(by_name.values(), key=cls._wheel_sort_key)) != facts.wheels
         ):
             raise DependencyAdmissionError(["retained wheel inventory differs from signed facts"])
-        cls._check_pins(facts.root_name, by_name, selected, full, policy, environment)
-        edges = cls._resolve(facts.root_name, by_name, selected, environment)
-        reached = {edge.child for edge in edges} | {facts.root_name}
+        if facts.extensions and facts.root_name not in _EXTENSION_ROOTS:
+            raise DependencyAdmissionError(["only paper services admit external extensions"])
+        locked = {name: item for name, item in by_name.items() if name not in facts.extensions}
+        cls._check_pins(facts.root_name, locked, selected, full, policy, environment)
+        edges = cls._resolve(facts.root_name, locked, selected, environment)
+        edges |= cls._external_edges(
+            facts.extensions, by_name, selected, edges, facts.root_name, environment
+        )
+        reached = {edge.child for edge in edges} | {facts.root_name} | set(facts.extensions)
         if reached != set(by_name) or tuple(sorted(edges, key=cls._edge_sort_key)) != facts.edges:
             raise DependencyAdmissionError(["retained dependency graph differs from signed facts"])
+
+    @staticmethod
+    def _external_edges(
+        names: tuple[str, ...],
+        wheels: dict[str, WheelIdentity],
+        selected: dict[str, dict[str, object]],
+        locked_edges: set[DependencyEdge],
+        root_name: str,
+        environment: dict[str, str],
+    ) -> set[DependencyEdge]:
+        """Admit external extensions whose active requirements stay inside the closure.
+
+        An external extension is a pure-Python wheel that no lock names and that is
+        not a platform distribution. Each active requirement must name a package the
+        locked closure already installs, at a version the requirement accepts.
+        """
+        closure = {edge.child for edge in locked_edges} | {root_name}
+        edges: set[DependencyEdge] = set()
+        for name in names:
+            wheel = wheels.get(name)
+            if (
+                wheel is None
+                or name in selected
+                or name.startswith("alpha-research-")
+                or wheel.tags != ("py3-none-any",)
+            ):
+                raise DependencyAdmissionError(
+                    [f"{name} is not an admissible pure-Python external extension"]
+                )
+            if wheel.requires_python and not SpecifierSet(wheel.requires_python).contains(
+                environment["python_full_version"]
+            ):
+                raise DependencyAdmissionError([f"{name} wheel excludes selected Python version"])
+            for text in wheel.requires_dist:
+                requirement = Requirement(text)
+                if requirement.marker is not None and not requirement.marker.evaluate(
+                    {**environment, "extra": ""}
+                ):
+                    continue
+                child = canonicalize_name(requirement.name)
+                candidate = wheels.get(child)
+                if (
+                    candidate is None
+                    or child not in closure
+                    or requirement.extras
+                    or not requirement.specifier.contains(candidate.version)
+                ):
+                    raise DependencyAdmissionError(
+                        [f"{name} requires {child} outside the locked closure"]
+                    )
+                edges.add(
+                    DependencyEdge(
+                        parent=name,
+                        parent_extra="",
+                        requirement=text,
+                        child=child,
+                        child_extras=(),
+                    )
+                )
+        return edges
 
     @staticmethod
     def _wheel_sort_key(wheel: WheelIdentity) -> str:

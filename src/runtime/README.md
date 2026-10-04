@@ -171,6 +171,16 @@ research reporting stack: a metric or chart imports study records inside `evalua
 The maintained [engineering extension](../../extensions/engineering-candidates/)
 is the reference workload and template.
 
+`InstalledExtensions.artifact(name)` returns the extension's installed `RECORD` as a
+`StudyArtifact`, whose fingerprint is the extension identity; a study that retains
+it pins the exact code a candidate will name. `CandidatePackager.publish` packages a
+completed study: one `ComponentSelection` (registered key and JSON parameters) per
+component the study used, each rebuilt through the installed extension and refused
+if its identity differs from the study's. It also refuses a study that did not
+retain the extension, derives requirements with `CandidateRequirements` (the rule
+`AuthoredCandidates` uses), copies provenance from the attempt store, and reads the
+published bundle back before returning its manifest.
+
 `PaperCapabilities` declares what the supervised paper environment offers one native
 book source: the five book fields, its freshness and receipt clock, reference data,
 calendar, valuation, account and every paper intent family and order type. When the

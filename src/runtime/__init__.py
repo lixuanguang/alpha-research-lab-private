@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     )
     from runtime.live_paper import LiveBookDelivery, PaperCaptureObserver
     from runtime.monitoring import CandidateMonitoringExporter
+    from runtime.packaging import CandidatePackager, ComponentSelection
     from runtime.paper import PaperCandidateRuntime, PaperCheckpoint
     from runtime.paper_capabilities import PaperCapabilities
     from runtime.paper_inputs import PaperInputs
@@ -56,6 +57,7 @@ if TYPE_CHECKING:
         SharedStrategyBinding,
         SharedStrategyInput,
     )
+    from runtime.requirements import CandidateRequirements
     from runtime.shared_paper import (
         SharedBookDelivery,
         SharedDecisionGroup,
@@ -91,6 +93,21 @@ def __getattr__(name: str) -> object:
         from runtime import paper_capabilities
 
         exports = {"PaperCapabilities": paper_capabilities.PaperCapabilities}
+        return exports[name]
+    if name in {"CandidatePackager", "ComponentSelection"}:
+        # project library imports
+        from runtime import packaging
+
+        exports = {
+            "CandidatePackager": packaging.CandidatePackager,
+            "ComponentSelection": packaging.ComponentSelection,
+        }
+        return exports[name]
+    if name in {"CandidateRequirements"}:
+        # project library imports
+        from runtime import requirements
+
+        exports = {"CandidateRequirements": requirements.CandidateRequirements}
         return exports[name]
     if name in {"PaperInputs"}:
         # project library imports
@@ -267,10 +284,13 @@ __all__ = [
     "CandidateFeatureFeed",
     "CandidateLoader",
     "CandidateMonitoringExporter",
+    "CandidatePackager",
     "CandidateProcessFailure",
+    "CandidateRequirements",
     "CandidateSession",
     "CandidateStep",
     "ChartFactory",
+    "ComponentSelection",
     "EstimatorFactory",
     "ExtensionFactories",
     "ExtensionProvider",

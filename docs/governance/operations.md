@@ -96,7 +96,8 @@ application, mode, target, shared-contract version and configuration/state
 schemas. Execution uses `execution-admission`; collector uses the existing
 `CaptureConfig` schema `1`; paper services use `paper-services` with state
 schema `none`, and `--candidates DIR` signs that directory's candidate bundles
-into the release. An installed paper services target runs `deployment`,
+into the release; `--extensions DIR` builds, admits and signs the external extension
+projects in that directory. An installed paper services target runs `deployment`,
 `deployment-check` and `deployment-control`; the launcher binds the signed
 configuration and candidates and bounds a run by the supervisor's duration plus
 60 seconds. Installation runs `deployment-check` before selecting the release. Initial empty state uses `none`; `--state PATH`
@@ -462,17 +463,19 @@ background system daemon or grant private venue authority.
    envelope. Separately authorize, supply fresh independent quotes and account
    observations, and claim its owner generation. Preserve each target's current
    journal. Installation alone never activates scheduling. Declare each instance's
-   reference candidate (formula, cadence and UTC grid origin) before signing; the
-   cadence is bounded by source freshness and capture idle time, and the deployment
-   binds the candidate's identity. Every native book is retained/validated; only the
+   candidate before signing: a reference formula, or a packaged candidate from the
+   paper-services release (see the next section). Its cadence is bounded by source
+   freshness and capture idle time, and the deployment binds the candidate's
+   identity. Every native book is retained/validated; only the
    book that crosses a decision instant matches, after the due candidates decide.
    Books between instants update monitoring marks, while source faults remain
    immediate.
 2. Start each target through `alpha-governance-artifacts run ... -- account
    --request SERVE.json`, with action `serve_paper`, the claimed owner, absolute
-   socket path and `service_seconds` no greater than 120. Start `alpha-execute
-   deployment` from the installed research distribution, naming the exact
-   configuration, owner tuple, retained service root and control socket.
+   socket path and `service_seconds` no greater than 120. Start the supervisor from
+   the installed paper-services target: `alpha-governance-artifacts run --target
+   SERVICES --policy POLICY -- deployment --owners OWNERS.json --root ROOT --socket
+   SOCKET`. The launcher binds the signed configuration and candidates.
 3. Inspect `deployment-control` and the retained `status.json` during operation.
    Check policy/source process status, account heartbeat, source freshness,
    authority and generation, reconciliation, reservations and per-strategy
@@ -600,6 +603,52 @@ insufficient. Exact saved rejection
 retries remain idempotent under the current owner after restart; a replaced owner
 cannot create a new rejection. The [MR14 record](../roadmap/multi-instance-paper.md)
 owns the bounded installed shadow recovery qualification and service acceptance.
+
+## Take a packaged candidate to signed paper
+
+Run these steps in order, after the QR has packaged the candidate
+([quickstart](../../examples/qr-quickstart.md#5-package-a-candidate)). Each command
+fails closed; on any failure, fix the input and start the step again.
+
+1. **Collect inputs.** Copy the candidate bundle directories into one `CANDIDATES`
+   directory, each named by its definition identity. Copy the QR's extension
+   project into an `EXTENSIONS` directory, one project per subdirectory. Author
+   the `paper-services` configuration with a `PackagedCandidate` per instance
+   (definition identity, extension name, grid origin and, for a served feature,
+   `feature_version`), plus `features` when any candidate is feature-served.
+2. **Audit the extension.** `uv run --frozen --no-editable
+   alpha-governance-engineering-standards import-audit EXTENSIONS/<name>` must
+   pass; the build repeats it.
+3. **Fetch and build.** With a release request whose runtime application is
+   `paper-services`:
+
+   ```sh
+   alpha-governance-artifacts fetch --repository . --request REQUEST.json \
+     --policy POLICY.json --dependencies WHEELS
+   alpha-governance-artifacts build --repository . --request REQUEST.json \
+     --policy POLICY.json --configuration CONFIG.json --dependencies WHEELS \
+     --audit AUDIT --key KEY --registry REGISTRY \
+     --candidates CANDIDATES --extensions EXTENSIONS
+   ```
+
+   The build admits each extension only if every requirement is already in the
+   paper-services lock. It signs the extension's source under
+   `source/external/<name>/` with its wheel, and the candidate bundles under
+   `candidates/`.
+4. **Verify and install.** `alpha-governance-artifacts verify --release RELEASE
+   --policy POLICY.json`, then `install --release RELEASE --policy POLICY.json
+   --target SERVICES`. Installation runs `deployment-check` before selecting the
+   release.
+5. **Read the identities.** `alpha-governance-artifacts run --target SERVICES
+   --policy POLICY.json -- deployment-check` prints each instance's candidate,
+   policy, feature and model identities, each source identity, and any pinned
+   feature stream.
+6. **Sign and activate each account.** Author each account target's deployment
+   from those identities, then follow steps 1–2 of the supervised services above:
+   authorize, reconcile, claim owners, serve the accounts and start the supervisor.
+   A feature-served candidate also needs its stream publisher running
+   (`materialize_features` on the same version) for values to stay fresh.
+7. **Monitor and stop** as in steps 3–8 above.
 
 ## Incident record
 

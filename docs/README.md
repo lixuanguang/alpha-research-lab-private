@@ -45,12 +45,22 @@ and the [release workflow](governance/workflow.md#build-a-release).
 ## Development environment
 
 Use standard GIL-enabled CPython 3.14.7 and uv 0.12.7 on macOS arm64 or Linux
-x86_64, then synchronize the single lock:
+x86_64, then synchronize the single lock without an editable install:
 
 ```sh
 uv python install
-uv sync --frozen
+uv sync --frozen --no-editable
 ```
+
+Always pass `--no-editable` to `uv sync` and `uv run`. An editable install lets a
+run read source files that no release contains; the tests and recorded runs use the
+installed package. `make` targets reinstall the project in editable mode, so build
+a separate environment for any installed or signed run:
+`UV_PROJECT_ENVIRONMENT=/private/tmp/<name> uv sync --frozen --no-editable`. Plain
+`uv sync` in `.venv` would also drop the locked notebook kernel group, which installs
+by default. Feature serving needs the separately locked
+[Feast worker](../configs/development/research-worker/README.md#setup-and-lock-audit).
+A QR starts from [the quickstart](../examples/qr-quickstart.md).
 
 Before starting or resuming any research or study, run `make local-services-up`
 from the repository root. The
@@ -83,6 +93,7 @@ record what ran. `make check` remains the complete check entry point.
 | `make test` | Correctness and integration tests, excluding performance cases |
 | `make integration-test`, `make performance-test` | Explicit integration or performance selection |
 | `make engineering-standards-check` | Protected typing, import and docstring rules |
+| `uv run --frozen --no-editable alpha-governance-engineering-standards import-audit PATH` | Check code outside the repository imports only supported platform names |
 | `make architecture-check` | Local links and headings in `docs/**/*.md`; component READMEs require explicit inclusion |
 | `make dependency-admission-check`, `make dependency-audit` | Frozen dependency sources, retained restrictions and vulnerability audit |
 | `uv run --frozen alpha-governance-artifacts release-check` | Report release blockers; currently always fails closed |

@@ -11,8 +11,6 @@ from uuid import UUID
 # project library imports
 from configuration import (
     CandidateDeployment,
-    CapabilityField,
-    CapabilityKind,
     CapabilityProfile,
     CapabilityRegistry,
     CapabilityRequirement,
@@ -42,16 +40,11 @@ from runtime.candidates import CandidateLoader, LoadedCandidate
 from runtime.components import CandidateComponents, FeatureFactory, PolicyFactory
 from runtime.identity import ImplementationIdentity
 from runtime.paper_capabilities import PaperCapabilities
+from runtime.requirements import CandidateRequirements
 from serialization import DomainCodec
 from strategies import DecisionPolicy, ReferencePolicies
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-_SERVICES: tuple[tuple[str, CapabilityKind], ...] = (
-    ("calendar", "calendar"),
-    ("valuation", "valuation"),
-    ("account", "account"),
-    ("execution", "execution"),
-)
 
 
 class _Supplied:
@@ -243,49 +236,10 @@ class AuthoredCandidates:
         output: str,
         order_types: tuple[str, ...],
     ) -> tuple[CapabilityRequirement, ...]:
-        """Declare one source requirement per named input, then the four service families."""
-        sources: dict[str, tuple[InputRequirement, ...]] = {}
-        for item in inputs:
-            sources[item.name] = (*sources.get(item.name, ()), item)
-        declared = [
-            CapabilityRequirement(
-                name=named,
-                kind="reference_data" if rows[0].family == "reference" else "market_data",
-                product=self.product,
-                venue=self.venue,
-                calendar=self.calendar,
-                channel=rows[0].family,
-                clock=rows[0].clock,
-                max_freshness_us=min(row.max_age_us for row in rows),
-                fields=tuple(
-                    CapabilityField(name=row.field.name, units=row.field.units) for row in rows
-                ),
-            )
-            for named, rows in sources.items()
-        ]
-        if not any(item.kind == "reference_data" for item in declared):
-            declared.append(
-                CapabilityRequirement(
-                    name="reference",
-                    kind="reference_data",
-                    product=self.product,
-                    venue=self.venue,
-                    calendar=self.calendar,
-                )
-            )
-        declared.extend(
-            CapabilityRequirement(
-                name=named,
-                kind=kind,
-                product=self.product,
-                venue=self.venue,
-                calendar=self.calendar,
-                operations=(f"intent:{output}",) if kind == "execution" else (),
-                order_types=order_types if kind == "execution" else (),
-            )
-            for named, kind in _SERVICES
-        )
-        return tuple(declared)
+        """Declare the inputs' sources and the paper service families, in one shared way."""
+        return CandidateRequirements(
+            venue=self.venue, product=self.product, calendar=self.calendar
+        ).derive(inputs, output, order_types)
 
     def _registry(self, requirements: tuple[CapabilityRequirement, ...]) -> CapabilityRegistry:
         """Bind installed native inputs and non-executable paper service profiles."""

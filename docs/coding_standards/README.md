@@ -34,6 +34,7 @@ entry points are:
 | `make lint` | Ruff lint and import checks over the same Python scope |
 | `make typecheck` | Strict mypy over the same scope, followed by native `stubtest` |
 | `make engineering-standards-check` | Local import, explicit-`Any`, docstring, suppression, tool-configuration, class-ownership and [format-compatibility wording](#format-changes-replace-in-place) checks |
+| `alpha-governance-engineering-standards import-audit PATH` | The private, deep and unexported import rules and the `sys.path` rule, applied to code outside the repository against the installed owners' `__all__` |
 | `make security` | Bandit over runtime, governance and example source |
 | `make check` | Complete source checks and installed-wheel smoke validation |
 

@@ -54,8 +54,9 @@ distribution admissible.
 `alpha-research-execution` wheels. MR17 adds `alpha-research-paper-services`, the
 supervised paper services and candidate runtime, which depends on the exact
 `contracts` and `execution` versions. A paper services release also builds the
-research extensions listed as its path dependencies and signs candidate bundles
-under `candidates/`. The two applications have independently pinned
+research extensions listed as its path dependencies, and external extensions given
+with `--extensions` under the [external extension rules](../architecture/dependency-admission.md#research-extensions-in-paper-services-releases),
+and signs candidate bundles under `candidates/`. The two applications have independently pinned
 locks and exact shared-contract versions. Their actual metadata closures must
 pass the existing full admission policy and a fresh complete vulnerability scan;
 an omitted dependency, unknown artifact or selected development-only package

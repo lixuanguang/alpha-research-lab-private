@@ -153,7 +153,7 @@ not alternative early-start gates or new infrastructure work packages.
 | QR-01–QR-05 | MR01 data/reference/quality; MR03 evaluation; MR15 workload envelope | R01/R02/R13/R15 |
 | QR-06–QR-10 | MR01–MR04 data, features, models, studies and retained experiment artifacts | R02/R05–R09/R15 |
 | QR-11–QR-15 | MR02/MR03/MR05 strategy/replay; MR08/MR09/MR13 shared capital, risk and accounting | R01/R10–R15 |
-| QR-16–QR-18 | Accepted MR04–MR14 paper scope for candidate serving, runtime, OMS, monitoring, cost reports and recovery; MR15 budgets. Authenticated venue execution and live activation are outside this handoff. | R15/R16 |
+| QR-16–QR-18 | Accepted MR04–MR14 paper scope for candidate serving, runtime, OMS, monitoring, cost reports and recovery; MR15 budgets; MR17 packaged candidates from QR extension packages, live trade inputs and served feature streams in supervised paper. Authenticated venue execution and live activation are outside this handoff. | R15/R16 |
 
 Use the [study protocol](../../examples/study-protocol.md) as the compact study
 specification. A result must answer whether there is predictive information,
@@ -263,6 +263,14 @@ not wait for a complete QR strategy. QR-specific formula and strategy promotion
 follows the empirical contract above.
 After promotion, notebooks call that implementation for formal results; they
 remain useful for new variants without becoming a second production strategy.
+
+Since MR17 (2026-10-04), a QR's features, policies, models, metrics and charts live in
+the QR's own extension package outside this repository, not in the maintained
+package. The [quickstart](../../examples/qr-quickstart.md) covers its layout, the
+supported-import audit, retaining its installed identity in each study, packaging a
+selected study with `CandidatePackager` and the operator's signed paper-services
+build with `--extensions`. Shared infrastructure that several QRs need still moves
+into the maintained package under the rules above.
 
 Data-fetching notebooks explore and invoke acquisition APIs; mature acquisition
 and storage behavior belongs in the package. EDA notebooks inspect data and

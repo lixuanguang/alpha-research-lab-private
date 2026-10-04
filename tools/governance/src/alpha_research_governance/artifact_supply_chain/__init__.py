@@ -56,7 +56,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         "fetch --repository PATH --request PATH --policy PATH --dependencies PATH | "
         "build --repository PATH --request PATH --policy PATH --configuration PATH "
         "--dependencies PATH --audit PATH --key PATH --registry PATH [--state PATH] "
-        "[--candidates PATH] | "
+        "[--candidates PATH] [--extensions PATH] | "
         "verify --release PATH --policy PATH | "
         "install|rollback --release PATH --policy PATH --target PATH | "
         "run --target PATH --policy PATH -- APPLICATION_ARGUMENTS"
@@ -105,7 +105,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 "--key",
                 "--registry",
             }
-            optional = {"--state", "--candidates"}
+            optional = {"--state", "--candidates", "--extensions"}
         elif command == "verify":
             required.add("--release")
         elif command in {"install", "rollback"}:
@@ -139,6 +139,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 now=now,
                 state=paths.get("--state"),
                 candidates=paths.get("--candidates"),
+                extensions=paths.get("--extensions"),
             )
             print(result)
         elif command == "verify":
