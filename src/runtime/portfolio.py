@@ -106,8 +106,6 @@ class SharedStrategyInput(WireRecord, frozen=True):
                 raise TypeError("shared input requires a served feature")
             self.served.__post_init__()
         self.quote.__post_init__()
-        if self.quote.at > self.decision_at:
-            raise ValueError("shared input contains a future quote")
 
     @property
     def decision_at(self) -> datetime:
@@ -273,7 +271,9 @@ class SharedDecisionRuntime:
 
         Args:
             identity: Stable batch identity; retry requires identical inputs and candidates.
-            at: UTC coordination time, strictly later than every decision cutoff.
+            at: UTC coordination time, strictly later than every decision cutoff and
+                quote. Each account decision is dated when both its inputs and its
+                quote were known, the later of the two.
             inputs: Causal source inputs for distinct configured instances.
             crossing: Explicit policy for compatible opposite interests.
 
@@ -290,6 +290,8 @@ class SharedDecisionRuntime:
             raise TypeError("shared runtime requires SharedStrategyInput")
         if len({item.instance_id for item in inputs}) != len(inputs):
             raise ValueError("shared runtime requires distinct input owners")
+        if any(item.decision_at >= at or item.quote.at >= at for item in inputs):
+            raise ValueError("shared inputs and quotes must precede their coordination")
         original = self.journal.portfolio_batch(identity)
         if original is not None:
             self._validate_retry(original, at, inputs, crossing)
@@ -333,7 +335,8 @@ class SharedDecisionRuntime:
                             identity=hashlib.sha256(
                                 self._codec.encode_json((identity, step))
                             ).hexdigest(),
-                            at=step.at,
+                            # Decided once both its inputs and its market were known.
+                            at=max(step.at, item.quote.at),
                             intent=None if step.decision is None else step.decision.intent,
                         ),
                         quote=item.quote,

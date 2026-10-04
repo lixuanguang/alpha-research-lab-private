@@ -2471,6 +2471,103 @@ with the schema name kept. Nothing is implemented yet.
 touch `SharedPaperCaptureObserver`, and doing this first keeps AB-1's cancellation
 rule unaffected by deferral.
 
+**Addendum B (approved 2026-10-04): the quote of a deferred decision.** Item 2's
+"retains that instant's market" cannot be admitted. By the time a deferred decision
+is made, the account has observed and matched later markets, and its valuation clock
+never moves back. The account also requires a decision's quote to be its latest
+observed quote. The owner approved option B:
+- **Quote.** A group's quote is the latest eligible market known at coordination.
+  For a decision on the crossing book this is the instant's market, unchanged; for a
+  deferred one it is a later market.
+- **Bounds.** The supervisor log's quote bound moves from `SharedStrategyInput`
+  (quote no later than the instant) to the group and the runtime (quote strictly
+  before coordination).
+- **Account decision time.** It is the later of the feature instant and the quote's
+  time, when both were known. Every existing decision keeps its time. Account
+  admission is unchanged, so no execution-owner change is needed.
+
+## S-1 result (2026-10-04)
+
+Exact-instant serving with addendum B. Nothing has been signed or run live.
+
+**What changed.**
+- **Serving.** `ServedFeatures.serve` serves only the pinned version's snapshot
+  exactly at the cutoff in both modes, through the new
+  `VersionedFeatureStore.exact_materialization`. Online, a missing snapshot is
+  `feature-pending`, and the pinned version must be active. Offline, a missing
+  snapshot is an error, as before. `verify` also requires the retained snapshot to
+  be the cutoff's own. The "latest by the cutoff within the maximum age" path and
+  `ServedFeatures.maximum_age_us` are removed.
+- **Observer.**
+  - Each crossed instant opens if an eligible market at or before it exists.
+  - On every eligible delivery, open instants are tried in ascending order. A
+    decided group is quoted at the latest market known before that delivery and
+    coordinated at the later of instant + 1 µs and the preceding delivery + 1 µs.
+  - A source-fed instant decides or closes on its crossing delivery, as before.
+  - A served instant stays open while `feature-pending`. It is skipped as
+    `feature-not-published` when the delivery that opens its candidate's next
+    instant still cannot decide it. That same delivery decides it first if its
+    snapshot has just appeared.
+  - Replay recomputes the open instants, the quote and each coordination clock,
+    and refuses any difference.
+- **Schema (approved items 3 and B).**
+  - `SharedDecisionGroup` requires `at + 1µs ≤ coordinated_at` and a quote
+    strictly before coordination.
+  - `SharedBookDelivery` requires coordination no later than the delivery.
+  - A delivery that decides still matches its book.
+  - `SharedDecisionRuntime.evaluate` refuses inputs or quotes at or after
+    coordination, and dates each account decision at the later of the instant and
+    the quote time.
+- **Docs.** The runtime and feature-store guides describe the rule. The feature
+  guide's stale claims (an incremental instance always required, unfitted kernels
+  only) are corrected.
+
+**Departures from the note.**
+- **Monitoring.** Reporting the distribution of decision delay is moved to M3e,
+  the candidate monitoring exporter. The delay itself is retained in every group
+  (`coordinated_at − at`).
+- **Integration test.** The note's integration test with the observer in process
+  is not added. Exactness is covered by composition: the publisher integration
+  test proves the published values equal research's at t, and the observer unit
+  tests prove paper decides only on the snapshot at t. J6 checks the composition
+  live.
+
+**Tests.**
+- **Serving:**
+  - an instant reads its own snapshot or `feature-pending`;
+  - a retained feature from another cutoff is refused;
+  - pending, rollback and unavailable reasons;
+  - an offline cutoff without its snapshot is refused;
+  - online pending and expired pause before any Feast call.
+- **Deferral** (`test_served_decisions_wait_for_their_snapshot_and_replay_exactly`):
+  - an instant without a snapshot is skipped as `feature-not-published` once the
+    next instant decides;
+  - an instant whose snapshot is published after it opened decides on the next
+    delivery, coordinated after the preceding delivery and quoted at the market
+    known then;
+  - exact replay into a fresh journal, and an exact no-op retry into the live
+    journal;
+  - a forged served value or coordination is refused.
+- **Schema:** coordination before the instant or after the delivery is refused, and
+  a quote at or after coordination is refused by the runtime.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,543 passed, 4 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 706 files |
+
+A first run failed 8 public-paper workflow cases (the same 8 in the unit and
+integration lanes) with "shared decision names an instant that is not open". Opening
+an instant skipped instants the account had already committed, so replaying a
+retained log into the same journal, an exact retry, could not reopen them. Opening
+now depends only on the delivery stream, and the committed-instant check moved to
+live decision-making. The new no-op retry case fails on the old code and passes now.
+The run above is the rerun.
+
 ## Extension identity defect (found 2026-10-04)
 
 **Found while dry-running the updated J4 and J5.** M1b defined an extension's

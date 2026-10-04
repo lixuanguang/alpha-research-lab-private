@@ -1074,9 +1074,12 @@ class TestSharedPublicPaper:
         with pytest.raises(ValueError, match="also matches"):
             replace(second, decisions=(group,), matched=False)
         with pytest.raises(ValueError, match="out of order"):
-            replace(group, coordinated_at=second.source.available_at)
+            replace(group, coordinated_at=instant)
         with pytest.raises(ValueError, match="precede their delivery"):
             replace(first, decisions=(group,))
+        late = replace(group, coordinated_at=second.source.available_at + timedelta(microseconds=1))
+        with pytest.raises(ValueError, match="precede their delivery"):
+            replace(second, decisions=(late,))
 
     def test_managed_invalidations_fault_once_per_observer(self, tmp_path: Path) -> None:
         """The first bad source fact faults its owner without repeated account loads."""

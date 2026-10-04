@@ -133,14 +133,16 @@ to the MR07 durable order journal.
 `ServedFeatures(store, bridge=..., serving_root=...).serve(candidate, at)` reads a
 feature-served candidate's deployment-pinned stream (the deployment's
 `source_identity` is the store's `stream_identity` for its packaged
-`FeatureStoreDefinition` and `feature_version`). Offline serving needs a snapshot
-exactly at the cutoff and matches the authoritative PIT value; online serving reads
-the active version's latest snapshot by the cutoff within the candidate's declared
-age and verifies that snapshot's isolated Feast generation. It returns a
-`ServedFeature` (vector, stream, version, snapshot cutoff and identity) or the pause
-reason: `future`, `stale`, `expired`, `missing`, `feature-version-changed` or
-`feature-service-unavailable`. `verify` reopens a retained served feature's exact
-snapshot and refuses a different value. `CandidateFeatureFeed` applies it to a
+`FeatureStoreDefinition` and `feature_version`). Both modes serve only the
+snapshot exactly at the cutoff, so a decision at t reads what research reads at t.
+Offline serving also matches the authoritative PIT value and refuses a cutoff
+without its snapshot. Online serving requires the pinned version to be active and
+verifies the snapshot's isolated Feast generation. It returns a `ServedFeature`
+(vector, stream, version, snapshot cutoff and identity) or the pause reason:
+`feature-pending` (no snapshot at the cutoff yet), `expired`, `missing`, `future`,
+`feature-version-changed` or `feature-service-unavailable`. `verify` reopens a
+retained served feature's exact snapshot, requires it to be the cutoff's own, and
+refuses a different value. `CandidateFeatureFeed` applies it to a
 dedicated session. Fitted store vectors are never transformed twice; a pause leaves
 state unchanged; a version change needs an explicit new binding; no fallback
 recomputes a different definition.
@@ -262,10 +264,16 @@ admission while preserving pending exposure.
 
 Shared accounts also run feature-served candidates. `SharedStrategyInput` carries
 either source `inputs` or a `served` feature, and both executors accept either. The
-observer serves such a candidate at each instant through `ServedFeatures`; a pause
-reason skips the instant like missing inputs and is kept in `feature_pauses`. The
-delivery log retains the served vector and snapshot, and a replay reopens that
-snapshot and refuses a different value. `AuthoredCandidates.load(served=...,
+observer serves such a candidate at each instant through `ServedFeatures`. While
+the instant's snapshot is `feature-pending` the instant stays open and is retried
+on each later eligible book. It decides once the snapshot is published, coordinated
+one microsecond after the preceding delivery and quoted at the latest market known
+then; the account dates that decision when both its inputs and its quote were
+known. It is skipped as `feature-not-published` when the delivery that opens the
+candidate's next instant still cannot decide it. Any other pause reason skips the
+instant like missing inputs; reasons are kept in `feature_pauses`. The delivery log
+retains the served vector and snapshot, and a replay reopens that snapshot, refuses
+a different value and recomputes each coordination clock. `AuthoredCandidates.load(served=...,
 feature_version=...)` builds such a candidate; `PaperCapabilities(features=...)`
 resolves its inputs against profiles derived from the registered store definition.
 

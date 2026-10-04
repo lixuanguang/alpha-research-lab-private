@@ -391,11 +391,14 @@ class TestSharedDecisions:
         changed = replace(decision, crossing="internal_at_quote")
         with pytest.raises(ValueError, match="retry"):
             run_shared_paper(config, bindings=bindings, journal_path=path, events=(changed,))
-        with pytest.raises(ValueError, match="future quote"):
-            replace(
-                decision.inputs[0],
-                quote=AccountQuote(price=self._price(), at=at + timedelta(seconds=1)),
-            )
+        late_quote = AccountQuote(price=self._price(), at=at + timedelta(seconds=1))
+        late = replace(
+            decision,
+            identity="late-quote",
+            inputs=(replace(decision.inputs[0], quote=late_quote),),
+        )
+        with pytest.raises(ValueError, match="precede their coordination"):
+            run_shared_paper(config, bindings=bindings, journal_path=path, events=(late,))
         assert journal.checkpoint("orders") == before
 
     def test_warmup_commits_state_without_intent_and_reset_restart_starts_fresh(

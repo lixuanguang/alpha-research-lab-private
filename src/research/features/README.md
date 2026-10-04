@@ -132,8 +132,9 @@ preparation refuses the append. A new version is published with
 competing worker's newer publication makes the older activation fail, and an
 exact retry is idempotent. Failed or partial publication leaves the previous
 snapshot and active pointer intact. `get_materialization(definition, version, at)`
-reopens a version's latest snapshot at or before a cutoff; `stream_identity`
-names the stream a deployment pins. Explicit `activate` rolls back to another
+reopens a version's latest snapshot at or before a cutoff, and
+`exact_materialization` its snapshot exactly at a cutoff or None, which is what a
+served candidate reads; `stream_identity` names the stream a deployment pins. Explicit `activate` rolls back to another
 version. `retrieve_online` reads the active version's latest snapshot at or before
 the cutoff, reports `future` before its first snapshot, and can apply an explicit
 maximum materialization age; a missing or future value is never silently
@@ -142,12 +143,12 @@ history; `WorkspaceBackup` retains both that history and the Feast generations.
 
 `research.features.FeatureMaterializer` is the executable source →
 `FeatureSession` → store → Feast composition. It requires a matching source
-identity and schema, an incremental instance, and ordered decisions; it resumes
-a checkpointed incremental stream and activates only after Feast parity. Calling
-it again with the same version and later decisions is the scheduled job that
-extends that version's stream. The
-currently composed path runs unfitted kernels; fitted vectors use the explicit
-definition/output-signature and append boundary. `run_served_decision` verifies
+identity and schema, the definition's instance for an incremental kernel, and
+ordered decisions; it resumes a checkpointed stream and activates only after Feast
+parity. Calling it again with the same version and later decisions extends that
+version's stream; the paper feature publisher does so from live recordings. A
+fitted definition is materialized with the study's `FittedTransform` and retained
+`TransformVersion`, applied without refitting. `run_served_decision` verifies
 the pinned Feast generation before passing a ready vector to the same
 `DecisionSession` used in research. It returns a visible pause with unchanged
 decision state on missing, expired or unavailable serving; it emits intents and

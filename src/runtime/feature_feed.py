@@ -57,12 +57,15 @@ class ServedFeature(WireRecord, frozen=True):
 class ServedFeatures:
     """Read a candidate's pinned stream at a cutoff, or name why it cannot serve.
 
-    Offline serving requires a snapshot exactly at the cutoff and compares it with
-    authoritative point-in-time retrieval. Online serving reads the active version's
-    latest snapshot by the cutoff within the candidate's declared age, and also
-    reads the snapshot's immutable Feast generation. A changed active version, a
-    missing, stale or future value, or an unavailable store or Feast worker is a
-    reason, never a substitute value. Already fitted transforms are never reapplied.
+    Both input modes serve only the pinned version's snapshot exactly at the
+    cutoff, so a decision at t reads what research reads at t. Offline serving
+    also compares it with authoritative point-in-time retrieval and refuses a
+    missing snapshot. Online serving requires the pinned version to be active,
+    reads the snapshot's immutable Feast generation, and names a snapshot not yet
+    published ``feature-pending``, which a caller may wait for. A changed active
+    version, a missing, expired or future value, or an unavailable store or Feast
+    worker is a reason, never a substitute value. Already fitted transforms are
+    never reapplied.
     """
 
     def __init__(
@@ -78,10 +81,11 @@ class ServedFeatures:
         self._serving_root = serving_root
 
     def serve(self, loaded: LoadedCandidate, at: datetime) -> ServedFeature | str:
-        """Return the candidate's served feature at ``at``, or the pause reason.
+        """Return the candidate's served feature exactly at ``at``, or the pause reason.
 
         Raises:
-            ValueError: The deployment's binding or the store's data are invalid.
+            ValueError: The deployment's binding or the store's data are invalid, or
+                an offline cutoff has no snapshot.
         """
         deployment, definition = loaded.deployment, loaded.store_definition
         version = deployment.feature_version
@@ -90,43 +94,27 @@ class ServedFeatures:
         stream = VersionedFeatureStore.stream_identity(definition, version)
         if deployment.source_identity != stream:
             raise ValueError("candidate deployment differs from its pinned feature stream")
-        if deployment.input_mode == "online_features" and (
-            self._bridge is None or self._serving_root is None
-        ):
+        online = deployment.input_mode == "online_features"
+        if online and (self._bridge is None or self._serving_root is None):
             raise ValueError("online candidate requires its isolated Feast bridge")
         try:
-            if deployment.input_mode == "offline_features":
-                snapshot = self._store.get_materialization(definition, version, at)
-                if snapshot.at != at:
+            if online and self._store.active_version(definition) != version:
+                return "feature-version-changed"
+            snapshot = self._store.exact_materialization(definition, version, at)
+            if snapshot is None:
+                if not online:
                     raise ValueError("offline candidate cutoff has no snapshot in its stream")
+                return "feature-pending"
+            pinned = next((row for row in snapshot.rows if row.entity == deployment.entity), None)
+            if pinned is None:
+                raise ValueError("candidate entity is absent from its stream snapshot")
+            if not online:
                 result = self._store.retrieve_offline(definition, deployment.entity, at)
-                pinned = next(
-                    (row for row in snapshot.rows if row.entity == deployment.entity), None
-                )
-                if (
-                    pinned is None
-                    or pinned.feature != result.feature
-                    or pinned.status != result.status
-                ):
+                if pinned.feature != result.feature or pinned.status != result.status:
                     raise ValueError("candidate PIT retrieval differs from its stream snapshot")
-                if result.status != "ready":
-                    return result.status
-            else:
-                result = self._store.retrieve_online(
-                    definition,
-                    deployment.entity,
-                    at,
-                    max_materialization_age_us=self.maximum_age_us(loaded),
-                )
-                if result.version != version:
-                    return "feature-version-changed"
-                if result.status != "ready" or result.materialized_at is None:
-                    return result.status
-                snapshot = self._store.get_materialization(
-                    definition, version, result.materialized_at
-                )
-                if self._bridge is None or self._serving_root is None:
-                    raise ValueError("online candidate requires its isolated Feast bridge")
+            if pinned.status != "ready":
+                return pinned.status
+            if online and self._bridge is not None and self._serving_root is not None:
                 serving = FeastServingSnapshot.from_materialization(snapshot)
                 generation = self._bridge.open_generation(serving, self._serving_root)
                 served = self._bridge.retrieve(serving, generation, deployment.entity, at)
@@ -135,7 +123,7 @@ class ServedFeatures:
         except FeatureAccessError, OSError, sqlite3.Error:
             return "feature-service-unavailable"
         return ServedFeature(
-            vector=result.require_ready(),
+            vector=pinned.require_ready(),
             stream=stream,
             version=version,
             materialized_at=snapshot.at,
@@ -163,25 +151,13 @@ class ServedFeatures:
         snapshot = self._store.get_materialization(definition, version, served.materialized_at)
         row = next((item for item in snapshot.rows if item.entity == deployment.entity), None)
         if (
-            snapshot.at != served.materialized_at
+            served.materialized_at != served.served_at
+            or snapshot.at != served.materialized_at
             or snapshot.identity != served.materialization
             or row is None
             or row.vector != served.vector
         ):
             raise ValueError("served feature differs from its retained snapshot")
-
-    @staticmethod
-    def maximum_age_us(loaded: LoadedCandidate) -> int:
-        """Return the tightest declared input age and capability freshness."""
-        names = {item.name for item in loaded.definition.inputs}
-        return min(
-            *(item.max_age_us for item in loaded.definition.inputs),
-            *(
-                requirement.max_freshness_us
-                for requirement in loaded.definition.requirements
-                if requirement.name in names and requirement.max_freshness_us is not None
-            ),
-        )
 
 
 class CandidateFeatureFeed:

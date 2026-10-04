@@ -259,10 +259,11 @@ class TestServedFeatures:
         served = ServedFeatures(store, bridge=bridge, serving_root=root)
         return store, definition, worker, bridge, served, self._candidate(definition, "stream")
 
-    def test_a_stream_serves_each_instant_its_latest_snapshot(self, tmp_path: Path) -> None:
-        """Serving advances with the stream, and replay reopens each exact snapshot."""
+    def test_a_stream_serves_each_instant_exactly_its_own_snapshot(self, tmp_path: Path) -> None:
+        """An instant reads its own snapshot or waits; replay reopens each exact snapshot."""
         _, definition, _, _, served, candidate = self._setup(tmp_path)
-        first = served.serve(candidate, _AT + timedelta(seconds=1))
+        assert served.serve(candidate, _AT + timedelta(seconds=1)) == "feature-pending"
+        first = served.serve(candidate, _AT)
         later = served.serve(candidate, _AT + timedelta(seconds=2))
         assert isinstance(first, ServedFeature) and isinstance(later, ServedFeature)
         assert first.materialized_at == _AT and later.materialized_at == _AT + timedelta(seconds=2)
@@ -277,18 +278,20 @@ class TestServedFeatures:
         )
         with pytest.raises(ValueError, match="retained snapshot"):
             served.verify(candidate, forged)
+        with pytest.raises(ValueError, match="retained snapshot"):
+            served.verify(candidate, replace(first, served_at=_AT + timedelta(seconds=1)))
         step = LocalCandidateExecutor(candidate).step(first, None)
         assert step.status == "decided" and step.at == first.served_at
         assert step.feature == first.vector
 
     def test_faults_pause_and_recover_without_substitute_values(self, tmp_path: Path) -> None:
-        """Future, stale, expired, rolled-back and unreachable serving name their reasons."""
+        """Pending, rolled-back and unreachable serving name their reasons."""
         store, definition, worker, bridge, served, candidate = self._setup(tmp_path)
-        assert served.serve(candidate, _AT - timedelta(seconds=1)) == "future"
-        assert served.serve(candidate, _AT + timedelta(seconds=13)) == "stale"
+        assert served.serve(candidate, _AT - timedelta(seconds=1)) == "feature-pending"
+        assert served.serve(candidate, _AT + timedelta(seconds=13)) == "feature-pending"
         store.append(definition, self._row(definition, 3, "1/50"))
         self._publish(store, bridge, tmp_path, definition, "stream", 13)
-        assert served.serve(candidate, _AT + timedelta(seconds=14)) == "expired"
+        assert served.serve(candidate, _AT + timedelta(seconds=14)) == "feature-pending"
         store.append(definition, self._row(definition, 0, "1/10", available=1, revision="2"))
         self._publish(store, bridge, tmp_path, definition, "previous", 1)
         store.activate(definition, "previous")
@@ -458,7 +461,7 @@ class TestServedSharedDecisions:
                 gas_inapplicable_reason="public spot paper matching has no blockchain activity",
             ),
             delivery_path=path.with_suffix(".jsonl"),
-            clock=_Clock(tuple(_AT + timedelta(seconds=item) for item in range(5))),
+            clock=_Clock(tuple(_AT + timedelta(seconds=item) for item in range(6))),
             features=served,
         )
         return observer, journal
@@ -491,57 +494,81 @@ class TestServedSharedDecisions:
             ),
         )
 
-    def test_served_decisions_retain_their_snapshot_and_replay_exactly(
+    def test_served_decisions_wait_for_their_snapshot_and_replay_exactly(
         self, tmp_path: Path
     ) -> None:
-        """The candidate decides from its stream; replay reopens the snapshot and refuses edits."""
+        """Each instant decides on its own snapshot, waiting for it; replay is exact."""
         setup = TestServedFeatures()
-        _, definition, _, _, served, _ = setup._setup(tmp_path)
-        candidate = TestServedFeatures._candidate(
-            definition, "stream", starts_at=_AT + timedelta(milliseconds=500)
-        )
+        store, definition, _, bridge, served, _ = setup._setup(tmp_path)
+        candidate = TestServedFeatures._candidate(definition, "stream", starts_at=_AT)
         observer, journal = self._observer(tmp_path / "live.sqlite3", served, candidate)
         assert journal.reconcile(self._opening())
         for position in range(4):
             observer.observe(*self._book(position, position))
+        # Instant 1 has no snapshot: it waited at 2 and was skipped when 2 decided at 3.
+        assert observer.feature_pauses["served"] == "feature-not-published"
+        observer.observe(*self._book(4, 4))
+        assert observer.feature_pauses["served"] == "feature-pending"
+        store.append(definition, setup._row(definition, 3, "1/50"))
+        setup._publish(store, bridge, tmp_path, definition, "stream", 3)
+        observer.observe(*self._book(5, 5))
         retained = tuple(
             DomainCodec().decode_json(line, SharedBookDelivery)
             for line in (tmp_path / "live.jsonl").read_bytes().splitlines()
         )
-        decided = [
-            item for delivery in retained for group in delivery.decisions for item in group.inputs
+        groups = [(index, group) for index, item in enumerate(retained) for group in item.decisions]
+        assert [(index, group.at) for index, group in groups] == [
+            (3, _AT + timedelta(seconds=2)),
+            (5, _AT + timedelta(seconds=3)),
         ]
-        assert [item.served is not None and item.inputs is None for item in decided] == [True, True]
-        first, second = (item.served for item in decided)
-        assert first is not None and second is not None
-        assert (first.materialized_at, second.materialized_at) == (_AT, _AT + timedelta(seconds=2))
-        assert journal.checkpoint("served") is not None
+        waited = groups[1][1]
+        assert waited.coordinated_at == _AT + timedelta(seconds=4, microseconds=1)
+        # Priced at the market known when it was decided, not the instant's own.
+        assert waited.quote.at == _AT + timedelta(seconds=4)
+        served_items = [group.inputs[0].served for _, group in groups]
+        assert [item.materialized_at for item in served_items if item is not None] == [
+            _AT + timedelta(seconds=2),
+            _AT + timedelta(seconds=3),
+        ]
         replay, recovered = self._observer(tmp_path / "replay.sqlite3", served, candidate)
         assert recovered.reconcile(self._opening())
         for delivery in retained:
             replay.deliver(delivery)
         assert recovered.checkpoint("served") == journal.checkpoint("served")
         assert recovered.accounts() == journal.accounts()
-        forged_group = replace(
-            retained[2].decisions[0],
+        # Replaying into the live journal itself is an exact retry that changes nothing.
+        before = (journal.checkpoint("served"), journal.accounts(), journal.orders())
+        retry, reopened = self._observer(tmp_path / "live.sqlite3", served, candidate)
+        for delivery in retained:
+            retry.deliver(delivery)
+        assert before == (reopened.checkpoint("served"), reopened.accounts(), reopened.orders())
+        awaited = served_items[1]
+        assert awaited is not None
+        forged_value = replace(
+            waited,
             inputs=(
                 replace(
-                    retained[2].decisions[0].inputs[0],
+                    waited.inputs[0],
                     served=replace(
-                        first,
+                        awaited,
                         vector=replace(
-                            first.vector, values=(ExactRatio.from_fraction(Fraction(1)),)
+                            awaited.vector, values=(ExactRatio.from_fraction(Fraction(1)),)
                         ),
                     ),
                 ),
             ),
         )
-        fresh, opened = self._observer(tmp_path / "forged.sqlite3", served, candidate)
-        assert opened.reconcile(self._opening())
-        for delivery in retained[:2]:
-            fresh.deliver(delivery)
-        with pytest.raises(ValueError, match="native input lineage"):
-            fresh.deliver(replace(retained[2], decisions=(forged_group,)))
+        shifted = replace(waited, coordinated_at=_AT + timedelta(seconds=4, microseconds=2))
+        for forged, message in (
+            (forged_value, "native input lineage"),
+            (shifted, "coordination differs"),
+        ):
+            fresh, opened = self._observer(tmp_path / f"{message}.sqlite3", served, candidate)
+            assert opened.reconcile(self._opening())
+            for delivery in retained[:5]:
+                fresh.deliver(delivery)
+            with pytest.raises(ValueError, match=message):
+                fresh.deliver(replace(retained[5], decisions=(forged,)))
 
 
 class _Clock:

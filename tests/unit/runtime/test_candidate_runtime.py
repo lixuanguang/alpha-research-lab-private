@@ -676,12 +676,11 @@ class TestCandidateSession:
             feed.evaluate(changed, _AT)
         assert changed.checkpoint() == checkpoint
 
-    def test_online_future_and_expired_pause_before_serving_io(self, tmp_path: Path) -> None:
-        """The pinned store itself rejects a future snapshot and expired value."""
-        store, _, identity = self._store(tmp_path, has_feature=True, ttl_us=1_000_000)
+    def test_online_pending_and_expired_pause_before_serving_io(self, tmp_path: Path) -> None:
+        """Online serving names an instant without a snapshot pending and an expired value."""
+        store, definition, identity = self._store(tmp_path, has_feature=True, ttl_us=1_000_000)
         worker = _NoCallWorker()
-        bridge = FeastServingBridge(worker)
-        future = self._loaded(
+        loaded = self._loaded(
             _ReferencePolicy(),
             incremental=False,
             ttl_us=1_000_000,
@@ -691,44 +690,30 @@ class TestCandidateSession:
             feature_version="version-one",
             starts_at=_AT - timedelta(seconds=1),
         )
-        feed = CandidateFeatureFeed(store, bridge=bridge, serving_root=tmp_path)
-        future_step = feed.evaluate(
-            CandidateSession(future),
-            _AT - timedelta(seconds=1),
-        )
-        assert future_step.status == "paused" and future_step.reason == "future"
-        expired = self._loaded(
-            _ReferencePolicy(),
-            incremental=False,
-            ttl_us=1_000_000,
-            freshness_us=10_000_000,
-            input_mode="online_features",
-            source_identity=identity,
-            feature_version="version-one",
-        )
-        expired_step = feed.evaluate(CandidateSession(expired), _AT + timedelta(seconds=2))
-        assert expired_step.status == "paused" and expired_step.reason == "expired"
+        feed = CandidateFeatureFeed(store, bridge=FeastServingBridge(worker), serving_root=tmp_path)
+        for at in (_AT - timedelta(seconds=1), _AT + timedelta(seconds=1)):
+            step = feed.evaluate(CandidateSession(loaded), at)
+            assert step.status == "paused" and step.reason == "feature-pending"
+        store.materialize(definition, "version-one", _AT + timedelta(seconds=2), (_ENTITY,))
+        expired = feed.evaluate(CandidateSession(loaded), _AT + timedelta(seconds=2))
+        assert expired.status == "paused" and expired.reason == "expired"
         assert worker.calls == 0
 
-    def test_online_materialization_age_pauses_even_when_vector_ttl_is_long(
-        self, tmp_path: Path
-    ) -> None:
-        """The source freshness contract also bounds an otherwise ready online vector."""
+    def test_offline_cutoff_without_its_snapshot_is_refused(self, tmp_path: Path) -> None:
+        """Offline replay never substitutes an earlier snapshot for the cutoff's own."""
         store, _, identity = self._store(tmp_path, has_feature=True, ttl_us=60_000_000)
-        worker = _NoCallWorker()
         loaded = self._loaded(
             _ReferencePolicy(),
             incremental=False,
             ttl_us=60_000_000,
-            input_mode="online_features",
+            input_mode="offline_features",
             source_identity=identity,
             feature_version="version-one",
         )
-        stale_step = CandidateFeatureFeed(
-            store, bridge=FeastServingBridge(worker), serving_root=tmp_path
-        ).evaluate(CandidateSession(loaded), _AT + timedelta(seconds=2))
-        assert stale_step.status == "paused" and stale_step.reason == "stale"
-        assert worker.calls == 0
+        with pytest.raises(ValueError, match="cutoff has no snapshot"):
+            CandidateFeatureFeed(store).evaluate(
+                CandidateSession(loaded), _AT + timedelta(seconds=2)
+            )
 
 
 class _LifecycleHistory(WireRecord, frozen=True):

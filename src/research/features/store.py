@@ -844,6 +844,21 @@ class VersionedFeatureStore:
                 raise FeatureStoreError("materialization version has no snapshot by cutoff")
             return snapshot
 
+    def exact_materialization(
+        self, definition: FeatureStoreDefinition, version: str, at: datetime
+    ) -> FeatureMaterialization | None:
+        """Reopen a version's snapshot exactly at ``at``, or None when it has none there yet.
+
+        Raises:
+            FeatureStoreError: The version is unknown or the snapshot's bytes differ.
+        """
+        definition.__post_init__()
+        self._text(version, "version")
+        self._clock(at)
+        with closing(self._connect()) as connection:
+            snapshot = self._require_materialization(connection, definition, version, at)
+        return snapshot if snapshot is not None and snapshot.at == at else None
+
     @staticmethod
     def stream_identity(definition: FeatureStoreDefinition, version: str) -> str:
         """Identify one version's snapshot stream, as a feature deployment pins it."""
