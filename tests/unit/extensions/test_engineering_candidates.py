@@ -183,7 +183,7 @@ class TestEngineeringCandidates:
             model.fit(constant, outcomes)
 
     def test_quote_steps_back_and_target_follows_prediction(self) -> None:
-        """The quote steps back on the opposed side; a missing touch is refused."""
+        """The quote steps back on the opposed side and abstains without a touch."""
         quote = TouchQuote.create(
             DomainCodec().encode_json(
                 {
@@ -201,8 +201,8 @@ class TestEngineeringCandidates:
         assert isinstance(intent, QuoteIntent)
         assert (intent.bid.limit.value, intent.ask.limit.value) == (Decimal(100), Decimal("100.3"))
         missing = self._row(Fraction(1, 2), None, Fraction(1002, 10), names=names)
-        with pytest.raises(ValueError, match="then-known bid and ask"):
-            quote.decide(DecisionContext(features=missing, prediction=None), b"")
+        abstained = quote.decide(DecisionContext(features=missing, prediction=None), b"")
+        assert (abstained.intent, abstained.state) == (None, b"")
         target = PredictionTarget.create(
             DomainCodec().encode_json(
                 {

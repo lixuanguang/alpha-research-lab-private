@@ -5,6 +5,10 @@ Existing `TargetRule`, `RuleRegistry`, `BookRule` and saved spot simulations ret
 their behavior. The generalized interface is `DecisionPolicy`: explicit identity,
 output family, signature admission, initial/validated state, and a pure
 `decide(context, state)` transition. A policy cannot submit orders or approve risk.
+A transition's intent may be `None`: the policy abstains, wanting no working orders
+at that decision, while its state still advances. Research and paper treat every
+decision as replacing the instance's working orders, so an abstention withdraws any
+resting quote; a policy that cannot price should abstain rather than invent a price.
 
 For MR07 supervision, a policy may also implement `DecisionLifecycle.on_event`.
 `StrategyEvent` carries explicit start/recovery, timer, market, order, account,

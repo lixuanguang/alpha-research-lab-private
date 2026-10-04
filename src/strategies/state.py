@@ -85,7 +85,9 @@ class DecisionSession:
         self._policy.validate_state(result.state)
         intent = result.intent
         output = (
-            "target"
+            self._policy.output
+            if intent is None
+            else "target"
             if isinstance(intent, TargetIntent)
             else "order"
             if isinstance(intent, OrderIntent)

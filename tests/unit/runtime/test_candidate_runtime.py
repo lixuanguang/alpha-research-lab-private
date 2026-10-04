@@ -166,6 +166,7 @@ class _ReferencePolicy:
         self._output = output
         self.wrong_output = False
         self.wrong_tif = False
+        self.abstain = False
 
     @property
     def identity(self) -> str:
@@ -195,6 +196,8 @@ class _ReferencePolicy:
         """Advance only the staged state supplied by the session."""
         context.__post_init__()
         self.validate_state(state)
+        if self.abstain:
+            return DecisionTransition(intent=None, state=str(int(state) + 1).encode("ascii"))
         intent: DecisionIntent
         if self.wrong_output:
             intent = ExposureIntent(
@@ -494,6 +497,17 @@ class TestCandidateSession:
             metrics=(),
             charts=(),
         )
+
+    def test_abstaining_step_decides_with_no_intent_and_advances_state(self) -> None:
+        """An abstention is a decided step with no intent; the policy state still advances."""
+        policy = _ReferencePolicy(output="order")
+        session = CandidateSession(self._loaded(policy))
+        assert session.evaluate_inputs(self._inputs(_AT, 2)).status == "decided"
+        policy.abstain = True
+        abstained = session.evaluate_inputs(self._inputs(_AT + timedelta(seconds=1), 4))
+        assert abstained.status == "decided" and abstained.decision is not None
+        assert abstained.decision.intent is None
+        assert abstained.checkpoint.policy.state == b"2"
 
     def test_failed_policy_transition_rolls_back_feature_and_decision_state(self) -> None:
         """A failed second intent cannot change the mean or policy continuation."""
@@ -1031,7 +1045,7 @@ class TestPaperCandidateRuntime:
 
     def test_paper_shadow_parity_and_restart(self, tmp_path: Path) -> None:
         """Keep decisions identical while only paper posts a single exact modeled fill."""
-        intents: list[DecisionIntent] = []
+        intents: list[DecisionIntent | None] = []
         for mode in ("paper", "shadow"):
             runtime = self._runtime(tmp_path / f"{mode}.sqlite3", mode=mode)
             runtime.open(owner="first", at=_AT)

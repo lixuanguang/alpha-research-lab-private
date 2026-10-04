@@ -230,12 +230,32 @@ class AccountAdmission:
             ),
             Quantity(value=Decimal(0), dimension=limits.lot.dimension),
         )
+        if self.config.mode == "paper" and not protective:
+            # Each paper decision replaces its instance's working orders, as research
+            # replaces its plan; an abstention or warming step replaces them with none.
+            self.request_instance_cancels(
+                transaction,
+                request.instance_id,
+                request.decision.at,
+                label=f"replace:{request.decision.identity}",
+            )
         if request.decision.intent is None:
             # A continuation advances only the instance's opaque state.
             return StepCommit(status="committed", reason="no_intent", orders=())
         lifecycle = SpotOrderLifecycle(limits)
+        # Orders being replaced, directly or through their physical parent, do not
+        # hold back a target; any other live order of the instance does.
+        replacing = {
+            allocation.child_order_id
+            for parent in transaction.state.net_orders
+            if not parent.order.is_terminal and parent.order.cancel_requested
+            for allocation in parent.allocations
+        }
         if isinstance(request.decision.intent, (TargetIntent, ExposureIntent)) and any(
-            tagged.instance_id == request.instance_id and not tagged.order.is_terminal
+            tagged.instance_id == request.instance_id
+            and not tagged.order.is_terminal
+            and not tagged.order.cancel_requested
+            and tagged.order.identity not in replacing
             for tagged in transaction.state.orders
         ):
             raise ValueError("pending_target")
@@ -921,6 +941,75 @@ class AccountAdmission:
                 )
             ).value > limits.maximum.value:
                 raise ValueError("holding_limit")
+
+    def request_instance_cancels(
+        self, transaction: AccountTransaction, instance_id: str, at: datetime, *, label: str
+    ) -> tuple[NetOrder, ...]:
+        """Request cancellation of an instance's live orders, physical parents included.
+
+        A child not yet attached to a physical parent is cancelled at once; any other
+        live order gets a durable cancel request at ``at``, which paper matching
+        honours after the scenario's cancel delay. Returns the affected parents.
+        """
+        affected: list[NetOrder] = []
+        attached = {
+            allocation.child_order_id
+            for parent in transaction.state.net_orders
+            if not parent.order.is_terminal
+            for allocation in parent.allocations
+        }
+        for parent in transaction.state.net_orders:
+            if parent.order.is_terminal or not any(
+                transaction.order(allocation.child_order_id).instance_id == instance_id
+                for allocation in parent.allocations
+            ):
+                continue
+            updated = parent
+            if not parent.order.cancel_requested:
+                request = OrderEvent(
+                    identity=f"{label}:{parent.order.identity}",
+                    order_id=parent.order.identity,
+                    at=at,
+                    kind="cancel_requested",
+                )
+                physical = SpotOrderLifecycle(self.limits(parent.order.intent.limit)).transition(
+                    parent.order, request
+                )
+                updated = replace(parent, order=physical)
+                transaction.save_net_order(updated)
+                net_events = (
+                    *transaction.state.net_events,
+                    _SavedNetEvent(event=request, result=updated, child_fill_ids=()),
+                )
+                transaction.state = replace(transaction.state, net_events=net_events)
+            affected.append(updated)
+        for child in transaction.state.orders:
+            if (
+                child.instance_id == instance_id
+                and not child.order.is_terminal
+                and child.order.identity not in attached
+            ):
+                if child.context is not None:
+                    transaction.save_order(
+                        replace(child, order=replace(child.order, status="cancelled"))
+                    )
+                elif not child.order.cancel_requested:
+                    request = OrderEvent(
+                        identity=f"{label}:{child.order.identity}",
+                        order_id=child.order.identity,
+                        at=at,
+                        kind="cancel_requested",
+                    )
+                    updated_order = SpotOrderLifecycle(
+                        self.limits(child.order.intent.limit)
+                    ).transition(child.order, request)
+                    transaction.save_order(replace(child, order=updated_order))
+                    saved_events: tuple[_SavedEvent, ...] = (
+                        *transaction.state.events,
+                        _SavedEvent(event=request, result=updated_order),
+                    )
+                    transaction.state = replace(transaction.state, events=saved_events)
+        return tuple(affected)
 
     def require_reissue_safe(
         self, transaction: AccountTransaction, account_id: str, at: datetime

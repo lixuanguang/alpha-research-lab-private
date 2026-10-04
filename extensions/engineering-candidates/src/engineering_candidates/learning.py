@@ -305,8 +305,8 @@ class TouchQuote:
 
     The features are, in order, ``depth_imbalance``, ``bid`` and ``ask``. With the
     imbalance above the threshold the ask steps back one tick; below its negative,
-    the bid does. The quote rests post-only. A missing touch is refused: a policy
-    must return an intent at every decision, and inventing a price is worse.
+    the bid does. The quote rests post-only. Without a then-known bid and ask it
+    abstains: inventing a price is worse, and abstaining withdraws its resting quote.
     """
 
     def __init__(self, parameters: _QuoteParameters) -> None:
@@ -329,7 +329,7 @@ class TouchQuote:
     def identity(self) -> str:
         """Bind the rule and every exact parameter."""
         return hashlib.sha256(
-            DomainCodec().encode_json(("touch-quote/1", self._parameters))
+            DomainCodec().encode_json(("touch-quote/2", self._parameters))
         ).hexdigest()
 
     @property
@@ -364,7 +364,7 @@ class TouchQuote:
         self.validate_state(state)
         imbalance, bid, ask = context.features.values[:3]
         if bid is None or ask is None:
-            raise ValueError("touch quote requires a then-known bid and ask")
+            return DecisionTransition(intent=None, state=b"")
         tick = Fraction(self._parameters.tick)
         signal = Fraction(0) if imbalance is None else _Exact.fraction(imbalance)
         bid_price = _Exact.fraction(bid) - (tick if signal < -self._threshold else 0)

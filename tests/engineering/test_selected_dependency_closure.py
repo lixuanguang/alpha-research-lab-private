@@ -11,7 +11,7 @@ import platform
 import subprocess
 import sys
 import zipfile
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -202,10 +202,12 @@ class TestSelectedClosureAdmission:
         (tmp_path / "docs/architecture/dependency-admission.toml").write_text(
             "fixture policy\n", encoding="utf-8"
         )
+        # Dates follow the calendar so the fixture policy is always under review.
+        today = date.today()
         policy = DependencyAdmission(
             schema_version=5,
-            as_of_date=date(2026, 9, 20),
-            review_due_on=date(2026, 10, 4),
+            as_of_date=today - timedelta(days=14),
+            review_due_on=today + timedelta(days=14),
             packages=(
                 PythonPackageAdmission(
                     name="pydantic",
@@ -227,8 +229,8 @@ class TestSelectedClosureAdmission:
                     rationale="Unverified source binding retained for isolated development only.",
                     usage="isolated_development_and_ci",
                     source_to_wheel_binding="unverified",
-                    reviewed_on=date(2026, 9, 4),
-                    expires_on=date(2026, 10, 4),
+                    reviewed_on=today - timedelta(days=30),
+                    expires_on=today + timedelta(days=14),
                 ),
             ),
             lock_digests=(

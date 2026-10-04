@@ -215,8 +215,12 @@ decision, and a crossing policy.
 candidate step through its executor: `LocalCandidateExecutor` in process, or a
 `ProcessCandidateExecutor` supplied by the application. A decided step reaches
 the same independent account admission for targets, exposures, orders and quotes.
-A warming step commits its continuation as an `OrderDecision` without an intent,
-which reserves nothing and reports `no_intent`. A paused step commits nothing,
+A warming or abstaining step commits its continuation as an `OrderDecision`
+without an intent, which reserves nothing and reports `no_intent`. In a paper
+account every admitted decision, with or without an intent, first requests
+cancellation of its instance's working orders at the decision time, which paper
+matching honours after the scenario's cancel delay, as research replaces its plan.
+A rejected decision is rolled back whole, cancel requests included. A paused step commits nothing,
 and a cohort that only pauses returns no batch. The continuation is the
 `shared-candidate-decision` record: the full `CandidateCheckpoint` (feature
 state, warm-up count, policy state), the step's feature vector, prediction and

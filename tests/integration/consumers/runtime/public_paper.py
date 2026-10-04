@@ -540,16 +540,72 @@ class PublicPaperWorkload:
             ask_quantity=self.quantity("4"),
         )
 
+    def replaced(
+        self,
+        traces: tuple[AccountPaperTrace, ...],
+        decisions: tuple[PortfolioCommit, ...],
+        deliveries: Path,
+    ) -> set[str]:
+        """Name physical orders that a later decision of an owning instance replaced.
+
+        Derived from the observer's retained decisions and the paper events alone:
+        an order is replaced when such a decision coordinates while it is still live.
+        """
+        groups = tuple(
+            (group.coordinated_at, {item.instance_id for item in group.inputs})
+            for line in deliveries.read_bytes().splitlines()
+            for group in self.codec.decode_json(line, SharedBookDelivery).decisions
+        )
+        owner = {
+            child.order.identity: child.instance_id
+            for decision in decisions
+            for child in decision.children
+        }
+        replaced: set[str] = set()
+        for decision in decisions:
+            for parent in decision.net_orders:
+                order = parent.order
+                owners = {owner[item.child_order_id] for item in parent.allocations}
+                events = tuple(
+                    event
+                    for trace in traces
+                    for event in trace.physical_events
+                    if event.order_id == order.identity
+                )
+                for at, instances in groups:
+                    if at <= order.decision_at or not instances & owners:
+                        continue
+                    filled = sum(
+                        (
+                            abs(event.fill.quantity.value)
+                            for event in events
+                            if event.fill is not None and event.at < at
+                        ),
+                        Decimal(0),
+                    )
+                    cancelled = any(event.kind == "cancelled" and event.at < at for event in events)
+                    if filled < order.intent.quantity.value and not cancelled:
+                        replaced.add(order.identity)
+                        break
+        return replaced
+
     def reconcile(
         self,
         journal: PaperAccount,
         decisions: tuple[PortfolioCommit, ...],
         *,
+        deliveries: Path,
         cancelled_ids: tuple[str, ...] = (),
         identity: str = "independent-model-events",
     ) -> AccountObservation:
-        """Derive account and order expectations from source events before comparing postings."""
+        """Derive account and order expectations from source events before comparing postings.
+
+        Each decision replaces its instance's working orders: a physical order still
+        live when a later retained decision of an owning instance coordinates carries
+        a cancel request.
+        """
         traces = journal.paper_traces("paper")
+        replaced = self.replaced(traces, decisions, deliveries)
         quantity, notional, fees = Fraction(0), Fraction(0), Fraction(0)
         expected_orders: list[OrderState] = []
         originals = tuple(
@@ -576,12 +632,20 @@ class PublicPaperWorkload:
                     filled += abs(event.fill.quantity.value)
                     fee += event.fill.fee.value
             status: Literal[
-                "intent", "request_ack", "accepted", "partial", "filled", "cancelled"
+                "intent",
+                "request_ack",
+                "accepted",
+                "partial",
+                "filled",
+                "cancelled",
+                "cancel_requested",
             ] = (
                 "filled"
                 if filled == original.intent.quantity.value
                 else "cancelled"
                 if any(event.kind == "cancelled" for event in events)
+                else "cancel_requested"
+                if original.identity in replaced
                 else "partial"
                 if filled
                 else "accepted"
@@ -598,7 +662,8 @@ class PublicPaperWorkload:
                     paid_fee=self.money(str(fee)),
                     request_acknowledged=acknowledged,
                     accepted=accepted,
-                    cancel_requested=original.identity in cancelled_ids,
+                    cancel_requested=original.identity in cancelled_ids
+                    or original.identity in replaced,
                     cancel_acknowledged=cancel_acknowledged,
                 )
             )
@@ -728,7 +793,9 @@ class PublicPaperWorkload:
                     str(Decimal(100) + self.scenario.adverse.value)
                 )
                 assert item.fill.fee == self.money(str(expected_fee / len(self.names)))
-        expected = self.reconcile(journal, result.paper.decisions)
+        expected = self.reconcile(
+            journal, result.paper.decisions, deliveries=output / "run/deliveries.jsonl"
+        )
         (output / "reconciliation.json").write_bytes(self.codec.encode_json(expected))
         report = result.report
         # Fixed fixture economics are independent of the production accounting/report path.
@@ -934,6 +1001,7 @@ class PublicPaperWorkload:
         cancel_observation = self.reconcile(
             account,
             paper_result.decisions,
+            deliveries=output / "run/deliveries.jsonl",
             cancelled_ids=cancelled_ids,
             identity="independent-after-cancel",
         )
@@ -1006,6 +1074,7 @@ class PublicPaperWorkload:
         reduction_observation = self.reconcile(
             account,
             paper_result.decisions,
+            deliveries=output / "run/deliveries.jsonl",
             cancelled_ids=cancelled_ids,
             identity="independent-after-reduction",
         )
@@ -1050,6 +1119,7 @@ class PublicPaperWorkload:
         recovery_observation = self.reconcile(
             rolled_back,
             paper_result.decisions,
+            deliveries=output / "run/deliveries.jsonl",
             cancelled_ids=cancelled_ids,
             identity="independent-before-reclaim",
         )

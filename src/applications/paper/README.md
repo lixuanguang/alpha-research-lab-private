@@ -76,8 +76,11 @@ when the journal requires opening or recovery reconciliation. The workflow never
 constructs a successful reconciliation from its own output. At each candidate
 grid instant the due candidates decide from the latest eligible market at or
 before it, then the book that crossed the instant matches orders, so a decision's
-input cannot also fill its own order. Matching uses the declared
-entry/cancel delays, fee, adverse price and take fraction. All physical net fills
+input cannot also fill its own order. Each decision replaces its instance's
+working orders: the account requests their cancellation at the decision time, and
+an abstention replaces them with none. Matching uses the declared
+entry/cancel delays, fee, adverse price and take fraction. The supervisor binds each
+instance as its own portfolio, so candidates' physical orders are never netted. All physical net fills
 and child allocations commit with finite touch liquidity in one account transaction.
 Two distinct active candidates exercise the public extension points; their
 formulas are engineering workloads, not profitability evidence.

@@ -320,7 +320,12 @@ class PaperServices:
         return self.resolved.candidate(instance)
 
     def binding(self, instance: PaperServiceInstance) -> SharedStrategyBinding:
-        """Bind one candidate's continuation to its economic instance and venue."""
+        """Bind one candidate's continuation to its economic instance and venue.
+
+        Each instance is its own portfolio, so its physical orders are never netted
+        with another candidate's: a decision replaces only its own working orders, and
+        each candidate's fills stay its own, as research simulates them.
+        """
         source = next(item for item in self.config.sources if item.name == instance.source)
         account = self.accounts[instance.account_id]
         loaded = self.candidate(instance)
@@ -330,7 +335,7 @@ class PaperServices:
             entity=str(source.scenario.instrument_id),
             candidate=loaded,
             context=PortfolioContext(
-                portfolio_id="reference",
+                portfolio_id=instance.instance_id,
                 strategy_id=instance.instance_id,
                 model_revision=self.model_identity(loaded),
                 config_revision="paper-services",

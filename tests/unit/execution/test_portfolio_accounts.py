@@ -32,7 +32,7 @@ from financial_units import Currency, Dimension, Money, Price, Quantity, Quantit
 from reference_data.instruments import InstrumentId
 from risk.budgets import AccountLimit, BudgetPolicy, InstanceLimit
 from risk.spot import SpotLimits
-from strategies import OrderIntent
+from strategies import OrderIntent, TargetIntent
 
 
 class TestPortfolioAccounts:
@@ -263,15 +263,8 @@ class TestPortfolioAccounts:
         retry_at = cancel_at + timedelta(microseconds=1)
         reopened.observe(AccountQuote(price=self._price(), at=retry_at))
         before_orders = reopened.orders()
-        refused = reopened.coordinate(
-            PortfolioBatch(
-                identity="new-decision-cannot-bypass-residual-reconciliation",
-                at=retry_at + timedelta(microseconds=1),
-                decisions=(self._decision(instance="beta", identity="beta-next", at=retry_at),),
-            )
-        )
-        assert refused.status == "rejected"
-        assert refused.reason == "reissue_requires_current_reconciliation"
+        with pytest.raises(ValueError, match="reissue_requires_current_reconciliation"):
+            reopened.reissue_pending("shared", retry_at)
         assert reopened.orders() == before_orders
         assert len(reopened.net_orders()) == 1
         assert reopened.reconcile(
@@ -310,6 +303,73 @@ class TestPortfolioAccounts:
         assert final.snapshot(instance_id="alpha").positions == (self._quantity("1"),)
         assert final.snapshot(instance_id="beta").positions == (self._quantity("2"),)
         assert final.snapshot(instance_id="beta").fees == (self._money("0.02"),)
+
+    def test_each_paper_decision_replaces_its_instance_working_orders(self, tmp_path: Path) -> None:
+        """Abstaining or deciding again cancels the instance's orders; a rejection does not."""
+        journal = self._ready(tmp_path / "replace.sqlite3")
+        first_at = self.opening_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=first_at))
+        first = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-first",
+                at=first_at + timedelta(microseconds=1),
+                decisions=(self._decision(instance="alpha", identity="alpha-1", at=first_at),),
+            )
+        )
+        assert first.status == "committed" and len(first.net_orders) == 1
+        parent = first.net_orders[0].order.identity
+        second_at = first_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=second_at))
+        refused = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-too-large",
+                at=second_at + timedelta(microseconds=1),
+                decisions=(
+                    self._decision(
+                        instance="alpha", identity="alpha-big", at=second_at, quantity="200"
+                    ),
+                ),
+            )
+        )
+        assert refused.status == "rejected"
+        assert not journal.net_orders()[0].order.cancel_requested
+        abstain = self._decision(instance="alpha", identity="alpha-abstain", at=second_at)
+        abstain = replace(
+            abstain,
+            request=replace(
+                abstain.request, decision=replace(abstain.request.decision, intent=None)
+            ),
+        )
+        abstained = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-abstains",
+                at=second_at + timedelta(microseconds=2),
+                decisions=(abstain,),
+            )
+        )
+        assert (abstained.status, abstained.reason) == ("committed", "no_intent")
+        (replaced,) = journal.net_orders()
+        assert replaced.order.identity == parent and replaced.order.status == "cancel_requested"
+        target_at = second_at + timedelta(seconds=1)
+        journal.observe(AccountQuote(price=self._price(), at=target_at))
+        target = self._decision(instance="alpha", identity="alpha-target", at=target_at)
+        target = replace(
+            target,
+            request=replace(
+                target.request,
+                decision=replace(
+                    target.request.decision, intent=TargetIntent(quantity=self._quantity("1"))
+                ),
+            ),
+        )
+        held = journal.coordinate(
+            PortfolioBatch(
+                identity="alpha-target",
+                at=target_at + timedelta(microseconds=1),
+                decisions=(target,),
+            )
+        )
+        assert held.status == "committed", held.reason
 
     def test_conflicting_physical_facts_persist_and_block_new_batches(self, tmp_path: Path) -> None:
         """Physical receipt and fill conflicts survive restart without new economics."""

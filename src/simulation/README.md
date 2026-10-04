@@ -23,7 +23,8 @@ missing/stale reference fails. Fixed authored limits remain a declared assumptio
 
 The configured entry/cancel delays and lifetime are microseconds. A new order
 waits for entry delay; a replacement with a pending plan or resting order waits
-for cancellation and then entry delay. Books and prints become available at the
+for cancellation and then entry delay. A decision without an intent (an abstention)
+replaces the plan with none and is recorded as `abstained`. Books and prints become available at the
 later source/knowledge clock; controls invalidate pending orders. Consumed
 depth is not repeatedly offered while its level remains present. Passive orders
 start behind `visible quantity * queue_ahead_fraction`; only opposite-aggressor

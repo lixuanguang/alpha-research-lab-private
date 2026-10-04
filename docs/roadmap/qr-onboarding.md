@@ -2669,6 +2669,141 @@ The owner approved A-1 and then AB-1 on 2026-10-04. Nothing is implemented yet.
 - The template quote abstaining on a missing touch.
 - Delivery-log replay of an abstention.
 
+**Widened AB-1 (approved 2026-10-05): every decision replaces the instance's
+working orders.**
+- **Why AB-1 had to widen.**
+  - AB-1 assumed paper replaces an instance's working orders at each decision, as
+    research does. It does not.
+  - Account admission only adds a decision's orders, and paper matching cancels an
+    order only after an explicit request, from an instance stop or an operator.
+  - So for order and quote candidates, paper accumulated orders at every decision
+    while research replaced its plan. Reserved exposure grew until the budget
+    rejected new decisions.
+- **Rule.**
+  - When the account admits a decision for an instance, with or without an intent,
+    it first requests cancellation of that instance's live orders at the decision
+    time, under the fencing `stop_instance` uses (shared physical parents included).
+    It then admits the new orders.
+  - Paper matching already applies `cancel_delay_us` to a cancel request, so the
+    timing matches research's replaced plans. An abstention is the same rule with no
+    new orders. The research simulator treats a decision without an intent as a plan
+    with no orders.
+- **Warm-up.** A warming step carries no intent either, so it also cancels the
+  instance's live orders. This matters only after a restart, when old orders would
+  otherwise rest with no policy managing them.
+- **Rejections.**
+  - A rejected decision (budget, risk) is rolled back whole, including its cancel
+    requests, so its earlier orders keep working.
+  - A replaced order keeps its reservation until its cancel completes, as at a
+    venue. So a budget-bound candidate may be rejected where research, which models
+    no budgets, is not. J7 declares and checks that difference.
+- **Targets.** A target decision is no longer refused (`pending_target`) for live
+  orders of its instance that already carry a cancel request; it is still refused
+  for any other live order. A replaced order that fills before its cancel completes
+  is reflected in the holding of the next decision.
+- **Scope.**
+  - The account owner, which serves the supervised paper services and the dedicated
+    account path.
+  - The older single-candidate `PaperOrderJournal` workflow, outside the journey,
+    keeps explicit replacement only. Retiring it is proposed separately.
+- **Release and records.** This is an execution-owner change and needs a new
+  execution release, which stage 2b qualifies anyway. Paper journals gain cancel
+  requests at each decision.
+- **N1 (approved 2026-10-05): no netting across supervised instances.**
+  - The account nets child orders that share a portfolio, side, price and
+    time-in-force into one physical order. The supervisor gave every instance the
+    portfolio `reference`.
+  - So one instance's replacement would cancel a shared physical order and strand
+    another instance's portion until an explicit reconcile and reissue.
+  - The supervisor now binds each instance as its own portfolio
+    (`portfolio_id` = instance id). A decision replaces only its own orders, and
+    each candidate's fills stay its own, as research simulates them.
+  - Account netting and self-trade protection are unchanged.
+
+## AB-1 result (2026-10-05)
+
+Explicit abstention, with every paper decision replacing its instance's working
+orders and no netting across supervised instances (widened AB-1 and N1). Nothing
+has been signed or run live.
+
+**What changed.**
+- **Contracts.** `DecisionTransition.intent` and `DecisionRecord.intent` accept
+  `None`, which records an abstention. `PolicySession` admits an abstention for
+  every declared output and still advances the policy state.
+- **Research simulator.** A decision without an intent replaces the earlier plan
+  like any decision, after `cancel_delay_us`, places nothing, and is recorded as
+  `abstained`.
+- **Paper account.**
+  - `AccountAdmission.request_instance_cancels` is the cancellation `stop_instance`
+    used, now shared by stopping and by replacement.
+  - In paper mode, every non-protective admission first requests cancellation of
+    the instance's live orders at the decision time, physical parents included.
+    The event identity is `replace:<decision>:<order>`.
+  - A target is held back (`pending_target`) only by live orders not already being
+    replaced, directly or through their parent.
+  - Venue modes and protective reductions are unchanged: replacement there needs
+    the venue path to send its cancels, which is outside MR17.
+- **Supervisor.** Each instance is bound as its own portfolio (`portfolio_id` =
+  instance id).
+- **Template.** `TouchQuote` abstains without a then-known touch. Its identity is
+  now `touch-quote/2`, because its behaviour changed.
+- **Docs.** The strategies, simulation, runtime and paper guides describe
+  abstention and replacement.
+
+**Consequences and open points.**
+- **One existing test changed.** A new decision is no longer refused while another
+  instance's stranded remainder awaits reconciliation, because it now replaces its
+  own remainder. The reconciliation guard is unchanged and is exercised through the
+  explicit reissue command instead.
+- **The QR's own quote policy** in the workspace still refuses a missing touch.
+  Abstention is now available to it through the strategies guide; adopting it is
+  the QR's choice, observed in J6.
+- **The older single-candidate `PaperOrderJournal` workflow** (`alpha-paper`)
+  keeps explicit replacement only. It is outside the journey and superseded by the
+  supervised services. Retiring it is proposed for the owner.
+
+**Tests.**
+- An abstention cancels the resting plan after cancel latency and places nothing.
+- A candidate step abstains as a decided step with no intent, and the policy state
+  advances.
+- **Paper account:**
+  - a rejected decision leaves the working order untouched (rollback);
+  - an abstention requests cancellation of the instance's physical order and
+    reports `no_intent`;
+  - a target then proceeds past the order it replaces.
+- The template quote abstains on a missing touch.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` | Passed: 2,546 passed, 4 skipped (optional Feast cases with no worker selected), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 40 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 706 files |
+
+A first run failed on two counts:
+- **Strict mypy.** One test list needed the now-optional intent type. That stopped
+  `make check` before its unit tests.
+- **Public-paper workflow (8 cases).** Its independent model did not know the
+  replacement rule. The netted physical order, still partly unfilled when the next
+  decision coordinated, now carries that decision's cancel request, while fills
+  and economics are unchanged.
+
+The consumer now derives replacement independently, from its retained delivery log
+and the paper events: an order is replaced when a later decision of an owning
+instance coordinates while it is still live.
+
+A second run passed integration, performance and Linux strict mypy. It failed
+`make check` on 2 dependency-closure tests unrelated to AB-1. Their fixture policy
+had fixed dates whose review expired on 2026-10-04, so the governance check
+correctly refused it from 2026-10-05. The fixture's dates now follow the calendar;
+the production expiry rule is unchanged.
+
+`make check` was then rerun alone, because only that test fixture had changed, and
+passed as shown. The other three rows are from the second run. The repository's own
+dependency policy review falls due on 2026-10-31.
+
 ## Milestones
 
 1. **M1 — one candidate execution model (P1).** Three commits, each with its design
