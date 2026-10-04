@@ -19,7 +19,9 @@ from research.features import (
     FeatureSession,
     FeatureStoreDefinition,
     FeatureStoreResult,
+    FittedTransform,
     StoredFeature,
+    TransformVersion,
     VersionedFeatureStore,
 )
 from research.observations import DecisionSource
@@ -67,6 +69,8 @@ def materialize_features(
     version: str,
     bridge: FeastServingBridge,
     serving_root: Path,
+    transform: FittedTransform | None = None,
+    transform_version: TransformVersion | None = None,
 ) -> FeatureMaterialization:
     """Commit each vector with its successor state, then publish and activate verified Feast.
 
@@ -77,8 +81,11 @@ def materialize_features(
     never finds a snapshot without its generation. Calling again with the same
     version and later decisions extends that stream; an interrupted publication
     leaves the preceding snapshot and active version intact.
-    This path runs unfitted kernels; transformed vectors use the store's explicit
-    fitted-definition append boundary after the existing fitted lifecycle.
+    A fitted definition (one with ``transform_identity``) is materialized with
+    the study's ``FittedTransform`` and its retained ``TransformVersion``: each raw
+    vector is transformed with that state, never refitted, and stored under the
+    definition's output fields. A decision before the version's availability is
+    refused by the transform itself.
     """
     if (
         not entities
@@ -86,7 +93,17 @@ def materialize_features(
         or not decisions
         or tuple(sorted(set(decisions))) != decisions
         or kernel.schema != definition.schema
-        or definition.transform_identity is not None
+        or (definition.transform_identity is None) != (transform_version is None)
+        or (transform is None) != (transform_version is None)
+        or (
+            transform is not None
+            and transform_version is not None
+            and (
+                definition.transform_identity != transform_version.identity
+                or definition.output_fields != transform_version.output_fields
+                or transform.identity != transform_version.implementation
+            )
+        )
         or (definition.schema.mode == "incremental" and definition.instance != instance)
         or source.requirements != kernel.schema.inputs
         or source_version != source.identity
@@ -114,6 +131,8 @@ def materialize_features(
             ):
                 continue
             vector = session.evaluate(source.read(entity, at))
+            if transform is not None and transform_version is not None:
+                vector = transform.apply(transform_version, vector)
             row = StoredFeature(
                 definition_identity=definition.identity,
                 vector=vector,

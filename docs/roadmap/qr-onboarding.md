@@ -2099,9 +2099,48 @@ which alone passes the private key path.
 | Performance lane | 25 passed |
 | Linux strict mypy | No issues in 702 files |
 
-## M3d design note: served learned features and the live feature publisher (draft 2026-10-04)
+## Rehearsal 6 (uncounted, 2026-10-04): J1–J5 passed
 
-Draft for owner approval. Nothing is implemented. This is the approved P-A
+**Setup.**
+- Declared through J5 at commit `cc1a2e6`, with QR workspace `ab34f0d` and a
+  30-minute capture window.
+- It ran 12:51–13:51 UTC. Evidence is in `logs/mr17/rehearsal-6/`.
+
+**Result: `stopped` at its declared step J5, with every run criterion passed.**
+
+| Step | Criteria | Highlights |
+| --- | --- | --- |
+| J1 | 29 passed | Fresh environments; extension install; import audit; non-editable research and extension identities; signed collector built, verified and installed |
+| J2 | 27 passed | Eight live captures and replays. `capture-publish`: one book snapshot (four books) and four trades snapshots. Discovery lists five. Reopen: Bitfinex BTC 742 trades over 1,551 boundaries. lakeFS: 21 objects committed and reopened byte-equal |
+| J3 | 26 passed | Rule and learned studies; the two-variant grid; the holdout and the refused changed holdout; ClearML publication (2 receipts); fresh-process reopen with the custom metric and chart; ETH studies by configuration; `XNYS` and perpetual refusals; independent checks |
+| J4 | 15 passed | Offline equals recomputation, with no leakage; the stream, with online matching offline; a lakeFS version with features; expiry, missing entity, fail-closed publication and retry, rollback, late revision |
+| J5 | 9 passed | Both candidates packaged; a changed parameter refused; replay through `CandidateLoader` equals the studies (18 learned, 10 rule decisions); independent bundle checks |
+
+**Guide findings to close before the counted attempt.** In a counted attempt guide
+coverage fails J1; this rehearsal recorded 31 uncovered names as findings. The QR
+workspace imports them, but no guide reachable from the quickstart names them:
+
+`AttemptHistory`, `BookQuery`, `CandidateBundle`, `CandidateDeployment`,
+`CandidateLoader`, `CandidateStateContract`, `CapabilityProfile`,
+`CapabilityRegistry`, `CapabilitySelection`, `DecimalGrid`, `DecisionContext`,
+`DecisionInputs`, `DecisionSource`, `DecisionTransition`, `Dimension`,
+`EstimatorLifecycle`, `FeastOfflineWorker`, `FeatureTransition`, `Fingerprint`,
+`FoldSummary`, `InputRequirement`, `IntentSimulationSpec`, `LimitExecutionConfig`,
+`LocalCandidateExecutor`, `Money`, `NumericField`, `OrderIntent`, `Quantity`,
+`QuoteIntent`, `TargetIntent`, `WireRecord`.
+
+Several are documented in owner guides that the quickstart does not link. Others,
+such as the replay registry and deployment, are documented nowhere a QR would look.
+The ClearML key names and the replay recipe are also open. These are guide work,
+done with M3f.
+
+**Not covered by this rehearsal:** J6–J8. J6 and J7 need M3d, M3e and M3f; J8 needs
+M4 and M5.
+
+## M3d design note: served learned features and the live feature publisher (approved 2026-10-04)
+
+The owner approved this note on 2026-10-04, including the signed
+`PaperFeatureServing.publisher` field. Nothing is implemented yet. This is the approved P-A
 publisher, extended by the two gaps rehearsal 3's dry runs found.
 
 **What the code shows.**
@@ -2178,6 +2217,100 @@ publisher, extended by the two gaps rehearsal 3's dry runs found.
   a missing touch, so a live data gap would fault the rule candidate.
 - **M3e and M3f** (the candidate monitoring exporter, and the driver's J6–J7) follow
   M3d as planned.
+
+## M3d-1 result (2026-10-04)
+
+The first of two M3d commits: fitted materialization and the packager check. The
+live publisher (design item 3) is M3d-2. Nothing has been signed or run.
+
+**What changed.**
+- **Fitted materialization.**
+  - `materialize_features` takes an optional `transform` (`FittedTransform`) and
+    `transform_version` (`TransformVersion`).
+  - It applies the retained state to each raw vector and never refits. It stores
+    the result under a definition whose `transform_identity` and `output_fields`
+    equal the version's, then publishes Feast as before.
+  - A definition and transform that do not match, or one given without the other,
+    are refused before any read.
+- **Packager.**
+  - `CandidatePackager.feature_store(store, attempt_id, name=...)` builds the served
+    definition from the study: its feature schema and, for a fitted study, the last
+    fold's transform identity and output fields.
+  - `publish(..., feature_store=...)` refuses any other definition.
+
+**Tests.** `tests/integration/test_qr_study_example.py` gains a served test that
+runs with the real Feast worker and skips without one:
+- the packager builds the definition from the example's learned holdout study;
+- materializing that definition without the transform is refused;
+- materializing it with the transform stores vectors carrying the study's transform
+  identity;
+- the raw definition is refused at packaging, and the fitted definition packages as
+  a served candidate.
+
+**Validation (as run).**
+
+| Check | Result |
+| --- | --- |
+| `make check` with a `staff`-group base directory | Passed: 2,529 passed, 3 skipped (optional Feast cases with no worker selected, now including the new served test), 25 deselected; wheel smoke passed |
+| Integration lane with the Feast worker | 39 passed, 0 skipped |
+| Performance lane | 25 passed |
+| Linux strict mypy | No issues in 702 files |
+
+## A-1 design note: explicit policy abstention (approved 2026-10-04)
+
+The owner approved A-1 and then AB-1 on 2026-10-04. Nothing is implemented yet.
+
+**What the code shows.**
+- **Policies cannot abstain.** `strategies.DecisionTransition.intent` and
+  `DecisionRecord.intent` are required, so a policy must emit an order, quote,
+  target or exposure at every decision.
+- **Paper already has a "do nothing" path.** Since M1a (C2), an account decision may
+  carry no intent. The account then commits the continuation, reserves nothing and
+  reports `no_intent`. The instance's working orders are untouched.
+- **Research has no such path.** The research simulator (`LimitOrderExecution`)
+  plans one order set per decision. A later decision cancels the earlier plan after
+  `cancel_delay_us`, and every order expires after `lifetime_us`. A decision with no
+  plan does not exist today.
+
+**Design.**
+1. **Abstention.** `DecisionTransition.intent` becomes `DecisionIntent | None`, and
+   so does `DecisionRecord.intent`. A policy returns `None` to abstain; its state
+   still advances.
+2. **Admission.** A policy's declared output still bounds what it may emit;
+   abstention is allowed for every output.
+3. **Research and paper treat abstention identically,** per the choice below.
+4. **Template.** `TouchQuote` abstains on a missing touch instead of failing.
+   `PredictionTarget` keeps going flat, which is an intent, not an abstention.
+5. **Records.** Studies, candidate steps and delivery logs record an abstention as a
+   decision with no intent, so replay compares it exactly.
+
+**Choice for the owner — AB: what abstention does to working orders.**
+- **AB-1 (recommended): abstention cancels the instance's working orders.** It makes
+  one rule hold in research and paper: every decision fully specifies the instance's
+  desired working orders, and an abstention means none. Research already replaces
+  an earlier plan at each decision, so parity holds by construction, and a new venue
+  or order type implements only "replace this instance's working set". A missing
+  input means the policy cannot price, so resting quotes from an earlier decision
+  should not stay live.
+  - **Research:** the simulator treats an abstaining decision like a new decision
+    with no orders: it cancels the earlier plan after `cancel_delay_us`.
+  - **Paper:** the account cancels the instance's non-terminal orders, under the same
+    fencing as its `stop_instance` cancellation, and commits the continuation.
+  - **Target policies:** for a held target this cancels only working orders; the
+    position is unchanged.
+  - **Cost:** a change in the execution owner, so a new execution release, which 2b
+    qualifies anyway.
+- **AB-2: abstention leaves working orders to their own lifetime.** This is the
+  smallest change, because paper already behaves this way. But a research order then
+  expires after `lifetime_us`, while a paper order has no matching lifetime, so the
+  two would differ until both declare one.
+
+**Tests.**
+- Abstention in a study, with exact replay.
+- Candidate steps that abstain.
+- AB-1 cancellation in the simulator and in the account (with fencing and retry).
+- The template quote abstaining on a missing touch.
+- Delivery-log replay of an abstention.
 
 ## Milestones
 

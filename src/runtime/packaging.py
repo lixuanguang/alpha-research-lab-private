@@ -8,6 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+# third party library imports
+from msgspec.structs import replace
+
 # project library imports
 from research.experiments import (
     AttemptStore,
@@ -20,7 +23,7 @@ from research.experiments import (
     CandidateStateContract,
     Fingerprint,
 )
-from research.features import FeatureSchema, FeatureStoreDefinition
+from research.features import FeatureSchema, FeatureStoreDefinition, TransformVersion
 from research.models import EstimatorVersion
 from research.studies import DecisionStudy, StudyResult
 from runtime.extensions import InstalledExtensions
@@ -64,6 +67,53 @@ class CandidatePackager:
         """Bind the installed extensions that provide packaged components."""
         self._extensions = InstalledExtensions() if extensions is None else extensions
         self._codec = DomainCodec()
+
+    def feature_store(
+        self,
+        store: AttemptStore,
+        attempt_id: str,
+        *,
+        name: str,
+        entity_type: str = "instrument",
+        instance: str | None = None,
+    ) -> FeatureStoreDefinition:
+        """Build the stored-feature definition a served candidate of this study needs.
+
+        It carries the study's feature schema and, for a fitted study, the last
+        fold's transform identity and output fields, so stored vectors are the
+        transformed vectors the candidate consumes. Pass the same definition to
+        ``materialize_features`` (with that transform) and to ``publish``. An
+        incremental schema needs a named ``instance``.
+        """
+        history = store.read(attempt_id)
+        if history.status != "completed":
+            raise ValueError("a served definition requires a completed study attempt")
+        result = StudyResult.read(store, attempt_id)
+        schema = self._codec.decode_json(
+            store.artifact(attempt_id, "feature-schema"), FeatureSchema
+        )
+        study = self._codec.decode_json(history.start.request, DecisionStudy)
+        transform = (
+            store.artifact(attempt_id, f"transform-{len(result.folds) - 1:04d}")
+            if study.transform_identity is not None
+            else None
+        )
+        return replace(self._serving(schema, transform, name, entity_type), instance=instance)
+
+    def _serving(
+        self, schema: FeatureSchema, transform: bytes | None, name: str, entity_type: str
+    ) -> FeatureStoreDefinition:
+        """Derive the served definition from a schema and optional retained transform."""
+        if transform is None:
+            return FeatureStoreDefinition(name=name, entity_type=entity_type, schema=schema)
+        version = self._codec.decode_json(transform, TransformVersion)
+        return FeatureStoreDefinition(
+            name=name,
+            entity_type=entity_type,
+            schema=schema,
+            transform_identity=version.identity,
+            output_fields=version.output_fields,
+        )
 
     def publish(
         self,
@@ -114,6 +164,16 @@ class CandidatePackager:
         if study.model_identity is not None:
             payloads["estimator"] = store.artifact(attempt_id, f"model-{last:04d}")
         if feature_store is not None:
+            expected = self._serving(
+                schema, payloads.get("transform"), feature_store.name, feature_store.entity_type
+            )
+            if replace(feature_store, instance=None) != replace(expected, instance=None) or (
+                schema.mode == "batch" and feature_store.instance is not None
+            ):
+                raise ValueError(
+                    "feature-store definition differs from the study's schema, transform "
+                    "or output fields; build it with CandidatePackager.feature_store"
+                )
             payloads["feature-store"] = self._codec.encode_json(feature_store)
         components = self._components(
             study, schema, selections, extension, implementation, payloads
