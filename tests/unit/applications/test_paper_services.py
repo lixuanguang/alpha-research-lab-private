@@ -1311,6 +1311,17 @@ class TestPaperServices:
         assert accounting["durable_records"] == len(deliveries)
         (observer,) = book.observers.values()
         assert observer.trades_delivered == len(deliveries)
+        # Both children read one observer; the account's report is marked once.
+        adverse = definition.scenario.adverse
+        observer.last_market = PaperMarket(
+            identity="book-1",
+            at=datetime.now(UTC),
+            bid=Price(value=Decimal("11"), currency=adverse.currency, per=adverse.per),
+            ask=Price(value=Decimal("12"), currency=adverse.currency, per=adverse.per),
+            bid_quantity=Quantity(value=Decimal("1"), dimension=adverse.per),
+            ask_quantity=Quantity(value=Decimal("1"), dimension=adverse.per),
+        )
+        assert services.latest_markets() == {"shared": (observer.last_market,)}
         assert observer.trades_path is not None and len(
             observer.trades_path.read_bytes().splitlines()
         ) == len(deliveries)

@@ -197,7 +197,11 @@ class CandidateDefinition(WireRecord, frozen=True, kw_only=True):
 
     A definition names reviewed installed components, their parameter and fitted
     state objects, typed inputs and capability requirements, the decision schedule,
-    the intent family and the state contract. ``artifacts`` inventories exactly
+    the intent family and the state contract. ``code_sha256`` and
+    ``environment_sha256`` tie it to the research code and environment of its
+    study; ``runtime_code_sha256`` and ``runtime_environment_sha256`` pin the
+    platform files and dependency versions it runs on wherever it is deployed,
+    which a loader requires to be exactly its own. ``artifacts`` inventories exactly
     the objects these references name. Research provenance is carried separately
     by ``CandidateManifest``.
     """
@@ -206,6 +210,8 @@ class CandidateDefinition(WireRecord, frozen=True, kw_only=True):
     version: str
     code_sha256: str
     environment_sha256: str
+    runtime_code_sha256: str
+    runtime_environment_sha256: str
     feature_schema: CandidateArtifact
     feature_store: CandidateArtifact | None
     transform: CandidateArtifact | None
@@ -236,6 +242,10 @@ class CandidateDefinition(WireRecord, frozen=True, kw_only=True):
             or _SHA256.fullmatch(self.code_sha256) is None
             or type(self.environment_sha256) is not str
             or _SHA256.fullmatch(self.environment_sha256) is None
+            or type(self.runtime_code_sha256) is not str
+            or _SHA256.fullmatch(self.runtime_code_sha256) is None
+            or type(self.runtime_environment_sha256) is not str
+            or _SHA256.fullmatch(self.runtime_environment_sha256) is None
             or self.output not in ("target", "exposure", "order", "quote")
         ):
             raise ValueError("invalid candidate identity or output")

@@ -501,13 +501,16 @@ class FeastWorkerCommand:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Dispatch one bounded explore action.
+    """Answer bounded worker requests, one per input line, until the input ends.
+
+    A one-shot caller sends one request and closes the input; a session keeps it
+    open and reads one response line per request. A failed request ends the worker.
 
     Args:
         argv: Optional command arguments; ``None`` reads the process arguments.
 
     Returns:
-        Zero after a successful worker response, or two after a worker error.
+        Zero after every request was answered, or two after a worker error.
 
     Raises:
         SystemExit: ``argparse`` reports ``--help`` or invalid action arguments.
@@ -521,18 +524,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         input_stream = cast(BinaryIO, getattr(sys.stdin, "buffer"))
         output_stream = cast(BinaryIO, getattr(sys.stdout, "buffer"))
-        payload = input_stream.read(_MAX_WORKER_INPUT_BYTES + 1)
-        if not payload or len(payload) > _MAX_WORKER_INPUT_BYTES:
-            raise ValueError("feast worker request exceeds the bounded JSON budget")
+        worker: _ServingWorker
         if action == "feast-worker":
-            output = FeastWorkerCommand().run(payload)
+            worker = FeastWorkerCommand()
         else:
             sibling = Path(__file__).with_name("feast_serving.py")
             serving_module = cast(Mapping[str, object], runpy.run_path(str(sibling)))
             factory = cast(_ServingWorkerFactory, serving_module["FeastServingWorkerCommand"])
-            output = factory().run(payload)
-        output_stream.write(output)
-        output_stream.write(b"\n")
+            worker = factory()
+        answered = False
+        while payload := input_stream.readline(_MAX_WORKER_INPUT_BYTES + 1):
+            if len(payload) > _MAX_WORKER_INPUT_BYTES or not payload.strip():
+                raise ValueError("feast worker request exceeds the bounded JSON budget")
+            output_stream.write(worker.run(payload.rstrip(b"\n")))
+            output_stream.write(b"\n")
+            output_stream.flush()
+            answered = True
+        if not answered:
+            raise ValueError("feast worker request exceeds the bounded JSON budget")
         return 0
     except (EOFError, OSError, ValueError, TypeError, ImportError) as error:
         print(f"feast worker failed: {error}", file=sys.stderr)

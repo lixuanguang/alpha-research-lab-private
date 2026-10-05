@@ -31,7 +31,7 @@ from execution.account_state import (
     _SavedEvent,
 )
 from execution.lifecycle import SpotOrderLifecycle
-from execution.records import OrderEvent, OrderState, StepCommit
+from execution.records import DroppedLeg, OrderEvent, OrderState, StepCommit
 from financial_units import DecimalGrid, Money, Quantity
 from serialization import DomainCodec
 from strategies import OrderIntent
@@ -60,6 +60,7 @@ class PortfolioCoordinator:
             return saved.result
         before = transaction.state
         children: list[TaggedOrder] = []
+        dropped: dict[str, tuple[DroppedLeg, ...]] = {}
         persist_rejection = False
         try:
             if (
@@ -96,6 +97,7 @@ class PortfolioCoordinator:
                 )
                 if step_commit.status != "committed":
                     raise ValueError(step_commit.reason)
+                dropped[request.decision.identity] = step_commit.dropped
                 children.extend(transaction.order(order.identity) for order in step_commit.orders)
             for account_id in sorted({item.request.account_id for item in batch.decisions}):
                 self.admission.require_reissue_safe(transaction, account_id, batch.at)
@@ -150,6 +152,7 @@ class PortfolioCoordinator:
                             if child.instance_id == item.request.instance_id
                             and child.order.decision_identity == item.request.decision.identity
                         ),
+                        dropped=dropped.get(item.request.decision.identity, ()),
                     ),
                 )
                 for item in batch.decisions

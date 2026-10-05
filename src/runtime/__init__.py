@@ -4,7 +4,12 @@
 from typing import TYPE_CHECKING
 
 # project library imports
-from runtime.identity import ImplementationIdentity, InstalledIdentity, RuntimeFiles
+from runtime.identity import (
+    CandidateRuntime,
+    ImplementationIdentity,
+    InstalledIdentity,
+    RuntimeFiles,
+)
 from runtime.supervision import ProcessSupervisor
 
 if TYPE_CHECKING:
@@ -296,6 +301,7 @@ __all__ = [
     "CandidatePackager",
     "CandidateProcessFailure",
     "CandidateRequirements",
+    "CandidateRuntime",
     "CandidateSession",
     "CandidateStep",
     "ChartFactory",

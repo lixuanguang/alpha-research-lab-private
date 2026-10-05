@@ -289,6 +289,8 @@ class TestCandidateBundles:
             version="reference",
             code_sha256=_CODE_SHA256,
             environment_sha256=_ENVIRONMENT_SHA256,
+            runtime_code_sha256=_CODE_SHA256,
+            runtime_environment_sha256=_ENVIRONMENT_SHA256,
             feature_schema=artifacts["feature-schema"],
             feature_store=None,
             transform=artifacts["transform-version"] if learned else None,

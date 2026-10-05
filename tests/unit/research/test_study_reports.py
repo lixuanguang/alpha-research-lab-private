@@ -18,15 +18,17 @@ from accounting import Fill, Ledger, LedgerState
 from financial_units import Currency, Dimension, ExactRatio, Money, Price, Quantity, QuantityKind
 from reference_data.instruments import InstrumentId
 from research.experiments import AttemptStore, ExperimentSpec, Fingerprint, TimeWindow
-from research.studies.extensions import (
+from research.reports import (
     ChartSpec,
     FoldSummary,
-    LedgerCurveChart,
     LedgerPoint,
     MetricValue,
-    NetReturnMetric,
     ReportContext,
     ReportObservation,
+)
+from research.studies.extensions import (
+    LedgerCurveChart,
+    NetReturnMetric,
     StudyReport,
     StudyReportBuilder,
     StudyReportReader,

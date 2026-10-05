@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import base64
+import fcntl
 import hashlib
 import json
 import platform
@@ -16,7 +17,7 @@ from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from threading import Event
+from threading import Event, Semaphore
 from typing import Literal, cast
 from unittest.mock import patch
 
@@ -203,18 +204,18 @@ class PointerInterruption:
 
 
 class BlockingApplication:
-    """Hold the installation fence while a simulated installed command runs."""
+    """Hold the installation fence while simulated installed commands run."""
 
     def __init__(self) -> None:
-        """Create bounded coordination events for a concurrently attempted switch."""
-        self.started = Event()
+        """Create bounded coordination for concurrent runs and an attempted switch."""
+        self.started = Semaphore(0)
         self.release = Event()
 
     def run(self, arguments: list[str], *, cwd: Path, timeout: int = 180) -> bytes:
         """Keep a run active until the test attempts a competing installation."""
         assert arguments[-1] == "replay"
         assert cwd.is_dir()
-        self.started.set()
+        self.started.release()
         if not self.release.wait(timeout=5):
             raise TimeoutError("simulated workload was not released")
         return b"completed\n"
@@ -861,8 +862,8 @@ class TestLocalInstallation:
         assert scenario.installation.current() == selected
         assert set((scenario.installation.root / "releases").iterdir()) == before
 
-    def test_active_run_fences_competing_installation(self, tmp_path: Path) -> None:
-        """Keep the exclusive lock across an installed workload invocation."""
+    def test_active_runs_share_the_target_and_fence_installation(self, tmp_path: Path) -> None:
+        """Concurrent runs share the fence; an installation cannot switch under them."""
         scenario = InstallationScenario(tmp_path)
         first = scenario.candidate("first-release", config=b"first config\n")
         second = scenario.candidate("second-release", config=b"second config\n")
@@ -870,17 +871,35 @@ class TestLocalInstallation:
         with scenario.isolated_installation():
             selected = scenario.installation.install(first, now=_NOW)
             with patch.object(LocalInstallation, "_run", side_effect=blocker.run):
-                with ThreadPoolExecutor(max_workers=1) as workers:
-                    future = workers.submit(scenario.installation.run, ("replay",), now=_NOW)
+                with ThreadPoolExecutor(max_workers=2) as workers:
+                    futures = [
+                        workers.submit(scenario.installation.run, ("replay",), now=_NOW)
+                        for _ in range(2)
+                    ]
                     try:
-                        assert blocker.started.wait(timeout=5)
+                        assert blocker.started.acquire(timeout=5)
+                        assert blocker.started.acquire(timeout=5)
                         with pytest.raises(BlockingIOError):
                             scenario.installation.install(second, now=_NOW)
                     finally:
                         blocker.release.set()
-                    assert future.result(timeout=5) == b"completed\n"
+                    assert [future.result(timeout=5) for future in futures] == [
+                        b"completed\n",
+                        b"completed\n",
+                    ]
 
         assert scenario.installation.current() == selected
+
+    def test_installation_fence_refuses_a_run(self, tmp_path: Path) -> None:
+        """No run starts while an installation holds the target exclusively."""
+        scenario = InstallationScenario(tmp_path)
+        first = scenario.candidate("first-release", config=b"first config\n")
+        with scenario.isolated_installation():
+            scenario.installation.install(first, now=_NOW)
+            with (scenario.installation.root / ".installation.lock").open("r+b") as fence:
+                fcntl.flock(fence.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with pytest.raises(BlockingIOError):
+                    scenario.installation.run(("replay",), now=_NOW)
 
     def test_identical_retry_checks_retained_installed_bytes(self, tmp_path: Path) -> None:
         """A retry is idempotent only while its installed files still match receipt."""

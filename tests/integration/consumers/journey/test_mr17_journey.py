@@ -17,6 +17,7 @@ from mr17_journey import (
     GuideCoverage,
     Journey,
     JourneyDeclaration,
+    ReleaseInputs,
     Summary,
 )
 
@@ -112,6 +113,8 @@ class TestDeclaration:
             ({"feeds": ("a", "a")}, "distinct feeds"),
             ({"holdouts": 0}, "holdout"),
             ({"temporary_root": "/" + "t" * 90}, "socket"),
+            ({"phases": (1800, 60, 600)}, "J6 phases"),
+            ({"phases": (1800, 600, 3600)}, "J6 phases"),
         ],
     )
     def test_refusals(self, tmp_path: Path, changes: dict[str, object], message: str) -> None:
@@ -169,6 +172,58 @@ class TestCommands:
             "0001-echo.stderr",
             "0001-echo.stdout",
         ]
+
+
+class TestBackground:
+    """Record a started command only when it ends, terminating it at its timeout."""
+
+    def test_finished_and_terminated_records(self, tmp_path: Path) -> None:
+        """A quick command keeps its exit; one that outlives its timeout is terminated."""
+        commands = Commands(tmp_path)
+        quick = commands.start("J6", "quick", (sys.executable, "-c", "pass"), cwd=tmp_path)
+        slow = commands.start(
+            "J6", "slow", (sys.executable, "-c", "import time; time.sleep(60)"), cwd=tmp_path
+        )
+        assert commands.finish(quick, cwd=tmp_path, timeout=30).returncode == 0
+        record = commands.finish(slow, cwd=tmp_path, timeout=1)
+        assert record.returncode != 0 and record.label == "slow"
+        assert len((tmp_path / "commands.jsonl").read_bytes().splitlines()) == 2
+
+
+class BuildRequest(msgspec.Struct, frozen=True):
+    """Read a build request's runtime declaration."""
+
+    runtime: dict[str, str]
+
+
+class TestPaperReleases:
+    """Author one policy and the paper and shadow services and account requests."""
+
+    def test_requests_name_each_runtime(self, tmp_path: Path) -> None:
+        """Each mode has a services and an account request with its own schemas."""
+        journey = Journey(
+            JourneyFixture.declaration(tmp_path, through="J6", phases=(600, 300, 300)), b"{}"
+        )
+        key = tmp_path / "key"
+        key.write_text("private")
+        key.with_suffix(".pub").write_text("ssh-ed25519 AAAA builder")
+        build = journey.temporary / "build/bin"
+        build.mkdir(parents=True)
+        (build / "python").write_bytes(b"python")
+        policy, requests = ReleaseInputs(journey, key).paper(tmp_path / "j6")
+        written = msgspec.json.decode(policy.read_bytes(), type=dict[str, object])
+        assert written["config_schemas"] == ["paper-services", "account-runtime"]
+        assert written["state_schemas"] == ["none", "account-journal"]
+        runtimes = {
+            name: msgspec.json.decode(path.read_bytes(), type=BuildRequest).runtime
+            for name, path in requests.items()
+        }
+        assert {name: (item["application"], item["mode"]) for name, item in runtimes.items()} == {
+            "paper-services": ("paper-services", "paper"),
+            "paper-account": ("execution", "paper"),
+            "shadow-services": ("paper-services", "shadow"),
+            "shadow-account": ("execution", "shadow"),
+        }
 
 
 class TestGuideCoverage:

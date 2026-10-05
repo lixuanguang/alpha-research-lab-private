@@ -57,12 +57,27 @@ class ExternalExtension(ImmutableModel):
     NAME: ClassVar[re.Pattern[str]] = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
     GROUP: ClassVar[str] = "alpha_research.candidate_components"
 
+    @staticmethod
+    def shipped(repository: Path) -> frozenset[str]:
+        """Return the platform source files the paper-services release ships.
+
+        They are the candidate runtime's manifest, which an engineering test keeps
+        equal to the operating wheels' include tables.
+        """
+        manifest = TypeAdapter(dict[str, list[str]]).validate_json(
+            ReleaseRegistry.read_regular(
+                repository / "src/runtime/candidate_runtime.json", 1_048_576
+            )
+        )
+        return frozenset(manifest["modules"])
+
     @classmethod
-    def read(cls, path: Path) -> ExternalExtension:
+    def read(cls, path: Path, shipped: frozenset[str]) -> ExternalExtension:
         """Read and audit an extension project outside the repository.
 
         It must declare exactly one candidate component provider, no scripts and no
-        uv sources, and its ``src`` tree must import only supported platform names.
+        uv sources, and its ``src`` tree must import only supported platform names
+        from modules the release ships.
 
         Raises:
             ValueError: The project layout, metadata or imports are not admissible.
@@ -89,7 +104,7 @@ class ExternalExtension(ImmutableModel):
             or "sources" in uv
         ):
             raise ValueError(f"external extension metadata is not admissible: {path}")
-        audit = ImportAudit()
+        audit = ImportAudit(shipped=shipped)
         findings = audit.audit(path / "src")
         if findings:
             raise ValueError("external extension imports: " + "; ".join(audit.report(findings)))
@@ -177,7 +192,7 @@ class ReleaseBuilder:
             ()
             if extensions is None
             else tuple(
-                ExternalExtension.read(path)
+                ExternalExtension.read(path, ExternalExtension.shipped(self.repository))
                 for path in sorted(extensions.iterdir())
                 if path.is_dir() and not path.name.startswith(".")
             )
@@ -250,12 +265,14 @@ class ReleaseBuilder:
                 roots[0], actual_wheels, target="darwin_arm64_cp314", extensions=extension_wheels
             )
             if self._source_inputs() != before or any(
-                ExternalExtension.read(item.path) != item for item in external
+                ExternalExtension.read(item.path, ExternalExtension.shipped(self.repository))
+                != item
+                for item in external
             ):
                 raise ValueError("source changed during release build; retain a stable snapshot")
-            before = (
-                *before,
-                *(
+            before = self.release_sources(
+                before,
+                tuple(
                     (f"external/{item.name}/{name}", content)
                     for item in external
                     for name, content in item.files
@@ -358,6 +375,17 @@ class ReleaseBuilder:
                 raise ValueError("local release project lies outside packages or extensions")
             projects.append(directory)
         return (*projects, selected)
+
+    @staticmethod
+    def release_sources(
+        repository: tuple[tuple[str, bytes], ...], external: tuple[tuple[str, bytes], ...]
+    ) -> tuple[tuple[str, bytes], ...]:
+        """Order every signed source file by name, as verification reads them back.
+
+        External extensions sort among the repository's files: ``external/`` falls
+        between ``extensions/`` and ``packages/``, not after them.
+        """
+        return tuple(sorted((*repository, *external)))
 
     def _source_inputs(self) -> tuple[tuple[str, bytes], ...]:
         """Capture maintained build/runtime inputs, including uncommitted source bytes."""

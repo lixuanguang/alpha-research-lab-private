@@ -52,8 +52,10 @@ class InstallationReceipt(ImmutableModel):
 class LocalInstallation:
     """Own the quiescence lock, immutable environments and one atomic active pointer.
 
-    Installation never starts a service. Runs through this owner hold the same
-    exclusive fence as installation. Rollback restores prior code/configuration
+    Installation never starts a service. Installation holds the target's fence
+    exclusively and each run holds it shared, so concurrent runs share a target while
+    no installation can select a release under one. Each installed application owns
+    its own single-instance fences. Rollback restores prior code/configuration
     while retaining current state; unsupported schema migrations fail closed.
     """
 
@@ -138,7 +140,7 @@ class LocalInstallation:
         No inherited credential, Python-path or installer environment is forwarded.
         """
         with self._fence() as fence:
-            fcntl.flock(fence.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fence.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
             receipt = self.current()
             if receipt is None:
                 raise ValueError("no operating release is installed")

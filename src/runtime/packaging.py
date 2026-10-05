@@ -27,7 +27,7 @@ from research.features import FeatureSchema, FeatureStoreDefinition, TransformVe
 from research.models import EstimatorVersion
 from research.studies import DecisionStudy, StudyResult
 from runtime.extensions import InstalledExtensions
-from runtime.identity import ImplementationIdentity
+from runtime.identity import CandidateRuntime, ImplementationIdentity
 from runtime.requirements import CandidateRequirements
 from serialization import DomainCodec, WireRecord
 
@@ -188,6 +188,8 @@ class CandidatePackager:
             version=version,
             code_sha256=ImplementationIdentity.sha256(),
             environment_sha256=history.start.spec.environment_sha256,
+            runtime_code_sha256=CandidateRuntime.code_sha256(),
+            runtime_environment_sha256=CandidateRuntime.environment_sha256(),
             feature_schema=references["feature-schema"],
             feature_store=references.get("feature-store"),
             transform=references.get("transform"),

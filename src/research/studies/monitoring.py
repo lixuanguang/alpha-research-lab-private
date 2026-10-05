@@ -9,7 +9,7 @@ from typing import Literal
 
 # project library imports
 from research.experiments import Fingerprint
-from research.studies.extensions import ChartSpec, MetricValue, ReportContext, ReportObservation
+from research.reports import ChartSpec, MetricValue, ReportContext, ReportObservation
 from research.studies.study_results import StudyFoldResult, StudyResult
 from serialization import DomainCodec
 from telemetry import (

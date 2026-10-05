@@ -199,6 +199,11 @@ late and expired observations stay explicit; no zero fill is introduced.
 
 The [separate local worker](../../../configs/development/research-worker/README.md)
 keeps Feast's pandas-below-3 dependency out of the core pandas 3.0.5 runtime.
+The worker answers one response line per request line until its input ends.
+`FeastOfflineWorker` runs one process per request. `FeastWorkerSession` keeps one
+process across requests, so long-running services pay the worker's start (about two
+seconds) once. A failed, timed-out or ended worker raises `FeatureAccessError`, and
+the session starts a fresh one on the next request.
 The offline Feast path requires an eligibility-filtered immutable source
 and pins actual registry/source state. A normal event-time join alone is insufficient
 for delayed availability or revisions. The generalized local online path above

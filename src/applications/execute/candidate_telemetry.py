@@ -28,6 +28,7 @@ from serialization import DomainCodec
 from telemetry import (
     DashboardBuilder,
     MetricRegistry,
+    MetricThreshold,
     MonitoringConfiguration,
     MonitoringDefinitions,
     MonitoringEvent,
@@ -73,9 +74,11 @@ class CandidateTelemetry:
             mode = modes[instance.account_id]
             if mode not in ("paper", "shadow"):
                 raise ValueError("candidate telemetry requires paper or shadow accounts")
+            # Each instance has its own scope, so candidates sharing an account and a
+            # metric contract stay separate series.
             self.exporters[instance.instance_id] = CandidateMonitoringExporter(
                 loaded,
-                scope=f"account:{instance.account_id}",
+                scope=f"account:{instance.account_id}:strategy:{instance.instance_id}",
                 account=instance.account_id,
                 mode="paper" if mode == "paper" else "shadow",
                 clock_quality="observed",
@@ -231,12 +234,27 @@ class CandidateTelemetry:
     def _dashboards(
         self, account_id: str, mode: Literal["paper", "shadow"], observed_at: datetime
     ) -> None:
-        """Render the account's pages, delivering any breached alert rule."""
+        """Render the account's page and each candidate's pages, delivering breached bands."""
+        self._render(account_id, mode, observed_at, f"account:{account_id}", "account", ())
+        for name in self._instances(account_id):
+            exporter = self.exporters[name]
+            self._render(account_id, mode, observed_at, exporter.scope, name, exporter.thresholds)
+
+    def _render(
+        self,
+        account_id: str,
+        mode: Literal["paper", "shadow"],
+        observed_at: datetime,
+        scope: str,
+        label: str,
+        thresholds: tuple[MetricThreshold, ...],
+    ) -> None:
+        """Render one scope's pages, if it holds any displayable series."""
         store = TelemetryStore(self.root / "telemetry.sqlite3")
         # Queries select [start, end); the observation's own facts are at its clock.
         end = observed_at + timedelta(microseconds=1)
         query = MonitoringQuery(
-            scope=f"account:{account_id}",
+            scope=scope,
             mode=mode,
             start=max(self.started_at, observed_at - self._dashboard_window),
             end=end,
@@ -244,11 +262,8 @@ class CandidateTelemetry:
             limit=100_000,
         )
         events = store.query(query)
-        if not events:
+        if not any(not item.name.startswith("execution.event.") for item in events):
             return
-        thresholds = tuple(
-            edge for name in self._instances(account_id) for edge in self.exporters[name].thresholds
-        )
         configurations = MonitoringConfiguration.account(
             query,
             events,
@@ -263,7 +278,9 @@ class CandidateTelemetry:
             snapshot = DashboardBuilder.build(
                 configuration.dashboard, configuration.query, selection, registry, alerts
             )
-            snapshot.write(self.root / "dashboards" / account_id / f"{stamp}-{page}", selection)
+            snapshot.write(
+                self.root / "dashboards" / account_id / f"{stamp}-{label}-{page}", selection
+            )
 
     @staticmethod
     def _market_order(market: PaperMarket) -> datetime:

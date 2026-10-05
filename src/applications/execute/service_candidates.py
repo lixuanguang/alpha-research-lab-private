@@ -16,6 +16,7 @@ from configuration import (
     PaperServiceSource,
     UniverseSelection,
 )
+from execution import PortfolioContext
 from reference_data.instruments import InstrumentId
 from research.experiments import CandidateBundle
 from research.features import FeatureStoreDefinition, VersionedFeatureStore
@@ -27,6 +28,7 @@ from runtime import (
     PaperCapabilities,
     PaperInputs,
     ReferenceCandidates,
+    SharedStrategyBinding,
 )
 from serialization import DomainCodec
 
@@ -156,6 +158,39 @@ class PaperServiceCandidates:
             )
         self._loaded[instance.instance_id] = loaded
         return loaded
+
+    def binding(self, instance: PaperServiceInstance) -> SharedStrategyBinding:
+        """Bind one candidate's continuation to its economic instance and venue.
+
+        Each instance is its own portfolio, so its physical orders are never netted
+        with another candidate's: a decision replaces only its own working orders, and
+        each candidate's fills stay its own, as research simulates them. The
+        supervisor and any replay of its delivery logs bind through this one method.
+        """
+        source = self.source(instance)
+        account = next(
+            item for item in self.config.accounts if item.account_id == instance.account_id
+        )
+        loaded = self.candidate(instance)
+        return SharedStrategyBinding(
+            instance_id=instance.instance_id,
+            account_id=instance.account_id,
+            entity=str(source.scenario.instrument_id),
+            candidate=loaded,
+            context=PortfolioContext(
+                portfolio_id=instance.instance_id,
+                strategy_id=instance.instance_id,
+                model_revision=self.model_identity(loaded),
+                config_revision="paper-services",
+                horizon="capture",
+                reason="engineering-reference",
+                venue=source.capture.venue,
+                settlement="spot",
+                risk_bucket="cash",
+                authority_scope=account.configuration.mode,
+            ),
+            maximum_fee=instance.maximum_fee,
+        )
 
     def report(self) -> dict[str, object]:
         """Return each instance's identities for authoring and checking signed deployments."""

@@ -33,6 +33,7 @@ bypass-selection = true
 "../../src/research/labels" = "research/labels"
 "../../src/research/models" = "research/models"
 "../../src/research/observations" = "research/observations"
+"../../src/research/reports" = "research/reports"
 "../../src/research/results" = "research/results"
 "../../src/runtime/authored_candidates.py" = "runtime/authored_candidates.py"
 "../../src/runtime/candidate_worker.py" = "runtime/candidate_worker.py"

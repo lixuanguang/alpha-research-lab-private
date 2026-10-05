@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 # standard library imports
+import fcntl
 import hashlib
+import os
 import sqlite3
 import time
 from collections.abc import Callable
@@ -22,8 +24,8 @@ from configuration import PackagedCandidate, PaperServiceConfiguration, PaperSer
 from market_data.adapters.sources import BookAdapters
 from market_data.storage import CaptureRecording, RecordingFollower
 from research.features import (
-    FeastOfflineWorker,
     FeastServingBridge,
+    FeastWorkerSession,
     FeatureAccessError,
     FeatureMaterializer,
     FeatureStoreError,
@@ -257,9 +259,10 @@ class FeaturePublisher:
         self.config, self.root = configuration, root
         self.resolved = PaperServiceCandidates(configuration, candidates)
         self.store = VersionedFeatureStore.open(Path(serving.store_path))
-        self.bridge = FeastServingBridge(
-            FeastOfflineWorker(serving.worker, timeout_seconds=serving.worker_timeout_seconds)
+        self.worker = FeastWorkerSession(
+            serving.worker, timeout_seconds=serving.worker_timeout_seconds
         )
+        self.bridge = FeastServingBridge(self.worker)
         self.serving_root = Path(serving.serving_root)
         self.max_lag = timedelta(seconds=serving.publisher.max_lag_seconds)
         self._clock = clock
@@ -267,6 +270,27 @@ class FeaturePublisher:
         self._codec = DomainCodec()
 
     def run(self) -> dict[str, object]:
+        """Hold the serving root's publisher fence and publish under it.
+
+        Raises:
+            ValueError: Another publisher already owns this serving root.
+        """
+        self.serving_root.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(
+            self.serving_root / "publisher.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600
+        )
+        with os.fdopen(descriptor, "a+b") as fence:
+            try:
+                fcntl.flock(fence.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise ValueError("a feature publisher already owns this serving root") from None
+            try:
+                self.worker.start()
+                return self._publish()
+            finally:
+                self.worker.close()
+
+    def _publish(self) -> dict[str, object]:
         """Publish until every followed recording completes or the service life ends."""
         deadline = (
             time.monotonic()

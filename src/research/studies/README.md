@@ -120,7 +120,8 @@ artifact digest. Results retain original configuration, actual inputs, resolved
 splits, fitted bytes, predictions, decisions, feature/policy state, order outcomes
 and exact ledgers. Reports retain versioned exact metrics, units, missingness,
 selected charts and safe self-contained HTML/SVG. `MetricDefinition` and
-`ChartDefinition` consume a typed `ReportContext` of fold ledgers, sampled marks
+`ChartDefinition` (with the report contracts below, imported from `research.reports`,
+which the paper services also ship) consume a typed `ReportContext` of fold ledgers, sampled marks
 and predictive diagnostics. Their identities and returned definitions must
 match the selections. `NetReturnMetric` and `LedgerCurveChart` are explicit
 reference choices. Initial/terminal NAV points do not describe intraperiod

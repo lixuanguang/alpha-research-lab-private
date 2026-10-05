@@ -39,12 +39,12 @@ from execution.account_state import (
     _SavedNetEvent,
 )
 from execution.lifecycle import SpotOrderLifecycle
-from execution.records import OrderEvent, OrderState, StepCommit
+from execution.records import DroppedLeg, OrderEvent, OrderState, StepCommit
 from financial_units import Dimension, Money, Price, Quantity
 from portfolio import PortfolioContext
 from risk import BudgetEngine, BudgetRequest, ExposureCommitment, SpotLimits
 from serialization import DomainCodec
-from strategies import ExposureIntent, OrderIntent, TargetIntent
+from strategies import ExposureIntent, OrderIntent, QuoteIntent, TargetIntent
 
 if TYPE_CHECKING:
     # project library imports
@@ -260,98 +260,143 @@ class AccountAdmission:
         ):
             raise ValueError("pending_target")
         legs = lifecycle.lower(request.decision.intent, holding, request.quote.price)
+        reconciled_at = account.reconciled_at
+        if reconciled_at is None:
+            raise ValueError("account_not_reconciled")
         admitted: list[OrderState] = []
+        dropped: list[DroppedLeg] = []
+        quote = isinstance(request.decision.intent, QuoteIntent)
         for leg_name, intent in legs:
-            reason = lifecycle.order_reason(intent)
-            if reason is not None:
-                raise ValueError(reason)
-            # A risk-reducing sell is never refused over fee sizing; a fee above
-            # its reserve is posted from free cash instead. The paper model's own
-            # half-even rounding bounds paper fees (and shadow, which mirrors paper
-            # admission); a venue's unknown rounding keeps the per-lot bound.
-            rate = self.config.fee_rate(intent.quantity.dimension.instrument_id)
-            reserve = (
-                rate.minimum_reserve
-                if self.config.mode == "venue_test"
-                else rate.paper_minimum_reserve
-            )
-            if not protective and Fraction(request.maximum_fee.value) < reserve(
-                intent.quantity, intent.limit, limits.lot
-            ):
-                raise ValueError("fee_reserve_below_worst_case")
-            commitments = self.commitments(transaction, request.decision.at)
-            reason = BudgetEngine().evaluate(
-                self.config.budgets,
-                BudgetRequest(
-                    account_id=request.account_id,
-                    instance_id=request.instance_id,
-                    intent=intent,
-                    decision_at=request.decision.at,
-                    quote=request.quote.price,
-                    quote_at=request.quote.at,
-                    state_at=account.reconciled_at,
-                    maximum_fee=request.maximum_fee,
-                ),
-                commitments,
-            )
-            if reason is not None:
-                raise ValueError(reason)
-            for tagged in transaction.state.orders:
-                order = tagged.order
-                if (
-                    tagged.account_id == request.account_id
-                    and not order.is_terminal
-                    and order.intent.quantity.dimension == intent.quantity.dimension
-                    and order.intent.side != intent.side
-                    and order.identity not in (crossing_ids or set())
-                    and (
-                        intent.limit.value >= order.intent.limit.value
-                        if intent.side == "buy"
-                        else intent.limit.value <= order.intent.limit.value
-                    )
-                ):
-                    raise ValueError("self_trade_conflict")
-            identity = hashlib.sha256(
-                self.codec.encode_json(
-                    (
-                        "account-child",
-                        request.account_id,
-                        request.instance_id,
-                        request.decision.identity,
+            before_leg = transaction.state
+            try:
+                admitted.append(
+                    self._admit_leg(
+                        transaction,
+                        request,
+                        reconciled_at,
+                        limits,
+                        lifecycle,
                         leg_name,
+                        intent,
+                        context=context,
+                        crossing_ids=crossing_ids,
+                        protective=protective,
                     )
                 )
-            ).hexdigest()
-            if transaction.find_order(identity) is not None:
-                raise ValueError("order_identity_collision")
-            order = OrderState(
-                identity=identity,
-                decision_identity=request.decision.identity,
-                decision_at=request.decision.at,
-                intent=intent,
-                status="intent",
-                filled=Quantity(value=Decimal(0), dimension=intent.quantity.dimension),
-                paid_fee=Money(value=Decimal(0), currency=intent.limit.currency),
-                maximum_fee=request.maximum_fee,
-            )
-            orders: tuple[TaggedOrder, ...] = (
-                *transaction.state.orders,
-                TaggedOrder(
-                    account_id=request.account_id,
-                    instance_id=request.instance_id,
-                    order=order,
-                    context=context,
-                    quote=request.quote if context is not None else None,
-                ),
-            )
-            transaction.state = replace(transaction.state, orders=orders)
-            self.require_funded(transaction, request.account_id)
-            admitted.append(order)
+            except ValueError as error:
+                # Research admits each quote leg on its own; so does paper. A leg the
+                # instance cannot fund is dropped with its reason, never silently.
+                if not quote:
+                    raise
+                transaction.state = before_leg
+                dropped.append(DroppedLeg(leg=leg_name, reason=str(error)))
+        if quote and not admitted:
+            raise ValueError(dropped[0].reason)
         return StepCommit(
             status="committed",
             reason="reserved" if admitted else "target_matched",
             orders=tuple(admitted),
+            dropped=tuple(dropped),
         )
+
+    def _admit_leg(
+        self,
+        transaction: AccountTransaction,
+        request: AccountDecision,
+        reconciled_at: datetime,
+        limits: SpotLimits,
+        lifecycle: SpotOrderLifecycle,
+        leg_name: str,
+        intent: OrderIntent,
+        *,
+        context: PortfolioContext | None,
+        crossing_ids: set[str] | None,
+        protective: bool,
+    ) -> OrderState:
+        """Admit one lowered leg, reserving it, or raise its refusal reason."""
+        reason = lifecycle.order_reason(intent)
+        if reason is not None:
+            raise ValueError(reason)
+        # A risk-reducing sell is never refused over fee sizing; a fee above
+        # its reserve is posted from free cash instead. The paper model's own
+        # half-even rounding bounds paper fees (and shadow, which mirrors paper
+        # admission); a venue's unknown rounding keeps the per-lot bound.
+        rate = self.config.fee_rate(intent.quantity.dimension.instrument_id)
+        reserve = (
+            rate.minimum_reserve if self.config.mode == "venue_test" else rate.paper_minimum_reserve
+        )
+        if not protective and Fraction(request.maximum_fee.value) < reserve(
+            intent.quantity, intent.limit, limits.lot
+        ):
+            raise ValueError("fee_reserve_below_worst_case")
+        commitments = self.commitments(transaction, request.decision.at)
+        reason = BudgetEngine().evaluate(
+            self.config.budgets,
+            BudgetRequest(
+                account_id=request.account_id,
+                instance_id=request.instance_id,
+                intent=intent,
+                decision_at=request.decision.at,
+                quote=request.quote.price,
+                quote_at=request.quote.at,
+                state_at=reconciled_at,
+                maximum_fee=request.maximum_fee,
+            ),
+            commitments,
+        )
+        if reason is not None:
+            raise ValueError(reason)
+        for tagged in transaction.state.orders:
+            order = tagged.order
+            if (
+                tagged.account_id == request.account_id
+                and not order.is_terminal
+                and order.intent.quantity.dimension == intent.quantity.dimension
+                and order.intent.side != intent.side
+                and order.identity not in (crossing_ids or set())
+                and (
+                    intent.limit.value >= order.intent.limit.value
+                    if intent.side == "buy"
+                    else intent.limit.value <= order.intent.limit.value
+                )
+            ):
+                raise ValueError("self_trade_conflict")
+        identity = hashlib.sha256(
+            self.codec.encode_json(
+                (
+                    "account-child",
+                    request.account_id,
+                    request.instance_id,
+                    request.decision.identity,
+                    leg_name,
+                )
+            )
+        ).hexdigest()
+        if transaction.find_order(identity) is not None:
+            raise ValueError("order_identity_collision")
+        order = OrderState(
+            identity=identity,
+            decision_identity=request.decision.identity,
+            decision_at=request.decision.at,
+            intent=intent,
+            status="intent",
+            filled=Quantity(value=Decimal(0), dimension=intent.quantity.dimension),
+            paid_fee=Money(value=Decimal(0), currency=intent.limit.currency),
+            maximum_fee=request.maximum_fee,
+        )
+        orders: tuple[TaggedOrder, ...] = (
+            *transaction.state.orders,
+            TaggedOrder(
+                account_id=request.account_id,
+                instance_id=request.instance_id,
+                order=order,
+                context=context,
+                quote=request.quote if context is not None else None,
+            ),
+        )
+        transaction.state = replace(transaction.state, orders=orders)
+        self.require_funded(transaction, request.account_id)
+        return order
 
     def _require_protective_sell(
         self,
@@ -528,21 +573,9 @@ class AccountAdmission:
                 return saved.matched
         account = transaction.account(observation.snapshot.account_id)
         ledger = AccountLedger(account.ledger)
-        latest = self.account_time(transaction, account)
-        orders = tuple(
-            tagged.order
-            for tagged in transaction.state.orders
-            if tagged.account_id == observation.snapshot.account_id
-            and tagged.context is None
-            and not tagged.order.is_terminal
-        ) + tuple(
-            parent.order
-            for parent in transaction.state.net_orders
-            if parent.account_id == observation.snapshot.account_id and not parent.order.is_terminal
-        )
-        latest = max(latest, *(order.decision_at for order in orders)) if orders else latest
+        orders = self.open_orders(transaction, account.ledger.account_id)
         matched = (
-            observation.at >= latest
+            observation.at >= self.knowledge_at(transaction, account)
             and (account.reconciled_at is None or observation.at >= account.reconciled_at)
             and observation.snapshot == ledger.snapshot()
             and {order.identity: order for order in observation.open_orders}
@@ -1179,6 +1212,28 @@ class AccountAdmission:
             quote,
         )
         transaction.state = replace(transaction.state, quotes=quotes)
+
+    @staticmethod
+    def open_orders(transaction: AccountTransaction, account_id: str) -> tuple[OrderState, ...]:
+        """Return the account's open orders an independent observation must list."""
+        return tuple(
+            tagged.order
+            for tagged in transaction.state.orders
+            if tagged.account_id == account_id
+            and tagged.context is None
+            and not tagged.order.is_terminal
+        ) + tuple(
+            parent.order
+            for parent in transaction.state.net_orders
+            if parent.account_id == account_id and not parent.order.is_terminal
+        )
+
+    def knowledge_at(self, transaction: AccountTransaction, account: AccountView) -> datetime:
+        """Return the earliest instant an observation of this account may be stamped at."""
+        orders = self.open_orders(transaction, account.ledger.account_id)
+        return max(
+            (self.account_time(transaction, account), *(order.decision_at for order in orders))
+        )
 
     def account_time(self, transaction: AccountTransaction, account: AccountView) -> datetime:
         """Return the latest knowledge clock whose state admission would consume."""

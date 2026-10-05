@@ -23,6 +23,7 @@ from research.features.fitting import (
 from research.features.materialization import FeatureMaterializer
 from research.features.offline import (
     FeastOfflineWorker,
+    FeastWorkerSession,
     FeatureAccessError,
     FeatureEntity,
     FeatureObservation,
@@ -77,6 +78,7 @@ __all__ = [
     "FeastServingBridge",
     "FeastServingRow",
     "FeastServingSnapshot",
+    "FeastWorkerSession",
     "FeatureAccessError",
     "FeatureCheckpoint",
     "FeatureDefinition",

@@ -11,12 +11,17 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import os
 import re
+import select
 import subprocess  # nosec B404  # [owner=research; rationale=explicit isolated Feast interpreter argv boundary; expires=2026-12-01]
+import tempfile
+import threading
+import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import IO, Literal, Protocol
 
 # third party library imports
 from msgspec.structs import replace
@@ -391,10 +396,10 @@ class FeastOfflineWorker:
             raise ValueError("worker output budget is invalid")
         if cwd is not None and not isinstance(cwd, Path):
             raise TypeError("worker cwd must be a Path")
-        self._command = tuple(command)
-        self._timeout = float(timeout_seconds)
-        self._max_output = max_output_bytes
-        self._cwd = cwd
+        self.command = tuple(command)
+        self.timeout_seconds = float(timeout_seconds)
+        self.max_output_bytes = max_output_bytes
+        self.cwd = cwd
 
     def __call__(self, request: bytes) -> bytes:
         """Execute one request and fail closed on timeout, stderr or malformed output."""
@@ -402,13 +407,13 @@ class FeastOfflineWorker:
             raise FeatureAccessError("worker request exceeds the bounded JSON budget")
         try:
             completed = subprocess.run(  # nosec B603  # [owner=research; rationale=caller-selected absolute worker executable with shell disabled; expires=2026-12-01]
-                self._command,
+                self.command,
                 input=request,
                 capture_output=True,
-                cwd=self._cwd,
+                cwd=self.cwd,
                 check=False,
                 shell=False,
-                timeout=self._timeout,
+                timeout=self.timeout_seconds,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise FeatureAccessError("Feast worker could not complete the request") from error
@@ -417,9 +422,156 @@ class FeastOfflineWorker:
             raise FeatureAccessError(
                 f"Feast worker failed with exit {completed.returncode}: {detail}"
             )
-        if len(completed.stdout) == 0 or len(completed.stdout) > self._max_output:
+        if len(completed.stdout) == 0 or len(completed.stdout) > self.max_output_bytes:
             raise FeatureAccessError("Feast worker returned an empty or oversized result")
         return completed.stdout
+
+
+class FeastWorkerSession:
+    """Keep one Feast worker process answering newline-delimited requests across calls.
+
+    The worker program answers one response line per request line until its input
+    ends, so a session pays the worker's interpreter and SDK start once rather than
+    per request. Requests are serialized. A worker that ends, exceeds the timeout,
+    answers out of protocol or fails a request is stopped, the request raises
+    ``FeatureAccessError`` carrying the worker's stderr, and the next request starts
+    a fresh worker.
+    """
+
+    def __init__(
+        self,
+        command: Sequence[str],
+        *,
+        timeout_seconds: float = 60.0,
+        max_output_bytes: int = _MAX_WIRE_BYTES,
+        cwd: Path | None = None,
+    ) -> None:
+        """Bind the worker command and the per-request bounds of ``FeastOfflineWorker``.
+
+        Raises:
+            TypeError: The working directory is not a ``Path``.
+            ValueError: A command, timeout or output budget is invalid.
+        """
+        launch = FeastOfflineWorker(
+            command, timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes, cwd=cwd
+        )
+        self._command, self._timeout = launch.command, launch.timeout_seconds
+        self._max_output, self._cwd = launch.max_output_bytes, launch.cwd
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen[bytes] | None = None
+        self._stderr: IO[bytes] | None = None
+        # The worker's request and response pipe ends held by this process.
+        self._input = self._output = -1
+
+    def __call__(self, request: bytes) -> bytes:
+        """Answer one request through the running worker, starting it when needed."""
+        if (
+            type(request) is not bytes
+            or not request
+            or len(request) > _MAX_WIRE_BYTES
+            or b"\n" in request
+        ):
+            raise FeatureAccessError("worker request exceeds the bounded JSON budget")
+        with self._lock:
+            if self._process is None:
+                self._start()
+            deadline = time.monotonic() + self._timeout
+            try:
+                self._send(request + b"\n", deadline)
+                return self._response(deadline)
+            except (OSError, TimeoutError, FeatureAccessError) as error:
+                detail = self._stop()
+                raise FeatureAccessError(
+                    f"Feast worker session failed: {error}; {detail}".rstrip("; ")
+                ) from error
+
+    def start(self) -> None:
+        """Start the worker ahead of its first request, if none is running.
+
+        A service calls this as it starts, so the worker's interpreter and SDK load
+        while nothing waits on them.
+        """
+        with self._lock:
+            if self._process is None:
+                self._start()
+
+    def close(self) -> None:
+        """Stop the worker, if one is running."""
+        with self._lock:
+            self._stop()
+
+    def _start(self) -> None:
+        """Start one worker on private pipes, its stderr retained for a failure."""
+        self._stderr = tempfile.TemporaryFile()
+        request_read, self._input = os.pipe()
+        self._output, response_write = os.pipe()
+        try:
+            self._process = subprocess.Popen(  # nosec B603  # [owner=research; rationale=caller-selected absolute worker executable with shell disabled; expires=2026-12-01]
+                self._command,
+                stdin=request_read,
+                stdout=response_write,
+                stderr=self._stderr,
+                cwd=self._cwd,
+                shell=False,
+            )
+        except OSError as error:
+            self._stop()
+            raise FeatureAccessError("Feast worker could not start") from error
+        finally:
+            os.close(request_read)
+            os.close(response_write)
+
+    def _wait(self, descriptor: int, event: int, deadline: float) -> None:
+        """Wait until the descriptor is ready for ``event`` or the deadline passes."""
+        poller = select.poll()
+        poller.register(descriptor, event | select.POLLHUP | select.POLLERR)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Feast worker exceeded its request timeout")
+            if poller.poll(max(1, int(remaining * 1000))):
+                return
+
+    def _send(self, payload: bytes, deadline: float) -> None:
+        """Write the whole request line before the deadline."""
+        view = memoryview(payload)
+        while view:
+            self._wait(self._input, select.POLLOUT, deadline)
+            view = view[os.write(self._input, view) :]
+
+    def _response(self, deadline: float) -> bytes:
+        """Read exactly one bounded response line before the deadline."""
+        buffer = bytearray()
+        while not buffer.endswith(b"\n"):
+            self._wait(self._output, select.POLLIN, deadline)
+            block = os.read(self._output, 65_536)
+            if not block:
+                raise FeatureAccessError("Feast worker ended before answering")
+            buffer.extend(block)
+            if len(buffer) > self._max_output + 1:
+                raise FeatureAccessError("Feast worker returned an oversized result")
+        response = bytes(buffer[:-1])
+        if not response or b"\n" in response:
+            raise FeatureAccessError("Feast worker answered outside its line protocol")
+        return response
+
+    def _stop(self) -> str:
+        """Kill and reap any worker, close its pipes and return the tail of its stderr."""
+        process, stderr = self._process, self._stderr
+        self._process = self._stderr = None
+        for descriptor in (self._input, self._output):
+            if descriptor >= 0:
+                os.close(descriptor)
+        self._input = self._output = -1
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+        if stderr is None:
+            return ""
+        with stderr:
+            stderr.seek(0)
+            return stderr.read()[-2_048:].decode("utf-8", errors="replace").strip()
 
 
 class OfflineFeatureBridge:

@@ -981,6 +981,25 @@ class VersionedFeatureStore:
             )
             return None if row is None else cast(str, row[0])
 
+    def published_version(self, definition: FeatureStoreDefinition) -> str | None:
+        """Return the active version, or ``None`` before the definition's first publication.
+
+        A publisher registers a definition and activates its first version when it
+        first publishes, so a server may ask before either has happened.
+
+        Raises:
+            FeatureStoreError: The registered definition's bytes differ.
+        """
+        definition.__post_init__()
+        with closing(self._connect()) as connection:
+            registered = cast(
+                tuple[object, ...] | None,
+                connection.execute(
+                    "SELECT 1 FROM definitions WHERE identity = ?", (definition.identity,)
+                ).fetchone(),
+            )
+        return None if registered is None else self.active_version(definition)
+
     def retrieve_online(
         self,
         definition: FeatureStoreDefinition,

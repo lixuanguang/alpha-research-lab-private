@@ -1,17 +1,18 @@
-"""Identify only distribution-owned runtime files under the two retained hash contracts."""
+"""Identify distribution-owned runtime files and the code a deployed candidate runs on."""
 
 from __future__ import annotations
 
 # standard library imports
 import csv
 import hashlib
+import platform
 from importlib.metadata import PackageNotFoundError, distribution, version
 from importlib.util import find_spec
 from pathlib import Path, PurePosixPath
 from typing import ClassVar
 
 # project library imports
-from serialization import DomainCodec
+from serialization import DomainCodec, WireRecord
 
 
 class RuntimeFiles:
@@ -161,3 +162,62 @@ class ImplementationIdentity:
             (name, version(name)) for name in (*RuntimeFiles.distributions(), "msgspec", "pydantic")
         )
         return hashlib.sha256(DomainCodec().encode_json((inputs, dependencies))).hexdigest()
+
+
+class CandidateRuntimeManifest(WireRecord, frozen=True):
+    """List the platform files and third-party distributions a deployed candidate runs on."""
+
+    modules: tuple[str, ...]
+    distributions: tuple[str, ...]
+
+
+class CandidateRuntime:
+    """Identify the platform code and dependency versions a packaged candidate runs on.
+
+    A candidate is packaged in the research environment and runs in the signed
+    paper-services release, which ships only part of the platform. Both identities
+    cover exactly what that release ships, listed in ``candidate_runtime.json``:
+    its platform files by name and bytes, and its third-party distribution versions
+    with the interpreter and platform. They agree exactly when the candidate would
+    run on the same code and dependency versions.
+    """
+
+    @staticmethod
+    def manifest() -> CandidateRuntimeManifest:
+        """Read the shipped list of candidate runtime files and distributions."""
+        payload = (Path(__file__).parent / "candidate_runtime.json").read_bytes()
+        return DomainCodec().decode_json(payload, CandidateRuntimeManifest)
+
+    @classmethod
+    def code_sha256(cls) -> str:
+        """Hash every listed platform file's name and bytes as installed here.
+
+        Raises:
+            ValueError: A listed file is not installed in this environment.
+        """
+        digest = hashlib.sha256()
+        for name in cls.manifest().modules:
+            spec = find_spec(name.split("/", 1)[0])
+            if spec is None or spec.origin is None:
+                raise ValueError(f"candidate runtime package is absent: {name}")
+            path = Path(spec.origin).parent.parent / name
+            if not path.is_file():
+                raise ValueError(f"candidate runtime file is not installed: {name}")
+            digest.update(name.encode() + b"\0" + hashlib.sha256(path.read_bytes()).digest())
+        return digest.hexdigest()
+
+    @classmethod
+    def environment_sha256(cls) -> str:
+        """Hash the interpreter, platform and listed distribution versions installed here."""
+        versions = tuple((name, version(name)) for name in cls.manifest().distributions)
+        return hashlib.sha256(
+            DomainCodec().encode_json(
+                (
+                    platform.python_implementation(),
+                    platform.python_version(),
+                    platform.platform(),
+                    platform.machine(),
+                    versions,
+                )
+            )
+        ).hexdigest()

@@ -40,11 +40,21 @@ class ImportAudit:
         "unexported-import": "the name is not in the owner's __all__",
         "unknown-owner": "the owner package is not installed in this environment",
         "path-mutation": "do not mutate sys.path; install the package instead",
+        "unshipped-import": "the operating release does not ship this module; see the QR API map",
     }
 
-    def __init__(self, owners: frozenset[str] | None = None) -> None:
-        """Bind the installed platform owners, or an explicit set for a fixture."""
+    def __init__(
+        self, owners: frozenset[str] | None = None, *, shipped: frozenset[str] | None = None
+    ) -> None:
+        """Bind the installed platform owners and, for a release, the files it ships.
+
+        Args:
+            owners: Platform owner packages; ``None`` reads the installed ones.
+            shipped: Platform source paths a release ships (``research/reports/__init__.py``);
+                ``None`` accepts any installed owner.
+        """
         self._owners = self.installed_owners() if owners is None else owners
+        self._shipped = shipped
         self._exports: dict[str, frozenset[str] | None] = {}
 
     @staticmethod
@@ -111,6 +121,10 @@ class ImportAudit:
             return "private-import"
         if SourceLayoutChecker.owner(module) != module:
             return "deep-import"
+        if self._shipped is not None and module.replace(".", "/") + "/__init__.py" not in (
+            self._shipped
+        ):
+            return "unshipped-import"
         exports = self._owner_exports(module)
         if exports is None:
             return "unknown-owner"

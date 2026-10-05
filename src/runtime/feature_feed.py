@@ -62,7 +62,8 @@ class ServedFeatures:
     also compares it with authoritative point-in-time retrieval and refuses a
     missing snapshot. Online serving requires the pinned version to be active,
     reads the snapshot's immutable Feast generation, and names a snapshot not yet
-    published ``feature-pending``, which a caller may wait for. A changed active
+    published ``feature-pending``, which a caller may wait for; so is a stream whose
+    publisher has not yet published at all. A changed active
     version, a missing, expired or future value, or an unavailable store or Feast
     worker is a reason, never a substitute value. Already fitted transforms are
     never reapplied.
@@ -98,8 +99,12 @@ class ServedFeatures:
         if online and (self._bridge is None or self._serving_root is None):
             raise ValueError("online candidate requires its isolated Feast bridge")
         try:
-            if online and self._store.active_version(definition) != version:
-                return "feature-version-changed"
+            if online:
+                published = self._store.published_version(definition)
+                if published is None:
+                    return "feature-pending"
+                if published != version:
+                    return "feature-version-changed"
             snapshot = self._store.exact_materialization(definition, version, at)
             if snapshot is None:
                 if not online:

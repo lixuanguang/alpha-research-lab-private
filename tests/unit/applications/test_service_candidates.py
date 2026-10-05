@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 # standard library imports
+import fcntl
 import hashlib
+import os
 import socket
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -62,6 +64,7 @@ from risk import AccountLimit, BudgetPolicy, InstanceLimit, SpotLimits
 from runtime import (
     CandidateEvidence,
     CandidateMonitoringExporter,
+    CandidateRuntime,
     ImplementationIdentity,
     InstalledExtensions,
     LocalCandidateExecutor,
@@ -81,6 +84,10 @@ from telemetry import (
 _ORIGIN = datetime(2026, 1, 1, tzinfo=UTC)
 
 
+# Below the AF_UNIX pathname limit on macOS, where /tmp is a link; Linux has no /private.
+_SOCKET_ROOT = "/private/tmp" if os.path.isdir("/private/tmp") else "/tmp"
+
+
 class TestPaperServiceCandidates:
     """Resolve a reference and a packaged candidate on one native book source."""
 
@@ -98,11 +105,16 @@ class TestPaperServiceCandidates:
 
     @classmethod
     def _configuration(
-        cls, packaged: PackagedCandidate, *, trades: bool = False
+        cls,
+        packaged: PackagedCandidate,
+        *,
+        trades: bool = False,
+        copies: tuple[str, ...] = ("packaged",),
     ) -> PaperServiceConfiguration:
         """Provision a reference formula and a packaged candidate on one shared account.
 
-        With ``trades`` the source also records its public trades feed.
+        With ``trades`` the source also records its public trades feed; ``copies`` names
+        each instance of the packaged candidate.
         """
         capture = cls._capture()
         currency = Currency.from_code("USDT")
@@ -130,7 +142,7 @@ class TestPaperServiceCandidates:
                         maximum=money,
                         instruments=(capture.instrument_id,),
                     )
-                    for name in ("reference", "packaged")
+                    for name in ("reference", *copies)
                 ),
                 max_quote_age_us=30_000_000,
                 max_state_age_us=30_000_000,
@@ -161,6 +173,10 @@ class TestPaperServiceCandidates:
         reference = ReferenceCandidate(
             formula="target_clip", cadence_us=3_000_000, starts_at=_ORIGIN
         )
+        candidates: tuple[tuple[str, ReferenceCandidate | PackagedCandidate], ...] = (
+            ("reference", reference),
+            *((copy, packaged) for copy in copies),
+        )
         return PaperServiceConfiguration(
             accounts=(
                 PaperServiceAccount(
@@ -180,9 +196,9 @@ class TestPaperServiceCandidates:
                     lot=quantity,
                     maximum_fee=Money(value=Decimal("1"), currency=currency),
                 )
-                for name, candidate in (("reference", reference), ("packaged", packaged))
+                for name, candidate in candidates
             ),
-            active=("reference", "packaged"),
+            active=("reference", *copies),
             revision=1,
         )
 
@@ -376,6 +392,8 @@ class TestPaperServiceCandidates:
             version="1",
             code_sha256=ImplementationIdentity.sha256(),
             environment_sha256=ExperimentSpec.installed_environment(),
+            runtime_code_sha256=CandidateRuntime.code_sha256(),
+            runtime_environment_sha256=CandidateRuntime.environment_sha256(),
             feature_schema=artifacts["feature-schema"],
             feature_store=artifacts.get("feature-store"),
             transform=None,
@@ -669,6 +687,11 @@ class TestPaperServiceCandidates:
             configuration, tmp_path / "candidates", root, poll_seconds=0.01
         )
         assert [item.instance_id for item in publisher.served()] == ["packaged"]
+        (tmp_path / "feast").mkdir()
+        with (tmp_path / "feast" / "publisher.lock").open("a+b") as fence:
+            fcntl.flock(fence.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with pytest.raises(ValueError, match="already owns this serving root"):
+                publisher.run()
         assert publisher.run()["stopped"] == "supervisor_not_found"
         codec = DomainCodec()
         status = root / "status.json"
@@ -837,7 +860,7 @@ class TestPaperServiceCandidates:
         packaged = PackagedCandidate(
             definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
         )
-        address = Path(f"/private/tmp/m3e-{uuid4().hex[:8]}.sock")
+        address = Path(_SOCKET_ROOT) / f"m3e-{uuid4().hex[:8]}.sock"
         configuration = replace(self._configuration(packaged), alert_socket=str(address))
         owner = PaperOwner(
             account_id="shared",
@@ -886,7 +909,7 @@ class TestPaperServiceCandidates:
             receiver.close()
             address.unlink(missing_ok=True)
         query = MonitoringQuery(
-            scope="account:shared",
+            scope="account:shared:strategy:packaged",
             mode="paper",
             start=_ORIGIN,
             end=evidence.cutoff + timedelta(seconds=1),
@@ -905,6 +928,72 @@ class TestPaperServiceCandidates:
         assert [item.status for item in OperationalAlerts(root / "alerts.sqlite3").read()] == [
             "delivered"
         ]
+
+    def test_candidates_sharing_an_account_keep_their_own_series(self, tmp_path: Path) -> None:
+        """Two instances of one candidate export the same metric without colliding."""
+        definition = self._publish(tmp_path, runtime=True)
+        packaged = PackagedCandidate(
+            definition_sha256=definition.identity, extension=self.extension, starts_at=_ORIGIN
+        )
+        configuration = self._configuration(packaged, copies=("packaged", "packaged-late"))
+        owner = PaperOwner(
+            account_id="shared",
+            deployment_sha256="a" * 64,
+            authorization_id="authorization",
+            release_identity="b" * 64,
+            owner_id="owner",
+            generation=1,
+        )
+        root = tmp_path / "monitoring"
+        telemetry = CandidateTelemetry(
+            configuration,
+            (owner,),
+            candidates=tmp_path / "candidates",
+            runs=tmp_path / "runs",
+            root=root,
+            started_at=_ORIGIN,
+        )
+        fill, evidence = self._bought()
+        state = AccountExecutionResult(
+            accounts=(),
+            orders=(),
+            paper_fills=tuple(
+                AccountPaperFill(instance_id=name, order_id=f"order-{name}", fill=fill)
+                for name in ("packaged", "packaged-late")
+            ),
+        )
+        market = PaperMarket(
+            identity="market",
+            at=evidence.cutoff,
+            bid=evidence.mark if evidence.mark is not None else fill.reference,
+            ask=fill.reference,
+            bid_quantity=fill.quantity,
+            ask_quantity=fill.quantity,
+        )
+        telemetry.sample(
+            InspectedPaperAccount(configuration.accounts[0].configuration, owner, state),
+            state,
+            (market,),
+            observed_at=evidence.cutoff,
+        )
+        assert telemetry.failures == 0, telemetry.last_error
+        end = evidence.cutoff + timedelta(seconds=1)
+        for name in ("packaged", "packaged-late"):
+            query = MonitoringQuery(
+                scope=f"account:shared:strategy:{name}",
+                mode="paper",
+                start=_ORIGIN,
+                end=end,
+                as_of=end,
+            )
+            events = TelemetryStore(root / "telemetry.sqlite3").query(query)
+            assert [item.name for item in events] == ["fold-net"]
+        labels = sorted(
+            path.name.split("-", 1)[1]
+            for path in (root / "dashboards" / "shared").iterdir()
+            if not path.name.startswith(".")
+        )
+        assert labels == ["packaged-1", "packaged-late-1"]
 
     def test_feature_publisher_lag_is_bounded(self) -> None:
         """The publisher's lag is a whole number of seconds from 1 to 300."""

@@ -29,7 +29,16 @@ name's docstring is its contract; this page says where it fits.
 | `TargetIntent` | `strategies` | An absolute position in instrument units. |
 | `OrderIntent` | `strategies` | One limit order: side, `Quantity`, limit price and time in force. |
 | `QuoteIntent` | `strategies` | A two-sided quote of two `OrderIntent`s. |
-| `FoldSummary` | `research.studies` | One fold's ledger, terminal mark and curve; your metric reads these from its `ReportContext`. |
+| `ReportContext` | `research.reports` | What your metric or chart component receives: the study's folds and their economics. |
+| `FoldSummary` | `research.reports` | One fold's ledger, terminal mark and curve; your metric reads these from its `ReportContext`. |
+| `ReportObservation` | `research.reports` | One exact series value, or an explicit missing value, at its UTC clock. |
+| `MetricValue` | `research.reports` | What your metric returns: its exact value, units and per-fold evidence. |
+| `ChartSpec` | `research.reports` | What your chart returns: exact named series for a line, bar or table view. |
+
+Your extension also runs inside the signed paper services, which ship
+`research.reports` but not `research.studies`. Import report contracts from
+`research.reports`; a paper-services build refuses an extension that imports any
+platform module the release does not ship, including inside a function.
 
 Each paper or research decision replaces the instance's working orders, so a policy
 that cannot price should return `DecisionTransition(intent=None, state=...)` rather

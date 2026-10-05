@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 # project library imports
+from alpha_research_governance.artifact_supply_chain.builds import ReleaseBuilder
 from alpha_research_governance.artifact_supply_chain.bundles import VerifiedRelease
 from alpha_research_governance.artifact_supply_chain.provenance import (
     ReleaseProvenance,
@@ -279,6 +280,25 @@ class TestReleaseProvenance:
             ReleaseProvenance._local_source(script, filename, "engineering-candidates", project)
         with pytest.raises(ValueError, match="unknown local release distribution"):
             ReleaseProvenance._local_source(release, filename, "engineering-candidates", "tools/x")
+
+    def test_external_sources_are_signed_in_the_order_verification_reads(self) -> None:
+        """External extension files sort among the repository's, as the release lists them."""
+        repository = (("extensions/a/pyproject.toml", b"a"), ("packages/b/pyproject.toml", b"b"))
+        external = (("external/qr/pyproject.toml", b"q"),)
+        sources = ReleaseBuilder.release_sources(repository, external)
+        assert [name for name, _ in sources] == [
+            "extensions/a/pyproject.toml",
+            "external/qr/pyproject.toml",
+            "packages/b/pyproject.toml",
+        ]
+        snapshot = SourceSnapshot(
+            files=tuple(ReleaseFile.describe(name, content) for name, content in sources)
+        )
+        listed = tuple(
+            ReleaseFile.describe(name.removeprefix("source/"), content)
+            for name, content in sorted(("source/" + name, content) for name, content in sources)
+        )
+        assert snapshot.files == listed
 
     def test_external_extension_wheel_matches_its_signed_external_source(self) -> None:
         """An extension built outside the repository maps to source/external/<name>/src."""

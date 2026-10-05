@@ -41,6 +41,7 @@ from research.studies import DecisionStudy, StudyResult
 from runtime import (
     CandidateCheckpoint,
     CandidateComponents,
+    CandidateRuntime,
     CandidateStep,
     ImplementationIdentity,
 )
@@ -317,6 +318,8 @@ class _CandidateAcceptance:
             version="1",
             code_sha256=ImplementationIdentity.sha256(),
             environment_sha256=history.start.spec.environment_sha256,
+            runtime_code_sha256=CandidateRuntime.code_sha256(),
+            runtime_environment_sha256=CandidateRuntime.environment_sha256(),
             feature_schema=refs["feature-schema"],
             feature_store=refs["feature-store"],
             transform=refs.get("transform"),

@@ -15,6 +15,7 @@ from research.models.adapters import (
     EstimatorVersion,
     NearestExample,
 )
+from research.models.evaluation import EvaluationRecord
 
 if TYPE_CHECKING:
     # project library imports
@@ -78,6 +79,7 @@ __all__ = [
     "EstimatorLifecycle",
     "EstimatorRegistry",
     "EstimatorVersion",
+    "EvaluationRecord",
     "LinearDefinition",
     "LinearModel",
     "LinearState",

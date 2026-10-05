@@ -32,6 +32,7 @@ bypass-selection = true
 "../../src/portfolio" = "portfolio"
 "../../src/runtime/__init__.py" = "runtime/__init__.py"
 "../../src/runtime/identity.py" = "runtime/identity.py"
+"../../src/runtime/candidate_runtime.json" = "runtime/candidate_runtime.json"
 "../../src/runtime/supervision.py" = "runtime/supervision.py"
 "../../src/runtime/workspace.py" = "runtime/workspace.py"
 "../../src/runtime/account_recovery.py" = "runtime/account_recovery.py"

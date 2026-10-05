@@ -38,7 +38,7 @@ from research.features import (
 from research.observations import InputRequirement, NumericField
 from runtime.candidates import CandidateLoader, LoadedCandidate
 from runtime.components import CandidateComponents, FeatureFactory, PolicyFactory
-from runtime.identity import ImplementationIdentity
+from runtime.identity import CandidateRuntime, ImplementationIdentity
 from runtime.paper_capabilities import PaperCapabilities
 from runtime.requirements import CandidateRequirements
 from serialization import DomainCodec
@@ -137,6 +137,8 @@ class AuthoredCandidates:
             version="1",
             code_sha256=self._implementation,
             environment_sha256=ExperimentSpec.installed_environment(),
+            runtime_code_sha256=CandidateRuntime.code_sha256(),
+            runtime_environment_sha256=CandidateRuntime.environment_sha256(),
             feature_schema=artifacts["feature-schema"],
             feature_store=artifacts.get("feature-store"),
             transform=None,

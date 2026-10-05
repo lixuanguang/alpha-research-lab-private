@@ -286,9 +286,12 @@ class AccountExecutionApplication:
             alert_error = "alert_store_invalid"
         if phases is not None:
             phases["alerts_ns"] = time.monotonic_ns()
+        snapshot = journal.result_snapshot(request)
         result = replace(
-            journal.result_snapshot(request),
-            portfolio=portfolio,
+            snapshot,
+            # A command's own commit is its outcome; an inspection keeps the outcome its
+            # projection read, such as a saved batch's.
+            portfolio=snapshot.portfolio if portfolio is None else portfolio,
             admission=admission,
             order=order,
             reconciled=reconciled,

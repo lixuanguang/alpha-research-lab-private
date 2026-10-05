@@ -22,13 +22,8 @@ from research.experiments import AttemptStore, CandidateBundle, Fingerprint
 from research.features import FeatureKernel, FeatureSchema, TransformAdapter
 from research.labels import Outcome
 from research.models import EstimatorAdapter
-from research.studies import (
-    ChartDefinition,
-    DecisionStudy,
-    MetricDefinition,
-    PublicationPolicy,
-    StudyArtifact,
-)
+from research.reports import ChartDefinition, MetricDefinition
+from research.studies import DecisionStudy, PublicationPolicy, StudyArtifact
 from runtime import (
     CandidateComponents,
     CandidateLoader,

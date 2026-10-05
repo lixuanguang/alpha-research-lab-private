@@ -21,8 +21,11 @@ import hashlib
 import os
 import re
 import shutil
+import signal
+import socket
 import subprocess  # nosec B404  # [owner=runtime; rationale=declared journey commands; expires=2027-03-01]
 import tarfile
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -35,7 +38,7 @@ import msgspec
 Step = Literal["J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8"]
 STEPS: tuple[Step, ...] = ("J1", "J2", "J3", "J4", "J5", "J6", "J7", "J8")
 # The steps this driver implements; J6 and J7 land with M3e.
-IMPLEMENTED: frozenset[Step] = frozenset({"J1", "J2", "J3", "J4", "J5", "J8"})
+IMPLEMENTED: frozenset[Step] = frozenset({"J1", "J2", "J3", "J4", "J5", "J6", "J8"})
 EXTENSION = "mr17-extensions"
 # Top-level platform packages whose names a QR may import only through ``__all__``.
 PLATFORM_PACKAGES = frozenset(
@@ -99,6 +102,8 @@ class JourneyDeclaration(msgspec.Struct, frozen=True, forbid_unknown_fields=True
     holdouts: int
     guides: tuple[str, ...]
     capacity_records: tuple[str, ...] = ()
+    # J6 supervisor lives in seconds: P-A, P-B and S (rehearsals shorten them).
+    phases: tuple[int, int, int] = (1800, 600, 600)
     schema_version: Literal["mr17-journey-declaration"] = "mr17-journey-declaration"
 
     def __post_init__(self) -> None:
@@ -126,6 +131,8 @@ class JourneyDeclaration(msgspec.Struct, frozen=True, forbid_unknown_fields=True
                 raise ValueError("journey commits must be full SHA-1 identities")
         if not self.feeds or len(set(self.feeds)) != len(self.feeds) or self.holdouts < 1:
             raise ValueError("journey declares distinct feeds and at least one holdout")
+        if len(self.phases) != 3 or any(not 120 <= item <= 3000 for item in self.phases):
+            raise ValueError("J6 phases are three supervisor lives of 120 to 3000 seconds")
         if len(f"{self.temporary_root}/{self.attempt}/s/supervisor.sock".encode()) > 100:
             raise ValueError("temporary root leaves no room for bounded socket paths")
 
@@ -305,6 +312,36 @@ class Commands:
         )
         return record, paths[0].read_bytes()
 
+    def start(self, step: Step, label: str, argv: tuple[str, ...], *, cwd: Path) -> Background:
+        """Start one long-running command; ``finish`` records it."""
+        ordinal, stdout_path, stderr_path = self._paths(label)
+        with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+            child = subprocess.Popen(  # nosec B603  # [owner=runtime; rationale=explicit argv of declared journey commands; expires=2027-03-01]
+                argv, cwd=cwd, stdout=stdout, stderr=stderr
+            )
+        return Background(
+            child, ordinal, step, label, argv, (stdout_path, stderr_path), datetime.now(UTC)
+        )
+
+    def finish(self, background: Background, *, cwd: Path, timeout: float) -> CommandRecord:
+        """Wait for a started command, terminating it at the timeout, and record it."""
+        try:
+            returncode = background.child.wait(timeout=max(1.0, timeout))
+        except subprocess.TimeoutExpired:
+            background.child.terminate()
+            returncode = background.child.wait(timeout=60)
+        return self._record(
+            background.ordinal,
+            background.step,
+            background.label,
+            background.argv,
+            cwd,
+            {},
+            background.started_at,
+            returncode,
+            background.paths,
+        )
+
     def run_concurrently(
         self,
         step: Step,
@@ -337,6 +374,60 @@ class Commands:
                 self._record(ordinal, step, label, argv, cwd, {}, started_at, returncode, paths)
             )
         return tuple(records)
+
+
+class Background:
+    """One started command whose record is written when it ends."""
+
+    def __init__(
+        self,
+        child: subprocess.Popen[bytes],
+        ordinal: int,
+        step: Step,
+        label: str,
+        argv: tuple[str, ...],
+        paths: tuple[Path, Path],
+        started_at: datetime,
+    ) -> None:
+        """Bind the child and the record fields reserved for it."""
+        self.child, self.ordinal, self.step, self.label = child, ordinal, step, label
+        self.argv, self.paths, self.started_at = argv, paths, started_at
+
+
+class AlertReceiver:
+    """Retain every local datagram alert sent to the declared socket."""
+
+    def __init__(self, path: Path, output: Path) -> None:
+        """Bind the socket and start retaining; ``close`` stops it."""
+        path.unlink(missing_ok=True)
+        self.path, self.output = path, output
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.socket.bind(str(path))
+        self.socket.settimeout(0.2)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._receive, name="journey-alerts", daemon=True)
+        self._thread.start()
+
+    def _receive(self) -> None:
+        """Append each datagram with its receipt clock until stopped."""
+        while not self._stop.is_set():
+            try:
+                payload = self.socket.recv(65536)
+            except TimeoutError:
+                continue
+            received: dict[str, object] = {
+                "received_at": datetime.now(UTC),
+                "datagram": payload.decode(errors="replace"),
+            }
+            with self.output.open("ab") as stream:
+                stream.write(msgspec.json.encode(received) + b"\n")
+
+    def close(self) -> None:
+        """Stop receiving and remove the socket."""
+        self._stop.set()
+        self._thread.join(5)
+        self.socket.close()
+        self.path.unlink(missing_ok=True)
 
 
 class GuideCoverage:
@@ -838,16 +929,27 @@ class Journey:
         snapshots = str(self.output / "j2/snapshots")
         attempts = str(self.output / "j3/attempts")
         (self.output / "j3").mkdir()
-        for kind in ("rule", "learned"):
-            self.qr_script(
-                kind, "j3_study.py", kind, "--snapshots", snapshots, "--attempts", attempts
-            )
-        self.qr_script(
-            "grid", "j3_study.py", "grid", "--snapshots", snapshots, "--attempts", attempts
+        # Every research instrument gets both candidates, as J6 deploys each of them.
+        universes = msgspec.json.decode(
+            (self.qr / "data/universes.json").read_bytes(), type=dict[str, list[str]]
         )
-        self.qr_script(
-            "holdout", "j3_study.py", "holdout", "--snapshots", snapshots, "--attempts", attempts
-        )
+        for kind in ("rule", "learned", "holdout"):
+            for instrument in universes["research"]:
+                self.qr_script(
+                    f"{kind}-{instrument[:8]}",
+                    "j3_study.py",
+                    kind,
+                    "--snapshots",
+                    snapshots,
+                    "--attempts",
+                    attempts,
+                    "--instrument",
+                    instrument,
+                )
+            if kind == "learned":
+                self.qr_script(
+                    "grid", "j3_study.py", "grid", "--snapshots", snapshots, "--attempts", attempts
+                )
         self.qr_script("publish", "j3_publish.py", "--attempts", attempts)
         self.qr_script("reopen", "j3_reopen.py", "--attempts", attempts)
         self.qr_script(
@@ -901,6 +1003,521 @@ class Journey:
         )
         self.check("candidates", "--candidates", str(root / "candidates"), "--attempts", attempts)
 
+    def paper_step(self, label: str, *arguments: str | Path) -> bytes:
+        """Run one J6 operator step under the research interpreter."""
+        return self.command(
+            label,
+            (
+                str(self.research_python),
+                "-I",
+                str(self.consumers / "journey_paper.py"),
+                *(str(item) for item in arguments),
+            ),
+        )
+
+    @property
+    def launcher(self) -> str:
+        """Return the build environment's signed-artifact launcher."""
+        return str(self.build_bin / "alpha-governance-artifacts")
+
+    def paper(self) -> None:
+        """J6: install signed services and accounts, then run P-A, P-B and S."""
+        root = self.output / "j6"
+        root.mkdir()
+        (self.temporary / "s").mkdir(exist_ok=True)
+        extension = root / "extensions" / EXTENSION
+        shutil.copytree(self.qr / EXTENSION, extension)
+        self.command(
+            "import-audit",
+            (
+                str(self.build_bin / "alpha-governance-engineering-standards"),
+                "import-audit",
+                str(extension),
+            ),
+        )
+        policy, requests = ReleaseInputs(self, self.temporary / "keys/builder").paper(root)
+        first, second, shadow_seconds = self.declaration.phases
+        paper = root / "paper"
+        self.plan_phase(paper, "paper", first)
+        services = self.install_services(paper, "paper", policy, requests["paper-services"], root)
+        self.install_accounts(paper, "paper", policy, requests["paper-account"], root)
+        self.claim_accounts(paper, "paper", policy, research=True)
+        self.run_phase("P-A", paper, services, policy, first, scenarios=True)
+        self.recover_accounts(paper, policy, paper / "service-P-A")
+        self.run_phase("P-B", paper, services, policy, second, scenarios=False)
+        shadow = root / "shadow"
+        self.plan_phase(shadow, "shadow", shadow_seconds)
+        shadow_services = self.install_services(
+            shadow, "shadow", policy, requests["shadow-services"], root
+        )
+        self.install_accounts(shadow, "shadow", policy, requests["shadow-account"], root)
+        self.claim_accounts(shadow, "shadow", policy, research=False)
+        self.run_phase("S", shadow, shadow_services, policy, shadow_seconds, scenarios=False)
+
+    def plan_phase(self, plan: Path, mode: str, seconds: int) -> None:
+        """Author a mode's services and account definitions from the J5 candidates."""
+        features = plan / "features"
+        self.paper_step(
+            f"{mode}-plan",
+            "plan",
+            "--plan",
+            plan,
+            "--mode",
+            mode,
+            "--qr",
+            self.qr,
+            "--candidates",
+            self.output / "j5/candidates",
+            "--sockets",
+            self.temporary / "s",
+            "--store",
+            features / "store.sqlite3",
+            "--serving-root",
+            features / "feast",
+            "--worker",
+            self.checkout / "configs/development/research-worker/.venv/bin/python",
+            "--alert-socket",
+            self.temporary / "s/alert.sock",
+            "--duration",
+            str(seconds),
+        )
+
+    def release(
+        self, label: str, request: Path, policy: Path, root: Path, *extra: str | Path
+    ) -> str:
+        """Fetch, build and verify one signed release; return its path."""
+        wheels = root / f"wheels-{request.stem}"
+        common = ("--request", str(request), "--policy", str(policy))
+        if not wheels.exists():
+            self.command(
+                f"{label}-fetch",
+                (
+                    self.launcher,
+                    "fetch",
+                    "--repository",
+                    str(self.checkout),
+                    *common,
+                    "--dependencies",
+                    str(wheels),
+                ),
+            )
+        built = self.command(
+            f"{label}-build",
+            (
+                self.launcher,
+                "build",
+                "--repository",
+                str(self.checkout),
+                *common,
+                "--dependencies",
+                str(wheels),
+                "--audit",
+                str(root / f"audit-{label}"),
+                "--key",
+                str(self.temporary / "keys/builder"),
+                "--registry",
+                str(root / "registry"),
+                *(str(item) for item in extra),
+            ),
+        )
+        release = built.decode().strip().splitlines()[-1]
+        self.command(
+            f"{label}-verify",
+            (self.launcher, "verify", "--release", release, "--policy", str(policy)),
+        )
+        return release
+
+    def install_services(
+        self, plan: Path, mode: str, policy: Path, request: Path, root: Path
+    ) -> Path:
+        """Build, install and check a mode's signed services with the QR's candidates."""
+        release = self.release(
+            f"{mode}-services",
+            request,
+            policy,
+            root,
+            "--configuration",
+            plan / "services.json",
+            "--candidates",
+            plan / "candidates",
+            "--extensions",
+            root / "extensions",
+        )
+        target = plan / "services"
+        self.command(
+            f"{mode}-services-install",
+            (
+                self.launcher,
+                "install",
+                "--release",
+                release,
+                "--policy",
+                str(policy),
+                "--target",
+                str(target),
+            ),
+        )
+        checked = self.command(
+            f"{mode}-services-check",
+            (
+                self.launcher,
+                "run",
+                "--target",
+                str(target),
+                "--policy",
+                str(policy),
+                "--",
+                "deployment-check",
+            ),
+        )
+        # Deployments are authored from the identities the installed release computes.
+        (plan / "deployment-check.json").write_bytes(checked)
+        return target
+
+    def accounts(self, plan: Path) -> tuple[str, ...]:
+        """Return a plan's account identities in configuration order."""
+        services = msgspec.json.decode(
+            (plan / "services.json").read_bytes(), type=dict[str, object]
+        )
+        accounts = services["accounts"]
+        if not isinstance(accounts, list):
+            raise ValueError("planned services name no accounts")
+        return tuple(str(item["account_id"]) for item in accounts if isinstance(item, dict))
+
+    def install_accounts(
+        self, plan: Path, mode: str, policy: Path, request: Path, root: Path
+    ) -> None:
+        """Build and install one signed execution target per account."""
+        for account_id in self.accounts(plan):
+            release = self.release(
+                f"{account_id}-account",
+                request,
+                policy,
+                root,
+                "--configuration",
+                plan / f"account-{account_id}.json",
+            )
+            self.command(
+                f"{account_id}-install",
+                (
+                    self.launcher,
+                    "install",
+                    "--release",
+                    release,
+                    "--policy",
+                    str(policy),
+                    "--target",
+                    str(plan / "targets" / account_id),
+                ),
+            )
+        self.records[self.current].criteria.append(
+            Gate(f"{mode}_accounts_installed", True, {"accounts": self.accounts(plan)})
+        )
+
+    def claim_accounts(self, plan: Path, mode: str, policy: Path, *, research: bool) -> None:
+        """Install each deployment and grant and claim its owner; J2's grant refusal first."""
+        universes = msgspec.json.decode(
+            (self.qr / "data/universes.json").read_bytes(), type=dict[str, list[str]]
+        )
+        for index, account_id in enumerate(self.accounts(plan)):
+            refusal = (
+                ("--research", ",".join(universes["research"])) if research and index == 0 else ()
+            )
+            stdout = self.paper_step(
+                f"{account_id}-claim",
+                "claim",
+                "--plan",
+                plan,
+                "--mode",
+                mode,
+                "--launcher",
+                self.launcher,
+                "--targets",
+                plan / "targets",
+                "--policy",
+                policy,
+                "--account",
+                account_id,
+                "--quote",
+                "1",
+                *refusal,
+            )
+            if refusal:
+                claimed = msgspec.json.decode(stdout, type=dict[str, object])
+                grant = claimed.get("research_grant")
+                self.require(
+                    "research_grant_refused_unchanged",
+                    isinstance(grant, dict)
+                    and grant.get("refused") is True
+                    and "excludes the installed release" in str(grant.get("error"))
+                    and grant.get("unchanged") is True,
+                    grant,
+                )
+        self.paper_step(f"{mode}-owners", "owners", "--plan", plan)
+
+    def recover_accounts(self, plan: Path, policy: Path, service_root: Path) -> None:
+        """P-B: settle and reclaim every account after P-A, then write fresh owners."""
+        for account_id in self.accounts(plan):
+            self.paper_step(
+                f"{account_id}-reclaim",
+                "reclaim",
+                "--plan",
+                plan,
+                "--launcher",
+                self.launcher,
+                "--targets",
+                plan / "targets",
+                "--policy",
+                policy,
+                "--account",
+                account_id,
+                "--root",
+                service_root,
+            )
+        self.paper_step("paper-owners-recovered", "owners", "--plan", plan)
+
+    def control(
+        self, plan: Path, services: Path, policy: Path, name: str, request: dict[str, object] | Path
+    ) -> None:
+        """Send one supervisor control through the signed launcher."""
+        if isinstance(request, Path):
+            path = request
+        else:
+            path = plan / "controls" / f"{name}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(msgspec.json.encode(request))
+        self.command(
+            name,
+            (
+                self.launcher,
+                "run",
+                "--target",
+                str(services),
+                "--policy",
+                str(policy),
+                "--",
+                "deployment-control",
+                "--socket",
+                str(self.temporary / "s/supervisor.sock"),
+                "--request",
+                str(path),
+            ),
+        )
+
+    def settle(
+        self, pending: list[Background], background: Background, timeout: float
+    ) -> CommandRecord:
+        """Wait for one started phase command, record it and drop it from the pending."""
+        if self.commands is None:
+            raise RuntimeError("journey commands run only inside an attempt")
+        pending.remove(background)
+        return self.commands.finish(background, cwd=self.output, timeout=timeout)
+
+    def run_phase(
+        self, name: str, plan: Path, services: Path, policy: Path, seconds: int, *, scenarios: bool
+    ) -> None:
+        """Serve every account, run the publisher and supervisor for one phase, then verify it."""
+        if self.commands is None:
+            raise RuntimeError("journey commands run only inside an attempt")
+        service_root = plan / f"service-{name}"
+        sockets = self.temporary / "s"
+        alerts = plan / f"alerts-{name}.jsonl"
+        receiver = AlertReceiver(sockets / "alert.sock", alerts)
+        pending: list[Background] = []
+        try:
+            self.paper_step(
+                f"{name}-serve-requests",
+                "serve-requests",
+                "--plan",
+                plan,
+                "--seconds",
+                str(seconds + 180),
+            )
+            accounts = self.accounts(plan)
+            serves = {
+                account_id: self.commands.start(
+                    self.current,
+                    f"{name}-serve-{account_id}",
+                    (
+                        self.launcher,
+                        "run",
+                        "--target",
+                        str(plan / "targets" / account_id),
+                        "--policy",
+                        str(policy),
+                        "--",
+                        "account",
+                        "--request",
+                        str(plan / f"serve-{account_id}.json"),
+                    ),
+                    cwd=self.output,
+                )
+                for account_id in accounts
+            }
+            pending.extend(serves.values())
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline and not all(
+                (sockets / f"{account_id}.sock").exists() for account_id in accounts
+            ):
+                time.sleep(0.5)
+            self.require(
+                f"{name}:accounts_served",
+                all((sockets / f"{account_id}.sock").exists() for account_id in accounts),
+                {account_id: (sockets / f"{account_id}.sock").exists() for account_id in accounts},
+            )
+            launch = (
+                self.launcher,
+                "run",
+                "--target",
+                str(services),
+                "--policy",
+                str(policy),
+                "--",
+            )
+            publisher = self.commands.start(
+                self.current,
+                f"{name}-publisher",
+                (*launch, "feature-publisher", "--root", str(service_root)),
+                cwd=self.output,
+            )
+            pending.append(publisher)
+            supervisor = self.commands.start(
+                self.current,
+                f"{name}-supervisor",
+                (
+                    *launch,
+                    "deployment",
+                    "--owners",
+                    str(plan / "owners.json"),
+                    "--root",
+                    str(service_root),
+                    "--socket",
+                    str(sockets / "supervisor.sock"),
+                ),
+                cwd=self.output,
+            )
+            pending.append(supervisor)
+            stop = plan / f"reconcile-{name}.stop"
+            reconciler = self.commands.start(
+                self.current,
+                f"{name}-reconciler",
+                (
+                    str(self.research_python),
+                    "-I",
+                    str(self.consumers / "journey_paper.py"),
+                    "reconcile",
+                    "--plan",
+                    str(plan),
+                    "--root",
+                    str(service_root),
+                    "--period",
+                    "60",
+                    "--stop",
+                    str(stop),
+                ),
+                cwd=self.output,
+            )
+            pending.append(reconciler)
+            started = time.monotonic()
+            scenario: dict[str, object] = {}
+            if scenarios:
+                time.sleep(max(0.0, started + seconds / 3 - time.monotonic()))
+                subject = "learned-okx-btc"
+                self.control(
+                    plan,
+                    services,
+                    policy,
+                    f"{name}-stop-{subject}",
+                    {
+                        "action": "stop_instance",
+                        "identity": f"stop-{subject}-{name}",
+                        "subject": subject,
+                    },
+                )
+                time.sleep(20)
+                restart = plan / "controls" / f"{name}-restart-{subject}.json"
+                self.paper_step(
+                    f"{name}-restart-observation",
+                    "observation",
+                    "--plan",
+                    plan,
+                    "--root",
+                    service_root,
+                    "--account",
+                    "okx-shared",
+                    "--instance",
+                    subject,
+                    "--output",
+                    restart,
+                )
+                self.control(plan, services, policy, f"{name}-restart-{subject}", restart)
+                time.sleep(max(0.0, started + seconds - 90 - time.monotonic()))
+                scenario["owner_death"] = self.owner_death(serves["okx-isolated"], service_root)
+            elif name == "P-B":
+                time.sleep(max(0.0, started + seconds - time.monotonic()))
+                self.control(
+                    plan,
+                    services,
+                    policy,
+                    f"{name}-shutdown",
+                    {"action": "shutdown", "identity": f"shutdown-{name}"},
+                )
+            supervised = self.settle(pending, supervisor, seconds + 300)
+            stop.touch()
+            self.settle(pending, reconciler, 180)
+            self.settle(pending, publisher, 180)
+            for serve in serves.values():
+                if serve.child.poll() is None:
+                    serve.child.terminate()
+                self.settle(pending, serve, 60)
+        except BaseException:
+            # A failed phase stops what it started, so nothing outlives the attempt.
+            for background in tuple(pending):
+                if background.child.poll() is None:
+                    background.child.terminate()
+                self.settle(pending, background, 60)
+            raise
+        finally:
+            receiver.close()
+        self.records[self.current].criteria.append(
+            Gate(
+                f"{name}:supervisor_ended", True, {"returncode": supervised.returncode, **scenario}
+            )
+        )
+        stdout = self.paper_step(
+            f"{name}-verify",
+            "verify",
+            "--plan",
+            plan,
+            "--root",
+            service_root,
+            "--alerts",
+            alerts,
+            "--launcher",
+            self.launcher,
+            "--targets",
+            plan / "targets",
+            "--policy",
+            policy,
+            *(("--race",) if scenarios else ()),
+        )
+        # A failed verify has already been retained as its step's failure.
+        if stdout:
+            self.gates(msgspec.json.decode(stdout, type=tuple[Gate, ...]), f"{name}:")
+
+    @staticmethod
+    def owner_death(serve: Background, service_root: Path) -> dict[str, object]:
+        """Kill an account owner, preferring the moment a supervisor request is in flight."""
+        requests = service_root / "requests" / "okx-isolated"
+        deadline = time.monotonic() + 30
+        in_flight = False
+        while time.monotonic() < deadline and not in_flight:
+            newest = max((path.stat().st_mtime for path in requests.glob("*")), default=0.0)
+            in_flight = time.time() - newest < 0.05
+            time.sleep(0.005)
+        os.kill(serve.child.pid, signal.SIGKILL)
+        return {"account": "okx-isolated", "pid": serve.child.pid, "request_in_flight": in_flight}
+
     def capacity(self) -> None:
         """J8: link the accepted MR15 R1 and 2b records; pending while either is open."""
         records = self.declaration.capacity_records
@@ -932,6 +1549,7 @@ class Journey:
             "J3": self.research,
             "J4": self.features,
             "J5": self.candidates,
+            "J6": self.paper,
             "J8": self.capacity,
         }
         started = datetime.now(UTC)
@@ -1021,6 +1639,90 @@ class ReleaseInputs:
     def sha256(path: Path) -> str:
         """Digest one pinned tool."""
         return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def policy(self, roots: list[str], schemas: list[str], states: list[str]) -> dict[str, object]:
+        """Author an installation policy admitting this attempt's builder for ``roots``."""
+        journey = self.journey
+        # The build environment's own interpreter path, not its resolved base: the
+        # builder checks the admitted hatchling installed in that environment.
+        python = journey.temporary / "build/bin/python"
+        uv = Path(journey.declaration.uv)
+        keygen = Path("/usr/bin/ssh-keygen")
+        now = datetime.now(UTC)
+        return {
+            "schema_version": "installation-policy",
+            "target": "darwin_arm64",
+            "python_executable": str(python),
+            "python_sha256": self.sha256(python),
+            "uv_executable": str(uv),
+            "uv_sha256": self.sha256(uv),
+            "ssh_keygen_executable": str(keygen),
+            "ssh_keygen_sha256": self.sha256(keygen),
+            "builders": [
+                {
+                    "identity": f"mr17-{journey.declaration.attempt}",
+                    "public_key": " ".join(self.key.with_suffix(".pub").read_text().split()[:2]),
+                    "origins": ["local-builder"],
+                    "roots": roots,
+                    "valid_from": (now - timedelta(minutes=1)).isoformat(),
+                    "valid_until": (now + timedelta(days=7)).isoformat(),
+                }
+            ],
+            "config_schemas": schemas,
+            "state_schemas": states,
+        }
+
+    def request(self, name: str, runtime: dict[str, str]) -> dict[str, object]:
+        """Author one build request for this attempt's builder."""
+        label = f"mr17-{self.journey.declaration.attempt}"
+        return {
+            "name": f"{label}-{name}",
+            "builder": label,
+            "origin": "local-builder",
+            "valid_until": (datetime.now(UTC) + timedelta(days=4)).isoformat(),
+            "runtime": {
+                "python_version": "3.14.7",
+                "platform": "darwin_arm64",
+                "contract_version": "1",
+                **runtime,
+            },
+        }
+
+    def paper(self, root: Path) -> tuple[Path, dict[str, Path]]:
+        """Write the J6 policy and the paper and shadow services and account requests."""
+        root.mkdir(parents=True, exist_ok=True)
+        policy = self.policy(
+            ["alpha-research-paper-services", "alpha-research-execution"],
+            ["paper-services", "account-runtime"],
+            ["none", "account-journal"],
+        )
+        (root / "policy.json").write_bytes(msgspec.json.encode(policy))
+        requests: dict[str, Path] = {}
+        for mode in ("paper", "shadow"):
+            for kind, runtime in (
+                (
+                    "services",
+                    {
+                        "application": "paper-services",
+                        "mode": mode,
+                        "config_schema": "paper-services",
+                        "state_schema": "none",
+                    },
+                ),
+                (
+                    "account",
+                    {
+                        "application": "execution",
+                        "mode": mode,
+                        "config_schema": "account-runtime",
+                        "state_schema": "account-journal",
+                    },
+                ),
+            ):
+                path = root / f"{mode}-{kind}-request.json"
+                path.write_bytes(msgspec.json.encode(self.request(f"{mode}-{kind}", runtime)))
+                requests[f"{mode}-{kind}"] = path
+        return root / "policy.json", requests
 
     def collector(self, root: Path) -> tuple[Path, Path]:
         """Write the collector release policy, request and capture configuration."""

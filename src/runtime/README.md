@@ -139,7 +139,8 @@ Offline serving also matches the authoritative PIT value and refuses a cutoff
 without its snapshot. Online serving requires the pinned version to be active and
 verifies the snapshot's isolated Feast generation. It returns a `ServedFeature`
 (vector, stream, version, snapshot cutoff and identity) or the pause reason:
-`feature-pending` (no snapshot at the cutoff yet), `expired`, `missing`, `future`,
+`feature-pending` (no snapshot at the cutoff yet, including before the stream's
+first publication), `expired`, `missing`, `future`,
 `feature-version-changed` or `feature-service-unavailable`. `verify` reopens a
 retained served feature's exact snapshot, requires it to be the cutoff's own, and
 refuses a different value. `CandidateFeatureFeed` applies it to a

@@ -47,13 +47,8 @@ from research.observations import (
     NumericField,
     NumericHistorySource,
 )
-from research.studies import (
-    ChartDefinition,
-    DecisionStudy,
-    MetricDefinition,
-    PublicationPolicy,
-    StudyArtifact,
-)
+from research.reports import ChartDefinition, MetricDefinition
+from research.studies import DecisionStudy, PublicationPolicy, StudyArtifact
 from risk import SpotLimits
 from runtime import (
     CandidateComponents,

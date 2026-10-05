@@ -28,7 +28,7 @@ from .learning import CenterScale, LeastSquares, NamedProjection, PredictionTarg
 
 if TYPE_CHECKING:
     # project library imports
-    from research.studies import ChartSpec, MetricValue, ReportContext
+    from research.reports import ChartSpec, MetricValue, ReportContext
 
 _SMOOTHED = NumericField(name="smoothed_imbalance", units="dimensionless")
 
@@ -212,7 +212,7 @@ class FoldNetMetric:
     def evaluate(self, context: ReportContext) -> MetricValue:
         """Keep each fold's terminal net value and withhold a total across currencies."""
         # project library imports
-        from research.studies import MetricValue, ReportObservation
+        from research.reports import MetricValue, ReportObservation
 
         observations: list[ReportObservation] = []
         total = Fraction(0)
@@ -261,7 +261,7 @@ class FoldNetChart:
     def evaluate(self, context: ReportContext) -> ChartSpec:
         """Return one exact observation per fold."""
         # project library imports
-        from research.studies import ChartSpec, ReportObservation
+        from research.reports import ChartSpec, ReportObservation
 
         observations = tuple(
             ReportObservation(

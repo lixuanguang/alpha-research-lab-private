@@ -14,6 +14,7 @@ from alpha_research_governance.artifact_supply_chain.builds import ExternalExten
 from alpha_research_governance.engineering_standards import ImportAudit, main
 
 _TEMPLATE = Path("extensions/engineering-candidates")
+_SHIPPED = ExternalExtension.shipped(Path.cwd())
 
 
 class TestImportAudit:
@@ -64,6 +65,22 @@ class TestImportAudit:
         assert main(["import-audit"]) == 2
         assert main(["import-audit", str(tmp_path / "absent")]) == 1
 
+    def test_a_release_refuses_modules_it_does_not_ship(self, tmp_path: Path) -> None:
+        """An import of an unshipped module is reported, also inside a function."""
+        root = self._tree(
+            tmp_path,
+            "from research.reports import FoldSummary\n"
+            "from research.studies import StudyResult\n"
+            "def evaluate() -> None:\n"
+            "    from research.studies import DecisionStudy\n",
+        )
+        findings = ImportAudit(shipped=_SHIPPED).audit(root)
+        assert [(item.line, item.rule, item.symbol) for item in findings] == [
+            (2, "unshipped-import", "research.studies.StudyResult"),
+            (4, "unshipped-import", "research.studies.DecisionStudy"),
+        ]
+        assert ImportAudit().audit(root) == ()
+
 
 class TestExternalExtension:
     """Admit only provider-only, source-free, cleanly importing external projects."""
@@ -84,7 +101,7 @@ class TestExternalExtension:
 
     def test_external_project_is_read_with_its_exact_source(self, tmp_path: Path) -> None:
         """The project's metadata and every source file are retained."""
-        extension = ExternalExtension.read(self._copy(tmp_path))
+        extension = ExternalExtension.read(self._copy(tmp_path), _SHIPPED)
         assert extension.name == "qr-signals"
         names = {name for name, _ in extension.files}
         assert "pyproject.toml" in names
@@ -107,7 +124,7 @@ class TestExternalExtension:
         assert change in text
         (project / "pyproject.toml").write_text(text.replace(change, source, 1), encoding="utf-8")
         with pytest.raises(ValueError, match="not admissible"):
-            ExternalExtension.read(project)
+            ExternalExtension.read(project, _SHIPPED)
 
     def test_unsupported_imports_and_relative_paths_are_refused(self, tmp_path: Path) -> None:
         """The import audit runs before any build; a relative path is refused."""
@@ -119,6 +136,13 @@ class TestExternalExtension:
             encoding="utf-8",
         )
         with pytest.raises(ValueError, match="deep-import"):
-            ExternalExtension.read(project)
+            ExternalExtension.read(project, _SHIPPED)
+        module.write_text(
+            "from research.studies import StudyResult\n"
+            + module.read_text(encoding="utf-8").split("\n", 1)[1],
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="unshipped-import"):
+            ExternalExtension.read(project, _SHIPPED)
         with pytest.raises(ValueError, match="absolute project"):
-            ExternalExtension.read(Path("qr-signals"))
+            ExternalExtension.read(Path("qr-signals"), _SHIPPED)

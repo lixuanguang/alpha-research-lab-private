@@ -2962,6 +2962,8 @@ Nothing has been signed or run live.
 - **Alert text.** Metric alerts use the existing alert journal, whose datagram text
   is `account-control:<digest>`.
 - **Untested here.** Delivery-log tailing is not unit-tested; J6 exercises it.
+- **Runtime labels after MR17 (owner decision, 2026-10-05).** A label component role
+  in candidate bundles, and runtime label computation, are deferred until after MR17.
 
 **Tests (`tests/unit/applications/test_service_candidates.py`).**
 - **Exporter:**
@@ -3076,6 +3078,352 @@ eight bundles. This roughly quadruples J3's runtime.
   It then runs P-A, P-B and S as declared, including the owner's death and
   recovery, and records every command.
 - **Rehearsals** use the declared 10/5/5-minute phases.
+
+**Addendum Q1 (approved 2026-10-05): quote legs are admitted independently in
+paper.**
+- **Found while designing the race check.** A paper account admitted a quote decision
+  whole or not at all. A flat instance's ask leg failed for want of owned inventory
+  (`insufficient_owned_inventory`), so the whole quote was refused.
+- **Why it matters.** The research simulator admits each leg on its own: it refuses
+  the ask and rests the bid. The QR's rule candidate could never trade in paper, and
+  J7 parity would fail.
+- **The change.** Paper admission admits each leg of a quote independently.
+  - A leg the instance cannot fund (inventory, cash, its budget or the position
+    limit) is dropped and its reason retained in the step result
+    (`StepCommit.dropped`, `DroppedLeg`).
+  - A quote with no admissible leg is refused as before.
+  - Single orders and targets keep all-or-nothing admission.
+- **Release.** This is an execution-owner change, in the account release that stage
+  2b qualifies.
+
+**Two related findings.**
+- **The race needs separate batches.** The rule and learned candidates on one account
+  shared a grid origin, so they decided in one batch, which is admitted or refused
+  whole. The plan now starts the learned candidates 5 s after the rule, so on
+  `okx-shared` the rule's bid reserves first and the learned target then contends
+  for the 0.01 limit.
+- **The QR's price grid was wrong for ETH.** The authored grid used a 0.1 tick for
+  every OKX instrument, but OKX ETH quotes in 0.01, so an ETH holdout holding a
+  position could not value it. The grid is now per venue and asset:
+  - OKX: BTC 0.1, ETH 0.01;
+  - Bitfinex: BTC 1, ETH 0.1.
+
+**Addendum CI-1 (approved 2026-10-05): candidates pin the runtime they deploy on.**
+- **Found by the first J6 run.** The services release's install check refused every
+  QR candidate. The loader required a bundle's `code_sha256` (every installed
+  platform module) and `environment_sha256` (every installed distribution) to equal
+  the running environment's.
+  - The QR packages in the full research environment.
+  - The signed paper-services release installs only its three wheels, with its own
+    lock.
+  - So no packaged candidate could ever load there. Packaging and loading had only
+    been tested in one environment.
+- **The change.**
+  - `CandidateDefinition` gains `runtime_code_sha256` and
+    `runtime_environment_sha256`, computed by `runtime.CandidateRuntime`, and the
+    loader requires those.
+  - The code identity hashes exactly the platform files the three operating wheels
+    ship, by name and bytes. They are listed in `runtime/candidate_runtime.json`,
+    which is shipped.
+  - The environment identity hashes the interpreter, the platform and the versions
+    of the paper-services lock's third-party distributions.
+  - `code_sha256` and `environment_sha256` keep one meaning only: the link to the
+    candidate's study, checked at packaging.
+  - An engineering test keeps the JSON equal to the wheels' include tables and the
+    lock, and those versions equal to the root lock's.
+- **Effect.** Bundles made earlier must be repackaged; recorded rehearsals stay valid
+  at their own commits.
+
+**M3e defect: the signed supervisor could not import.**
+- **Also found by that run.** M3e's runtime metrics import report contracts from
+  `research.studies`, which no operating wheel ships. In the installed paper-services
+  environment `applications.execute.services` failed to import, so the supervisor
+  could not start.
+- **Why no check caught it.**
+  - Unit and integration tests run in the full environment.
+  - The wheel smoke test installs the full wheel.
+  - The shipped-imports check followed only `runtime.*` imports.
+- **The fixes.**
+  - The report contracts a candidate's metric and chart components use
+    (`ReportObservation`, `LedgerPoint`, `FoldSummary`, `ReportContext`,
+    `MetricValue`, `ChartSpec` and the metric and chart protocols) move into a new
+    shipped package, `research.reports`. `research.studies` still exposes them.
+  - The model's `EvaluationRecord` moves from `research.studies` into
+    `research.models`, which ships, because `research.models.linear` imported it at
+    load.
+  - A new engineering test requires every module-level platform import of shipped
+    code to resolve to a shipped file. Names are compared exactly, because macOS
+    paths are case-insensitive.
+
+**Build defect: external extension sources were signed out of order.**
+- A paper-services release built with an external extension listed the extension's
+  source files after the repository's in `source.json`. Verification reads them in
+  sorted order, where `external/` falls before `packages/`, so every such release
+  failed verification.
+- The builder now sorts the complete source list (`ReleaseBuilder.release_sources`),
+  with a regression test.
+
+**Addendum F-1 (approved 2026-10-05): installed runs share their target.**
+- **Found by the second J6 run.** The launcher's `run` held the target's exclusive
+  installation fence for the whole child process. This note's layout runs the
+  publisher, the supervisor and `deployment-control` through one services target at
+  once, so whichever started first held the fence. The supervisor died one second
+  after the publisher started with a bare `[Errno 35]`, and every control failed the
+  same way.
+- **The change.**
+  - `run` takes the fence shared; `install` keeps it exclusive. Any number of runs
+    may share a target, and an installation still cannot select a release under a
+    running process, or start while one runs. This holds for every target, account
+    targets included.
+  - Single-instance ownership belongs to each application, which already fences
+    itself: the account service's journal lock, the journal's writer lock, and the
+    supervisor's endpoint and `supervisor.lock` fences.
+  - The publisher was the one process without a fence of its own. It now holds an
+    exclusive `publisher.lock` in its serving root, so two publishers cannot feed
+    one store.
+- **Tests.** Two runs share a target; a run and an installation still refuse each
+  other in both orders; a second publisher on one serving root is refused.
+- **The driver hung after the failure.** A failed J6 step left its background
+  processes serving until their own lives ended, and the driver waited on them. A
+  failed phase now stops every background process it started before it reports.
+
+**Addendum SW-1 (approved 2026-10-05): a persistent Feast serving worker.**
+- **Found by the third J6 run.** P-A ran end to end, but the OKX sources were faulted
+  `heartbeat_stalled` about a minute in, and Bitfinex BTC soon after.
+  - Each learned decision read its served features through `FeastServingBridge`,
+    whose worker ran a fresh process of the separately locked Feast environment per
+    request. Importing Feast alone takes 2.1 s on the development machine.
+  - The supervisor does not drain a source's pipe while that source has an
+    observation in flight. A source's capture child blocks on a full pipe by design,
+    so its heartbeat stops, and the supervisor faults a source whose heartbeat is
+    older than 2 s. OKX's 400-level books fill the pipe within that time.
+  - Integration tests used small authored books, so no pipe filled.
+- **The change.**
+  - The worker program (`alpha-explore feast-worker` and `feast-serving-worker`)
+    answers newline-delimited requests until its input ends. A one-shot caller sends
+    one request and closes its input, as before. A failed request still ends the
+    worker non-zero with its reason on stderr.
+  - `research.features.FeastWorkerSession` keeps one worker process alive behind the
+    existing `FeastWorker` protocol. Requests are serialized, and each reply is bounded
+    by the configured timeout and byte budget. A worker that dies, times out or
+    fails raises `FeatureAccessError` with its stderr, and the next request starts a
+    fresh worker.
+  - The supervisor and the publisher each own one session and close it when they end.
+    The worker environment, its isolation and the configuration are unchanged.
+  - Each starts its session's worker as it starts (`FeastWorkerSession.start`), and the
+    serving worker loads the Feast SDK as it starts. Otherwise the first served reads
+    still paid the two-second start at one instant: the fifth J6 run's four learned
+    reads queued behind it, and every source stalled. Warm, a read takes about 3 ms
+    and a materialization about 0.2 s on the development machine.
+- **Tests.** The session reuses one process across requests, restarts after a
+  failure and kills a worker that exceeds its timeout. The worker program answers
+  several requests on one input.
+
+**Serving defect: a stream not yet published faulted its accounts.**
+- **Found by the fourth J6 run.** The paper services store starts empty, and the
+  publisher registers a definition and activates its version only at its first
+  publication. A learned decision before then raised "feature-store definition is not
+  registered", which `ServedFeatures` did not turn into a pause, so the supervisor
+  faulted every account.
+  - A registered definition with no version active yet would have read as
+    `feature-version-changed`.
+- **The fix.**
+  - `VersionedFeatureStore.published_version` returns `None` before a definition's
+    first publication, and still refuses differing definition bytes.
+  - `ServedFeatures` names that state `feature-pending`, as the runtime guide already
+    defines it ("no snapshot at the cutoff yet"), so the instant waits and is retried.
+  - A unit test serves before registration and before activation.
+
+**Addendum GR-1 (approved 2026-10-05): the J6 grant follows what the plan deploys.**
+- **Found by the sixth J6 run.** Each paper decision replaces its instance's working
+  orders (AB-1), so an active instance places an order, or two for a quote, every 15 s.
+  The plan granted 80 orders an hour and a lifetime buy quantity of 1 per instrument.
+  Both ETH accounts reached the quantity within minutes (ten 0.1 bids) and were
+  faulted. A 30-minute P-A would also pass 80 orders on every account.
+- **The change.** The plan derives each account's grant:
+  - `maximum_orders` is the account's instances × 2 legs × decisions in the grant's
+    hour (3600 s / 15 s cadence); `okx-shared` with three instances gets 1,440.
+  - Each instrument's quantity is `maximum_orders` × that instrument's order size, so
+    the order count is the binding cap.
+  - Exposure stays bounded by the position limits (BTC 0.01, ETH 0.5), the budgets
+    and the 1,000 maximum order notional.
+
+**Addendum EX-1 (approved 2026-10-05): extensions import only what the release ships.**
+- **Also found by that run.** Every candidate dashboard was missing. The QR's metric
+  component imported its report contracts from `research.studies`, as the QR API map
+  directed. The paper-services release does not ship `research.studies`, so every live
+  metric evaluation raised and no page was rendered. The failure was counted but
+  never shown.
+  - The release builder already audits external extension imports, but against the
+    full build environment, where `research.studies` exists. M3e's import closure test
+    covers only platform code at module level.
+- **The change.**
+  - The QR API map and quickstart name `research.reports` for the contracts components
+    use (`FoldSummary`, `ReportContext`, `MetricValue`, `ChartSpec`,
+    `ReportObservation`, and the metric and chart protocols). `research.studies` no
+    longer re-exports them; studies import them from `research.reports` too.
+  - `ImportAudit` takes the release's shipped files and reports an `unshipped-import`
+    for any platform module the release does not ship, including imports inside
+    functions. The builder audits every external extension against the files listed in
+    `runtime/candidate_runtime.json`, so a paper-services build refuses such an
+    extension with that finding.
+  - The QR workspace's extension imports its contracts from `research.reports`, as a QR
+    following the corrected guide would.
+- **Tests.** The audit reports an unshipped import at module and function level and
+  accepts a shipped one; the builder's extension read refuses an extension that
+  imports `research.studies`.
+
+**Addendum MS-1 (approved 2026-10-05): each candidate's telemetry has its own scope.**
+- **Found by the seventh J6 run.** Candidate dashboards were still missing.
+  - M3e's exporter scoped every candidate's facts to its account (`account:<id>`).
+    J6 deploys two or three candidates per account, all exporting the QR's
+    `mr17.net-per-turnover`. In one sample they produced events with the same key and
+    different values, the store refused the whole append ("telemetry revision reused
+    with different bytes"), and nothing was exported or rendered.
+  - Even without the collision, an account page keeps one "last value" series per
+    name, so it would have merged different candidates. M3e's tests deployed one
+    candidate per account.
+- **The change.**
+  - Candidate telemetry scopes each instance's facts as
+    `account:<id>:strategy:<instance>`, the convention paper monitoring already uses
+    for per-instance facts. Metric names stay the QR's contract names.
+  - Each account renders its account page and one page set per candidate scope. A
+    candidate's page carries its metrics and their warning bands. Page directories are
+    named by scope, so several pages at one instant do not collide.
+- **Tests.** Two instances of one candidate on one account both export their metric
+  and render their own pages without a telemetry failure, and the single-candidate
+  test reads its facts and its alert from the candidate's scope.
+
+**Account command defect: an inspection dropped the saved batch's outcome.**
+- **Found by the eighth J6 run**, the first whose dashboards, alerts and delivery-log
+  replay all passed. The race check read every `okx-shared` batch's outcome through the
+  installed account command and got none.
+  - The journal's `saved_batch` projection carries the outcome (`portfolio`), but the
+  account application replaced the response's `portfolio` with the command's own
+  commit, which an inspection does not have. The earlier fix had been tested only
+  against the journal.
+- **The fix.** A command's own commit stays its outcome; otherwise the response keeps
+  what its projection read. The saved-batch test now reads each outcome both from the
+  journal and through `AccountExecutionApplication`.
+- **The race check.** Replayed against that run's journal, the race appears: the rule's
+  bids were admitted (`reserved`), and the learned target was refused at the 0.01 limit
+  (`holding_limit`). The check now reads groups in order until it has seen both,
+  instead of only the first 24. It counts only a `holding_limit` refusal, so an
+  operator stop (`instance_stopped`) is not taken for the race.
+
+**Addendum RC-1 (approved 2026-10-05): a reference contender makes the race certain.**
+- **Found by the first complete J6 run** (all of P-A, P-B and S ran). The race passed in
+  one run and not in the next. It needs both QR candidates to want a long position at
+  once: in rehearsal 99 the learned target was refused at the limit while the rule
+  held 0.006; in rehearsal 101 the learned candidate stayed flat, so each of the rule's
+  refusals was its own limit and no race happened.
+- **The change.**
+  - On `okx-shared` the plan adds `reference-okx-btc`, the platform's `fixed_clip`
+    reference formula (opening clip marketable through the modeled adverse cost) at
+    the BTC size, on the 15 s grid starting 2.5 s after the rule. It holds 0.006 from its
+    first decision, so a long bid from either QR candidate meets the 0.01 limit because
+    of the reference's holding. The QR candidates are unchanged; the grant and budgets
+    count the fourth instance.
+  - The race check is symmetric and attributed: it passes when one contender is
+    refused for `holding_limit` while another contender holds a non-zero position at
+    that instant, from the account's attributed fills. A refusal while every other
+    contender is flat is a candidate's own limit, not the race.
+
+**Supervisor defect: an account's report was marked twice per instrument.**
+- **Also found by that run.** In P-B the isolated accounts never retained a report, so
+  their dashboards were missing. A trades child shares its book child's observers, and
+  the supervisor collected each account's marks from both children, so every report
+  carried two marks for one instrument and an account holding a position was refused.
+- **The fix.** `PaperServices.latest_markets` reads book children only, so each source
+  marks its instrument once; the trades-child test requires one mark.
+
+**Addendum KC-1 (approved 2026-10-05): accounts state their knowledge clock.**
+- **Also found by that run.** J6's reconciler, like MR15's, stamped each observation
+  at the account's last accepted market from the supervisor status.
+  - An account matches only an observation at or after its knowledge clock. That
+    clock includes every order's decision instant, which is later than the market
+    the decision saw.
+  - So every account holding a working order mismatched and was faulted
+    (`bitfinex-isolated` in P-A). MR15's sustained run held no working orders at its
+    reconciliations, so it never met this.
+- **The change.**
+  - A new account projection, `reconciliation`, answers one account's view, its open
+    orders and its knowledge clock from one consistent snapshot. The clock is added to
+    the account response as `AccountExecutionResult.known_at`, and it is the clock
+    reconciliation compares against, computed by the same admission code.
+  - An observation stamped at `known_at` is always safe: the account already refuses
+    any market earlier than its own clock, so the stamp cannot refuse a market in
+    flight.
+  - J6's reconciler and restart observation read that projection in one call. The
+    two separate reads they made before could also tear against a live account.
+  - They stamp at the later of `known_at` and the account's last accepted market from
+    the supervisor status. Both are safe: markets reach an account in order. The
+    knowledge clock covers working decisions, and the market clock keeps a quiet
+    account's reconciled state fresh against its state-age limit, which `known_at`
+    alone would not advance.
+  - MR15's capacity reconciler (`AccountReconciler`) moves to the same projection and
+    stamp, at the owner's request. It no longer skips a round before the first
+    market. MR15's recorded evidence stays valid at its own commit.
+- **Tests.** The projection's clock covers a working order's decision instant, and an
+  observation stamped at it reconciles while the order is open. One stamped at the
+  last market does not. The capacity reconciler stamps at `known_at` without a market
+  and at a later accepted market when there is one.
+
+## M3f-2 result (2026-10-05)
+
+The journey's J6 is implemented and passes, with every addendum above approved and
+built. One commit.
+
+**The passing development run (uncounted, not evidence).** `rehearsal-103` ran the
+driver's own J6 under a development harness. The harness takes the J1–J5 outputs from
+a dry run of the same tree and shortens the phases to 300, 180 and 180 s. All 81 J6
+criteria passed:
+- Signed builds, verification and installation of the services and four account
+  releases; claims under one-hour grants; the research grant refused unchanged.
+- **P-A.** Selective stop and restart of `learned-okx-btc`; the injected
+  `okx-isolated` owner death with a request in flight. Every reconciliation round
+  matched. Reports were retained, and the QR's custom metric reached every account's
+  dashboards. Alerts reached the local receiver, and every delivery log replayed
+  exactly. In the shared-budget race a contender was refused at the 0.01 limit while
+  another held its position.
+- **P-B.** All four accounts were settled, reconciled and reclaimed under fresh owners,
+  relaunched, and ended by a shutdown control, with the same checks passing.
+- **S.** Both shadow accounts served the BTC candidates with zero fills, and their
+  checks passed.
+
+**What the runs found.** Eleven development runs (90–103) each stopped at a different
+defect, all recorded above:
+- Fixes in shipped code:
+  - F-1: installed runs share their target.
+  - SW-1: a persistent, pre-started Feast serving worker.
+  - KC-1: accounts state their knowledge clock.
+  - A stream not yet published is pending, not a fault.
+  - EX-1: extensions import only what the release ships.
+  - MS-1: each candidate's telemetry has its own scope.
+  - An inspection keeps its saved batch's outcome.
+  - A report is marked once per instrument.
+- Fixes in the journey: GR-1 sizes the grant from the plan, RC-1 adds the reference
+  contender, the recovery observes a fresh quote, and deployments are authored from
+  the installed release's deployment check. The last is needed because a reference
+  candidate's identity names the code and environment that load it.
+- From run 100 the harness recorded every criterion and continued, so one run showed
+  all of a phase's remaining failures.
+
+**Also in this commit.**
+- The Linux CI failure on PR #105: the telemetry test bound its alert socket under
+  `/private/tmp`, which Linux lacks. It now uses the repository's socket root.
+- The QR workspace's extension imports its report contracts from `research.reports`.
+
+**Not done here.** M3f-3 (J7), the next counted-style rehearsal, and M4–M6.
+
+**Validation (as run, 2026-10-05).**
+
+| Lane | Result |
+| --- | --- |
+| `make check` | Passed: 2,568 passed, 4 skipped, 25 deselected; wheel smoke passed |
+| Integration (`-m integration`, Feast worker selected) | Passed: 40 passed |
+| Performance (`-m performance`) | Passed: 25 passed |
+| Linux strict mypy | Passed: no issues in 712 source files |
 
 ## Milestones
 

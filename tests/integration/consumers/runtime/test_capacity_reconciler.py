@@ -90,20 +90,14 @@ class _JournalClient:
         self.journal, self.commit_between = journal, commit_between
 
     def execute(self, request: AccountExecutionRequest) -> AccountExecutionResult:
-        """Serve one bounded projection, then optionally commit a transfer it does not hold.
+        """Serve the reconciliation projection, then optionally commit a transfer it lacks.
 
-        A full inspection is refused: it carries every paper trace and outgrows the
-        owner socket's one MiB response bound during a sustained run.
+        Any other projection is refused: a full inspection carries every paper trace
+        and outgrows the owner socket's one MiB response bound during a sustained run.
         """
-        assert request.action == "inspect" and request.projection in ("accounts", "net_orders")
-        facts = (
-            AccountExecutionResult(accounts=self.journal.accounts(), orders=())
-            if request.projection == "accounts"
-            else AccountExecutionResult(
-                accounts=(), orders=(), net_orders=self.journal.net_orders()
-            )
-        )
-        if self.commit_between is not None and request.projection == "net_orders":
+        assert request.action == "inspect" and request.projection == "reconciliation"
+        facts = self.journal.result_snapshot(request)
+        if self.commit_between is not None:
             at = datetime.now(UTC)
             self.journal.post(
                 AccountPosting(
@@ -147,7 +141,7 @@ class TestCapacityReconciler:
             {_ACCOUNT: _JournalClient(journal)},
             period_seconds=0.05,
             record=partial(self._append_row, rows),
-            knowledge=self._wall_clock,
+            accepted_market=self._wall_clock,
         )
         reconciler.start()
         deadline = time.monotonic() + 5
@@ -176,7 +170,7 @@ class TestCapacityReconciler:
             },
             period_seconds=0.05,
             record=partial(self._append_row, rows),
-            knowledge=self._wall_clock,
+            accepted_market=self._wall_clock,
         )
         reconciler.start()
         deadline = time.monotonic() + 5
@@ -188,11 +182,16 @@ class TestCapacityReconciler:
         assert reconciler.failures == [f"reconciliation mismatch faulted {_ACCOUNT}"]
         assert journal.accounts()[0].fault == "account_break"
 
-    def test_observations_carry_the_accepted_market_clock_not_wall_time(
+    def test_observations_carry_the_later_of_knowledge_and_accepted_market(
         self, tmp_path: Path
     ) -> None:
-        """The account's knowledge never passes its last accepted market; none yet skips."""
+        """Without a market the stamp is the account's own clock; a later market leads it."""
         journal = ReconcilerFixture.journal(tmp_path / "account.sqlite3")
+        known = journal.result_snapshot(
+            AccountExecutionRequest(
+                action="inspect", account_id=_ACCOUNT, projection="reconciliation"
+            )
+        ).known_at
         accepted = datetime.now(UTC) - timedelta(seconds=2)
         clock: dict[str, datetime | None] = {_ACCOUNT: None}
         rows: list[tuple[str, object]] = []
@@ -200,10 +199,11 @@ class TestCapacityReconciler:
             {_ACCOUNT: _JournalClient(journal)},
             period_seconds=60,
             record=partial(self._append_row, rows),
-            knowledge=clock.get,
+            accepted_market=clock.get,
         )
-        assert reconciler.reconcile(_ACCOUNT) and reconciler.attempts == 0
-        assert rows == [("account_reconcile_skipped", {"account": _ACCOUNT})]
-        clock[_ACCOUNT] = accepted
         assert reconciler.reconcile(_ACCOUNT) and reconciler.attempts == 1
+        assert known is not None and journal.accounts()[0].reconciled_at == known
+        assert known < accepted
+        clock[_ACCOUNT] = accepted
+        assert reconciler.reconcile(_ACCOUNT) and reconciler.attempts == 2
         assert journal.accounts()[0].reconciled_at == accepted

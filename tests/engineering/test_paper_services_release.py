@@ -4,11 +4,13 @@ from __future__ import annotations
 
 # standard library imports
 import ast
+import os
 import tomllib
 from pathlib import Path
 from typing import cast
 
 # third party library imports
+import msgspec
 import pytest
 
 # project library imports
@@ -141,6 +143,19 @@ class TestPaperServicesRelease:
             LocalInstallation._outer_seconds(self._runtime(), config)
 
 
+class LockedPackage(msgspec.Struct, frozen=True):
+    """Read one locked package's name and version."""
+
+    name: str
+    version: str | None = None
+
+
+class LockFile(msgspec.Struct, frozen=True):
+    """Read a uv lock's packages."""
+
+    package: tuple[LockedPackage, ...]
+
+
 class TestPaperServicesRuntimeModules:
     """Ship every runtime module that the shipped supervisor code imports."""
 
@@ -184,6 +199,68 @@ class TestPaperServicesRuntimeModules:
                 for alias in node.names:
                     names[alias.name] = str(node.module)
         return names
+
+    @staticmethod
+    def _module_level_imports(tree: ast.Module) -> tuple[str, ...]:
+        """Return every module a file imports when it loads, without type-only imports."""
+        modules: list[str] = []
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                modules.append(node.module)
+                modules.extend(f"{node.module}.{alias.name}" for alias in node.names)
+            elif isinstance(node, ast.Import):
+                modules.extend(alias.name for alias in node.names)
+        return tuple(modules)
+
+    def test_every_module_level_platform_import_of_shipped_code_is_shipped(self) -> None:
+        """Loading any shipped module never needs a platform module the wheels omit."""
+        shipped = self._shipped()
+        packages = {path.name for path in Path("src").iterdir() if path.is_dir()}
+        missing: set[str] = set()
+        for source in sorted(shipped):
+            if not source.endswith(".py"):
+                continue
+            tree = ast.parse(Path(source).read_text(encoding="utf-8"))
+            for module in self._module_level_imports(tree):
+                if module.split(".")[0] not in packages:
+                    continue
+                base = "src/" + module.replace(".", "/")
+                candidates = (base + ".py", base + "/__init__.py")
+                # Exact names: macOS paths match case-insensitively.
+                exists = [
+                    item
+                    for item in candidates
+                    if Path(item).is_file() and Path(item).name in os.listdir(Path(item).parent)
+                ]
+                if exists and not any(item in shipped for item in exists):
+                    missing.add(f"{source}: {module}")
+        assert not missing, sorted(missing)
+
+    @staticmethod
+    def _lock(path: Path) -> LockFile:
+        """Decode a uv lock's package names and versions."""
+        document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        return msgspec.convert(document, type=LockFile)
+
+    def test_candidate_runtime_lists_exactly_what_the_operating_wheels_ship(self) -> None:
+        """The candidate runtime identity covers the shipped files and locked dependencies."""
+        manifest = msgspec.json.decode(
+            Path("src/runtime/candidate_runtime.json").read_bytes(), type=dict[str, list[str]]
+        )
+        shipped = {
+            source.removeprefix("src/")
+            for source in self._shipped()
+            if Path(source).suffix in (".py", ".json")
+        } - {"runtime/candidate_runtime.json"}
+        assert manifest["modules"] == sorted(shipped)
+        root = {item.name: item.version for item in self._lock(Path("uv.lock")).package}
+        third_party = {
+            item.name: item.version
+            for item in self._lock(Path("packages/paper-services/uv.lock")).package
+            if not item.name.startswith("alpha-research-")
+        }
+        assert manifest["distributions"] == sorted(third_party)
+        assert {name: root.get(name) for name in third_party} == third_party
 
     def test_every_runtime_import_of_shipped_code_is_shipped(self) -> None:
         """A module reached only through a lazy runtime export still has to be in a wheel."""

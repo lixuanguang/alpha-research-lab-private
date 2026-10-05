@@ -16,8 +16,8 @@ from reference_data.instruments import InstrumentId
 from research.experiments import CandidateMetricContract, TimeWindow
 from research.features import FeatureVector
 from research.labels import Outcome
+from research.reports import FoldSummary, LedgerPoint, MetricDefinition, ReportContext
 from research.results import Prediction
-from research.studies import FoldSummary, LedgerPoint, MetricDefinition, ReportContext
 from runtime.candidates import CandidateStep, LoadedCandidate
 from serialization import DomainCodec
 from telemetry import MetricThreshold, MonitoringEvent, MonitoringIdentity

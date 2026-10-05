@@ -48,7 +48,6 @@ from execution import (
     AccountObservation,
     PaperMarket,
     PaperOwner,
-    PortfolioContext,
     SocketPaperAccount,
 )
 from market_data.adapters.sources import BookAdapters
@@ -56,7 +55,7 @@ from market_data.books import BookAsOfIndex, BookRegistry
 from market_data.collection import CaptureTransport
 from market_data.contracts import CaptureRequest, CaptureRunRequest, RecordingRequest
 from market_data.storage import CaptureRecording
-from research.features import FeastOfflineWorker, FeastServingBridge, VersionedFeatureStore
+from research.features import FeastServingBridge, FeastWorkerSession, VersionedFeatureStore
 from research.observations import (
     InputRequirement,
     LiveBookDecisionSource,
@@ -243,16 +242,18 @@ class PaperServices:
         self.workers: dict[str, ProcessCandidateExecutor] = {}
         self.resolved = PaperServiceCandidates(configuration, candidates)
         serving = configuration.features
-        self.features = (
+        # One worker serves every learned read for the service's life; ``run`` stops it.
+        self.feature_worker = (
             None
             if serving is None
+            else FeastWorkerSession(serving.worker, timeout_seconds=serving.worker_timeout_seconds)
+        )
+        self.features = (
+            None
+            if serving is None or self.feature_worker is None
             else ServedFeatures(
                 VersionedFeatureStore(Path(serving.store_path)),
-                bridge=FeastServingBridge(
-                    FeastOfflineWorker(
-                        serving.worker, timeout_seconds=serving.worker_timeout_seconds
-                    )
-                ),
+                bridge=FeastServingBridge(self.feature_worker),
                 serving_root=Path(serving.serving_root),
             )
         )
@@ -320,34 +321,8 @@ class PaperServices:
         return self.resolved.candidate(instance)
 
     def binding(self, instance: PaperServiceInstance) -> SharedStrategyBinding:
-        """Bind one candidate's continuation to its economic instance and venue.
-
-        Each instance is its own portfolio, so its physical orders are never netted
-        with another candidate's: a decision replaces only its own working orders, and
-        each candidate's fills stay its own, as research simulates them.
-        """
-        source = next(item for item in self.config.sources if item.name == instance.source)
-        account = self.accounts[instance.account_id]
-        loaded = self.candidate(instance)
-        return SharedStrategyBinding(
-            instance_id=instance.instance_id,
-            account_id=instance.account_id,
-            entity=str(source.scenario.instrument_id),
-            candidate=loaded,
-            context=PortfolioContext(
-                portfolio_id=instance.instance_id,
-                strategy_id=instance.instance_id,
-                model_revision=self.model_identity(loaded),
-                config_revision="paper-services",
-                horizon="capture",
-                reason="engineering-reference",
-                venue=source.capture.venue,
-                settlement="spot",
-                risk_bucket="cash",
-                authority_scope=account.config.mode,
-            ),
-            maximum_fee=instance.maximum_fee,
-        )
+        """Bind one candidate's continuation to its economic instance and venue."""
+        return self.resolved.binding(instance)
 
     @staticmethod
     def model_identity(loaded: LoadedCandidate) -> str:
@@ -420,6 +395,9 @@ class PaperServices:
         self.stop_at = datetime.now(UTC) + timedelta(seconds=self.config.duration_seconds)
         self.root.mkdir(parents=True, exist_ok=True)
         with ExitStack() as stack:
+            if self.feature_worker is not None:
+                stack.callback(self.feature_worker.close)
+                self.feature_worker.start()
             self.control_socket.parent.mkdir(parents=True, exist_ok=True)
             endpoint_descriptor = os.open(
                 self.control_socket.with_suffix(".endpoint.lock"),
@@ -981,6 +959,23 @@ class PaperServices:
                 self._join_observations()
                 self._fault_account(definition.account_id, "account_owner_lost", str(error))
 
+    def latest_markets(self) -> dict[str, tuple[PaperMarket, ...]]:
+        """Return each account's last applied market per source, its report's marks.
+
+        A trades child shares its book child's observers, so only book children are
+        read; each source then marks its instrument once.
+        """
+        return {
+            account_id: tuple(
+                observer.last_market
+                for child in self.sources.values()
+                if child.feed == "book"
+                for owner, observer in child.observers.items()
+                if owner == account_id and observer.last_market is not None
+            )
+            for account_id in self.accounts
+        }
+
     def _supervise(self) -> bool:
         """Fence failed children and consume at most one delivery per source this pass."""
         self._finish_observations()
@@ -1374,14 +1369,8 @@ class PaperServices:
         """Keep protection reads on cadence while full reports run in their own process."""
         self._join_observations()
         self._collect_diagnostics()
-        latest_markets: dict[str, tuple[PaperMarket, ...]] = {}
+        latest_markets = self.latest_markets()
         for account_id, account in self.accounts.items():
-            latest_markets[account_id] = tuple(
-                observer.last_market
-                for child in self.sources.values()
-                for owner, observer in child.observers.items()
-                if owner == account_id and observer.last_market is not None
-            )
             try:
                 view = next(
                     item for item in account.accounts() if item.ledger.account_id == account_id

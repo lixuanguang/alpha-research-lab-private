@@ -284,6 +284,20 @@ class TestServedFeatures:
         assert step.status == "decided" and step.at == first.served_at
         assert step.feature == first.vector
 
+    def test_a_stream_not_yet_published_is_pending(self, tmp_path: Path) -> None:
+        """Before the publisher's first publication a served instant waits, never faults."""
+        definition = self._definition()
+        store = VersionedFeatureStore.open(tmp_path / "features.sqlite3")
+        served = ServedFeatures(
+            store, bridge=FeastServingBridge(_Generations()), serving_root=tmp_path
+        )
+        candidate = self._candidate(definition, "stream")
+        assert store.published_version(definition) is None
+        assert served.serve(candidate, _AT) == "feature-pending"
+        store.register(definition)
+        assert store.published_version(definition) is None
+        assert served.serve(candidate, _AT) == "feature-pending"
+
     def test_faults_pause_and_recover_without_substitute_values(self, tmp_path: Path) -> None:
         """Pending, rolled-back and unreachable serving name their reasons."""
         store, definition, worker, bridge, served, candidate = self._setup(tmp_path)

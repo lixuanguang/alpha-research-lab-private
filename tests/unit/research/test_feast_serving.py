@@ -17,7 +17,7 @@ import pytest
 # project library imports
 from financial_units import ExactRatio
 from research.features import FeatureSchema, FeatureVector
-from research.features.offline import FeastOfflineWorker, FeatureAccessError
+from research.features.offline import FeastWorkerSession, FeatureAccessError
 from research.features.serving import (
     FeastGeneration,
     FeastServingBridge,
@@ -204,9 +204,14 @@ class TestFeastServing:
             f"raise SystemExit(run_path({str(command_file)!r})"
             "['main'](['feast-serving-worker']))"
         )
-        bridge = FeastServingBridge(
-            FeastOfflineWorker([str(worker_python), "-c", code], timeout_seconds=120)
-        )
+        session = FeastWorkerSession([str(worker_python), "-c", code], timeout_seconds=120)
+        try:
+            self._serve_through(FeastServingBridge(session), tmp_path)
+        finally:
+            session.close()
+
+    def _serve_through(self, bridge: FeastServingBridge, tmp_path: Path) -> None:
+        """Materialize, reopen, correct and roll back generations through one worker."""
         store, definition, first = self._snapshot(tmp_path)
         generation_root = tmp_path / "serving"
         original = bridge.materialize(first, generation_root)

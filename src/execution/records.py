@@ -185,19 +185,43 @@ class JournalEvent(WireRecord, frozen=True):
             raise ValueError("journal event references another order")
 
 
+class DroppedLeg(WireRecord, frozen=True):
+    """Name one quote leg admission refused, and why, while the other leg proceeded."""
+
+    leg: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        """Require a named leg and a reason."""
+        if (
+            type(self.leg) is not str
+            or not self.leg
+            or type(self.reason) is not str
+            or not self.reason
+        ):
+            raise ValueError("dropped leg requires its name and reason")
+
+
 class StepCommit(WireRecord, frozen=True):
-    """State whether one candidate step admitted orders or a visible rejection."""
+    """State whether one candidate step admitted orders or a visible rejection.
+
+    ``dropped`` names the quote legs refused while the step's other leg was
+    admitted; a rejected step drops nothing because nothing was admitted.
+    """
 
     status: Literal["committed", "rejected"]
     reason: str
     orders: tuple[OrderState, ...]
+    dropped: tuple[DroppedLeg, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject an accepted-but-unaccounted result."""
         if self.status not in ("committed", "rejected") or not self.reason:
             raise ValueError("invalid paper step result")
-        if self.status == "rejected" and self.orders:
+        if self.status == "rejected" and (self.orders or self.dropped):
             raise ValueError("rejected step cannot admit orders")
+        for leg in self.dropped:
+            leg.__post_init__()
         for order in self.orders:
             order.__post_init__()
 

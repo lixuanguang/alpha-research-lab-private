@@ -30,15 +30,8 @@ from research.observations import (
     NumericField,
     NumericHistorySource,
 )
-from research.studies import (
-    ChartSpec,
-    DecisionStudy,
-    MetricValue,
-    ReportContext,
-    ReportObservation,
-    StudyArtifact,
-    StudyFold,
-)
+from research.reports import ChartSpec, MetricValue, ReportContext, ReportObservation
+from research.studies import DecisionStudy, StudyArtifact, StudyFold
 from risk import SpotLimits
 from simulation import (
     IntentMarket,

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 
 # project library imports
 from configuration import CandidateDeployment, CapabilityBinding, CapabilityRegistry
-from research.experiments import CandidateDefinition, CandidateSource, ExperimentSpec
+from research.experiments import CandidateDefinition, CandidateSource
 from research.features import (
     FeatureCheckpoint,
     FeatureKernel,
@@ -25,7 +25,7 @@ from research.features import (
 from research.observations import DecisionInputs
 from research.results import Prediction
 from runtime.components import CandidateComponents
-from runtime.identity import ImplementationIdentity
+from runtime.identity import CandidateRuntime
 from serialization import DomainCodec, WireRecord
 from strategies import (
     DecisionContext,
@@ -42,7 +42,7 @@ from strategies import (
 if TYPE_CHECKING:
     # project library imports
     from research.models import EstimatorLifecycle, EstimatorVersion
-    from research.studies import ChartDefinition, MetricDefinition
+    from research.reports import ChartDefinition, MetricDefinition
 
 
 @dataclass(frozen=True)
@@ -101,8 +101,8 @@ class CandidateLoader:
             definition.identity != deployment.candidate_identity
             or deployment.entity not in definition.entities
             or deployment.starts_at < definition.available_at
-            or definition.code_sha256 != ImplementationIdentity.sha256()
-            or definition.environment_sha256 != ExperimentSpec.installed_environment()
+            or definition.runtime_code_sha256 != CandidateRuntime.code_sha256()
+            or definition.runtime_environment_sha256 != CandidateRuntime.environment_sha256()
         ):
             raise ValueError(
                 "candidate identity, entity, availability or installed environment differs"

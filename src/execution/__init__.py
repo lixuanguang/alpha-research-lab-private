@@ -44,6 +44,7 @@ from execution.paper_authority import PaperActivation, PaperOwner
 from execution.paper_monitoring import PaperMonitoring
 from execution.records import (
     AccountReservations,
+    DroppedLeg,
     EventKind,
     JournalEvent,
     OrderDecision,
@@ -83,6 +84,7 @@ __all__ = [
     "AccountReservations",
     "AccountView",
     "BitfinexSpotAdapter",
+    "DroppedLeg",
     "EventKind",
     "ExecutionMonitoring",
     "GatewayView",

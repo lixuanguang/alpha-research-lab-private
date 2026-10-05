@@ -18,9 +18,10 @@ import msgspec
 
 # project library imports
 from research.experiments import AttemptStore, Fingerprint
+from research.models import EvaluationRecord
 from research.studies.configuration import BacktestRun
 from research.studies.diagnostics import AlphalensReport
-from research.studies.evaluation import EvaluationRecord, TrialEvaluation
+from research.studies.evaluation import TrialEvaluation
 from serialization import DomainCodec, WireRecord
 
 if TYPE_CHECKING:
